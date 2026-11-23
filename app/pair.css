@@ -1,0 +1,134 @@
+.card.pair-today {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border-color: #dce8d6;
+  background: linear-gradient(130deg, #f4f9ef, #fff 70%);
+}
+
+.pair-today-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.pair-today-heading .tile {
+  width: 35px;
+  height: 35px;
+  border-radius: 11px;
+}
+
+.pair-today-heading h2 {
+  font-size: 1.14rem;
+  font-weight: 790;
+  flex: 1;
+}
+
+.pair-today-progress {
+  color: #436345;
+  font-size: .77rem;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.pair-today-members {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.pair-today-member {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid #ebe6f4;
+  border-radius: 13px;
+  padding: 10px;
+  background: #f8f6fc;
+  color: var(--text);
+  text-align: left;
+}
+
+.pair-today-self {
+  border-color: #e0ead7;
+  background: #f4f8f1;
+}
+
+button.pair-today-member:hover {
+  border-color: #9caf94;
+}
+
+.pair-today-person, .pair-today-session {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+}
+
+.pair-today-person strong, .pair-today-session > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pair-today-person .avatar {
+  width: 30px;
+  height: 30px;
+  font-size: .82rem;
+}
+
+.pair-today-member .state-tag {
+  gap: 4px;
+  align-items: center;
+}
+
+.pair-today-session {
+  justify-content: space-between;
+  margin-top: auto;
+  color: var(--muted);
+  font-size: .82rem;
+  line-height: 1.35;
+}
+
+.pair-today-recent {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 7px 0;
+  color: var(--text);
+  text-align: left;
+}
+
+.pair-today-recent small, .pair-today-recent strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.pair-today-recent small { color: var(--muted); }
+.pair-today-recent strong { font-size: .88rem; font-weight: 700; }
+
+.pair-today-cheer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #6e4e26;
+  font-size: .87rem;
+}
+
+.pair-today-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.pair-today-actions .button {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding-inline: 9px;
+}

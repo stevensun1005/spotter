@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Dumbbell, Settings2 } from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Dumbbell, Settings2, UserRound } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Anatomy } from "@/features/exercises/anatomy";
 import { type ExerciseChoice, useCatalogue } from "@/features/exercises/open-gym";
@@ -29,6 +29,7 @@ function MetricSelect({ value, set, label }: { value: Metric; set: (value: Metri
 function Trend({ selected, set, current, comparison, range, compare }: {
   selected: Metric; set: (value: Metric) => void; current: StatsSummary; comparison?: StatsSummary; range: Range; compare: Range;
 }) {
+  const gradient = useId();
   const points = Math.max(2, Math.min(120, Math.max(rangeDays(range), rangeDays(compare))));
   const here = cumulative(current, range, selected, points);
   const other = comparison && cumulative(comparison, compare, selected, points);
@@ -38,17 +39,21 @@ function Trend({ selected, set, current, comparison, range, compare }: {
   return <section className="card padded stats-panel">
     <div className="stats-section-heading"><h2>累计趋势</h2><MetricSelect value={selected} set={set} label="趋势指标" /></div>
     <div className="stats-trend-values">
-      <div><span>● 本期累计</span><strong>{displayNumber(current.total[selected])} <small>{unit}</small></strong></div>
-      {comparison && <div><span>● 对比期累计</span><strong>{displayNumber(comparison.total[selected])} <small>{unit}</small></strong></div>}
+      <div><span>本期累计</span><strong>{displayNumber(current.total[selected])} <small>{unit}</small></strong></div>
+      {comparison && <div><span>对比期累计</span><strong>{displayNumber(comparison.total[selected])} <small>{unit}</small></strong></div>}
     </div>
     {current.total.sessions || comparison?.total.sessions ? <div className="stats-chart" role="img" aria-label={metrics[selected].label + "累计趋势"}>
       <ResponsiveContainer width="100%" height="100%"><AreaChart data={rows} margin={{ top: 10, left: 0, right: 6, bottom: 0 }}>
+        <defs><linearGradient id={gradient} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#74b587" stopOpacity={0.45} />
+          <stop offset="100%" stopColor="#74b587" stopOpacity={0.05} />
+        </linearGradient></defs>
         <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#dce7d8" />
-        <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={28} tick={{ fontSize: 12 }} />
-        <YAxis tickLine={false} axisLine={false} width={38} tick={{ fontSize: 11 }} tickFormatter={(n: number) => new Intl.NumberFormat("zh-CN", { notation: "compact" }).format(n)} />
+        <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={24} tick={{ fontSize: 11, fill: "#59675e" }} />
+        <YAxis tickLine={false} axisLine={false} width={36} tick={{ fontSize: 11, fill: "#59675e" }} tickFormatter={(n: number) => new Intl.NumberFormat("zh-CN", { notation: "compact" }).format(n)} />
         <Tooltip labelFormatter={(day) => "本期 " + day} formatter={(value, name) => [displayNumber(Number(value)) + " " + unit, name === "value" ? "本期" : "对比期同进度"]} />
-        {other && <Area type="stepAfter" dataKey="previous" stroke="#879978" fill="#e6ebdf" strokeDasharray="5 4" isAnimationActive={false} />}
-        <Area type="stepAfter" dataKey="value" stroke="#2c6b4a" fill="#dbefdf" strokeWidth={2.5} isAnimationActive={false} />
+        {other && <Area type="stepAfter" dataKey="previous" stroke="#6f7e6a" fill="none" strokeDasharray="5 4" isAnimationActive={false} />}
+        <Area type="stepAfter" dataKey="value" stroke="#226544" fill={"url(#" + gradient + ")"} strokeWidth={2.5} isAnimationActive={false} />
       </AreaChart></ResponsiveContainer>
     </div> : <p className="stats-empty">这个周期打卡后，这里会显示累计曲线。</p>}
   </section>;
@@ -163,6 +168,7 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
   const [custom, setCustom] = useState<Range>({ from: offsetDate(today, -29), to: today });
   const [mode, setMode] = useState<TrainingMode>("all");
   const [person, setPerson] = useState(self);
+  const subject = partner?.id === person ? person : self;
   const [comparison, setComparison] = useState<"previous" | "year" | "none">("previous");
   const [metric, setMetric] = useState<Metric>("volume");
   const [trend, setTrend] = useState<Metric>("volume");
@@ -173,11 +179,11 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
     ? { from: lastYear(range.from), to: lastYear(range.to) }
     : previousRange(period, customValid ? range : { from: today, to: today }, today, stepping, recent);
   const { current, former } = useMemo(() => {
-    const owned = logs.filter((log) => log.kind === "log" && log.owner === person);
+    const owned = logs.filter((log) => log.kind === "log" && log.owner === subject);
     const slice = (span: Range) => owned.filter((log) => log.data.date >= span.from && log.data.date <= span.to);
     return { current: summarize(customValid ? slice(range) : [], data?.rows ?? [], mode),
       former: comparison === "none" || !customValid ? undefined : summarize(slice(compare), data?.rows ?? [], mode) };
-  }, [logs, person, range.from, range.to, compare.from, compare.to, data, mode, comparison, customValid]);
+  }, [logs, subject, range.from, range.to, compare.from, compare.to, data, mode, comparison, customValid]);
   const focus = metric === "volume" ? current.total.volume / (customValid ? rangeDays(range) : 1) : current.total[metric];
   const formerFocus = former && (metric === "volume" ? former.total.volume / rangeDays(compare) : former.total[metric]);
   const max = Math.max(1, focus, formerFocus ?? 0);
@@ -186,12 +192,19 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
   const navigate = (n: number) => period === "custom" ? shiftCustom(n) : setStepping(stepping + n);
   return <div className="stats-page stats-dashboard">
     <div className="stats-top card padded">
-      {partner && <div className="segmented stats-segment" aria-label="选择统计对象">
-        <button aria-pressed={person === self} onClick={() => setPerson(self)}>我</button>
-        <button aria-pressed={person === partner.id} onClick={() => setPerson(partner.id)}>{partner.name}</button>
+      {partner && <div className="stats-people" role="group" aria-label="统计对象">
+        <button type="button" aria-pressed={subject === self} onClick={() => setPerson(self)}>
+          <span className="stats-person-avatar" aria-hidden="true"><UserRound size={17} /></span>
+          <strong>我</strong>{subject === self && <Check size={17} aria-hidden="true" />}
+        </button>
+        <button type="button" aria-pressed={subject === partner.id} onClick={() => setPerson(partner.id)}>
+          <span className="stats-person-avatar stats-partner-avatar" aria-hidden="true">{Array.from(partner.name.trim())[0] ?? "搭"}</span>
+          <span className="stats-person-name"><small>搭子</small><strong>{partner.name}</strong></span>
+          {subject === partner.id && <Check size={17} aria-hidden="true" />}
+        </button>
       </div>}
-      <div className="segmented stats-segment">{modes.map(([value, title]) => <button key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{title}</button>)}</div>
-      <div className="stats-periods" aria-label="统计周期">{periods.map(([value, title]) => <button key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setStepping(0); }}>{title}</button>)}</div>
+      <div className="segmented stats-segment" role="group" aria-label="训练类型">{modes.map(([value, title]) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{title}</button>)}</div>
+      <div className="stats-periods" role="group" aria-label="统计周期">{periods.map(([value, title]) => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setStepping(0); }}>{title}</button>)}</div>
       {period === "recent" && <label className="stats-compare-select">最近天数<select value={recent} onChange={(event) => { setRecent(Number(event.target.value)); setStepping(0); }}>
         {[7, 30, 90, 365].map((days) => <option key={days} value={days}>{days} 天</option>)}
       </select></label>}
@@ -206,27 +219,33 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
       </div>
     </div>
     {!customValid ? <p className="card padded" role="alert">请选择有效日期，范围最长 10 年。</p> : <>
-      <section className="card padded stats-panel stats-summary">
-        <div className="stats-section-heading"><h2>周期对比</h2><MetricSelect value={metric} set={setMetric} label="对比指标" /></div>
-        <label className="stats-compare-select">比较范围<select value={comparison} onChange={(e) => setComparison(e.target.value as typeof comparison)}>
-          <option value="previous">上一周期</option><option value="year">上年同期</option><option value="none">关闭对比</option>
-        </select></label>
-        {([{ label: "本期", span: range, value: focus, active: current.total.sessions }, ...(former ? [{ label: "对比期", span: compare, value: formerFocus!, active: former.total.sessions }] : [])]).map((item) =>
-          <div className="stats-comparison" key={item.label}><div><span>{item.label}</span><strong>{item.active ? displayNumber(item.value) : "—"} <small>{scoreUnit}</small></strong></div>
-            <progress value={item.value} max={max} aria-label={item.label + " " + metrics[metric].label} /><span>{item.span.from} — {item.span.to}{!item.active && " · 暂无记录"}</span></div>)}
-      </section>
-      <div className="stats-tiles stats-summary-tiles">{(Object.keys(metrics) as Metric[]).map((id) => {
+      <section className="stats-tiles stats-summary-tiles" aria-label="本期训练数据">{(Object.keys(metrics) as Metric[]).map((id) => {
         const item = metrics[id]; const Icon = metricIcons[id]; const value = current.total[id];
         const old = former?.total[id]; const diff = value - (old ?? 0);
-        return <div className="card metric stats-metric" key={id}><div><span>{item.label}{id === "sessions" && " / 天数"}</span><Icon size={18} /></div>
-          <strong>{displayNumber(value)} <small>{item.unit}{id === "sessions" && " · " + current.daily.size + " 天"}</small></strong>
+        return <div className={"card metric stats-metric" + (id === "volume" ? " stats-metric-lead" : "")} key={id}>
+          <div className="stats-metric-title"><span>{item.label}{id === "sessions" && " / 天数"}</span><i aria-hidden="true"><Icon size={17} /></i></div>
+          <strong><span>{displayNumber(value)}</span><small>{item.unit}{id === "sessions" && " · " + current.daily.size + " 天"}</small></strong>
           {former && <span>{former.total.sessions ? "较对比期 " + (diff > 0 ? "+" : "") + displayNumber(diff) + " " + item.unit : "对比期暂无记录"}</span>}
         </div>;
-      })}</div>
+      })}</section>
+      <section className="card padded stats-panel stats-summary">
+        <div className="stats-section-heading"><h2>周期对比</h2><div className="stats-summary-selects">
+          <MetricSelect value={metric} set={setMetric} label="对比指标" />
+          <select aria-label="比较范围" value={comparison} onChange={(e) => setComparison(e.target.value as typeof comparison)}>
+            <option value="previous">上一周期</option><option value="year">上年同期</option><option value="none">关闭对比</option>
+          </select>
+        </div></div>
+        <div className="stats-comparisons">{([{ label: "本期", span: range, value: focus, active: current.total.sessions }, ...(former ? [{ label: "对比期", span: compare, value: formerFocus!, active: former.total.sessions }] : [])]).map((item) =>
+          <div className="stats-comparison" key={item.label}>
+            <div><span>{item.label}</span><strong>{item.active ? displayNumber(item.value) : "—"} <small>{scoreUnit}</small></strong></div>
+            <progress value={item.value} max={max} aria-label={item.label + " " + metrics[metric].label} />
+            <span>{item.span.from} — {item.span.to}{!item.active && " · 暂无记录"}</span>
+          </div>)}</div>
+      </section>
       <Trend selected={trend} set={setTrend} current={current} comparison={former} range={range} compare={compare} />
       <ActivityCalendar current={current} range={range} today={today} />
       <MusclePanel current={current} loading={!data && !error} error={error} />
-      <Performance key={person} current={current} comparison={former} onExercise={onExercise} pinned={person === self ? pinned : undefined} savePins={person === self ? savePins : undefined} />
+      <Performance key={subject} current={current} comparison={former} onExercise={onExercise} pinned={subject === self ? pinned : undefined} savePins={subject === self ? savePins : undefined} />
       {mode !== "all" && <p className="muted stats-description">分类筛选按已完成的组识别。同一堂混合训练会出现在两种分类里，时长按整堂课记录。</p>}
     </>}
   </div>;

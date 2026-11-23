@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cloud,
-  Bookmark, CalendarClock, Copy, Dumbbell, Flame, House, Link2, LogIn, Menu, Play, Plus, Settings2, Sparkles, Trash2, Utensils, Users,
+  Bookmark, CalendarClock, Copy, Dumbbell, House, LogIn, Menu, Play, Plus, Settings2, Sparkles, Trash2, Utensils, Users,
 } from "lucide-react";
 import {
   asDate, examples, offsetDate, planBlank, sessionTotals, startSession,
@@ -17,6 +17,9 @@ import { useTrainingNavigation } from "@/features/training/navigation";
 import { TrainingNotice } from "@/features/training/training-notice";
 import { Workout } from "@/features/training/workout";
 import { ProteinCheck } from "@/features/training/protein-check";
+import { PairToday } from "@/features/pair/pair-today";
+import { WeekCheckins } from "@/features/pair/week-checkins";
+import type { HistorySubject } from "@/features/history/history";
 import { ImportView } from "@/features/import/import-view";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
@@ -38,16 +41,15 @@ import { BodyView } from "@/features/body/body-view";
 import { DataView } from "@/features/data/data-view";
 import { HardDriveDownload, Ruler } from "lucide-react";
 
-type View = "today" | "plans" | "history" | "stats" | "import" | "exercises" | "nutrition" | "body" | "data" | "more";
+type View = "today" | "plans" | "history" | "stats" | "import" | "nutrition" | "body" | "data" | "more";
 type KeyedPlan = { id: string; data: Plan };
 type Overlay = { kind: "pair" | "schedule" } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
 const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
-  { id: "plans", title: "训练计划", mobile: "计划", icon: ClipboardList },
-  { id: "exercises", title: "动作库", mobile: "动作", icon: Dumbbell },
+  { id: "plans", title: "训练", mobile: "训练", icon: Dumbbell },
+  { id: "nutrition", title: "饮食记录", mobile: "饮食", icon: Utensils },
   { id: "history", title: "打卡历史", mobile: "打卡", icon: CalendarDays },
-  { id: "nutrition", title: "饮食记录", mobile: "", icon: Utensils },
   { id: "stats", title: "训练统计", mobile: "统计", icon: BarChart3 },
   { id: "body", title: "身体数据", mobile: "", icon: Ruler },
   { id: "data", title: "数据导出与导入", mobile: "", icon: HardDriveDownload },
@@ -99,6 +101,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [exercise, setExercise] = useState<ExerciseChoice>();
   const [planPick, setPlanPick] = useState<{ choice: ExerciseChoice; row?: CatalogEntry }>();
   const [targetPlan, setTargetPlan] = useState("");
+  const [historySubject, setHistorySubject] = useState<HistorySubject>("all");
   const [planTab, setPlanTab] = useState<"个人模板">();
   const [confirmRemoveTemplate, setConfirmRemoveTemplate] = useState(false);
   const library = useLibrary(Boolean(viewer));
@@ -226,13 +229,15 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     ...plans.filter((plan) => plan.owner === me.id).flatMap((plan) => plan.data.exercises.map((item) => item.name)),
     ...logs.filter((log) => log.owner === me.id).flatMap((log) => log.data.plan.exercises.map((item) => item.name)),
   ].map((name) => parsePlanMove(name).name);
-  const todaysPlans = plans.filter((item) => item.data.date === selected);
+  const todaysPlans = plans.filter((item) => item.data.date === selected)
+    .sort((a, b) => Number(b.owner === me.id) - Number(a.owner === me.id));
   const sample: KeyedPlan = { id: "example", data: examples(today) };
   const current = todaysPlans[0] ?? (selected === today && !drafts.some(([, data]) => data.date === today) && !logs.some((log) => log.owner === me.id && log.data.date === today) ? sample : null);
+  const canManageToday = current && current.id !== sample.id && todaysPlans.some((item) => item.id === current.id && item.owner === me.id);
   const latestPartner = logs.filter((log) => log.owner === partner?.id).sort((a, b) => b.data.date.localeCompare(a.data.date))[0];
   const myToday = logs.filter((log) => log.owner === me.id && log.data.date === today);
   const partnerToday = logs.filter((log) => log.owner === partner?.id && log.data.date === today);
-  const recent = logs.filter((log) => log.owner === me.id && log.data.date >= offsetDate(today, -6) && log.data.date <= today);
+  const buddyStatus = demo ? "signed-out" : cloud === "正在连接" ? "loading" : cloud === "云端已连接" ? "ready" : "offline";
   const sentCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === me.id && entry.data.date === today);
   const receivedCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === partner?.id && entry.data.date === today);
   const weekStart = offsetDate(selected, -weekdayIndex(selected));
@@ -471,7 +476,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       }} />;
   }
 
-  const heading = view === "today" ? "今天练什么？" : navigation.find((item) => item.id === view)?.title;
+  const heading = view === "today" ? "今天一起练" : navigation.find((item) => item.id === view)?.title;
   return <div className="app">
     <aside className="sidebar">
       <button className="brand" onClick={() => go("today")}><span className="brand-mark"><Dumbbell size={23} strokeWidth={2.5} /></span><span>训练搭子<small>SPOTTER CLUB</small></span></button>
@@ -489,14 +494,24 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       <main className="content">
         <div className="page-heading">
           <div>{view === "today" && <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>}<h1>{heading}</h1>
-            {view === "today" && <p>{demo ? "正在查看示例数据。登录后可同步你们的记录。" : "安排今天的训练，看看搭子练得怎么样。"}</p>}
+            {view === "today" && demo && <p>正在查看示例数据。登录后可同步你们的记录。</p>}
             {view === "import" && <p>把聊天里的训练安排或视频链接变成可打卡的计划。</p>}
           </div>
-          {view === "plans" && viewer && <button className="button outline page-action" disabled={library.loading || Boolean(library.error)} onClick={() => open({ kind: "schedule" })}><Settings2 size={18} /> 个人计划设置</button>}
-          {(view === "today" || view === "plans") && <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>}
+          {(view === "today" || view === "plans") && <div className="plan-heading-actions">
+            {view === "plans" && viewer && <button className="button outline page-action" disabled={library.loading || Boolean(library.error)} onClick={() => open({ kind: "schedule" })}><Settings2 size={18} /> 个人计划设置</button>}
+            <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>
+          </div>}
         </div>
 
         {view === "today" && <div className="today-grid">
+          <div className="home-pair">
+            <PairToday me={me} partner={partner} myToday={myToday} partnerToday={partnerToday} latestPartner={latestPartner}
+              signedIn={!demo} loading={buddyStatus === "loading"} unavailable={buddyStatus === "offline"} busy={busy}
+              sentCheer={sentCheer} receivedCheer={receivedCheer} onShowLog={(log) => open({ kind: "log", log })}
+              onConnect={() => open({ kind: "pair" })}
+              onPartnerHistory={() => { setHistorySubject("partner"); go("history"); }}
+              onCheer={() => { if (partner && viewer) void act(async () => { await post({ action: "cheer" }); await refresh(); setToast("已给搭子加油"); }); }} />
+          </div>
           <div className="main-column">
             <section className="card week-card" aria-label="本周训练日期">
               <div className="section-head"><h2>训练日程</h2><div className="steppers"><button className="icon-button" onClick={() => setSelected(offsetDate(selected, -7))} aria-label="上一周"><ChevronLeft size={18} /></button><button className="icon-button" onClick={() => setSelected(offsetDate(selected, 7))} aria-label="下一周"><ChevronRight size={18} /></button></div></div>
@@ -521,17 +536,18 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               </div>)}
             </section>}
             {current ? <>
-              <section className="hero">
-                <div className="hero-content">
-                  <span className="hero-tag"><span />{current.id === "example" ? "示例计划" : current.data.category}</span>
-                  <h2>{current.data.title}</h2>
-                  <div className="hero-meta">{current.data.minutes > 0 && <span><Clock3 size={16} /> {current.data.minutes} 分钟</span>}{current.data.exercises.length > 0 && <span><Dumbbell size={16} /> {current.data.exercises.length} 个动作</span>}{current.data.video && <span><Play size={16} /> 跟练视频</span>}</div>
-                  <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> {current.id === "example" ? "试练示例" : "开始训练"}</button>
+              <section className={"card today-workout-card" + (current.data.durationNote ? " has-estimate" : "")} key={current.id + ":" + selected}>
+                <div className="hero">
+                  <div className="hero-content">
+                    <span className="hero-tag"><span />{current.id === "example" ? "示例计划" : !canManageToday ? "搭子共享 · " + current.data.category : current.data.category}</span>
+                    <h2>{current.data.title}</h2>
+                    <div className="hero-meta">{current.data.minutes > 0 && <span><Clock3 size={16} /> {current.data.minutes} 分钟</span>}{current.data.exercises.length > 0 && <span><Dumbbell size={16} /> {current.data.exercises.length} 个动作</span>}{current.data.video && <span><Play size={16} /> 跟练视频</span>}</div>
+                    <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> {current.id === "example" ? "试练示例" : "开始训练"}</button>
+                  </div>
                 </div>
+                {canManageToday && <div className="hero-menu">{planActions(current)}</div>}
+                {current.data.durationNote && <p className="hero-duration-note">{current.data.durationNote}</p>}
               </section>
-              {(current.data.durationNote || (current.id !== sample.id && plans.some((item) => item.id === current.id && item.owner === me.id))) &&
-                <div className="card padded today-plan-actions"><p className="muted">{current.data.durationNote || "需要调整日期？"}</p>
-                  {current.id !== sample.id && plans.some((item) => item.id === current.id && item.owner === me.id) && planActions(current)}</div>}
               {(todaysPlans.length > 1) && <section className="card plan-list">{todaysPlans.slice(1).map(renderPlan)}</section>}
               {current.data.exercises.length > 0 && <details className="card movement-card" key={current.id + ":" + selected}>
                 <summary className="movement-toggle">
@@ -544,38 +560,19 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           </div>
 
           <aside className="right-column">
-            <section className="card padded partner-card">
-              <div className="section-head"><h2>搭子动态</h2><span className="tile lilac"><Users size={18} /></span></div>
-              <div className="partner-row"><span className="avatar lime">{avatar(me.name)}</span><div><strong>我</strong><small>{myToday.length ? myToday[0].data.plan.title : "今天还未打卡"}</small></div><span className={"state-tag " + (myToday.length ? "checked" : "")}>{myToday.length ? "已完成" : "待打卡"}</span></div>
-              <div className="partner-row"><span className="avatar lilac">{partner ? avatar(partner.name) : <Users size={18} />}</span><div><strong>{partner?.name || "训练搭子"}</strong><small>{partnerToday.length ? partnerToday[0].data.plan.title : partner ? "今天还未打卡" : "等待配对"}</small></div><span className={"state-tag " + (partnerToday.length ? "checked" : "")}>{partnerToday.length ? "已完成" : partner ? "待打卡" : "未连接"}</span></div>
-              {receivedCheer && <p className="cheer-note"><Flame size={16} /> 搭子今天给你加油了</p>}
-              {latestPartner && partner && <button className="text-button partner-link" onClick={() => open({ kind: "log", log: latestPartner })}>最近一次打卡 <ChevronRight size={15} /></button>}
-              <button className="button outline full" disabled={busy || sentCheer} onClick={() => partner && viewer ? void act(async () => { await post({ action: "cheer" }); await refresh(); setToast("已给搭子加油"); }) : open({ kind: "pair" })}>
-                {partner && viewer ? <Flame size={16} /> : <Link2 size={16} />}{sentCheer ? "今天已加油" : partner && viewer ? "给搭子加油" : "连接训练搭子"}
-              </button>
-            </section>
-            <section className="card padded activity-card">
-              <div className="section-head"><h2>近 7 天</h2><button className="icon-button stat-link" aria-label="打开训练统计" onClick={() => go("stats")}><BarChart3 size={19} /></button></div>
-              <div className="quick-stats"><div><strong>{recent.length}<small> 次</small></strong><span>训练打卡</span></div><div><strong>{recent.reduce((sum, entry) => sum + entry.data.minutes, 0)}<small> 分钟</small></strong><span>训练时长</span></div></div>
-              <div className="mini-week">{Array.from({ length: 7 }, (_, i) => {
-                const date = offsetDate(today, i - 6);
-                const active = recent.some((log) => log.data.date === date);
-                return <div key={date}><span className={active ? "on" : ""}>{active ? <Check size={13} /> : <i />}</span><small>{weekdays[weekdayIndex(date)]}</small></div>;
-              })}</div>
-            </section>
-            <button className="import-callout" onClick={() => go("nutrition")}><span className="tile mint"><Utensils size={20} /></span><span><strong>饮食记录</strong><small>三餐、饮水和体重</small></span><ChevronRight size={18} /></button>
+            <WeekCheckins today={today} me={me} partner={partner} logs={logs} status={buddyStatus} showStats={() => go("stats")} />
             <button className="import-callout" onClick={() => go("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>从聊天导入</strong><small>GPT、Claude 或跟练视频</small></span><ChevronRight size={18} /></button>
             {warning && !overlay && <p className="inline-error" role="alert">{warning}</p>}
           </aside>
         </div>}
 
         {view === "plans" && <PlanSections key={planTab ?? "plans"} date={selected} templates={templates} initial={planTab}
+          exerciseLibrary={<OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
           schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, true)}><section className="card padded">
           <div className="section-head"><h2>全部计划</h2><button className="button subtle small" onClick={() => go("import")}><Sparkles size={17} /> 导入计划</button></div>
           {plans.length ? [...plans].sort((a, b) => a.data.date.localeCompare(b.data.date)).map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span><h3>还没有训练计划</h3><button className="button outline small" onClick={() => newPlan(examples(today))}>使用示例计划</button></div>}
         </section></PlanSections>}
-        {(view === "plans" || view === "exercises") && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
-        {view === "exercises" && <OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
+        {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
         {view === "data" && <DataView enabled={Boolean(viewer)} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
@@ -585,7 +582,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           <button className="list-line" type="button" onClick={() => open({ kind: "pair" })}><span className="tile mint"><Users size={18} /></span><strong>账号与搭子空间</strong><ChevronRight size={16} /></button>
         </section>}
 
-        {view === "history" && <History today={today} self={me.id} partner={partner?.name} logs={logs} show={(log) => open({ kind: "log", log })} />}
+        {view === "history" && <History today={today} self={me.id} partner={partner?.name} logs={logs} subject={historySubject} onSubject={setHistorySubject} show={(log) => open({ kind: "log", log })} />}
         {view === "stats" && <Stats today={today} self={me.id} partner={partner ?? null} logs={logs} onExercise={setExercise}
           pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
           savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}

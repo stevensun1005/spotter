@@ -54,11 +54,43 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
   </div></Dialog>;
 }
 
-export function History({ today, logs, self, partner, show }: {
+export type HistorySubject = "all" | "self" | "partner";
+
+const subjects: { id: HistorySubject; label: string }[] = [
+  { id: "all", label: "全部" },
+  { id: "self", label: "我的记录" },
+  { id: "partner", label: "搭子记录" },
+];
+
+function latestLogDate(logs: TrainingEntry[], today: string) {
+  return logs.reduce((latest, log) => {
+    const date = log.data.date;
+    return date <= today && date > latest ? date : latest;
+  }, "");
+}
+
+export function History({ today, logs, self, partner, show, subject = "all", onSubject }: {
   today: string; logs: TrainingEntry[]; self: string; partner: string | undefined; show: (entry: TrainingEntry) => void;
+  subject?: HistorySubject; onSubject?: (subject: HistorySubject) => void;
 }) {
-  const [active, setActive] = useState(today);
-  const [month, setMonth] = useState(today.slice(0, 7));
+  const logsFor = (scope: HistorySubject) => logs.filter((log) =>
+    log.kind === "log" && (scope === "all" || (scope === "self" ? log.owner === self : log.owner !== self)));
+  const visibleLogs = logsFor(subject);
+  const [active, setActive] = useState(() =>
+    subject === "partner" ? latestLogDate(visibleLogs, today) || today : today);
+  const [month, setMonth] = useState(() => active.slice(0, 7));
+  const activeLogs = visibleLogs.filter((log) => log.data.date === active);
+
+  const selectSubject = (next: HistorySubject) => {
+    if (next === subject) return;
+    onSubject?.(next);
+    const matches = logsFor(next);
+    if (matches.some((log) => log.data.date === active)) return;
+    const date = latestLogDate(matches, today);
+    if (!date) return;
+    setActive(date);
+    setMonth(date.slice(0, 7));
+  };
   const first = month + "-01";
   const start = offsetDate(first, -weekdayIndex(first));
   const monthChange = (step: number) => {
@@ -70,19 +102,23 @@ export function History({ today, logs, self, partner, show }: {
   return <div className="history-grid">
     <section className="card padded">
       <div className="section-head"><h2>{month.slice(0, 4)}年 {Number(month.slice(5))}月</h2><div className="steppers"><button className="icon-button" aria-label="上个月" onClick={() => monthChange(-1)}><ChevronLeft /></button><button className="icon-button" aria-label="下个月" onClick={() => monthChange(1)}><ChevronRight /></button></div></div>
+      {partner && onSubject && <div className="segmented" role="group" aria-label="训练记录归属">
+        {subjects.map(({ id, label }) => <button key={id} type="button" aria-pressed={subject === id}
+          onClick={() => selectSubject(id)}>{label}</button>)}
+      </div>}
       <div className="calendar">
         {weekdays.map((day) => <span className="calendar-label" key={day}>{day}</span>)}
         {Array.from({ length: Math.ceil((weekdayIndex(first) + new Date(Number(month.slice(0, 4)), Number(month.slice(5)), 0).getDate()) / 7) * 7 }, (_, index) => {
           const date = offsetDate(start, index);
-          const entries = logs.filter((log) => log.data.date === date);
+          const entries = visibleLogs.filter((log) => log.data.date === date);
           return <button key={date} aria-label={date + "，" + entries.length + " 次打卡"} aria-pressed={active === date} className={date.startsWith(month) ? "" : "other-month"} onClick={() => setActive(date)}><span>{Number(date.slice(8))}</span><span className="dot-row">{entries.some((log) => log.owner === self) && <i />}{entries.some((log) => log.owner !== self) && <i className="purple" />}</span></button>;
         })}
       </div>
-      <div className="legend"><span><i /> 我</span>{partner && <span><i className="purple" /> {partner}</span>}</div>
+      <div className="legend">{subject !== "partner" && <span><i /> 我</span>}{partner && subject !== "self" && <span><i className="purple" /> {partner}</span>}</div>
     </section>
     <section className="card padded"><div className="section-head"><h2>{shortDate(active)}的打卡</h2><CalendarDays size={20} /></div>
-      {!logs.some((log) => log.data.date === active) && <p className="empty-copy">这一天还没有训练记录。</p>}
-      {logs.filter((log) => log.data.date === active).map((log) => <button className="list-line history-line" key={log.owner + log.id} onClick={() => show(log)}><span className={"tile " + (log.owner === self ? "mint" : "lilac")}><Dumbbell size={18} /></span><span><strong>{log.data.plan.title}</strong><small>{log.owner === self ? "我" : partner} · {log.data.minutes} 分钟</small></span><ChevronRight size={18} /></button>)}
+      {!activeLogs.length && <p className="empty-copy">{subject === "partner" ? "搭子这一天还没有训练记录。" : "这一天还没有训练记录。"}</p>}
+      {activeLogs.map((log) => <button className="list-line history-line" key={log.owner + log.id} onClick={() => show(log)}><span className={"tile " + (log.owner === self ? "mint" : "lilac")}><Dumbbell size={18} /></span><span><strong>{log.data.plan.title}</strong><small>{log.owner === self ? "我" : partner} · {log.data.minutes} 分钟</small></span><ChevronRight size={18} /></button>)}
     </section>
   </div>;
 }

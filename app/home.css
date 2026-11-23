@@ -1,0 +1,50 @@
+.home-pair { grid-column: 1 / -1; min-width: 0; }
+
+.today-workout-card { position: relative; }
+.today-workout-card.has-estimate > .hero { border-radius: var(--radius) var(--radius) 0 0; }
+.hero-menu { position: absolute; z-index: 2; top: 12px; right: 12px; }
+.hero-menu .plan-options > .button.outline {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-color: #ffffff62;
+  background: #172a20d9;
+  color: white;
+}
+.hero-menu .plan-options > .button.outline:hover,
+.hero-menu .plan-options[open] > .button.outline { background: #2d4435; border-color: #ffffff8a; }
+.hero-duration-note {
+  padding: 13px 18px;
+  border-top: 1px solid var(--stroke);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: #f8faf5;
+  color: #546456;
+  font-size: .85rem;
+  line-height: 1.55;
+}
+.training-sections, .training-sections .catalogue-browser { grid-template-columns: minmax(0, 1fr); }
+.segmented.training-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: min(100%, 475px); }
+.segmented.training-tabs > button { min-width: 0; min-height: 44px; padding-inline: 4px; white-space: nowrap; }
+.plan-heading-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 7px; min-width: 0; }
+.plan-heading-actions .page-action { margin-top: 0; }
+
+.week-checkins .section-head { margin-bottom: 12px; }
+.week-checkin-grid { display: grid; gap: 8px; }
+.week-checkin-row { display: grid; grid-template-columns: minmax(38px, 1.45fr) repeat(7, minmax(0, 1fr)); gap: 3px; align-items: center; }
+.week-checkin-days { text-align: center; font-size: .75rem; color: #566659; }
+.week-checkin-person { min-width: 0; line-height: 1.15; }
+.week-checkin-person strong, .week-checkin-person small { display: block; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.week-checkin-person small { color: var(--muted); font-size: .72rem; margin-top: 3px; }
+.week-checkin-dot {
+  display: grid; place-items: center; width: min(100%, 24px); aspect-ratio: 1;
+  justify-self: center; border-radius: 50%; color: #476033; background: #f0f3ef;
+}
+.week-checkin-dot.current-day { outline: 1px solid #b6c9ab; }
+.week-checkin-dot.done { color: #375524; background: #dbeec6; }
+.week-checkin-partner .week-checkin-dot.done { color: #573f79; background: #eee5fa; }
+.week-checkin-dot i { width: 4px; height: 4px; border-radius: 50%; background: #899687; }
+.week-checkin-message { padding: 4px 0; }
+@media (max-width: 620px) {
+  .hero-duration-note { padding: 11px 14px; font-size: .81rem; }
+  .plan-heading-actions { max-width: 65%; }
+}
