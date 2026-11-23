@@ -12,4 +12,3 @@ export function shortcutHeart(csv: string, window: TimeWindow) {
   if (!result) throw new Error("没有找到这次训练时段的心率。请检查健康读取权限和手表是否已同步。");
   return result;
 }
-

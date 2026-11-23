@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 import { Encoder, Profile } from "@garmin/fitsdk";
@@ -126,4 +126,33 @@ test("iPhone shortcut saves readings only inside the selected workout", async ()
   assert.equal(result.average, 129);
   assert.equal(result.samples.length, 2);
   assert.throws(() => shortcutHeart("2026-11-23T19:59:00Z,80", { from, to }), /没有找到/);
+});
+
+test("complete openGym snapshot keeps IDs, translations, filtering and artwork separate", async () => {
+  const { filterRows } = await import("../features/exercises/catalog-search.ts");
+  const read = (name) => JSON.parse(readFileSync(new URL("public/open-gym/" + name, root), "utf8"));
+  const { rows, variants } = read("index.json");
+  assert.equal(rows.length, 5632);
+  assert.equal(Object.keys(variants).length, 922);
+  assert.equal(new Set(rows.map((entry) => entry.id)).size, rows.length);
+  const bench = rows.find((entry) => entry.id === "0025");
+  assert.equal(bench.muscles.chest, 100);
+  assert.equal(bench.muscles["front-delts"], 40);
+  const options = { query: "bench press", part: "chest", type: "strength", equipment: "barbell", terms: ["chest", "front-delts"], any: false, gear: [] };
+  const results = filterRows(rows, options).rows;
+  assert.ok(results.some((item) => item.id === bench.id));
+  assert.ok(results.every((item) => item.equipment === "barbell" && item.muscles.chest && item.muscles["front-delts"]));
+  const anatomy = read("anatomy.json");
+  assert.ok(anatomy["male-front"].regions["upper-chest"].length > 0);
+  assert.ok(anatomy["female-back"].regions.lats.length > 0);
+  const media = rows.filter((item) => item.animation);
+  assert.equal(media.length, 1257);
+  assert.equal(read("flow/0025.json").frames.length, 3);
+  for (const item of media) assert.ok(existsSync(new URL("public/open-gym/flow/" + item.id + ".json", root)));
+  const index = new Map();
+  for (const item of rows) {
+    const shard = Math.floor(+item.id / 100);
+    if (!index.has(shard)) index.set(shard, read("details/" + shard + ".json"));
+    assert.ok(index.get(shard)[item.id]?.steps);
+  }
 });

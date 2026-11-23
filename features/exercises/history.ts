@@ -17,10 +17,10 @@ function setMetrics(line: SetLine, unit: "kg" | "lb") {
   };
 }
 
-export function exerciseHistory(name: string, logs: TrainingEntry[], owner: string) {
+export function exerciseHistory(name: string, logs: TrainingEntry[], owner: string, catalogueId?: string) {
   return logs.filter((log) => log.kind === "log" && log.owner === owner).flatMap((log) =>
     log.data.plan.exercises.flatMap((move, index) => {
-      if (move.name !== name) return [];
+      if (catalogueId && move.catalogueId ? catalogueId !== move.catalogueId : move.name !== name) return [];
       const sets = (log.data.rows[index] ?? []).filter((line) => line.done).map((line) => ({ line, ...setMetrics(line, move.unit) }));
       return sets.length ? [{
         id: log.id + ":" + index, title: log.data.plan.title, date: log.data.date, started: log.data.started,

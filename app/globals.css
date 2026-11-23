@@ -2,6 +2,7 @@
 @import "./workout.css";
 @import "./heart.css";
 @import "./library.css";
+@import "./open-gym.css";
 
 :root {
   color-scheme: light;

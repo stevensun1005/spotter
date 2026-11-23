@@ -38,27 +38,6 @@
 .exercise-plot > div strong { color: var(--text); font-size: .9rem; }
 .exercise-plot canvas { width: 100%; height: 67px; display: block; }
 .exercise-workout-link { margin-top: 4px; width: auto; }
-.muscle-figures { display: flex; justify-content: center; gap: min(9vw, 50px); margin: 17px 0 10px; text-align: center; }
-.body-map { width: 100px; height: 182px; position: relative; margin-bottom: 8px; --base-muscle: #d6e0d8; --base-body: #e9eee9; }
-.body-map span { position: absolute; display: block; }
-.body-head { top: 1px; left: 40px; width: 21px; height: 24px; border-radius: 46% 46% 48% 48%; background: var(--base-body); }
-.body-torso { inset: 21px 25px 66px; background: var(--base-body); clip-path: polygon(0 18%, 33% 10%, 38% 0, 62% 0, 67% 10%, 100% 18%, 84% 55%, 99% 86%, 75% 100%, 25% 100%, 1% 86%, 16% 55%); }
-.body-arm { inset: 37px 12px 67px; background: var(--base-body); clip-path: polygon(18% 0, 32% 12%, 19% 60%, 9% 100%, 0 97%, 5% 68%, 10% 27%, 18% 0, 82% 0, 90% 27%, 95% 68%, 100% 97%, 91% 100%, 81% 60%, 68% 12%, 82% 0); }
-.body-leg { inset: 103px 26px 0; background: var(--base-body); clip-path: polygon(4% 0, 96% 0, 93% 48%, 85% 87%, 100% 98%, 61% 100%, 55% 72%, 50% 30%, 45% 72%, 39% 100%, 0 98%, 15% 87%, 7% 48%); }
-.muscle-zone { background: var(--base-muscle); }
-.muscle-zone[data-level=primary] { background: #397457; }
-.muscle-zone[data-level=secondary] { background: #a5c687; }
-.muscle-shoulder { inset: 38px 22px auto; height: 15px; clip-path: polygon(0 30%, 18% 0, 25% 50%, 13% 100%, 0 79%, 0 30%, 100% 30%, 100% 79%, 87% 100%, 75% 50%, 82% 0, 100% 30%); }
-.muscle-chest { inset: 41px 33px auto; height: 17px; clip-path: polygon(0 20%, 42% 0, 49% 12%, 51% 12%, 58% 0, 100% 20%, 96% 80%, 57% 100%, 50% 80%, 43% 100%, 4% 80%); }
-.muscle-core { inset: 60px 36px auto; height: 33px; border-radius: 4px 4px 45% 45%; }
-.muscle-upper-arm { inset: 53px 17px auto; height: 34px; clip-path: polygon(8% 0, 19% 10%, 10% 93%, 0 100%, 8% 0, 92% 0, 100% 100%, 90% 93%, 81% 10%, 92% 0); }
-.muscle-back { inset: 37px 33px auto; height: 49px; clip-path: polygon(0 28%, 34% 0%, 50% 15%, 66% 0%, 100% 28%, 91% 69%, 50% 100%, 9% 69%); }
-.muscle-hips { inset: 92px 29px auto; height: 22px; clip-path: polygon(3% 22%, 32% 0, 50% 24%, 68% 0, 97% 22%, 92% 87%, 59% 100%, 50% 81%, 41% 100%, 8% 87%); }
-.muscle-thigh { inset: 114px 29px auto; height: 35px; clip-path: polygon(0 0, 43% 12%, 39% 96%, 11% 100%, 0 0, 100% 0, 89% 100%, 61% 96%, 57% 12%, 100% 0); }
-.muscle-calf { inset: 153px 33px auto; height: 19px; clip-path: polygon(0 6%, 35% 0, 40% 90%, 14% 100%, 0 6%, 100% 6%, 86% 100%, 60% 90%, 65% 0, 100% 6%); }
-.muscle-key { display: flex; justify-content: center; flex-wrap: wrap; gap: 7px 13px; color: var(--muted); font-size: .82rem; }
-.muscle-key i { display: inline-block; width: .65rem; height: .65rem; border-radius: 2px; background: #397457; }
-.muscle-key span:nth-child(2) i { background: #a5c687; }
 .nutrition-summary .section-head input { width: auto; max-width: 52%; }
 .nutrition-calories { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .nutrition-calories strong { font-size: 1.65rem; }

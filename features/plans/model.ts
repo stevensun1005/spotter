@@ -5,6 +5,7 @@ export const categories = ["力量训练", "有氧训练", "拉伸恢复", "跟�
 const text = (max: number) => z.string().trim().min(1).max(max);
 const move = z.object({
   name: text(100),
+  catalogueId: z.string().regex(/^\d{4,6}$/).optional(),
   sets: z.number().int().min(1).max(30),
   reps: z.number().int().min(0).max(999),
   weight: z.number().min(0).max(2000),

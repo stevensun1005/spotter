@@ -7,6 +7,8 @@ import { sessionTotals, type Session } from "./model";
 import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldValue, flipWeightUnit, validNumberText, type NumberField, type SetTarget } from "./set-editor";
 import { fieldLabels, SetRow } from "./set-row";
 import { WorkoutKeypad } from "./workout-keypad";
+import { ExercisePicker } from "@/features/exercises/exercise-picker";
+import type { Move } from "@/features/plans/model";
 import { pauseClock, resumeClock, workoutElapsed } from "./clock";
 
 const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, "0")).join(":");
@@ -15,13 +17,14 @@ type Edit = SetTarget & { text: string; pristine: boolean };
 
 export function Workout({ data, update, finish, close, pending, error, sync, onExercise }: {
   data: Session; update: (next: Session) => void; finish: () => void; close: () => void;
-  pending: boolean; error: string; sync: string; onExercise?: (name: string) => void;
+  pending: boolean; error: string; sync: string; onExercise?: (move: Move) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [edit, setEdit] = useState<Edit | null>(null);
   const [padNotice, setPadNotice] = useState("");
   const [openedMove, setOpenedMove] = useState(0);
   const [restEnd, setRestEnd] = useState<number>();
+  const [picker, setPicker] = useState<number>();
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(tick);
@@ -113,6 +116,18 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
     </>;
   }
 
+  function useExercise(move: Move) {
+    if (picker === undefined) return;
+    const index = picker < 0 ? data.plan.exercises.length : picker;
+    const rows = Array.from({ length: move.sets }, () => ({ reps: move.reps, weight: move.weight, seconds: move.seconds, done: false }));
+    if (index >= 30 || data.rows[index]?.some((line) => line.done)) { setPicker(undefined); return; }
+    const exercises = [...data.plan.exercises];
+    const next = [...data.rows];
+    exercises[index] = move; next[index] = rows;
+    setEdit(null); setOpenedMove(index); setPicker(undefined);
+    update({ ...data, plan: { ...data.plan, exercises }, rows: next });
+  }
+
   return <main className="training-page" aria-label="正在训练">
     <div className="training-shell">
       <header className="training-header">
@@ -138,7 +153,8 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
           <summary onClick={(event) => { event.preventDefault(); setOpenedMove(openedMove === i ? -1 : i); }}><span className="tile mint"><Dumbbell size={17} /></span><strong>{move.name}</strong><span className="set-summary"><span className="muted">{data.rows[i].filter((line) => line.done).length}/{move.sets} 组</span><ChevronDown size={16} /></span></summary>
           {(move.repsMax || move.restSeconds) && <p className="muted set-prescription">{move.seconds ? move.seconds + " 秒／组" : move.reps + (move.repsMax && move.repsMax > move.reps ? "–" + move.repsMax : "") + " 次／组"}
             {move.restSeconds ? " · 组间休息 " + move.restSeconds + " 秒" : ""}</p>}
-          {onExercise && <button type="button" className="button subtle small exercise-workout-link" onClick={() => onExercise(move.name)}><BookOpen size={16} /> 查看动作详情</button>}
+          {onExercise && <button type="button" className="button subtle small exercise-workout-link" onClick={() => onExercise(move)}><BookOpen size={16} /> 查看动作详情</button>}
+          <button type="button" className="button subtle small exercise-workout-link" disabled={data.rows[i].some((line) => line.done)} onClick={() => setPicker(i)}>替换动作</button>
           {data.rows[i].map((line, j) => <div id={"workout-set-" + i + "-" + j} key={j}><SetRow move={move} line={line} index={j}
             selected={edit?.move === i && edit.row === j ? edit.field : undefined}
             edit={(field) => activate({ move: i, row: j, field })}
@@ -149,6 +165,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
               update(changeSet(data, i, j, (value) => ({ ...value, done: !value.done })));
             }} /></div>)}
         </details>)}
+        <button type="button" className="button outline workout-add-exercise" disabled={data.plan.exercises.length >= 30} onClick={() => setPicker(-1)}><Plus size={17} /> 添加动作</button>
         <div className="form-fields">
           <label>训练心得<textarea value={data.note} maxLength={1500} onFocus={() => setEdit(null)} onChange={(e) => update({ ...data, note: e.target.value })} placeholder="今天练得怎么样？" rows={3} /></label>
           <label>实际时长（分钟）<input type="number" min={0} max={720} value={data.minutes || ""} onFocus={() => setEdit(null)} placeholder="留空时使用计时" onChange={(e) => update({ ...data, minutes: Math.max(0, Math.min(720, Math.trunc(Number(e.target.value)))) })} /></label>
@@ -161,5 +178,6 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
       <button className="button primary" disabled={pending || (!done && !data.finishedVideo)} onClick={finish}><Check size={18} /> {pending ? "正在保存" : "完成打卡"}</button>
     </div>}
     </div>
+    {picker !== undefined && <ExercisePicker allowBlank={false} prior={data.plan.exercises[picker]} names={data.plan.exercises.map((move) => move.name)} close={() => setPicker(undefined)} onUse={useExercise} />}
   </main>;
 }

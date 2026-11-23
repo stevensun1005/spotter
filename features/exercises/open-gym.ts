@@ -1,0 +1,67 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+export type CatalogEntry = {
+  id: string; name: string; en: string; part: string; equipment: string; type: string;
+  muscles: Record<string, number>; target: string; hold?: boolean; distance?: boolean;
+  needs?: string[]; machine?: string; animation?: boolean;
+};
+export type ExerciseChoice = { name: string; catalogueId?: string };
+export type CatalogDetail = { description: string; steps: string[]; language?: "zh" };
+
+type Catalog = { rows: CatalogEntry[]; variants: Record<string, string> };
+let index: Promise<Catalog> | undefined;
+const shards = new Map<number, Promise<Record<string, CatalogDetail>>>();
+
+export async function catalogAsset<T>(file: string): Promise<T> {
+  const response = await fetch("/open-gym/" + file);
+  if (!response.ok) throw new Error("无法读取动作库，请重试。");
+  return response.json() as Promise<T>;
+}
+
+function catalogue() {
+  index ??= catalogAsset<Catalog>("index.json").catch((error) => { index = undefined; throw error; });
+  return index;
+}
+
+export function useCatalogue() {
+  const [data, setData] = useState<Catalog>();
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setError("");
+    catalogue().then((value) => { if (active) setData(value); }, () => { if (active) setError("无法读取动作库，请重试。"); });
+    return () => { active = false; };
+  }, [retry]);
+  return { data, error, reload: () => setRetry((value) => value + 1) };
+}
+
+export const searchable = (value: string) => value.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+const originalIds: Record<string, string> = { "杠铃卧推": "0025" };
+
+export function fromCatalogue(data: Catalog | undefined, choice: ExerciseChoice) {
+  if (!data) return undefined;
+  const id = choice.catalogueId || originalIds[choice.name];
+  if (id) return data.rows.find((item) => item.id === (data.variants[id] || id));
+  const name = searchable(choice.name).replace(/^(?:[a-z]\d*|热身组)\s+/, "").split(" ")[0];
+  const matches = data.rows.filter((item) => searchable(item.name) === name || searchable(item.en) === searchable(choice.name));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function useCatalogDetail(id: string | undefined) {
+  const [entry, setEntry] = useState<{ id: string; data?: CatalogDetail; error?: boolean }>();
+  useEffect(() => {
+    if (!id || !/^\d{4,6}$/.test(id)) return;
+    let active = true;
+    const shard = Math.floor(Number(id) / 100);
+    const promise = shards.get(shard) ?? catalogAsset<Record<string, CatalogDetail>>("details/" + shard + ".json")
+      .catch((error) => { shards.delete(shard); throw error; });
+    shards.set(shard, promise);
+    promise.then((data) => { if (active) setEntry({ id, data: data[id] }); }, () => { if (active) setEntry({ id, error: true }); });
+    return () => { active = false; };
+  }, [id]);
+  return entry?.id === id ? entry : undefined;
+}

@@ -1,0 +1,49 @@
+.catalogue-browser { min-width: 0; }
+.catalogue-count { color: var(--muted); font-size: .88rem; }
+.catalogue-search-line { display: flex; gap: 7px; align-items: center; }
+.catalogue-search-line .exercise-search { flex: 1; }
+.catalogue-chip-row { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding-bottom: 4px; }
+.catalogue-chip-row.wraps { flex-wrap: wrap; overflow: visible; }
+.catalogue-chip { display: inline-flex; gap: 4px; align-items: center; padding: 7px 11px; min-height: 38px; border-radius: 999px; border: 1px solid var(--stroke); background: white; color: #3b4e42; flex: 0 0 auto; font-size: .86rem; font-weight: 680; }
+.catalogue-chip[aria-pressed=true] { background: #e7efe4; border-color: #9fb39a; color: #24432a; }
+.catalogue-results { display: grid; gap: 4px; min-width: 0; }
+.catalogue-cards { grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); gap: 8px; }
+.catalogue-row { display: grid; grid-template-columns: 49px minmax(0,1fr) auto; gap: 9px; align-items: center; min-height: 61px; padding: 5px 8px; background: white; border: 1px solid var(--stroke); border-radius: 11px; }
+.catalogue-exercise { text-align: left; color: var(--text); min-width: 0; padding-block: 6px; }
+.catalogue-exercise strong { display: block; line-height: 1.35; font-size: .98rem; overflow-wrap: anywhere; }
+.catalogue-exercise strong svg { display: inline; vertical-align: -2px; color: #bc8a36; }
+.catalogue-exercise small { display: block; margin-top: 3px; color: var(--muted); line-height: 1.4; font-size: .79rem; }
+.catalogue-thumb { color: #69866b; background: #eef3eb; aspect-ratio: 1; border-radius: 8px; display: grid; place-items: center; flex: none; overflow: hidden; }
+.catalogue-thumb:has(img) { background: #293c34; }
+.catalogue-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.catalogue-row .icon-button { width: 39px; height: 39px; }
+.catalogue-cards .catalogue-row { grid-template-columns: minmax(0,1fr) auto; grid-template-rows: auto 1fr; padding: 8px; }
+.catalogue-cards .catalogue-thumb { grid-column: 1 / -1; aspect-ratio: 4 / 3; }
+.catalogue-gear > summary { cursor: pointer; font-weight: 700; margin-bottom: 8px; }
+.catalogue-match { font-size: .81rem; }
+.catalogue-attribution { font-size: .8rem; color: #4f6556; }
+.catalogue-attribution a { text-decoration: underline; }
+.catalogue-detail-label { overflow-wrap: anywhere; }
+.catalogue-animation { margin: 0; }
+.catalogue-animation-stage { width: 100%; height: min(51vw, 290px); min-height: 170px; background: #24372e; border-radius: 13px; display: grid; place-items: center; overflow: hidden; }
+.catalogue-animation-stage svg, .catalogue-animation-stage img { width: 100%; height: 100%; object-fit: contain; }
+.catalogue-animation figcaption { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding-top: 6px; color: var(--muted); font-size: .82rem; }
+.detailed-anatomy { display: grid; gap: 7px; }
+.anatomy-switch { justify-self: center; }
+.anatomy-views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.anatomy-views figure { margin: 0; min-width: 0; text-align: center; color: var(--muted); font-size: .85rem; }
+.anatomy-views svg { width: 100%; height: clamp(175px, 59vw, 315px); display: block; }
+.anatomy-region { cursor: pointer; }
+.anatomy-region:focus-visible path { stroke: #263d93; stroke-width: 8; }
+.anatomy-region-name { text-align: center; min-height: 1.2rem; color: #4b5e75; font-size: .85rem; }
+.anatomy-legend { display: grid; gap: 8px; border-top: 1px solid var(--stroke); padding-top: 10px; }
+.anatomy-legend > div { display: grid; grid-template-columns: 11px 4.5em minmax(0, 1fr); align-items: start; gap: 7px; font-size: .85rem; color: #435569; }
+.anatomy-legend i { display: inline-block; width: 11px; height: 11px; margin-top: 2px; border-radius: 2px; }
+.primary-muscle { background: #273e9c; }
+.secondary-muscle { background: #8caaff; }
+.workout-add-exercise { justify-self: start; }
+@media(max-width: 475px) {
+  .catalogue-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .catalogue-cards .catalogue-row { padding: 6px; gap: 4px; }
+  .catalogue-cards .catalogue-row .icon-button { width: 32px; height: 36px; }
+}

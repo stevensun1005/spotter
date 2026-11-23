@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
+import { ExercisePicker } from "@/features/exercises/exercise-picker";
 import { Plus, Trash2 } from "lucide-react";
-import { categories, moveBlank, type Move, type Plan } from "./model";
+import { categories, type Move, type Plan } from "./model";
 
 export function PlanFields({ value, change, template = false }: { value: Plan; change: (plan: Plan) => void; template?: boolean }) {
+  const [picker, setPicker] = useState(false);
   const edit = (key: keyof Plan, next: Plan[keyof Plan]) => change({ ...value, [key]: next });
   const editMove = (index: number, next: Partial<Move>) => edit("exercises", value.exercises.map((item, i) => i === index ? { ...item, ...next } : item));
   return <div className="form-fields">
@@ -18,10 +21,10 @@ export function PlanFields({ value, change, template = false }: { value: Plan; c
     </div>
     {value.durationNote !== undefined && <label>预计时长说明<textarea rows={2} maxLength={380} value={value.durationNote} onChange={(event) => edit("durationNote", event.target.value)} /></label>}
     <label>跟练链接<input type="url" value={value.video} onChange={(e) => edit("video", e.target.value.trim())} placeholder="YouTube 或 B站链接（选填）" /></label>
-    <div className="field-title"><strong>训练动作</strong><button type="button" className="button subtle small" disabled={value.exercises.length >= 30} onClick={() => edit("exercises", [...value.exercises, moveBlank()])}><Plus size={16} /> 添加动作</button></div>
+    <div className="field-title"><strong>训练动作</strong><button type="button" className="button subtle small" disabled={value.exercises.length >= 30} onClick={() => setPicker(true)}><Plus size={16} /> 添加动作</button></div>
     {value.exercises.map((item, index) => <div className="move-editor" key={index}>
       <div className="move-editor-top">
-        <label>动作 {index + 1}<input maxLength={100} placeholder="如：哑铃卧推" value={item.name} onChange={(e) => editMove(index, { name: e.target.value })} /></label>
+        <label>动作 {index + 1}<input maxLength={100} placeholder="如：哑铃卧推" value={item.name} onChange={(e) => editMove(index, { name: e.target.value, catalogueId: undefined })} /></label>
         <button type="button" className="icon-button" aria-label={"移除动作 " + (index + 1)} onClick={() => edit("exercises", value.exercises.filter((_, i) => i !== index))}><Trash2 size={17} /></button>
       </div>
       <div className="move-grid">
@@ -36,5 +39,8 @@ export function PlanFields({ value, change, template = false }: { value: Plan; c
         <label>组间休息（秒）<input type="number" min={0} max={600} value={item.restSeconds ?? ""} onChange={(event) => editMove(index, { restSeconds: event.target.value ? Number(event.target.value) : undefined })} /></label>
       </div>
     </div>)}
+    {picker && <ExercisePicker names={value.exercises.map((item) => item.name)} close={() => setPicker(false)} onUse={(move) => {
+      edit("exercises", [...value.exercises, move]); setPicker(false);
+    }} />}
   </div>;
 }

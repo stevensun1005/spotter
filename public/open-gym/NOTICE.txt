@@ -1,0 +1,16 @@
+目录来源和授权
+
+动作目录、中文翻译及肌肉数据来自 openGym，由 Duarte Santos 和项目贡献者维护。
+版本 e4a68a94c42a3c17cbd560d66ce2e46a7048ab99。
+目录数据保留 GNU AGPL v3.0 及原始条目的 MIT 许可。完整适用条款见 catalogue-source.zip 内的 LICENSE 和 NOTICE.md。
+https://github.com/DuarteSantos8/openGym/tree/e4a68a94c42a3c17cbd560d66ce2e46a7048ab99
+
+人体图来自 Melih Colpan 的 MuscleMap（MIT），包含原始主要肌群和子分区。许可见 MUSCLEMAP-MIT.txt。
+https://github.com/melihcolpan/MuscleMap/tree/d53ddf4d480b65979f1008b203e6b6eda0e67e54
+
+循环示意来自 Flow Exercise Dataset 的 CC0 1.0 自制帧，版本 961bb2739015da373daa43b960c28ee839fe93e6。
+按动作来源编号、英文名称和器械匹配。插画是动作示意，帧率仅为显示设置。
+https://github.com/ozansozuozgit/flow-exercise-dataset/tree/961bb2739015da373daa43b960c28ee839fe93e6
+许可和来源限制见 FLOW-ARTWORK-LICENSE.txt 与 FLOW-NOTICE.txt。
+
+原版 Gym visual 媒体需要独立许可。

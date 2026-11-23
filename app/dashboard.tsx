@@ -18,10 +18,13 @@ import { TrainingNotice } from "@/features/training/training-notice";
 import { Workout } from "@/features/training/workout";
 import { ImportView } from "@/features/import/import-view";
 import type { WhoopStatus } from "@/features/heart/whoop";
-import { ExerciseDetail, ExerciseLibrary } from "@/features/exercises/exercise-view";
+import { ExerciseDetail } from "@/features/exercises/exercise-view";
+import { OpenGymCatalogue } from "@/features/exercises/open-gym-catalogue";
+import { defaultCatalogMove } from "@/features/exercises/exercise-picker";
+import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym";
 import { NutritionView } from "@/features/nutrition/nutrition-view";
 import { PlanSections } from "@/features/plans/plan-sections";
-import { moveBlank } from "@/features/plans/model";
+
 import { useLibrary } from "@/features/library/use-library";
 import { PlanActions } from "@/features/plans/plan-actions";
 import { MovePlan, ScheduleSettings } from "@/features/plans/schedule-view";
@@ -85,7 +88,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
   const [view, setView] = useState<View>(heartReturn ? "history" : "today");
-  const [exercise, setExercise] = useState<string>();
+  const [exercise, setExercise] = useState<ExerciseChoice>();
+  const [planPick, setPlanPick] = useState<{ choice: ExerciseChoice; row?: CatalogEntry }>();
+  const [targetPlan, setTargetPlan] = useState("");
   const [planTab, setPlanTab] = useState<"个人模板">();
   const [confirmRemoveTemplate, setConfirmRemoveTemplate] = useState(false);
   const library = useLibrary(Boolean(viewer));
@@ -299,10 +304,21 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     open({ kind: "template", item: { id, data: { ...plan, shared: false } }, editing });
   }
 
-  function planExercise(name: string) {
-    setExercise(undefined);
+  function planExercise(choice: ExerciseChoice, row?: CatalogEntry) {
+    setExercise(undefined); setWarning(""); setTargetPlan("");
+    setPlanPick({ choice, row });
+  }
+
+  function applyPlanExercise() {
+    if (!planPick) return;
+    const move = defaultCatalogMove(planPick.choice, planPick.row);
+    const plan = plans.find((item) => item.owner === me.id && item.id === targetPlan && item.data.exercises.length < 30);
+    if (targetPlan && !plan) { setWarning("这个计划已更新，请重新选一个。"); return; }
+    const next = plan ? { ...plan.data, exercises: [...plan.data.exercises, move] } : { ...planBlank(selected), title: move.name, exercises: [move] };
+    setPlanPick(undefined);
     go("plans");
-    newPlan({ ...planBlank(selected), title: name, exercises: [{ ...moveBlank(), name }] });
+    if (plan) open({ kind: "editor", plan: { id: plan.id, data: next } });
+    else newPlan(next);
   }
 
   async function savePlans(items: KeyedPlan[], skipExisting = false) {
@@ -415,7 +431,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     </div>;
   }
 
-  const exerciseDialog = exercise && <ExerciseDetail key={exercise} name={exercise} close={() => setExercise(undefined)}
+  const exerciseDialog = exercise && <ExerciseDetail key={exercise.catalogueId ?? exercise.name} choice={exercise} close={() => setExercise(undefined)}
     select={setExercise} profiles={profiles} names={exerciseNames} logs={logs} owner={me.id}
     save={(item) => library.save({ kind: "exercise", item })} addToPlan={trainingNav.id ? undefined : planExercise} />;
 
@@ -489,7 +505,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               {(todaysPlans.length > 1) && <section className="card plan-list">{todaysPlans.slice(1).map(renderPlan)}</section>}
               {current.data.exercises.length > 0 && <section className="card padded movement-card">
                 <div className="section-head"><h2>动作清单</h2><span className="count-label">{current.data.exercises.length} 个动作</span></div>
-                {current.data.exercises.map((move, i) => <button type="button" className="list-line move-line" key={i} onClick={() => setExercise(move.name)}><span className={"tile " + (i % 3 === 1 ? "lilac" : i % 3 === 2 ? "sand" : "mint")}><Dumbbell size={19} /></span><span><strong>{move.name}</strong><small>{move.seconds ? "计时动作" : move.weight ? move.weight + " " + move.unit : "自重／待填重量"}</small></span><span className="move-reps">{move.sets} 组 × {move.seconds ? move.seconds + " 秒" : move.reps + (move.repsMax && move.repsMax !== move.reps ? "–" + move.repsMax : "") + " 次"}</span></button>)}
+                {current.data.exercises.map((move, i) => <button type="button" className="list-line move-line" key={i} onClick={() => setExercise(move)}><span className={"tile " + (i % 3 === 1 ? "lilac" : i % 3 === 2 ? "sand" : "mint")}><Dumbbell size={19} /></span><span><strong>{move.name}</strong><small>{move.seconds ? "计时动作" : move.weight ? move.weight + " " + move.unit : "自重／待填重量"}</small></span><span className="move-reps">{move.sets} 组 × {move.seconds ? move.seconds + " 秒" : move.reps + (move.repsMax && move.repsMax !== move.reps ? "–" + move.repsMax : "") + " 次"}</span></button>)}
               </section>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
             </> : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3><button className="button outline small" onClick={() => newPlan()}>添加训练</button></section>}
@@ -527,7 +543,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           {plans.length ? [...plans].sort((a, b) => a.data.date.localeCompare(b.data.date)).map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span><h3>还没有训练计划</h3><button className="button outline small" onClick={() => newPlan(examples(today))}>使用示例计划</button></div>}
         </section></PlanSections>}
         {(view === "plans" || view === "exercises") && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
-        {view === "exercises" && <ExerciseLibrary names={exerciseNames} profiles={profiles} choose={setExercise} />}
+        {view === "exercises" && <OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
         {view === "more" && <section className="card padded feature-stack">
           {navigation.filter((item) => !item.mobile).map(({ id, icon: Icon, title }) =>
@@ -576,6 +592,19 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       </form>
     </Dialog>}
     {exerciseDialog}
+    {planPick && <Dialog title="加入训练计划" onClose={() => setPlanPick(undefined)}>
+      <form className="dialog-body form-fields" onSubmit={(event) => { event.preventDefault(); applyPlanExercise(); }}>
+        <p>{planPick.choice.name}</p>
+        <label>选择训练计划<select value={targetPlan} onChange={(event) => setTargetPlan(event.target.value)}>
+          <option value="">新建训练计划</option>
+          {plans.filter((item) => item.owner === me.id && item.data.exercises.length < 30)
+            .sort((a, b) => a.data.date.localeCompare(b.data.date))
+            .map((item) => <option value={item.id} key={item.id}>{item.data.date} · {item.data.title}</option>)}
+        </select></label>
+        {warning && <p className="inline-error" role="alert">{warning}</p>}
+        <button className="button primary"><Plus size={17} /> 加入并编辑</button>
+      </form>
+    </Dialog>}
     {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} onTemplate={viewer && overlay.log.owner === me.id ? () => openTemplate(overlay.log.data.plan) : undefined} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
