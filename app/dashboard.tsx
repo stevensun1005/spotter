@@ -630,6 +630,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       </form>
     </Dialog>}
     {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today}
+      share={viewer && overlay.log.owner === me.id ? { name: me.name, owner: me.id, logs } : undefined}
       onEdit={viewer && overlay.log.owner === me.id ? (data) => saveLogEdit(overlay.log, data) : undefined}
       onTemplate={viewer && overlay.log.owner === me.id ? () => openTemplate(overlay.log.data.plan) : undefined} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>

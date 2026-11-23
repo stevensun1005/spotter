@@ -1,23 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { Bookmark, CalendarDays, Check, ChevronLeft, ChevronRight, Dumbbell, Pencil } from "lucide-react";
+import { Bookmark, CalendarDays, Check, ChevronLeft, ChevronRight, Dumbbell, Pencil, Share2 } from "lucide-react";
 import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { offsetDate, shortDate, weekdayIndex, weekdays } from "@/shared/dates";
 import { sessionTotals, type Session } from "@/features/training/model";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import { EditLog } from "./edit-log";
+import { ShareCard } from "@/features/share/share-card";
 import { HeartPanel } from "@/features/heart/heart-panel";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { kindLabels } from "@/features/training/set-row";
 import type { TrainingEntry } from "@/shared/state";
 
-export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today }: {
+export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share }: {
   log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus; onTemplate?: () => void;
   today?: string; onEdit?: (next: Session) => Promise<void>;
+  share?: { name: string; owner: string; logs: TrainingEntry[] };
 }) {
   const [editing, setEditing] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const { volume, sets } = sessionTotals(log.data);
+  if (sharing && own && share) return <ShareCard log={log} {...share} close={() => setSharing(false)} />;
   if (editing && onEdit && today) return <Dialog title="编辑训练记录" onClose={() => setEditing(false)}>
     <EditLog original={log.data} today={today} cancel={() => setEditing(false)} save={async (next) => {
       await onEdit(next);
@@ -29,7 +33,8 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today }:
     <div className="totals"><div><strong>{log.data.minutes}</strong><span>分钟</span></div><div><strong>{sets}</strong><span>完成组数</span></div><div><strong>{displayNumber(volume)}</strong><span>容量 kg</span></div></div>
     {log.data.note && <p className="note">{log.data.note}</p>}
     {log.data.plan.video && <VideoLink url={log.data.plan.video} />}
-    {(onTemplate || onEdit) && <div className="exercise-toolbar">
+    {(onTemplate || onEdit || own && share) && <div className="exercise-toolbar">
+      {own && share && <button className="button outline small" type="button" onClick={() => setSharing(true)}><Share2 size={16} /> 分享训练</button>}
       {onTemplate && <button className="button outline small" type="button" onClick={onTemplate}><Bookmark size={16} /> 另存为模板</button>}
       {onEdit && <button className="button outline small" type="button" onClick={() => setEditing(true)}><Pencil size={16} /> 编辑记录</button>}
     </div>}

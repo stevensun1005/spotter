@@ -28,7 +28,6 @@ const namedFlow: Record<string, string> = {
   "后脚抬高分腿蹲": "0410",
   "站姿绳索左右转体": "0243",
   "俯卧 T 字举臂": "3542",
-  "跪姿绳索三头下压": "0176",
 };
 const namedId = new Map(Object.entries(namedFlow).map(([name, id]) => [key(name), id]));
 

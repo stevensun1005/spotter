@@ -27,7 +27,7 @@ export function PlanFields({ value, change, template = false }: { value: Plan; c
     <div className="field-title"><strong>训练动作</strong><button type="button" className="button subtle small" disabled={value.exercises.length >= 30} onClick={() => setPicker(true)}><Plus size={16} /> 添加动作</button></div>
     {value.exercises.map((item, index) => <div className="move-editor" key={index}>
       <div className="move-editor-top">
-        <label>动作 {index + 1}<input maxLength={100} placeholder="如：哑铃卧推" value={item.name} onChange={(e) => editMove(index, { name: e.target.value, catalogueId: undefined })} /></label>
+        <label>动作 {index + 1}<input maxLength={100} placeholder="如：哑铃卧推" value={item.name} onChange={(e) => editMove(index, { name: e.target.value, catalogueId: undefined, sourceName: undefined })} /></label>
         <button type="button" className="icon-button" aria-label={"移除动作 " + (index + 1)} onClick={() => edit("exercises", value.exercises.filter((_, i) => i !== index))}><Trash2 size={17} /></button>
       </div>
       <div className="field-grid">

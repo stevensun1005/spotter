@@ -4,6 +4,7 @@
 @import "./library.css";
 @import "./open-gym.css";
 @import "./stats.css";
+@import "./share.css";
 
 :root {
   color-scheme: light;

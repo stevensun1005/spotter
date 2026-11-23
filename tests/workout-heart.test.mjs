@@ -264,8 +264,37 @@ test("exercise animations slow existing loops and keep plan variants distinct", 
   assert.equal(single.id, undefined);
   assert.notDeepEqual(single.illustration.frames[0][4], single.illustration.frames[1][4]);
   assert.deepEqual(single.illustration.frames[0][6], single.illustration.frames[1][6]);
-  assert.equal(exerciseMotion("跪姿绳索三头下压", "跪姿绳索三头下压").id, "0176");
+  const pressdown = exerciseMotion("跪姿绳索三头下压", "跪姿绳索三头下压");
+  assert.equal(pressdown.id, undefined);
+  assert.deepEqual(pressdown.illustration.frames[0][2], pressdown.illustration.frames[1][2]);
+  assert.notDeepEqual(pressdown.illustration.frames[0][4], pressdown.illustration.frames[1][4]);
   assert.ok(exerciseMotion("绳索跪姿三头肌伸展", "绳索跪姿三头肌伸展", "跪姿过头绳索臂屈伸", "0176", true).illustration);
   assert.equal(exerciseMotion("弹力带水平帕洛夫推举", "弹力带水平帕洛夫推举", undefined, "0979", true).id, "1015");
   assert.ok(exerciseMotion("Y 字举臂弹力带侧向走", "Y 字举臂弹力带侧向走").illustration);
+});
+
+test("today's merged poster uses only the owner's completed sets and selected heart data", async () => {
+  const { shareHeart, shareSummary } = await import("../features/share/model.ts");
+  const { researchedGuide } = await import("../features/exercises/guidance.ts");
+  const plan = {
+    title: "测试训练", date: "2026-11-23", category: "力量训练", minutes: 12, shared: false, video: "",
+    exercises: [{ name: "跪姿绳索三头下压", sets: 2, reps: 10, weight: 40, unit: "lb", seconds: 0 }],
+  };
+  const first = training.startSession(plan, "plan", plan.date);
+  const data = { ...first, minutes: 12, rows: [[{ ...first.rows[0][0], weight: 38.75, done: true }, first.rows[0][1]]] };
+  const log = { id: "a", kind: "log", owner: "me", data };
+  const scope = { log, owner: "me", merge: true, logs: [
+    log, { ...log, id: "b" }, { ...log, id: "c", owner: "partner" },
+    { ...log, id: "d", data: { ...data, date: "2026-11-22" } },
+  ] };
+  const summary = shareSummary(scope);
+  assert.deepEqual(summary.workouts.map((workout) => workout.id), ["a", "b"]);
+  assert.deepEqual(summary.workouts[0].moves[0].sets, ["38.75 lb × 10 次"]);
+  assert.equal(summary.sets, 2);
+  assert.equal(summary.minutes, 24);
+  assert.ok(Math.abs(summary.volume - 775 * 0.45359237) < 0.01);
+  assert.equal(researchedGuide(plan.exercises[0].name).muscles.triceps, 100);
+  assert.equal(summary.primary.triceps, 2);
+  const heart = { source: "apple", from: data.started, to: data.started + 1000, samples: [{ at: data.started, bpm: 125 }] };
+  assert.deepEqual(shareHeart(scope, { a: heart, c: heart }).map(({ id, minimum }) => [id, minimum]), [["a", 125]]);
 });

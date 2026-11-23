@@ -75,6 +75,7 @@
 
 .edit-log-move { border: 1px solid var(--stroke); border-radius: 12px; padding: 8px 10px; }
 .edit-log-move summary { cursor: pointer; min-height: 42px; align-content: center; }
+.edit-log-motion-name { margin: 6px 0 10px; }
 .edit-log-move summary .muted { margin-inline-start: 8px; }
 .edit-log-row { border-top: 1px solid var(--stroke); display: grid; gap: 7px; padding-block: 8px; }
 

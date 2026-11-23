@@ -1,0 +1,14 @@
+.share-dialog { width: min(600px, calc(100% - 20px)); background: #f3f6f2; }
+.share-preview { display: grid; gap: 9px; padding: 13px; }
+.share-settings { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-bottom: 2px; }
+.share-settings .button { font-size: .86rem; padding-inline: 9px; }
+.share-settings .button[aria-pressed=true] { background: #dfeae5; color: #20534f; }
+.share-style { display: inline-flex; align-items: center; gap: 5px; font-size: .86rem; font-weight: 680; }
+.share-style select { width: auto; min-height: 44px; font-size: .86rem; background-color: #fff; }
+.share-settings .toggle-label { margin-inline-end: 4px; }
+.share-preview canvas { display: block; width: 100%; height: auto; border: 1px solid #d6e5dc; border-radius: 16px; box-shadow: 0 5px 18px #13262f14; }
+.share-preview canvas[hidden] { display: none; }
+.share-footer { position: sticky; z-index: 3; bottom: 0; padding: 10px 13px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid #d6e3dc; background: #f9fcf8; }
+.share-footer p { margin-bottom: 7px; font-size: .83rem; }
+.share-output { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.share-output .button { padding-inline: 8px; }

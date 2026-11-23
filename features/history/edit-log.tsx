@@ -14,6 +14,13 @@ export function EditLog({ original, today, cancel, save }: {
   const [error, setError] = useState("");
   const editSet = (move: number, row: number, values: Partial<SetLine>) =>
     setData((session) => changeSet(session, move, row, (line) => ({ ...line, ...values })));
+  function renameMove(move: number, name: string) {
+    setData((session) => ({
+      ...session,
+      plan: { ...session.plan, exercises: session.plan.exercises.map((item, index) => index === move ? { ...item, name } : item) },
+    }));
+  }
+
   function removeSet(move: number, row: number) {
     setData((session) => {
       if (session.rows[move].length === 1) return changeSet(session, move, row, (line) => ({ ...line, done: false }));
@@ -31,7 +38,7 @@ export function EditLog({ original, today, cancel, save }: {
     setError("");
     const valid = sessionSchema.safeParse(data);
     if (!valid.success || !data.finishedVideo && sessionTotals(data).sets === 0) {
-      setError("请检查日期、重量和次数，并至少保留一组完成记录。");
+      setError("请检查日期、动作名称、重量和次数，并至少保留一组完成记录。");
       return;
     }
     setPending(true);
@@ -49,6 +56,7 @@ export function EditLog({ original, today, cancel, save }: {
       <label>训练心得<textarea rows={3} maxLength={1500} value={data.note} onChange={(e) => setData({ ...data, note: e.target.value })} /></label>
       {data.plan.exercises.map((item, move) => <details className="edit-log-move" key={move} open={data.plan.exercises.length === 1 || undefined}>
         <summary><strong>{parsePlanMove(item.name).name}</strong><span className="muted">{data.rows[move].filter((line) => line.done).length} 组完成</span></summary>
+        <label className="edit-log-motion-name">更正动作名称<input aria-label={"更正动作 " + (move + 1)} maxLength={100} required value={item.name} onChange={(event) => renameMove(move, event.target.value)} /></label>
         {data.rows[move].map((line, row) => {
           const label = "第 " + (row + 1) + " 组";
           return <fieldset className="edit-log-row" key={row} aria-label={label}>

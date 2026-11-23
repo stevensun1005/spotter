@@ -8,9 +8,14 @@ export async function updateLog(db: D1Database, owner: string, id: string, revis
   if (!existing || existing.updated !== revision) throw new HttpError(409, "记录已在别处更新，请关闭后重新打开。");
   const prior = JSON.parse(existing.payload) as Session;
   if (!prior.finishedVideo && !sessionTotals(next).sets) throw new HttpError(400, "请至少保留一组完成记录。");
+  if (next.rows.length !== prior.plan.exercises.length) throw new HttpError(400, "请从训练详情编辑相应动作的组数。");
+  const exercises = prior.plan.exercises.map((item, i) => {
+    const name = next.plan.exercises[i].name;
+    const move = { ...item, sets: next.rows[i].length };
+    return name === item.name ? move : { ...move, name, catalogueId: undefined, sourceName: undefined, cue: undefined };
+  });
   const data: Session = { ...prior, date: next.date, minutes: next.minutes, note: next.note, rows: next.rows,
-    plan: { ...prior.plan, exercises: prior.plan.exercises.map((item, i) => ({ ...item, sets: next.rows[i]?.length ?? 0 })) } };
-  if (data.rows.length !== prior.plan.exercises.length) throw new HttpError(400, "请从训练详情编辑相应动作的组数。");
+    plan: { ...prior.plan, exercises } };
   const saved = await db.prepare("UPDATE entries SET payload = ?, updated = ? WHERE owner = ? AND id = ? AND kind = 'log' AND updated = ?")
     .bind(JSON.stringify(data), now, owner, id, revision).run();
   if (!saved.meta.changes) throw new HttpError(409, "记录已在别处更新，请关闭后重新打开。");
