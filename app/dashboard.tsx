@@ -406,16 +406,28 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       const now = Date.now();
       const ended = Math.max(data.started, Math.min(now, data.started + 86_400_000));
       const finalized = { ...pauseClock(data, now), date: asDate(now), ended, minutes: data.minutes || Math.min(720, Math.max(1, Math.round(workoutElapsed(data, now) / 60000))) };
-      if (viewer) await post({ action: "log", id, data: finalized });
+      const saved = viewer
+        ? await (await post({ action: "log", id, data: finalized })).json() as Pick<Log, "data" | "updated">
+        : { data: finalized, updated: new Date().toISOString() };
       const next = { ...pendingRef.current };
       delete next[id]; setPending(next);
-      const record: Entry = { id, owner: me.id, kind: "log", data: finalized, updated: new Date().toISOString() };
+      const record: Entry = { id, owner: me.id, kind: "log", ...saved };
       setState((value) => ({ ...value, entries: [record, ...value.entries.filter((entry) => entry.owner !== me.id || entry.id !== id)] }));
       if (viewer) void refresh();
       setToast(demo ? "演示打卡完成" : "打卡完成，已上传云端");
       setOverlay({ kind: "log", log: record });
       trainingNav.leave();
     });
+  }
+
+  async function saveLogEdit(log: Log, data: Session) {
+    const response = await post({ action: "editLog", id: log.id, revision: log.updated, data });
+    const changes = await response.json() as Pick<Log, "data" | "updated">;
+    const next = { ...log, ...changes };
+    setState((value) => ({ ...value, entries: value.entries.map((item) => item.id === log.id && item.owner === me.id ? next : item) }));
+    setOverlay((value) => value?.kind === "log" && value.log.id === log.id && value.log.owner === me.id ? { ...value, log: next } : value);
+    setToast("训练记录已更新");
+    void refresh();
   }
 
   async function copy(value: string, label: string) {
@@ -617,7 +629,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         <button className="button primary"><Plus size={17} /> 加入并编辑</button>
       </form>
     </Dialog>}
-    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} onTemplate={viewer && overlay.log.owner === me.id ? () => openTemplate(overlay.log.data.plan) : undefined} />}
+    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today}
+      onEdit={viewer && overlay.log.owner === me.id ? (data) => saveLogEdit(overlay.log, data) : undefined}
+      onTemplate={viewer && overlay.log.owner === me.id ? () => openTemplate(overlay.log.data.plan) : undefined} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
         {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。配对后会互相看到打卡和共享计划。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :

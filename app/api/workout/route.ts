@@ -6,6 +6,7 @@ import { asDate, planSchema, sessionSchema, sessionTotals, type Entry, type Stat
 import { api } from "@/server/http";
 import { dateSchema } from "@/shared/dates";
 import { checkPlanDates, reschedule } from "@/features/plans/schedule-server";
+import { updateLog } from "@/features/history/update-log";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ const mutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("delete"), id, kind: z.enum(["plan", "draft"]) }),
   z.object({ action: z.literal("draft"), id, data: sessionSchema }),
   z.object({ action: z.literal("log"), id, data: sessionSchema }),
+  z.object({ action: z.literal("editLog"), id, data: sessionSchema, revision: z.string().min(1).max(40) }),
   z.object({ action: z.literal("create") }),
   z.object({ action: z.literal("join"), invite: z.string().regex(/^[a-f0-9]{32}$/) }),
   z.object({ action: z.literal("cheer") }),
@@ -122,6 +124,8 @@ export const POST = api(async (request) => {
       return reply({ added, skipped: body.items.length - added });
     }
     await db.batch(body.items.map((item) => save(item.id, "plan", item.data)));
+  } else if (body.action === "editLog") {
+    return reply(await updateLog(db, owner, body.id, body.revision, body.data, now));
   } else if (body.action === "draft" || body.action === "log") {
     if (body.action === "log" && !body.data.finishedVideo && sessionTotals(body.data).sets === 0) {
       return reply({ error: "请至少完成一组动作或标记视频跟练完成。" }, 400);
@@ -129,6 +133,12 @@ export const POST = api(async (request) => {
     if (body.data.finishedVideo && !body.data.plan.video) return reply({ error: "这次训练没有视频链接。" }, 400);
     const saved = await save(body.id, body.action, body.data).run();
     if (!saved.meta.changes && body.action === "draft") return reply({ error: "此训练已打卡，草稿不能继续修改。" }, 409);
+    if (body.action === "log") {
+      if (saved.meta.changes) return reply({ data: body.data, updated: now });
+      const previous = await db.prepare("SELECT payload, updated FROM entries WHERE owner = ? AND id = ? AND kind = 'log'")
+        .bind(owner, body.id).first<{ payload: string; updated: string }>();
+      return previous ? reply({ data: JSON.parse(previous.payload), updated: previous.updated }) : reply({ error: "这条训练已变更，请刷新后重试。" }, 409);
+    }
   } else if (body.action === "create") {
     if (!await membership(db, owner)) {
       const room = crypto.randomUUID();

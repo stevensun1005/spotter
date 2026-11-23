@@ -1,27 +1,40 @@
 "use client";
 
 import { useState } from "react";
-import { Bookmark, CalendarDays, Check, ChevronLeft, ChevronRight, Dumbbell } from "lucide-react";
+import { Bookmark, CalendarDays, Check, ChevronLeft, ChevronRight, Dumbbell, Pencil } from "lucide-react";
 import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { offsetDate, shortDate, weekdayIndex, weekdays } from "@/shared/dates";
-import { sessionTotals } from "@/features/training/model";
+import { sessionTotals, type Session } from "@/features/training/model";
+import { parsePlanMove } from "@/features/exercises/move-name";
+import { EditLog } from "./edit-log";
 import { HeartPanel } from "@/features/heart/heart-panel";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { kindLabels } from "@/features/training/set-row";
 import type { TrainingEntry } from "@/shared/state";
 
-export function LogDetail({ log, close, own, whoop, onTemplate }: {
+export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today }: {
   log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus; onTemplate?: () => void;
+  today?: string; onEdit?: (next: Session) => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
   const { volume, sets } = sessionTotals(log.data);
+  if (editing && onEdit && today) return <Dialog title="编辑训练记录" onClose={() => setEditing(false)}>
+    <EditLog original={log.data} today={today} cancel={() => setEditing(false)} save={async (next) => {
+      await onEdit(next);
+      setEditing(false);
+    }} />
+  </Dialog>;
   return <Dialog title={log.data.plan.title} onClose={close}><div className="dialog-body form-fields">
     <p className="muted">{shortDate(log.data.date)} · {log.data.plan.category}</p>
     <div className="totals"><div><strong>{log.data.minutes}</strong><span>分钟</span></div><div><strong>{sets}</strong><span>完成组数</span></div><div><strong>{displayNumber(volume)}</strong><span>容量 kg</span></div></div>
     {log.data.note && <p className="note">{log.data.note}</p>}
     {log.data.plan.video && <VideoLink url={log.data.plan.video} />}
-    {onTemplate && <button className="button outline small" type="button" onClick={onTemplate}><Bookmark size={16} /> 另存为模板</button>}
+    {(onTemplate || onEdit) && <div className="exercise-toolbar">
+      {onTemplate && <button className="button outline small" type="button" onClick={onTemplate}><Bookmark size={16} /> 另存为模板</button>}
+      {onEdit && <button className="button outline small" type="button" onClick={() => setEditing(true)}><Pencil size={16} /> 编辑记录</button>}
+    </div>}
     {own && <HeartPanel id={log.id} session={log.data} whoopResult={whoop} />}
-    {log.data.plan.exercises.map((item, i) => <div className="log-move" key={i}><strong>{item.name}</strong>
+    {log.data.plan.exercises.map((item, i) => <div className="log-move" key={i}><strong>{parsePlanMove(item.name).name}</strong>
       {log.data.rows[i].map((line, j) => line.done && <div key={j}>
         <span>第 {j + 1} 组{line.kind ? " · " + kindLabels[line.kind] : ""}</span>
         <span>{line.seconds ? line.seconds + " 秒" + (line.weight ? " · " + line.weight + " " + item.unit : "") :
