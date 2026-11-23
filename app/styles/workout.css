@@ -1,11 +1,20 @@
-.workout-dialog[open] { display: flex; flex-direction: column; overflow: hidden; height: min(90dvh, 850px); }
-.workout-dialog .dialog-heading, .workout-dialog .dialog-footer { position: static; flex: none; }
-.workout-dialog .workout-body { flex: 1; min-height: 0; overflow: auto; align-content: start; overscroll-behavior: contain; }
-.workout-dialog .set-row { align-items: start; background: #f3f6f0; }
-.workout-dialog .set-row.done { background: #e6f2de; }
-.workout-dialog .set-index, .workout-dialog .check-button { min-height: 50px; }
-.workout-dialog .set-index { align-content: center; gap: 2px; }
-.workout-dialog .set-index small { font-size: .65rem; line-height: 1.1; color: #475d44; }
+.training-page { width: 100%; height: 100dvh; display: flex; justify-content: center; overflow: hidden; background: #edf2e9; }
+.training-shell { width: min(100%, 690px); height: 100%; display: flex; flex-direction: column; background: #fff; }
+.training-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; padding: max(11px, env(safe-area-inset-top)) 16px 11px; border-bottom: 1px solid var(--stroke); flex: none; }
+.training-header h1 { margin: 0; font-size: 1.05rem; font-weight: 800; }
+.training-header > button { justify-self: start; white-space: nowrap; min-height: 38px; }
+.training-header .workout-timer { justify-self: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.training-page .workout-body { flex: 1; min-height: 0; overflow: auto; align-content: start; overscroll-behavior: contain; }
+.training-page .workout-top h2 { font-size: 1.4rem; font-weight: 820; margin: 2px 0 0; }
+.training-footer { display: flex; justify-content: flex-end; gap: 8px; flex: none; background: white; padding: 10px 16px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--stroke); }
+.training-footer .button { min-height: 44px; }
+.training-notice { display: flex; flex: 1; justify-content: center; align-items: center; flex-direction: column; gap: 12px; padding: 18px; }
+.training-notice h2 { font-size: 1.07rem; font-weight: 760; }
+.training-page .set-row { align-items: start; background: #f3f6f0; }
+.training-page .set-row.done { background: #e6f2de; }
+.training-page .set-index, .training-page .check-button { min-height: 50px; }
+.training-page .set-index { align-content: center; gap: 2px; }
+.training-page .set-index small { font-size: .65rem; line-height: 1.1; color: #475d44; }
 .set-fields { display: grid; gap: 5px; flex: 1; min-width: 0; }
 .set-field-line { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
 .set-number { min-height: 50px; min-width: 0; border: 1px solid #dce8d6; border-radius: 10px; background: #fff; color: var(--text); display: grid; align-content: center; justify-items: center; gap: 1px; padding: 3px; font-variant-numeric: tabular-nums; }
@@ -30,7 +39,9 @@
 .keypad-grid button:active { background: #d7edb7; }
 .keypad-notice { padding: 4px 11px; color: #8c3b28; font-size: .78rem; }
 @media (max-width: 620px) {
-  .workout-dialog[open] { height: calc(96dvh - env(safe-area-inset-bottom)); }
+  .training-header { padding-inline: 12px; }
+  .training-footer { padding-inline: 12px; }
+  .training-footer .primary { flex: 1; }
 }
 @media (max-height: 500px) {
   .workout-keypad { padding-block: 4px; }

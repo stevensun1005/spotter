@@ -10,6 +10,8 @@ import { planBlank, type Plan, type PlannedWorkout } from "@/features/plans/mode
 import { Stats } from "@/features/stats/stats";
 import { Workout } from "@/features/training/workout";
 import { useTraining } from "@/features/training/use-training";
+import { useTrainingNavigation } from "@/features/training/navigation";
+import { TrainingNotice } from "@/features/training/training-notice";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { AppleHealthConnection } from "@/features/heart/apple/connection";
 import { shortDate, weekdayIndex, weekdays } from "@/shared/dates";
@@ -28,8 +30,8 @@ const navigation = [
 type View = typeof navigation[number]["id"];
 type Overlay = { kind: "pair" } | { kind: "editor"; item: PlannedWorkout; editing: boolean } | { kind: "log"; log: TrainingEntry; whoop?: WhoopStatus };
 
-export function Dashboard({ viewer, initialDate, heartReturn }: {
-  viewer: Person; initialDate: string; heartReturn?: { id: string; result: WhoopStatus };
+export function Dashboard({ viewer, initialDate, heartReturn, initialWorkoutId }: {
+  viewer: Person; initialDate: string; heartReturn?: { id: string; result: WhoopStatus }; initialWorkoutId?: string;
 }) {
   const { today, state, status, refresh, saveInView } = useCloud(viewer, initialDate);
   const [selection, setSelection] = useState<string | null>(null);
@@ -39,6 +41,13 @@ export function Dashboard({ viewer, initialDate, heartReturn }: {
   const [toast, setToast] = useState("");
   const notify = useCallback((message: string) => setToast(message), []);
   const training = useTraining(viewer.id, state.entries, refresh, saveInView, notify);
+  const navigationState = useTrainingNavigation(initialWorkoutId);
+  const routeDraft = training.drafts.find((draft) => draft.id === navigationState.id);
+
+  useEffect(() => {
+    if (routeDraft && training.active?.id !== routeDraft.id) training.resume(routeDraft);
+    else if (!navigationState.id && training.active) training.close();
+  }, [navigationState.id, routeDraft, training]);
 
   useEffect(() => {
     if (!returnToLog || status !== "云端已连接") return;
@@ -66,6 +75,23 @@ export function Dashboard({ viewer, initialDate, heartReturn }: {
   const close = () => setOverlay(null);
   const create = (plan: Plan) => setOverlay({ kind: "editor", item: { id: crypto.randomUUID(), data: plan }, editing: false });
   const edit = (item: PlannedWorkout) => setOverlay({ kind: "editor", item, editing: true });
+  const start = (item: PlannedWorkout) => navigationState.enter(training.begin(item));
+  const resume = (item: { id: string }) => navigationState.enter(item.id);
+  const leave = () => { training.close(); navigationState.leave(); };
+
+  if (navigationState.id) {
+    const saved = logs.find((log) => log.id === navigationState.id && log.owner === viewer.id);
+    if (!saved && training.active?.id === navigationState.id) {
+      return <Workout key={training.active.id} data={training.active.data} update={training.update} close={leave}
+        finish={async () => {
+          const log = await training.finish();
+          if (log) { showLog(log); navigationState.leave(); }
+        }}
+        pending={training.busy} error={training.error} sync={training.sync} />;
+    }
+    return <TrainingNotice loading={!training.cached || status === "正在连接" || Boolean(routeDraft)}
+      finished={Boolean(saved)} onBack={leave} onDetails={saved && (() => { showLog(saved); leave(); })} />;
+  }
 
   return <div className="app">
     <aside className="sidebar">
@@ -91,9 +117,9 @@ export function Dashboard({ viewer, initialDate, heartReturn }: {
           {(view === "today" || view === "plans") && <button className="button primary page-action" onClick={() => create(planBlank(view === "today" ? selected : today))}><Plus size={19} /> 新建计划</button>}
         </div>
         {view === "today" && <Today state={state} plans={plans} today={today} selected={selected} select={setSelection} drafts={training.drafts}
-          begin={training.begin} resume={training.resume} edit={edit} add={() => create(planBlank(selected))} showLog={showLog} manage={managed}
+          begin={start} resume={resume} edit={edit} add={() => create(planBlank(selected))} showLog={showLog} manage={managed}
           openPlans={() => go("plans")} openStats={() => go("stats")} openImport={() => go("import")} refresh={refresh} />}
-        {view === "plans" && <Plans plans={plans} owner={me.id} today={today} begin={training.begin} edit={edit} create={create} openImport={() => go("import")} />}
+        {view === "plans" && <Plans plans={plans} owner={me.id} today={today} begin={start} edit={edit} create={create} openImport={() => go("import")} />}
         {view === "history" && <History today={today} self={me.id} partner={room?.partner?.name} logs={logs} show={showLog} />}
         {view === "stats" && <Stats today={today} self={me.id} partner={room?.partner ?? null} logs={logs} />}
         <div hidden={view !== "import"}><ImportView today={today} saved={() => { void refresh(); notify("计划已保存到云端"); go("plans"); }} notify={notify} /></div>
@@ -108,9 +134,6 @@ export function Dashboard({ viewer, initialDate, heartReturn }: {
     </PartnerSpace>}
     {overlay?.kind === "log" && <LogDetail key={overlay.log.id} log={overlay.log} close={close}
       own={overlay.log.owner === me.id} whoop={overlay.whoop} />}
-    {training.active && <Workout data={training.active.data} update={training.update} close={training.close}
-      finish={async () => { const log = await training.finish(); if (log) showLog(log); }}
-      pending={training.busy} error={training.error} sync={training.sync} />}
     {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
   </div>;
 }

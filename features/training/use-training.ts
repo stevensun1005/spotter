@@ -16,6 +16,7 @@ export function useTraining(owner: string, allEntries: Entry[], refresh: () => P
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queue = useRef(Promise.resolve());
   const [active, setActive] = useState<OpenWorkout | null>(null);
+  const [cached, setCached] = useState(false);
   const [sync, setSync] = useState("正在保存");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -58,6 +59,7 @@ export function useTraining(owner: string, allEntries: Entry[], refresh: () => P
       const cached = JSON.parse(localStorage.getItem(key) || "{}");
       if (cached && typeof cached === "object" && !Array.isArray(cached)) setPending(cached);
     } catch { /* Recovery can continue from the server when device storage is unavailable. */ }
+    setCached(true);
     const retry = () => {
       for (const [id, data] of Object.entries(pendingRef.current)) flushDraft(id, data);
     };
@@ -93,12 +95,13 @@ export function useTraining(owner: string, allEntries: Entry[], refresh: () => P
   function begin(item: PlannedWorkout) {
     const date = asDate();
     const existing = drafts.find(({ data }) => data.planId === item.id && data.date === date);
-    if (existing) { resume(existing); return; }
+    if (existing) { resume(existing); return existing.id; }
     const id = crypto.randomUUID();
     const data = startSession(item.data, item.id, date);
     setError("");
     setActive({ id, data });
     updateDraft(id, data);
+    return id;
   }
 
   function close() {
@@ -142,5 +145,5 @@ export function useTraining(owner: string, allEntries: Entry[], refresh: () => P
     finally { setBusy(false); }
   }
 
-  return { active, drafts, begin, resume, close, update, finish, busy, error, sync };
+  return { active, cached, drafts, begin, resume, close, update, finish, busy, error, sync };
 }

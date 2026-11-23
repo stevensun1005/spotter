@@ -121,6 +121,11 @@ test("independent app auth, pairing, sharing and persistence", { timeout: 45_000
     finishedVideo: false, rows: [[{ weight: 10, reps: 8, seconds: 0, done: true }]],
   };
   await expect("training", owner, { action: "draft", id: logId, data: session });
+  const workoutPage = await fetch(base + "/training/" + logId, { headers: { Cookie: owner } });
+  assert.equal(workoutPage.status, 200);
+  assert.match(await workoutPage.text(), /正在读取训练草稿/);
+  const invalidWorkout = await fetch(base + "/training/invalid-id", { headers: { Cookie: owner }, redirect: "manual" });
+  assert.equal(invalidWorkout.headers.get("location"), "/");
   await expect("health?id=" + logId, owner, null, 404);
   assert.deepEqual((await state(partner)).entries.map((row) => row.id), [sharedPlan]);
   await expect("training", owner, { action: "log", id: logId, data: session });

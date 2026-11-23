@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Clock3, Dumbbell, Plus } from "lucide-react";
-import { Dialog, VideoLink } from "@/shared/ui";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, Clock3, Dumbbell, Keyboard, Plus } from "lucide-react";
+import { VideoLink } from "@/shared/ui";
 import { sessionTotals, type Session } from "./model";
 import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldValue, flipWeightUnit, validNumberText, type NumberField, type SetTarget } from "./set-editor";
 import { fieldLabels, SetRow } from "./set-row";
@@ -17,6 +17,7 @@ export function Workout({ data, update, finish, close, pending, error, sync }: {
   const [now, setNow] = useState(() => Date.now());
   const [edit, setEdit] = useState<Edit | null>(null);
   const [padNotice, setPadNotice] = useState("");
+  const [openedMove, setOpenedMove] = useState(0);
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(tick);
@@ -38,6 +39,14 @@ export function Workout({ data, update, finish, close, pending, error, sync }: {
     const value = fieldValue(session.rows[target.move][target.row], target.field);
     setEdit({ ...target, text: value === undefined ? "" : String(value), pristine: true });
     setPadNotice("");
+    setOpenedMove(target.move);
+  }
+
+  function openKeypad() {
+    const nextMove = data.rows.findIndex((group) => group.some((line) => !line.done));
+    const move = nextMove < 0 ? 0 : nextMove;
+    const row = Math.max(0, data.rows[move].findIndex((line) => !line.done));
+    activate({ move, row, field: data.plan.exercises[move].seconds > 0 ? "seconds" : "weight" });
   }
 
   function digit(key: string) {
@@ -98,15 +107,21 @@ export function Workout({ data, update, finish, close, pending, error, sync }: {
     </>;
   }
 
-  return <Dialog title="正在训练" className="workout-dialog" onClose={edit ? closePad : close}>
+  return <main className="training-page" aria-label="正在训练">
+    <div className="training-shell">
+      <header className="training-header">
+        <button className="button subtle" disabled={pending} onClick={close}><ChevronLeft size={18} /> 返回</button>
+        <h1>正在训练</h1>
+        <div className="workout-timer" aria-label="训练用时"><Clock3 size={17} />{timer}</div>
+      </header>
     <div className="dialog-body workout-body">
-      <div className="workout-top"><div><p className="muted">{data.plan.category}</p><h3>{data.plan.title}</h3></div><div className="workout-timer"><Clock3 size={17} />{timer}</div></div>
+      <div className="workout-top"><div><p className="muted">{data.plan.category}</p><h2>{data.plan.title}</h2></div></div>
       <div className="workout-progress"><span>{done} / {total} 组完成</span><span>{sync}</span></div>
       <progress value={done + Number(data.finishedVideo)} max={total + Number(Boolean(data.plan.video))} />
       <fieldset disabled={pending} className="session-fields">
         {data.plan.video && <div className="video-panel"><VideoLink url={data.plan.video} /><label className="toggle-label"><input type="checkbox" checked={data.finishedVideo} onChange={(e) => update({ ...data, finishedVideo: e.target.checked })} /> 已完成跟练</label></div>}
-        {data.plan.exercises.map((move, i) => <details className="set-card" key={i} open={i === 0 || undefined}>
-          <summary><span className="tile mint"><Dumbbell size={17} /></span><strong>{move.name}</strong><span className="set-summary"><span className="muted">{data.rows[i].filter((line) => line.done).length}/{move.sets} 组</span><ChevronDown size={16} /></span></summary>
+        {data.plan.exercises.map((move, i) => <details className="set-card" key={i} open={openedMove === i}>
+          <summary onClick={(event) => { event.preventDefault(); setOpenedMove(openedMove === i ? -1 : i); }}><span className="tile mint"><Dumbbell size={17} /></span><strong>{move.name}</strong><span className="set-summary"><span className="muted">{data.rows[i].filter((line) => line.done).length}/{move.sets} 组</span><ChevronDown size={16} /></span></summary>
           {data.rows[i].map((line, j) => <div id={"workout-set-" + i + "-" + j} key={j}><SetRow move={move} line={line} index={j}
             selected={edit?.move === i && edit.row === j ? edit.field : undefined}
             edit={(field) => activate({ move: i, row: j, field })}
@@ -119,6 +134,10 @@ export function Workout({ data, update, finish, close, pending, error, sync }: {
       </fieldset>
       {error && <p className="inline-error" role="alert">{error}</p>}
     </div>
-    {edit ? renderPad() : <div className="dialog-footer"><button className="button outline" onClick={close} disabled={pending}>稍后继续</button><button className="button primary" disabled={pending || (!done && !data.finishedVideo)} onClick={finish}><Check size={18} /> 完成打卡</button></div>}
-  </Dialog>;
+    {edit ? renderPad() : <div className="training-footer">
+      {total > 0 && <button className="button outline" onClick={openKeypad} disabled={pending}><Keyboard size={18} /> 数字键盘</button>}
+      <button className="button primary" disabled={pending || (!done && !data.finishedVideo)} onClick={finish}><Check size={18} /> {pending ? "正在保存" : "完成打卡"}</button>
+    </div>}
+    </div>
+  </main>;
 }
