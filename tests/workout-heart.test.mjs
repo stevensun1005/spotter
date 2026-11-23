@@ -255,3 +255,17 @@ test("workout guidance covers custom variants and preserves Y-shaped exercise na
   assert.deepEqual(exerciseMuscles("放松呼吸"), {});
   assert.match(researchedGuide("站姿正握慢放弯举").steps.join(" "), /掌心/);
 });
+
+test("exercise animations slow existing loops and keep plan variants distinct", async () => {
+  const { exerciseMotion, slowFrameMs } = await import("../features/exercises/motion-data.ts");
+  assert.equal(slowFrameMs(180), 360);
+  assert.equal(exerciseMotion("上斜俯卧哑铃展臂", "上斜俯卧哑铃展臂").id, "0326");
+  const single = exerciseMotion("哑铃单臂站姿锤式弯举", "哑铃单臂站姿锤式弯举", undefined, "1671", true);
+  assert.equal(single.id, undefined);
+  assert.notDeepEqual(single.illustration.frames[0][4], single.illustration.frames[1][4]);
+  assert.deepEqual(single.illustration.frames[0][6], single.illustration.frames[1][6]);
+  assert.equal(exerciseMotion("跪姿绳索三头下压", "跪姿绳索三头下压").id, "0176");
+  assert.ok(exerciseMotion("绳索跪姿三头肌伸展", "绳索跪姿三头肌伸展", "跪姿过头绳索臂屈伸", "0176", true).illustration);
+  assert.equal(exerciseMotion("弹力带水平帕洛夫推举", "弹力带水平帕洛夫推举", undefined, "0979", true).id, "1015");
+  assert.ok(exerciseMotion("Y 字举臂弹力带侧向走", "Y 字举臂弹力带侧向走").illustration);
+});
