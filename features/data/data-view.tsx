@@ -61,7 +61,7 @@ export function DataView({ enabled, saved, importPlans }: { enabled: boolean; sa
 
   return <div className="feature-stack">
     <section className="card padded feature-stack">
-      <div className="section-head"><h1>数据导出与导入</h1></div>
+      <div className="section-head"><h2>导出备份</h2></div>
       <div className="segmented data-scopes" aria-label="导出类别">{dataScopes.map((item) =>
         <button key={item} aria-pressed={item === scope} onClick={() => setScope(item)}>{scopeNames[item]}</button>)}</div>
       <label className="toggle-label"><input type="checkbox" checked={includeDates} onChange={(e) => setIncludeDates(e.target.checked)} /> 限定日期范围</label>

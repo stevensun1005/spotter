@@ -35,7 +35,7 @@ export function BodyView({ enabled, today }: { enabled: boolean; today: string }
   }
   return <div className="feature-stack">
     <section className="card padded feature-stack">
-      <div className="section-head"><h1>身体数据</h1></div>
+      <div className="section-head"><h2>记录身体测量</h2></div>
       <form className="form-fields" onSubmit={save}>
         <label>测量项目<select value={metric} onChange={(e) => { setMetric(e.target.value as BodyMetric); setValue(""); setId(""); setStatus(""); }}>
           {(Object.entries(measurements)).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}

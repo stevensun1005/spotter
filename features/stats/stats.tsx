@@ -7,7 +7,7 @@ import { Anatomy } from "@/features/exercises/anatomy";
 import { type ExerciseChoice, useCatalogue } from "@/features/exercises/open-gym";
 import type { TrainingEntry } from "@/shared/state";
 import { displayNumber } from "@/shared/ui";
-import { offsetDate } from "@/shared/dates";
+import { offsetDate, weekdayIndex } from "@/shared/dates";
 import {
   cumulative, metrics, muscleGroups, periodLabel, periodRange, previousRange, rangeDays, summarize,
   type Metric, type Period, type Range, type StatsSummary, type TrainingMode,
@@ -51,6 +51,34 @@ function Trend({ selected, set, current, comparison, range, compare }: {
         <Area type="stepAfter" dataKey="value" stroke="#2c6b4a" fill="#dbefdf" strokeWidth={2.5} isAnimationActive={false} />
       </AreaChart></ResponsiveContainer>
     </div> : <p className="stats-empty">这个周期打卡后，这里会显示累计曲线。</p>}
+  </section>;
+}
+
+function ActivityCalendar({ current, range, today }: { current: StatsSummary; range: Range; today: string }) {
+  const to = range.to < today ? range.to : today;
+  const cutoff = offsetDate(to, -365);
+  const from = range.from > cutoff ? range.from : cutoff;
+  const [day, setDay] = useState<string>();
+  const active = day && day >= from && day <= to ? day : to;
+  const activeCount = current.daily.get(active)?.sessions ?? 0;
+  const dates = Array.from({ length: Math.max(0, rangeDays({ from, to })) }, (_, i) => offsetDate(from, i));
+  const blanks = weekdayIndex(from);
+  const weeks = Math.max(1, Math.ceil((dates.length + blanks) / 7));
+  return <section className="card padded stats-panel">
+    <div className="stats-section-heading"><h2>训练活跃日历</h2><span className="muted">{from} — {to}</span></div>
+    <div className="stats-activity-layout">
+      <div className="stats-activity-days" aria-hidden="true"><span>一</span><span>三</span><span>五</span><span>日</span></div>
+      <div className="stats-activity" style={{ gridTemplateColumns: "repeat(" + weeks + ", 12px)" }} aria-hidden="true">
+        {Array.from({ length: blanks }, (_, i) => <i key={i} className="stats-activity-blank" />)}
+        {dates.map((date) => {
+          const count = current.daily.get(date)?.sessions ?? 0;
+          return <i key={date} className={date === active ? "stats-activity-active" : undefined}
+            title={date + " · " + count + " 次"} style={{ background: count ? "var(--heat-" + Math.min(5, count + 1) + ")" : undefined }} />;
+        })}
+      </div>
+    </div>
+    <label className="stats-compare-select">查看单日<input type="date" min={from} max={to} value={active} onChange={(e) => setDay(e.target.value)} />
+      <span aria-live="polite">{activeCount} 次打卡 · {current.daily.get(active)?.sets ?? 0} 组</span></label>
   </section>;
 }
 
@@ -158,10 +186,10 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
   const navigate = (n: number) => period === "custom" ? shiftCustom(n) : setStepping(stepping + n);
   return <div className="stats-page stats-dashboard">
     <div className="stats-top card padded">
-      <div className="stats-section-heading"><h1>训练统计</h1>{partner && <div className="segmented">
+      {partner && <div className="segmented stats-segment" aria-label="选择统计对象">
         <button aria-pressed={person === self} onClick={() => setPerson(self)}>我</button>
         <button aria-pressed={person === partner.id} onClick={() => setPerson(partner.id)}>{partner.name}</button>
-      </div>}</div>
+      </div>}
       <div className="segmented stats-segment">{modes.map(([value, title]) => <button key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{title}</button>)}</div>
       <div className="stats-periods" aria-label="统计周期">{periods.map(([value, title]) => <button key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setStepping(0); }}>{title}</button>)}</div>
       {period === "recent" && <label className="stats-compare-select">最近天数<select value={recent} onChange={(event) => { setRecent(Number(event.target.value)); setStepping(0); }}>
@@ -196,6 +224,7 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
         </div>;
       })}</div>
       <Trend selected={trend} set={setTrend} current={current} comparison={former} range={range} compare={compare} />
+      <ActivityCalendar current={current} range={range} today={today} />
       <MusclePanel current={current} loading={!data && !error} error={error} />
       <Performance key={person} current={current} comparison={former} onExercise={onExercise} pinned={person === self ? pinned : undefined} savePins={person === self ? savePins : undefined} />
       {mode !== "all" && <p className="muted stats-description">分类筛选按已完成的组识别。同一堂混合训练会出现在两种分类里，时长按整堂课记录。</p>}
