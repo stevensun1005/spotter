@@ -93,8 +93,8 @@ async function post(body: unknown) {
 const message = (reason: unknown, fallback: string) =>
   reason instanceof Error && reason.name === "Error" ? reason.message : fallback;
 
-export default function Dashboard({ viewer, initialDate, initialWorkoutId, heartReturn }: {
-  viewer: State["me"] | null; initialDate: string; initialWorkoutId?: string; heartReturn?: { id: string; result: WhoopStatus };
+export default function Dashboard({ viewer, initialDate, initialWorkoutId, heartReturn, profileRef }: {
+  viewer: State["me"] | null; initialDate: string; initialWorkoutId?: string; heartReturn?: { id: string; result: WhoopStatus }; profileRef?: string;
 }) {
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
@@ -593,7 +593,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
-        {view === "data" && <DataView enabled={Boolean(viewer)} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
+        {view === "data" && <DataView enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
         {view === "more" && <section className="card padded feature-stack">
           {navigation.filter((item) => !item.mobile).map(({ id, icon: Icon, title }) =>
             <button key={id} className="list-line" type="button" onClick={() => go(id)}><span className="tile mint"><Icon size={18} /></span><strong>{title}</strong><ChevronRight size={16} /></button>)}

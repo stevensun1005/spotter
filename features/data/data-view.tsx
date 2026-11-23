@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { Download, FileJson, Upload } from "lucide-react";
 import { asDate } from "@/shared/dates";
+import { AgentPack } from "@/features/agent/agent-pack";
 import { backupLimit, backupSchema, dataScopes, scopeNames, type Backup, type DataScope } from "./model";
 
-export function DataView({ enabled, saved, importPlans }: { enabled: boolean; saved: () => void; importPlans: () => void }) {
+export function DataView({ enabled, saved, importPlans, profileRef }: { enabled: boolean; saved: () => void; importPlans: () => void; profileRef?: string }) {
   const [scope, setScope] = useState<DataScope>("all");
   const [file, setFile] = useState<Backup>();
   const [selection, setSelection] = useState(0);
@@ -14,7 +15,6 @@ export function DataView({ enabled, saved, importPlans }: { enabled: boolean; sa
   const [error, setError] = useState("");
   const [dates, setDates] = useState({ from: "", to: "" });
   const [includeDates, setIncludeDates] = useState(false);
-  const [copyStatus, setCopyStatus] = useState("");
   const exportQuery = new URLSearchParams({ scope });
   if (includeDates && dates.from) exportQuery.set("from", dates.from);
   if (includeDates && dates.to) exportQuery.set("to", dates.to);
@@ -46,20 +46,8 @@ export function DataView({ enabled, saved, importPlans }: { enabled: boolean; sa
     finally { setBusy(false); }
   }
 
-  async function copyGuide() {
-    const guide = [
-      "# 训练搭子数据",
-      "使用用户提供的 JSON 备份，或使用训练搭子已连接的个人插件。",
-      "可读取训练、饮食、身体或模版；按需要指定日期。备份中的个人记录仅用于用户指定的任务。",
-      "训练计划写回前请列出日期、动作、组次、器械站及休息，得到用户授权后再导入。",
-      "JSON 备份是 spotter-backup v1，含 training、library 和 heart。已有记录按原 ID 保留。",
-      "只有训练计划时，使用站内「导入计划」的结构。每批最多 20 项。",
-    ].join("\n\n");
-    try { await navigator.clipboard.writeText(guide); setCopyStatus("已复制说明"); }
-    catch { setCopyStatus("浏览器无法复制，请重试。"); }
-  }
-
   return <div className="feature-stack">
+    <AgentPack profileRef={profileRef} />
     <section className="card padded feature-stack">
       <div className="section-head"><h2>导出备份</h2></div>
       <div className="segmented data-scopes" aria-label="导出类别">{dataScopes.map((item) =>
@@ -87,12 +75,6 @@ export function DataView({ enabled, saved, importPlans }: { enabled: boolean; sa
       </div>}
       {message && <p role="status">{message}</p>}{error && <p role="alert" className="inline-error">{error}</p>}
       <button className="button outline" onClick={importPlans}><FileJson size={17} /> 导入训练计划</button>
-    </section>
-    <section className="card padded feature-stack">
-      <div className="section-head"><h2>和 Agent 一起用</h2></div>
-      <p className="muted">在 ChatGPT 或 Codex 中连接训练搭子的私密插件，可以按类别读取自己的数据及写回记录。其他助手可以使用你主动分享的 JSON 文件。</p>
-      <button className="button outline" type="button" onClick={() => void copyGuide()}>复制 Agent 使用说明</button>
-      {copyStatus && <p role="status">{copyStatus}</p>}
     </section>
   </div>;
 }

@@ -3,6 +3,7 @@ import { getChatGPTUser } from "./chatgpt-auth";
 import { asDate } from "./workout";
 import { workoutId } from "@/features/heart/server";
 import { whoopStatuses, type WhoopStatus } from "@/features/heart/whoop";
+import { agentProfileRef } from "@/features/agent/profile";
 
 export const dynamic = "force-dynamic";
 
@@ -12,5 +13,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ h
   const { heart, whoop } = await searchParams;
   const result = whoopStatuses.find((value): value is WhoopStatus => value === whoop);
   const heartReturn = identity && heart && workoutId.safeParse(heart).success && result ? { id: heart, result } : undefined;
-  return <Dashboard viewer={identity} initialDate={asDate()} heartReturn={heartReturn} />;
+  return <Dashboard viewer={identity} initialDate={asDate()} heartReturn={heartReturn}
+    profileRef={identity ? await agentProfileRef(identity.id) : undefined} />;
 }

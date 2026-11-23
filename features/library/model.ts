@@ -47,7 +47,7 @@ const saveProfile = z.object({ kind: z.literal("exercise"), item: exerciseProfil
 const template = z.object({ kind: z.literal("template"), id: uuid, plan: planSchema });
 const nutrition = z.object({ kind: z.literal("nutrition"), id: uuid, date: dateSchema, entry: nutritionEntry });
 const targets = z.object({ kind: z.literal("targets"), values: nutritionValues });
-const personalFood = z.object({ kind: z.literal("food"), id: uuid, name: foodName,
+export const personalFood = z.object({ kind: z.literal("food"), id: uuid, name: foodName,
   per100g: foodValues.extend({ calories: amount.max(1000), protein: amount.max(100), carbs: amount.max(100), fat: amount.max(100) }),
 });
 export type PersonalFood = z.infer<typeof personalFood>;
