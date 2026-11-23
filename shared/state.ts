@@ -2,7 +2,8 @@ import type { Plan } from "@/features/plans/model";
 import type { Session } from "@/features/training/model";
 
 export type Person = { id: string; name: string };
-export type Pair = { invite: string | null; partner: Person | null };
+export type Checkin = { date: string; count: number };
+export type Pair = { invite: string | null; partner: Person | null; partnerCheckins?: Checkin[]; partnerTrainingShared?: boolean };
 type EntryBase = { id: string; owner: string; updated: string };
 export type PlanEntry = EntryBase & { kind: "plan"; data: Plan };
 export type TrainingEntry = EntryBase & { kind: "draft" | "log"; data: Session };

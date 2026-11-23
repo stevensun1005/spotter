@@ -8,6 +8,7 @@
 @import "./protein.css";
 @import "./pair.css";
 @import "./home.css";
+@import "./friends.css";
 
 :root {
   color-scheme: light;

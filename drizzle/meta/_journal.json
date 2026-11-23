@@ -22,6 +22,13 @@
       "when": 1795457963224,
       "tag": "0002_sharp_paper_doll",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795476190204,
+      "tag": "0003_friends",
+      "breakpoints": true
     }
   ]
 }

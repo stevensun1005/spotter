@@ -27,6 +27,7 @@ import { OpenGymCatalogue } from "@/features/exercises/open-gym-catalogue";
 import { defaultCatalogMove } from "@/features/exercises/exercise-picker";
 import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym";
 import { NutritionView } from "@/features/nutrition/nutrition-view";
+import { FriendsView } from "@/features/friends/friends-view";
 import { PlanSections } from "@/features/plans/plan-sections";
 
 import { useLibrary } from "@/features/library/use-library";
@@ -41,7 +42,7 @@ import { BodyView } from "@/features/body/body-view";
 import { DataView } from "@/features/data/data-view";
 import { HardDriveDownload, Ruler } from "lucide-react";
 
-type View = "today" | "plans" | "history" | "stats" | "import" | "nutrition" | "body" | "data" | "more";
+type View = "today" | "plans" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "more";
 type KeyedPlan = { id: string; data: Plan };
 type Overlay = { kind: "pair" | "schedule" } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
@@ -49,8 +50,8 @@ const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
   { id: "plans", title: "训练", mobile: "训练", icon: Dumbbell },
   { id: "nutrition", title: "饮食记录", mobile: "饮食", icon: Utensils },
-  { id: "history", title: "打卡历史", mobile: "打卡", icon: CalendarDays },
-  { id: "stats", title: "训练统计", mobile: "统计", icon: BarChart3 },
+  { id: "stats", title: "统计", mobile: "统计", icon: BarChart3 },
+  { id: "friends", title: "好友", mobile: "好友", icon: Users },
   { id: "body", title: "身体数据", mobile: "", icon: Ruler },
   { id: "data", title: "数据导出与导入", mobile: "", icon: HardDriveDownload },
   { id: "import", title: "导入计划", mobile: "", icon: Sparkles },
@@ -97,7 +98,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 }) {
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
-  const [view, setView] = useState<View>(heartReturn ? "history" : "today");
+  const [view, setView] = useState<View>(heartReturn ? "stats" : "today");
+  const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
+  const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
   const [exercise, setExercise] = useState<ExerciseChoice>();
   const [planPick, setPlanPick] = useState<{ choice: ExerciseChoice; row?: CatalogEntry }>();
   const [targetPlan, setTargetPlan] = useState("");
@@ -213,6 +216,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   }, [returnToLog, entries, cloud, me.id]);
 
   const partner = room?.partner;
+  const partnerWithDetails = room?.partnerTrainingShared === false ? null : partner;
   const demo = !viewer;
   const logs = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "log");
   const plans = entries.filter((entry): entry is PlanEntry => entry.kind === "plan");
@@ -231,7 +235,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   ].map((name) => parsePlanMove(name).name);
   const todaysPlans = plans.filter((item) => item.data.date === selected)
     .sort((a, b) => Number(b.owner === me.id) - Number(a.owner === me.id));
-  const latestPartner = logs.filter((log) => log.owner === partner?.id).sort((a, b) => b.data.date.localeCompare(a.data.date))[0];
+  const latestPartner = logs.filter((log) => log.owner === partner?.id && log.data.date <= today).sort((a, b) => b.data.date.localeCompare(a.data.date))[0];
+  const partnerLastDay = room?.partnerCheckins?.reduce((last, day) => day.count > 0 && day.date <= today && day.date > last ? day.date : last, "") || latestPartner?.data.date;
   const myToday = logs.filter((log) => log.owner === me.id && log.data.date === today);
   const partnerToday = logs.filter((log) => log.owner === partner?.id && log.data.date === today);
   const buddyStatus = demo ? "signed-out" : cloud === "正在连接" ? "loading" : cloud === "云端已连接" ? "ready" : "offline";
@@ -243,7 +248,19 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const receivedCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === partner?.id && entry.data.date === today);
   const weekStart = offsetDate(selected, -weekdayIndex(selected));
 
-  const go = (next: View) => { setView(next); setPlanTab(undefined); setWarning(""); window.scrollTo({ top: 0 }); };
+  const go = (next: View) => {
+    setView(next);
+    setPlanTab(undefined);
+    setWarning("");
+    setFriendFocus(undefined);
+    if (next === "stats" && view !== "stats") setStatsTab("overview");
+    window.scrollTo({ top: 0 });
+  };
+  function showBuddy(date = partnerLastDay || today) {
+    if (!partner) return;
+    go("friends");
+    setFriendFocus({ id: partner.id, date });
+  }
   const open = (next: Overlay) => { setWarning(""); setOverlay(next); };
   const parkWorkout = useCallback((id: string, data: Session) => {
     const latest = pendingRef.current[id] ?? data;
@@ -506,11 +523,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
         {view === "today" && <div className="today-grid">
           <div className="home-pair">
-            <PairToday me={me} partner={partner} myToday={myToday} partnerToday={partnerToday} latestPartner={latestPartner}
+            <PairToday me={me} partner={partner} myToday={myToday} partnerToday={partnerToday} latestPartner={latestPartner} today={today} partnerLastDay={partnerLastDay}
               signedIn={!demo} loading={buddyStatus === "loading"} unavailable={buddyStatus === "offline"} busy={busy}
               sentCheer={sentCheer} receivedCheer={receivedCheer} onShowLog={(log) => open({ kind: "log", log })}
               onConnect={() => open({ kind: "pair" })}
-              onPartnerHistory={() => { setHistorySubject("partner"); go("history"); }}
+              onPartnerHistory={showBuddy}
               onCheer={() => { if (partner && viewer) void act(async () => { await post({ action: "cheer" }); await refresh(); setToast("已给搭子加油"); }); }} />
           </div>
           <div className="main-column">
@@ -561,7 +578,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           </div>
 
           <aside className="right-column">
-            <WeekCheckins today={today} me={me} partner={partner} logs={logs} status={buddyStatus} showStats={() => go("stats")} />
+            <WeekCheckins today={today} me={me} partner={partner} partnerCheckins={room?.partnerCheckins} logs={logs} status={buddyStatus} showStats={() => go("stats")} />
             <button className="import-callout" onClick={() => go("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>从聊天导入</strong><small>GPT、Claude 或跟练视频</small></span><ChevronRight size={18} /></button>
             {warning && !overlay && <p className="inline-error" role="alert">{warning}</p>}
           </aside>
@@ -583,10 +600,19 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           <button className="list-line" type="button" onClick={() => open({ kind: "pair" })}><span className="tile mint"><Users size={18} /></span><strong>账号与搭子空间</strong><ChevronRight size={16} /></button>
         </section>}
 
-        {view === "history" && <History today={today} self={me.id} partner={partner?.name} logs={logs} subject={historySubject} onSubject={setHistorySubject} show={(log) => open({ kind: "log", log })} />}
-        {view === "stats" && <Stats today={today} self={me.id} partner={partner ?? null} logs={logs} onExercise={setExercise}
-          pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
-          savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
+        {view === "stats" && <div className="feature-stack">
+          <div className="segmented stats-page-tabs" role="group" aria-label="统计页面">
+            <button type="button" aria-pressed={statsTab === "overview"} onClick={() => setStatsTab("overview")}>训练统计</button>
+            <button type="button" aria-pressed={statsTab === "history"} onClick={() => setStatsTab("history")}>打卡历史</button>
+          </div>
+          {statsTab === "history" ? <History today={today} self={me.id} partner={partnerWithDetails?.name} logs={logs}
+            subject={partnerWithDetails ? historySubject : "self"} onSubject={setHistorySubject} show={(log) => open({ kind: "log", log })} /> :
+            <Stats today={today} self={me.id} partner={partnerWithDetails ?? null} logs={logs} onExercise={setExercise}
+              pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
+              savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
+        </div>}
+        {view === "friends" && <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
+          today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} />}
 
         <div hidden={view !== "import"}><ImportView today={today} save={importPlans} canRevise={Boolean(viewer)} saved={() => go("plans")} notify={setToast} /></div>
       </main>

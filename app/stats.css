@@ -10,6 +10,8 @@
   max-width: 950px;
   margin-inline: auto;
 }
+.stats-page-tabs { width: 100%; max-width: 950px; margin-inline: auto; }
+.stats-page-tabs > button { flex: 1; min-height: 44px; }
 .stats-dashboard h2 { font-size: clamp(1.06rem, 3.8vw, 1.24rem); font-weight: 780; letter-spacing: -.027em; }
 .stats-top, .stats-panel { display: grid; gap: 15px; }
 .stats-top { background: linear-gradient(#f9fcf7, #fff 65%); }

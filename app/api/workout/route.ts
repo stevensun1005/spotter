@@ -8,6 +8,7 @@ import { dateSchema } from "@/shared/dates";
 import { checkPlanDates, reschedule } from "@/features/plans/schedule-server";
 import { updateLog } from "@/features/history/update-log";
 import { withoutProteinShake } from "@/features/training/protein";
+import { buddyCheckins, shareAccess } from "@/features/friends/server";
 
 export const dynamic = "force-dynamic";
 
@@ -44,19 +45,31 @@ export async function GET() {
   if (!env.DB) return reply({ error: "云端数据库暂不可用。" }, 503);
   const me = { id: user.userId, name: user.fullName || user.email.split("@")[0] };
   const member = await membership(env.DB, me.id);
-  const rows = await env.DB.prepare(
-    "SELECT id, owner, kind, payload, updated FROM entries " +
-    "WHERE (owner = ? AND kind IN ('plan', 'draft', 'log', 'cheer')) OR (owner = ? AND kind IN ('plan', 'log', 'cheer')) ORDER BY updated DESC"
-  ).bind(me.id, member?.partnerId ?? null).all<Row>();
+  const partner = member?.partnerId;
+  const training = partner ? shareAccess(me.id, partner, "training") : null;
+  const partnerFilter = training ?
+    " OR (owner = ? AND (kind IN ('plan', 'cheer') OR (kind = 'log' AND " + training.condition + ")))" : "";
+  const [rows, partnerCheckins, share] = await Promise.all([
+    env.DB.prepare("SELECT id, owner, kind, payload, updated FROM entries " +
+      "WHERE (owner = ? AND kind IN ('plan', 'draft', 'log', 'cheer'))" + partnerFilter + " ORDER BY updated DESC")
+      .bind(me.id, ...(partner && training ? [partner, ...training.identifiers] : [])).all<Row>(),
+    partner ? buddyCheckins(env.DB, partner) : undefined,
+    training ? env.DB.prepare("SELECT " + training.condition + " AS allowed").bind(...training.identifiers).first<{ allowed: number }>() : undefined,
+  ]);
   const entries: Entry[] = rows.results.map(({ payload, ...row }) => {
     const entry = { ...row, data: JSON.parse(payload) } as Entry;
-    return entry.kind === "log" && entry.owner !== me.id ? { ...entry, data: withoutProteinShake(entry.data) } : entry;
+    if (entry.kind !== "log" || entry.owner === me.id) return entry;
+    const data = withoutProteinShake(entry.data);
+    return { ...entry, data: { ...data, note: "", plan: { ...data.plan, durationNote: undefined,
+      exercises: data.plan.exercises.map(({ cue: _privateCue, ...exercise }) => exercise),
+    } } };
   }).filter((entry) => entry.kind !== "plan" || entry.owner === me.id || entry.data.shared);
   const state: State = {
     me, entries,
     room: member ? {
       invite: member.creator === me.id && !member.partnerId ? member.invite : null,
       partner: member.partnerId ? { id: member.partnerId, name: member.partnerName || "搭子" } : null,
+      ...(partner ? { partnerCheckins, partnerTrainingShared: Boolean(share?.allowed) } : {}),
     } : null,
   };
   return reply(state);

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ArrowLeft, Plus, Search } from "lucide-react";
+import { ArrowLeft, Camera, Plus, Search } from "lucide-react";
 import { Dialog, displayNumber } from "@/shared/ui";
 import { errorText } from "@/shared/client";
 import type { MealEntry, PersonalFood } from "@/features/library/model";
 import { foods, maxFoodGrams, scaleNutrition, searchFoods, type Food } from "./foods";
+import { FoodPhoto } from "./food-photo";
 
 const nutrients = [
   { key: "calories", label: "热量", unit: "千卡" },
@@ -13,7 +14,7 @@ const nutrients = [
   { key: "carbs", label: "碳水", unit: "g" },
   { key: "fat", label: "脂肪", unit: "g" },
 ] as const;
-type Mode = "lookup" | "manual" | "personal";
+type Mode = "lookup" | "manual" | "personal" | "photo";
 type Values = Food["per100g"];
 
 export function MealEditor({ meal, initial, personal, close, onLog, onSaveFood }: {
@@ -60,7 +61,7 @@ export function MealEditor({ meal, initial, personal, close, onLog, onSaveFood }
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (busy || choosing) return;
+    if (busy || choosing || mode === "photo") return;
     const nutrition = { calories: values.calories ?? 0, protein: values.protein ?? 0, carbs: values.carbs ?? 0, fat: values.fat ?? 0 };
     if (mode === "lookup" && (!selected || !computed)) return setError("请输入有效的食物克数。");
     if (mode !== "lookup" && !name.trim()) return setError("请输入食物名称。");
@@ -93,10 +94,15 @@ export function MealEditor({ meal, initial, personal, close, onLog, onSaveFood }
   const weightInput = (required: boolean) => <label>吃了多少（g）<input type="number" inputMode="decimal" required={required}
     min="0.1" step="any" max={maxFoodGrams} value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={required ? "例如 40" : "选填"} /></label>;
 
-  return <Dialog title={(initial ? "编辑" : "添加") + meal} className="food-dialog" onClose={() => { if (!busy) close(); }}>
+  return <Dialog title={mode === "photo" ? "拍照加常用食物" : (initial ? "编辑" : "添加") + meal} className="food-dialog" onClose={() => { if (!busy) close(); }}>
     <form onSubmit={save}>
       <div className="dialog-body feature-stack">
-        {choosing ? <>
+        {mode === "photo" ? <FoodPhoto onBack={() => setMode("lookup")} onApply={(draft) => {
+          setName(draft.name);
+          setValues(draft.per100g);
+          setError("");
+          setMode("personal");
+        }} /> : choosing ? <>
           <label className="food-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="搜索食物"
             placeholder="搜索燕麦、鸡蛋、牛奶…" value={query} onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -113,6 +119,7 @@ export function MealEditor({ meal, initial, personal, close, onLog, onSaveFood }
               <strong>{food.name}</strong><small>{displayNumber(food.per100g.calories)} 千卡／100 g</small>
             </button>)}</div> : <p className="empty-copy">未找到这个食物。可以按包装营养标签新增。</p>}
           <div className="food-alternatives">
+            <button className="button outline" type="button" onClick={() => setMode("photo")}><Camera size={16} /> 拍照加常用食物</button>
             <button className="button outline" type="button" onClick={() => setManual("personal")}><Plus size={16} /> 新增自定义食物</button>
             <button className="text-button" type="button" onClick={() => setManual("manual")}>手动记录</button>
           </div>
@@ -140,7 +147,7 @@ export function MealEditor({ meal, initial, personal, close, onLog, onSaveFood }
         </fieldset>}
         {error && <p className="inline-error" role="alert">{error}</p>}
       </div>
-      {!choosing && <div className="dialog-footer">
+      {!choosing && mode !== "photo" && <div className="dialog-footer">
         <button className="button primary" disabled={busy || (mode === "lookup" && !computed)}>
           {busy ? "保存中…" : mode === "personal" ? "保存到食物库" : initial ? "保存修改" : "添加到" + meal}
         </button>

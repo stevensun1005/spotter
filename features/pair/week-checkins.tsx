@@ -1,9 +1,10 @@
 import { BarChart3, Check } from "lucide-react";
 import { offsetDate, shortDate, weekdayIndex, weekdays } from "@/shared/dates";
-import type { Person, TrainingEntry } from "@/shared/state";
+import type { Checkin, Person, TrainingEntry } from "@/shared/state";
 
-export function WeekCheckins({ today, me, partner, logs, status, showStats }: {
+export function WeekCheckins({ today, me, partner, partnerCheckins, logs, status, showStats }: {
   today: string; me: Person; partner?: Person | null; logs: readonly TrainingEntry[];
+  partnerCheckins?: readonly Checkin[];
   status: "ready" | "loading" | "offline" | "signed-out"; showStats: () => void;
 }) {
   const dates = Array.from({ length: 7 }, (_, index) => offsetDate(today, index - 6));
@@ -21,7 +22,9 @@ export function WeekCheckins({ today, me, partner, logs, status, showStats }: {
       {people.map((person) => {
         const own = person.id === me.id;
         const label = own ? "我" : person.name;
-        const days = new Set(logs.filter((log) => log.owner === person.id && dates.includes(log.data.date)).map((log) => log.data.date));
+        const days = new Set(!own && partnerCheckins
+          ? partnerCheckins.filter(({ date, count }) => count > 0 && dates.includes(date)).map(({ date }) => date)
+          : logs.filter((log) => log.owner === person.id && dates.includes(log.data.date)).map((log) => log.data.date));
         return <div key={person.id} className={"week-checkin-row" + (own ? "" : " week-checkin-partner")}>
           <span className="week-checkin-person" title={label}><strong>{label}</strong><small>{days.size} 天</small></span>
           {dates.map((date) => {

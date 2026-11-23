@@ -1,4 +1,4 @@
-import { foreignKey, index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { foreignKey, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const rooms = sqliteTable("rooms", {
   id: text().primaryKey(),
@@ -40,3 +40,26 @@ export const personalLibrary = sqliteTable("personal_library", {
   primaryKey({ columns: [table.owner, table.kind, table.id] }),
   index("personal_library_day").on(table.owner, table.kind, table.day),
 ]);
+
+
+export const friendLinks = sqliteTable("friend_links", {
+  firstId: text("first_id").notNull(),
+  secondId: text("second_id").notNull(),
+  firstName: text("first_name").notNull(),
+  secondName: text("second_name").notNull(),
+  linked: integer({ mode: "boolean" }).notNull().default(false),
+  firstTraining: integer("first_training", { mode: "boolean" }).notNull().default(false),
+  firstNutrition: integer("first_nutrition", { mode: "boolean" }).notNull().default(false),
+  secondTraining: integer("second_training", { mode: "boolean" }).notNull().default(false),
+  secondNutrition: integer("second_nutrition", { mode: "boolean" }).notNull().default(false),
+}, (table) => [
+  primaryKey({ columns: [table.firstId, table.secondId] }),
+  index("friend_links_second").on(table.secondId),
+]);
+
+export const friendInvites = sqliteTable("friend_invites", {
+  owner: text().primaryKey(),
+  name: text().notNull(),
+  code: text().notNull().unique(),
+  expiresAt: text("expires_at").notNull(),
+});

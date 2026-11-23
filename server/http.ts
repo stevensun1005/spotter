@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 export class HttpError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
 }
 
 export function json(data: unknown, status = 200) {
