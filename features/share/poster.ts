@@ -3,9 +3,9 @@ import { displayNumber } from "@/shared/ui";
 import type { ShareHeart, ShareSummary } from "./model";
 
 export const shareThemes = {
-  travel: { label: "手绘方格", paper: "#fbf7ec", tile: "#fffdf5", ink: "#2a2a2e", quiet: "#62626b", line: "#d9d3c2", accent: "#1e7947", light: "#bddbab", neutral: "#c3d5d8", highlight: "#fff0a0" },
-  lilac: { label: "雾紫", paper: "#f2edf8", tile: "#fffefd", ink: "#27243f", quiet: "#605971", line: "#ded6e8", accent: "#65578d", light: "#c4b8df", neutral: "#e6deec", highlight: "#e6dcf4" },
-  forest: { label: "松林", paper: "#e8f1e8", tile: "#fafff8", ink: "#182f28", quiet: "#496455", line: "#cfded0", accent: "#32774f", light: "#b3d8ad", neutral: "#e0e9dc", highlight: "#d4e7c9" },
+  travel: { label: "手绘方格", paper: "#fbf7ec", tile: "#fffdf5", ink: "#2a2a2e", quiet: "#62626b", line: "#d9d3c2", accent: "#1e7947", light: "#bddbab", highlight: "#fff0a0" },
+  lilac: { label: "雾紫", paper: "#f2edf8", tile: "#fffefd", ink: "#27243f", quiet: "#605971", line: "#ded6e8", accent: "#65578d", light: "#c4b8df", highlight: "#e6dcf4" },
+  forest: { label: "松林", paper: "#e8f1e8", tile: "#fafff8", ink: "#182f28", quiet: "#496455", line: "#cfded0", accent: "#32774f", light: "#b3d8ad", highlight: "#d4e7c9" },
 } as const;
 
 export type ShareTheme = keyof typeof shareThemes;
@@ -169,7 +169,7 @@ export function renderShareCard(canvas: HTMLCanvasElement, {
       ctx.beginPath(); ctx.roundRect(box.x, box.y, box.width, box.height, [11, 7, 11, 8]);
       ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.stroke();
     } else rule(box.x + box.width + 6, box.y, box.x + box.width + 6, box.y + box.height);
-    drawShareAnatomy(ctx, geometry, summary.muscles, box, c, font);
+    drawShareAnatomy(ctx, geometry, summary.muscles, box, c.tile, font);
   } else {
     text("肌群图暂不可用", edge + 23, y + 163, 12, c.quiet);
   }

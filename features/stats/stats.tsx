@@ -1,9 +1,10 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type CSSProperties } from "react";
 import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Dumbbell, Settings2, UserRound } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Anatomy } from "@/features/exercises/anatomy";
+import { muscleBlues, neutralMuscle } from "@/features/exercises/muscle-colors";
 import { type ExerciseChoice, useCatalogue } from "@/features/exercises/open-gym";
 import type { TrainingEntry } from "@/shared/state";
 import { displayNumber } from "@/shared/ui";
@@ -100,8 +101,8 @@ function MusclePanel({ current, loading, error }: { current: StatsSummary; loadi
     </div>
     {(loading || error) ? <p className="stats-empty">{error || "正在读取肌群标注…"}</p> : <>
       <Anatomy key={layer} weights={muscles.regions} showIntensity />
-      <div className="stats-heat-legend"><span>未训练</span><i /><span>少</span>{[1, 2, 3, 4, 5].map((n) => <i key={n} style={{ background: "var(--heat-" + n + ")" }} />)}<span>多</span></div>
-      <div className="stats-muscles">{muscleGroups.map(({ id, name }) => {
+      <div className="stats-heat-legend"><span>未训练</span><i style={{ background: neutralMuscle }} /><span>少</span>{muscleBlues.map((blue) => <i key={blue} style={{ background: blue }} />)}<span>多</span></div>
+      <div className="stats-muscles" style={{ "--muscle-meter-fill": muscleBlues[3], "--muscle-meter-track": neutralMuscle } as CSSProperties}>{muscleGroups.map(({ id, name }) => {
         const count = muscles.buckets[id] ?? 0;
         return <div className="stats-muscle" key={id}><strong>{name}</strong><span>{count} 组</span><progress value={count} max={max} aria-label={name + "相对训练量"} /></div>;
       })}</div>

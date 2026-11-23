@@ -40,8 +40,6 @@
 .anatomy-legend { display: grid; gap: 8px; border-top: 1px solid var(--stroke); padding-top: 10px; }
 .anatomy-legend > div { display: grid; grid-template-columns: 11px 4.5em minmax(0, 1fr); align-items: start; gap: 7px; font-size: .85rem; color: #435569; }
 .anatomy-legend i { display: inline-block; width: 11px; height: 11px; margin-top: 2px; border-radius: 2px; }
-.primary-muscle { background: #273e9c; }
-.secondary-muscle { background: #8caaff; }
 .workout-add-exercise { justify-self: start; }
 @media(max-width: 475px) {
   .catalogue-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }

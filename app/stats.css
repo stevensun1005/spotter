@@ -96,11 +96,13 @@
 .stats-activity .stats-activity-active { outline: 1px solid #235444; outline-offset: 1px; }
 
 .stats-heat-legend { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; justify-content: center; font-size: .8rem; color: var(--stats-muted); }
-.stats-heat-legend i { width: 16px; height: 10px; border-radius: 3px; background: #e2e9e0; }
+.stats-heat-legend i { width: 16px; height: 10px; border-radius: 3px; }
 .stats-muscles, .stats-performance { display: grid; gap: 8px; }
 .stats-muscles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .stats-performance { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stats-muscle, .stats-lift { border: 1px solid #e7eee3; border-radius: 12px; background: var(--stats-surface); display: grid; gap: 5px; padding: 10px; }
+.stats-dashboard .stats-muscle progress { --stats-progress: var(--muscle-meter-fill); }
+.stats-dashboard .stats-muscle progress::-webkit-progress-bar { background: var(--muscle-meter-track); }
 .stats-muscle strong { font-size: .9rem; }
 .stats-muscle span, .stats-lift > span { color: var(--stats-muted); font-size: .8rem; }
 .stats-lift-link { display: grid; text-align: left; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 5px; font-size: .91rem; min-height: 44px; }

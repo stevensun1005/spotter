@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { catalogAsset } from "./open-gym";
 import { muscleNames, regionMuscle } from "./labels";
+import { muscleBlues, neutralMuscle } from "./muscle-colors";
 
 type View = { viewBox: string; regions: Record<string, string[]> };
 type Geometry = Record<string, View>;
@@ -38,9 +39,9 @@ export function Anatomy({ weights, onPick, showIntensity = false }: {
           const name = muscleNames[region] ?? muscleNames[slug];
           const weight = weights[region] ?? weights[slug] ?? 0;
           const description = name && showIntensity ? name + " · " + weight + " 组" : name;
-          const fill = showIntensity && weight
-            ? "var(--heat-" + Math.ceil(weight / highest * 5) + ")"
-            : weight >= 75 ? "#273e9c" : weight > 0 ? "#8caaff" : name ? "#dce4ef" : "#f3f6fc";
+          const fill = showIntensity && weight > 0
+            ? muscleBlues[Math.ceil(weight / highest * muscleBlues.length) - 1]
+            : weight >= 75 ? muscleBlues[4] : weight > 0 ? muscleBlues[2] : name ? neutralMuscle : "#f3f6fc";
           const select = () => { if (description) setNote(description); if (name) onPick?.(slug); };
           return <g key={region} className={name ? "anatomy-region" : ""} aria-label={description}
             role={name ? "button" : undefined} tabIndex={name ? 0 : undefined}
@@ -64,7 +65,7 @@ export function MuscleBreakdown({ weights, emptyLabel = "这个动作尚未标�
     <Anatomy weights={weights} />
     {active.length ? <div className="anatomy-legend">{[true, false].map((primary) => {
       const list = active.filter(([, value]) => (value >= 75) === primary);
-      return list.length ? <div key={String(primary)}><i className={primary ? "primary-muscle" : "secondary-muscle"} /><strong>{primary ? "主要部位" : "辅助部位"}</strong>
+      return list.length ? <div key={String(primary)}><i style={{ background: primary ? muscleBlues[4] : muscleBlues[2] }} /><strong>{primary ? "主要部位" : "辅助部位"}</strong>
         <span>{list.map(([key]) => muscleNames[key] ?? key).join("、")}</span></div> : null;
     })}</div> : <p className="muted">{emptyLabel}</p>}
   </section>;
