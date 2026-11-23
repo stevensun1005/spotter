@@ -2,6 +2,7 @@
 .friend-intro { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 15px; }
 .friend-intro-copy, .friend-record-heading, .friend-profile { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .friend-intro-copy h2, .friend-record-heading h2, .friend-profile h2 { font-size: 1.13rem; font-weight: 790; overflow-wrap: anywhere; }
+.friend-record-heading > .state-tag { margin-inline-start: auto; }
 .friend-intro-copy p { margin-top: 4px; }
 .friend-intro-copy { flex: 1 1 250px; }
 .friend-list .friend-row { min-height: 63px; }
@@ -32,11 +33,15 @@
 .friend-meal li { display: grid; gap: 3px; padding: 7px 0; min-width: 0; overflow-wrap: anywhere; }
 .friend-meal li + li { border-top: 1px solid var(--stroke); }
 .friend-share-option { display: flex; align-items: center; justify-content: space-between; gap: 13px; min-height: 52px; padding: 8px 0; border-top: 1px solid var(--stroke); cursor: pointer; }
-.friend-share-option span { display: grid; gap: 4px; }
+.friend-share-option > span:first-child { display: grid; gap: 4px; }
+.friend-share-locked { cursor: default; }
+.friend-share-locked > .state-tag { align-items: center; gap: 4px; flex: none; }
 .friend-share-option strong { font-weight: 720; }
 .friend-share-option small { color: var(--muted); }
 .friend-sharing .button, .friend-remove { justify-self: start; }
 .friend-remove { color: #9d352e; min-height: 44px; }
+.friend-invite-consent { display: grid; gap: 5px; padding: 11px 13px; border-radius: 10px; background: var(--mint); color: #385139; }
+.friend-invite-consent p { font-size: .88rem; line-height: 1.45; }
 .friend-join { padding-top: 13px; border-top: 1px solid var(--stroke); }
 .friend-invite-code { font-family: ui-monospace, monospace; letter-spacing: .02em; }
 .friend-dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; }

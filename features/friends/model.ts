@@ -6,7 +6,11 @@ import type { SetLine } from "@/features/training/model";
 
 const friendId = z.string().trim().min(1).max(120);
 export const friendDateQuery = z.object({ friend: friendId, date: dateSchema });
-const shareOptions = z.object({ training: z.boolean(), nutrition: z.boolean() });
+const shareOptions = z.object({
+  training: z.boolean(),
+  nutrition: z.boolean(),
+  nutritionDetails: z.boolean().optional(),
+});
 export const friendMutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("invite") }),
   z.object({ action: z.literal("revoke") }),
@@ -15,7 +19,7 @@ export const friendMutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("remove"), id: friendId }),
 ]);
 
-export type Sharing = z.infer<typeof shareOptions>;
+export type Sharing = Required<z.infer<typeof shareOptions>>;
 export type FriendMutation = z.infer<typeof friendMutation>;
 export type Friend = { id: string; name: string; buddy: boolean; sharing: Sharing; shared: Sharing };
 export type FriendList = { friends: Friend[]; invite: { code: string; expiresAt: string } | null };
@@ -33,4 +37,11 @@ export type SharedWorkout = {
     sets: Pick<SetLine, "weight" | "reps" | "seconds" | "right" | "kind">[];
   }[];
 };
-export type FriendDay = { friend: Friend; date: string; training: SharedWorkout[] | null; nutrition: SharedMeal[] | null };
+export type FriendDay = {
+  friend: Friend;
+  date: string;
+  workoutCheckin: boolean;
+  dietCheckin: boolean | null;
+  training: SharedWorkout[] | null;
+  nutrition: SharedMeal[] | null;
+};

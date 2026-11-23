@@ -671,11 +671,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       onTemplate={viewer && overlay.log.owner === me.id ? () => openTemplate(overlay.log.data.plan) : undefined} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
-        {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。配对后会互相看到打卡和共享计划。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :
-          partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partner.name}</strong><small>配对成功，可以查看对方的打卡和共享计划。</small></div><span className="state-tag checked">已连接</span></div> :
+        {viewer && !partner && <p className="muted">配对后，双方始终可以查看彼此的训练打卡和训练详情。饮食记录默认共享，可在「好友」里关闭。</p>}
+        {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :
+          partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partner.name}</strong><small>可以查看彼此的打卡和训练详情。</small></div><span className="state-tag checked">已连接</span></div> :
           room?.invite ? <><p className="muted">把邀请码发给搭子。对方需要先有网站访问权限，再登录并输入邀请码。</p><input aria-label="搭子邀请码" value={room.invite} readOnly onFocus={(e) => e.target.select()} /><button className="button primary" onClick={() => void copy(room.invite!, "已复制邀请码")}><Copy size={17} /> 复制邀请码</button></> :
-          <><p className="muted">配对后，你们可以互相查看训练记录、共享计划和加油。</p><button className="button primary" disabled={busy} onClick={() => void act(async () => { await post({ action: "create" }); await refresh(); })}><Users size={18} /> 创建搭子空间</button>
+          <><button className="button primary" disabled={busy} onClick={() => void act(async () => { await post({ action: "create" }); await refresh(); })}><Users size={18} /> 创建搭子空间</button>
             <form className="form-fields join-form" onSubmit={(e) => { e.preventDefault(); void act(async () => { await post({ action: "join", invite: invite.trim().toLowerCase() }); await refresh(); setInvite(""); setToast("搭子已连接"); }); }}><label>已有邀请码<input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="粘贴搭子的邀请码" autoCapitalize="none" spellCheck={false} /></label><button className="button outline" disabled={busy || !/^[a-fA-F0-9]{32}$/.test(invite.trim())}>加入搭子空间</button></form></>}
+        {partner && !demo && <button className="button outline" type="button" onClick={() => { close(); showBuddy(); }}>查看搭子和分享设置</button>}
         {warning && <p className="inline-error" role="alert">{warning}</p>}
         {viewer && <ProteinCheck label="显示蛋白粉打卡" checked={trackProtein}
           disabled={library.loading} save={(enabled) => library.save({ kind: "protein-preference", enabled })} />}

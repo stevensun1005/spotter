@@ -53,7 +53,9 @@ const alex = { id: "test-alex", name: "Alex" };
 const sam = { id: "test-sam", name: "Sam" };
 const lee = { id: "test-lee", name: "Lee" };
 const date = "2026-11-23";
-const privateByDefault = { training: false, nutrition: false };
+const disabled = { training: false, nutrition: false, nutritionDetails: false };
+const friendDefaults = { training: true, nutrition: true, nutritionDetails: false };
+const buddyDefaults = { training: true, nutrition: true, nutritionDetails: true };
 
 function seedRecords(db, owner) {
   const plan = { title: "力量", category: "力量训练", exercises: [{ name: "卧推", unit: "kg" }, { name: "跳过动作", unit: "kg" }] };
@@ -71,7 +73,7 @@ function seedRecords(db, owner) {
     .run(owner, "private-weight", date, JSON.stringify({ entry: { type: "weight", kg: 80 } }), date);
 }
 
-test("friend invitation is single use and sharing is directional, per topic, and revocable", async (t) => {
+test("a one-use friend invite shares work and diet status, with food details opt-in", async (t) => {
   const db = fixture(t);
   seedRecords(db, sam.id);
   await assert.rejects(friendDay(db, alex.id, sam.id, date), { status: 404 });
@@ -83,39 +85,49 @@ test("friend invitation is single use and sharing is directional, per topic, and
   await assert.rejects(changeFriends(db, lee, { action: "join", code }), { status: 409 });
   assert.equal((await listFriends(db, sam.id)).invite, null);
   assert.deepEqual((await listFriends(db, alex.id)).friends, [
-    { id: sam.id, name: sam.name, buddy: false, sharing: privateByDefault, shared: privateByDefault },
+    { id: sam.id, name: sam.name, buddy: false, sharing: friendDefaults, shared: friendDefaults },
   ]);
 
-  const hidden = await friendDay(db, alex.id, sam.id, date);
-  assert.equal(hidden.training, null);
-  assert.equal(hidden.nutrition, null);
-  await changeFriends(db, alex, { action: "share", id: sam.id, sharing: { training: true, nutrition: false } });
-  assert.equal((await friendDay(db, alex.id, sam.id, date)).training, null);
-
-  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: { training: true, nutrition: false } });
-  const trainingOnly = await friendDay(db, alex.id, sam.id, date);
-  assert.equal(trainingOnly.nutrition, null);
-  assert.equal(trainingOnly.training.length, 1);
-  const [workout] = trainingOnly.training;
+  const defaults = await friendDay(db, alex.id, sam.id, date);
+  assert.equal(defaults.workoutCheckin, true);
+  assert.equal(defaults.dietCheckin, true);
+  assert.equal(defaults.nutrition, null);
+  const [workout] = defaults.training;
   assert.equal(workout.title, "力量");
   assert.equal(workout.sets, 1);
   assert.equal(workout.exercises.length, 1);
   assert.equal(workout.exercises[0].sets[0].weight, 40);
   assert.doesNotMatch(JSON.stringify(workout), /只给自己看的备注|proteinShake|rpe|900|跳过动作/);
 
+  await changeFriends(db, alex, { action: "share", id: sam.id, sharing: disabled });
+  assert.equal((await friendDay(db, alex.id, sam.id, date)).training.length, 1);
   await changeFriends(db, sam, { action: "share", id: alex.id, sharing: { training: false, nutrition: true } });
-  const nutritionOnly = await friendDay(db, alex.id, sam.id, date);
-  assert.equal(nutritionOnly.training, null);
-  assert.equal(nutritionOnly.nutrition.length, 1);
-  assert.equal(nutritionOnly.nutrition[0].grams, 40);
-  assert.doesNotMatch(JSON.stringify(nutritionOnly.nutrition), /custom-food-id|private-weight/);
+  const legacyWrite = await friendDay(db, alex.id, sam.id, date);
+  assert.equal(legacyWrite.workoutCheckin, true);
+  assert.equal(legacyWrite.dietCheckin, true);
+  assert.equal(legacyWrite.training, null);
+  assert.equal(legacyWrite.nutrition, null);
+  assert.equal((await friendDay(db, alex.id, sam.id, "2026-11-24")).dietCheckin, false);
+
+  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: { training: false, nutrition: true, nutritionDetails: true } });
+  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: { training: false, nutrition: true } });
+  const detailed = await friendDay(db, alex.id, sam.id, date);
+  assert.equal(detailed.nutrition.length, 1);
+  assert.equal(detailed.nutrition[0].grams, 40);
+  assert.doesNotMatch(JSON.stringify(detailed.nutrition), /custom-food-id|private-weight/);
+
+  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: { ...disabled, nutritionDetails: true } });
+  const privateDiet = await friendDay(db, alex.id, sam.id, date);
+  assert.equal(privateDiet.dietCheckin, null);
+  assert.equal(privateDiet.nutrition, null);
+  assert.equal(privateDiet.friend.shared.nutritionDetails, false);
 
   await changeFriends(db, sam, { action: "remove", id: alex.id });
   assert.deepEqual((await listFriends(db, alex.id)).friends, []);
   await assert.rejects(friendDay(db, alex.id, sam.id, date), { status: 404 });
 });
 
-test("existing buddy retains check-in counts and opts into details without a separate invite", async (t) => {
+test("buddies always share training and can hide diet without changing their partner's permission", async (t) => {
   const db = fixture(t);
   db.sqlite.prepare("INSERT INTO rooms (id, owner, invite) VALUES ('test-room', ?, 'test-room-code')").run(alex.id);
   const member = db.sqlite.prepare("INSERT INTO members (user, room, name) VALUES (?, 'test-room', ?)");
@@ -123,16 +135,46 @@ test("existing buddy retains check-in counts and opts into details without a sep
   member.run(sam.id, sam.name);
   seedRecords(db, sam.id);
   const training = shareAccess(alex.id, sam.id, "training");
-  const sharing = () => db.sqlite.prepare("SELECT " + training.condition + " AS allowed").get(...training.identifiers).allowed;
+  const trainingAllowed = () => db.sqlite.prepare("SELECT " + training.condition + " AS allowed").get(...training.identifiers).allowed;
 
-  assert.equal((await listFriends(db, alex.id)).friends[0].buddy, true);
+  const [buddy] = (await listFriends(db, alex.id)).friends;
+  assert.equal(buddy.buddy, true);
+  assert.deepEqual(buddy.shared, buddyDefaults);
   assert.deepEqual(await buddyCheckins(db, sam.id), [{ date, count: 1 }]);
-  assert.equal(sharing(), 0);
+  assert.equal(trainingAllowed(), 1);
+  assert.equal((await friendDay(db, alex.id, sam.id, date)).nutrition.length, 1);
+
   await assert.rejects(changeFriends(db, alex, { action: "remove", id: sam.id }), { status: 409 });
-  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: { training: true, nutrition: false } });
-  assert.equal(sharing(), 1);
-  assert.equal((await friendDay(db, alex.id, sam.id, date)).training[0].sets, 1);
-  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: privateByDefault });
-  assert.equal(sharing(), 0);
-  assert.equal((await friendDay(db, alex.id, sam.id, date)).training, null);
+  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: disabled });
+  const changed = await friendDay(db, alex.id, sam.id, date);
+  assert.equal(trainingAllowed(), 1);
+  assert.equal(changed.training.length, 1);
+  assert.equal(changed.nutrition, null);
+  assert.equal(changed.dietCheckin, null);
+  assert.deepEqual(changed.friend.shared, { ...disabled, training: true });
+  assert.deepEqual(changed.friend.sharing, buddyDefaults);
+
+  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: { training: false, nutrition: true, nutritionDetails: false } });
+  const enabled = await friendDay(db, alex.id, sam.id, date);
+  assert.equal(enabled.nutrition.length, 1);
+  assert.deepEqual(enabled.friend.shared, buddyDefaults);
+});
+
+test("legacy friends keep their existing preferences when diet status is introduced", async (t) => {
+  const db = fixture(t);
+  seedRecords(db, sam.id);
+  db.sqlite.prepare("INSERT INTO friend_links (first_id, second_id, first_name, second_name, linked, first_training, second_nutrition) " +
+    "VALUES (?, ?, ?, ?, 1, 1, 1)").run(alex.id, sam.id, alex.name, sam.name);
+  const detail = await friendDay(db, alex.id, sam.id, date);
+  assert.equal(detail.workoutCheckin, true);
+  assert.equal(detail.training, null);
+  assert.equal(detail.dietCheckin, true);
+  assert.equal(detail.nutrition.length, 1);
+  assert.deepEqual(detail.friend.sharing, { ...disabled, training: true });
+  assert.deepEqual(detail.friend.shared, { ...buddyDefaults, training: false });
+
+  await changeFriends(db, sam, { action: "invite" });
+  const { code } = (await listFriends(db, sam.id)).invite;
+  await changeFriends(db, alex, { action: "join", code });
+  assert.deepEqual((await listFriends(db, alex.id)).friends[0], detail.friend);
 });

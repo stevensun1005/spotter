@@ -77,41 +77,66 @@ function Meals({ meals }: { meals: SharedMeal[] }) {
 function FriendDailyRecords({ data }: { data: FriendDay }) {
   return <>
     <section className="card padded feature-stack">
-      <div className="friend-record-heading"><span className="tile mint"><Dumbbell size={19} aria-hidden="true" /></span><h2>训练</h2></div>
+      <div className="friend-record-heading"><span className="tile mint"><Dumbbell size={19} aria-hidden="true" /></span><h2>训练</h2>
+        <span className={"state-tag" + (data.workoutCheckin ? " checked" : "")}>{data.workoutCheckin ? "已打卡" : "未打卡"}</span>
+      </div>
       {data.training === null
-        ? <p className="friend-private"><Lock size={15} aria-hidden="true" /> 训练详情目前仅对方可见。对方可以在自己的好友页开启分享。</p>
-        : data.training.length ? data.training.map((workout, index) => <WorkoutDetails workout={workout} first={index === 0} key={workout.id} />)
-          : <p className="empty-copy">这天暂无已完成的训练。</p>}
+        ? <p className="friend-private"><Lock size={15} aria-hidden="true" /> 对方目前只分享训练打卡状态。</p>
+        : data.training.map((workout, index) => <WorkoutDetails workout={workout} first={index === 0} key={workout.id} />)}
     </section>
     <section className="card padded feature-stack">
-      <div className="friend-record-heading"><span className="tile sand"><Utensils size={19} aria-hidden="true" /></span><h2>饮食</h2></div>
-      {data.nutrition === null
-        ? <p className="friend-private"><Lock size={15} aria-hidden="true" /> 饮食记录目前仅对方可见。对方可以在自己的好友页开启分享。</p>
-        : data.nutrition.length ? <Meals meals={data.nutrition} />
-          : <p className="empty-copy">这天暂无饮食记录。</p>}
+      <div className="friend-record-heading"><span className="tile sand"><Utensils size={19} aria-hidden="true" /></span><h2>饮食</h2>
+        {data.dietCheckin !== null && <span className={"state-tag" + (data.dietCheckin ? " checked" : "")}>{data.dietCheckin ? "已记录" : "未记录"}</span>}
+      </div>
+      {data.dietCheckin === null
+        ? <p className="friend-private"><Lock size={15} aria-hidden="true" /> 饮食记录仅对方可见。</p>
+        : data.nutrition === null
+          ? <p className="friend-private"><Lock size={15} aria-hidden="true" /> 对方目前只分享饮食记录状态。</p>
+          : data.nutrition.length > 0 && <Meals meals={data.nutrition} />}
     </section>
   </>;
+}
+
+function SharingSwitch({ title, description, checked, disabled, change }: {
+  title: string; description: string; checked: boolean; disabled: boolean; change: (checked: boolean) => void;
+}) {
+  return <label className="friend-share-option">
+    <span><strong>{title}</strong><small>{description}</small></span>
+    <input type="checkbox" role="switch" aria-label={title} checked={checked} disabled={disabled}
+      onChange={(event) => change(event.target.checked)} />
+  </label>;
 }
 
 function SharingSettings({ friend, busy, save }: {
   friend: Friend; busy: boolean; save: (sharing: Friend["sharing"]) => void;
 }) {
   const [sharing, setSharing] = useState(friend.sharing);
-  const changed = sharing.training !== friend.sharing.training || sharing.nutrition !== friend.sharing.nutrition;
+  const changed = sharing.training !== friend.sharing.training || sharing.nutrition !== friend.sharing.nutrition ||
+    sharing.nutritionDetails !== friend.sharing.nutritionDetails;
 
   return <section className="card padded feature-stack friend-sharing">
     <div className="friend-record-heading"><span className="tile lilac"><Lock size={18} aria-hidden="true" /></span><h2>我分享给{friend.name}</h2></div>
-    <label className="friend-share-option">
-      <span><strong>训练详情</strong><small>已完成的训练、动作、组数、重量和次数</small></span>
-      <input type="checkbox" role="switch" checked={sharing.training} disabled={busy}
-        onChange={(event) => setSharing({ ...sharing, training: event.target.checked })} />
-    </label>
-    <label className="friend-share-option">
-      <span><strong>饮食记录</strong><small>餐次、食物、克数和营养</small></span>
-      <input type="checkbox" role="switch" checked={sharing.nutrition} disabled={busy}
-        onChange={(event) => setSharing({ ...sharing, nutrition: event.target.checked })} />
-    </label>
-    <p className="muted">开启后，对方可查看这类历史和今后的记录。可以随时关闭。</p>
+    <div className="friend-share-option friend-share-locked">
+      <span><strong>训练打卡状态</strong><small>当天有没有完成训练</small></span>
+      <span className="state-tag checked"><Lock size={12} aria-hidden="true" /> 始终分享</span>
+    </div>
+    {friend.buddy ? <>
+      <div className="friend-share-option friend-share-locked">
+        <span><strong>训练详情</strong><small>已完成的动作、组数、重量和次数</small></span>
+        <span className="state-tag checked"><Lock size={12} aria-hidden="true" /> 始终分享</span>
+      </div>
+      <SharingSwitch title="饮食记录与详情" description="是否记录饮食，以及餐次、食物、克数和营养" checked={sharing.nutrition} disabled={busy}
+        change={(checked) => setSharing({ ...sharing, nutrition: checked, nutritionDetails: checked })} />
+    </> : <>
+      <SharingSwitch title="训练详情" description="已完成的动作、组数、重量和次数" checked={sharing.training} disabled={busy}
+        change={(checked) => setSharing({ ...sharing, training: checked })} />
+      <SharingSwitch title="饮食记录状态" description="当天有没有记录餐食" checked={sharing.nutrition} disabled={busy}
+        change={(checked) => setSharing({ ...sharing, nutrition: checked, nutritionDetails: checked && sharing.nutritionDetails })} />
+      <SharingSwitch title="饮食详情" description={sharing.nutrition ? "餐次、食物、克数和营养" : "先开启饮食记录状态"}
+        checked={sharing.nutritionDetails} disabled={busy || !sharing.nutrition}
+        change={(checked) => setSharing({ ...sharing, nutritionDetails: checked })} />
+    </>}
+    <p className="muted">开启后，对方可查看这类历史和今后的记录。你可以随时调整开关。</p>
     <button className="button primary" type="button" disabled={busy || !changed} onClick={() => save(sharing)}>保存分享范围</button>
   </section>;
 }
@@ -237,7 +262,8 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
           <button className="text-button" type="button" onClick={() => setDayRevision((value) => value + 1)}>重新读取</button></div>}
       </section>
       {day?.data && <FriendDailyRecords data={day.data} />}
-      <SharingSettings key={friend.id} friend={friend} busy={busy}
+      <SharingSettings key={[friend.id, friend.buddy, friend.sharing.training, friend.sharing.nutrition, friend.sharing.nutritionDetails].join(":")}
+        friend={friend} busy={busy}
         save={(sharing) => void mutate({ action: "share", id: friend.id, sharing }, "分享范围已保存。")} />
       {!removeOpen && feedback}
       {!friend.buddy && <button className="text-button friend-remove" type="button" disabled={busy}
@@ -250,7 +276,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
     </> : <>
       <section className="card padded friend-intro">
         <div className="friend-intro-copy"><span className="tile mint" aria-hidden="true"><Users size={22} /></span>
-          <div><h2>我的好友</h2><p className="muted">邀请搭子、家人和朋友。你可以为每个人选择分享的内容。</p></div></div>
+          <div><h2>我的好友</h2><p className="muted">添加家人和朋友，互相看训练打卡，按人设置详情分享。</p></div></div>
         <button className="button primary" type="button" disabled={!friends || busy}
           onClick={() => { setInviteOpen(true); setError(""); setStatus(""); }}><UserRoundPlus size={18} aria-hidden="true" /> 添加好友</button>
       </section>
@@ -264,13 +290,17 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
         {friends?.friends.map((item) => <button key={item.id} className="list-line friend-row" type="button" onClick={() => openFriend(item)}>
           <span className={"avatar " + (item.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(item.name)}</span>
           <span><strong>{item.name}{item.buddy && <span className="state-tag checked">训练搭子</span>}</strong>
-            <small>{[item.shared.training && "训练", item.shared.nutrition && "饮食"].filter(Boolean).join("、") || "查看分享范围"}</small></span>
+            <small>{["训练打卡", item.shared.training && "训练详情", item.shared.nutritionDetails ? "饮食详情" : item.shared.nutrition && "饮食状态"].filter(Boolean).join(" · ")}</small></span>
           <ChevronRight size={18} aria-hidden="true" />
         </button>)}
       </section>}
     </>}
     {inviteOpen && <Dialog title="添加好友" onClose={() => { if (!busy) { setInviteOpen(false); setError(""); setStatus(""); } }}>
       <div className="dialog-body feature-stack">
+        <section className="friend-invite-consent">
+          <h3>添加后默认互相分享</h3>
+          <p>双方的每日训练打卡、训练详情和饮食记录状态，包括历史记录。具体吃了什么和营养数据可以单独开启。</p>
+        </section>
         <section className="feature-stack">
           <h3>我的邀请码</h3>
           <p className="muted">把邀请码给已获网站访问权限的好友。对方登录训练搭子后输入邀请码，即可添加。</p>

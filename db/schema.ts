@@ -52,6 +52,9 @@ export const friendLinks = sqliteTable("friend_links", {
   firstNutrition: integer("first_nutrition", { mode: "boolean" }).notNull().default(false),
   secondTraining: integer("second_training", { mode: "boolean" }).notNull().default(false),
   secondNutrition: integer("second_nutrition", { mode: "boolean" }).notNull().default(false),
+  // Null keeps the diet preference already saved before status and details were split.
+  firstNutritionStatus: integer("first_nutrition_status", { mode: "boolean" }),
+  secondNutritionStatus: integer("second_nutrition_status", { mode: "boolean" }),
 }, (table) => [
   primaryKey({ columns: [table.firstId, table.secondId] }),
   index("friend_links_second").on(table.secondId),
