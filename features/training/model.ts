@@ -2,6 +2,7 @@ import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
 import { planSchema, type Plan } from "@/features/plans/model";
 import { maxWorkoutMs } from "./clock";
+import { setVolumeKg } from "./volume";
 
 const sets = z.object({
   reps: z.number().int().min(0).max(999),
@@ -56,8 +57,7 @@ export function sessionTotals(session: Session) {
   session.rows.forEach((row, i) => row.forEach((line) => {
     if (!line.done) return;
     sets++;
-    const rightVolume = line.right ? line.right.reps * line.right.weight : 0;
-    volume += (line.reps * line.weight + rightVolume) * (session.plan.exercises[i].unit === "lb" ? 0.45359237 : 1);
+    volume += setVolumeKg(line, session.plan.exercises[i]);
   }));
   return { sets, volume };
 }

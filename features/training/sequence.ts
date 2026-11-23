@@ -1,3 +1,4 @@
+import { parsePlanMove } from "@/features/exercises/move-name";
 import type { Plan, Move } from "@/features/plans/model";
 
 export type SetPosition = { move: number; row: number };
@@ -10,6 +11,11 @@ export type TrainingBlock = {
 };
 
 export const defaultRest = (plan: Plan) => plan.defaultRestSeconds ?? 30;
+
+export function isWarmupMove(move: Pick<Move, "name" | "block" | "sourceSlot">) {
+  const slot = move.sourceSlot ?? parsePlanMove(move.name).sourceSlot ?? "";
+  return move.block?.split("-")[0] === "W" || /^(?:W\d*|[A-Z]-warmup)$/.test(slot);
+}
 
 // Contiguous group IDs define circuits. An ungrouped move is always its own block.
 export function trainingBlocks(exercises: Move[]): TrainingBlock[] {

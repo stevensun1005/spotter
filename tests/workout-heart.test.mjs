@@ -298,3 +298,46 @@ test("today's merged poster uses only the owner's completed sets and selected he
   const heart = { source: "apple", from: data.started, to: data.started + 1000, samples: [{ at: data.started, bpm: 125 }] };
   assert.deepEqual(shareHeart(scope, { a: heart, c: heart }).map(({ id, minimum }) => [id, minimum]), [["a", 125]]);
 });
+
+test("share headings use workout slots and all volume views count logged sides once", async () => {
+  const { exerciseHistory } = await import("../features/exercises/history.ts");
+  const { cleanPlan } = await import("../features/plans/model.ts");
+  const { shareSummary } = await import("../features/share/model.ts");
+  const { summarize } = await import("../features/stats/model.ts");
+  const move = { sets: 1, reps: 8, weight: 10, unit: "kg", seconds: 0 };
+  const raw = {
+    title: "分侧练习", date: "2026-11-23", category: "力量训练", minutes: 20, shared: false, video: "",
+    exercises: [
+      { ...move, name: "W1 动态热身", weight: 0 },
+      { ...move, name: "哑铃单臂卧推", block: "A", sourceSlot: "A1" },
+      { ...move, name: "单臂推举", block: "A", sourceSlot: "A3" },
+      { ...move, name: "绳索单臂划船", block: "A-2", sourceSlot: "A2" },
+      { ...move, name: "哑铃飞鸟", block: "B", cue: "每手" },
+      { ...move, name: "绳索三头下压", block: "C", cue: "双手共用一个配重" },
+      { ...move, name: "双绳索快推胸", block: "D", cue: "每侧换腿" },
+      { ...move, name: "站姿单臂绳索下拉", cue: "仅做左侧" },
+    ],
+  };
+  const plan = cleanPlan(raw).data;
+  assert.equal(plan.exercises[0].sourceSlot, "W1");
+  const started = training.startSession(plan, "plan", plan.date);
+  const rows = started.rows.map(([line], i) => [{ ...line, done: i !== 2 }]);
+  rows[3][0].right = { weight: 12, reps: 6 };
+  rows[6][0].kind = "warmup";
+  const data = { ...started, minutes: 20, rows };
+  const log = { id: "a", kind: "log", owner: "me", data };
+  const share = shareSummary({ log, logs: [], owner: "me", merge: false });
+  const expected = 160 + 152 + 160 + 80 + 80 + 80;
+  assert.equal(training.sessionTotals(data).volume, expected);
+  assert.equal(summarize([log], [], "all").total.volume, expected);
+  assert.equal(share.volume, expected);
+  assert.equal(exerciseHistory("绳索单臂划船", [log], "me")[0].volume, 152);
+  assert.equal(exerciseHistory("绳索单臂划船", [log], "me")[0].weight, 12);
+  const moves = share.workouts[0].moves;
+  assert.deepEqual(moves.map((item) => item.slot), ["W", "A1", "A3", "B1", "C1", "D1", undefined]);
+  assert.deepEqual(moves[1].sets, ["10 kg × 8 次／侧"]);
+  assert.deepEqual(moves[2].sets, ["左 10 kg × 8 · 右 12 kg × 6"]);
+  assert.deepEqual(moves[5].sets, ["W · 10 kg × 8 次"]);
+  rows[3][0].right = { weight: 0, reps: 0 };
+  assert.equal(training.sessionTotals(data).volume, expected - 72);
+});

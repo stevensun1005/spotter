@@ -69,6 +69,7 @@ export function cleanPlan(value: Plan) {
     return {
       ...item, name: parsed.name, station: item.station?.trim() || undefined,
       cue: item.cue?.trim() || parsed.cue, block: item.block ?? parsed.sourceSlot?.[0],
+      sourceSlot: item.sourceSlot ?? parsed.sourceSlot,
     };
   });
   return planSchema.safeParse({ ...value, exercises });

@@ -5,6 +5,8 @@ import { parsePlanMove } from "@/features/exercises/move-name";
 import type { CatalogEntry } from "@/features/exercises/open-gym";
 import { exerciseMuscles, researchedGuide } from "@/features/exercises/guidance";
 import type { Session } from "@/features/training/model";
+import { isWarmupMove } from "@/features/training/sequence";
+import { setVolumeKg, toKg } from "@/features/training/volume";
 
 export type Period = "week" | "month" | "quarter" | "year" | "recent" | "custom";
 export type Range = { from: string; to: string };
@@ -54,7 +56,6 @@ export function periodLabel(period: Period, range: Range) {
 }
 
 const blank = () => ({ sessions: 0, sets: 0, minutes: 0, volume: 0 });
-const kg = (value: number, unit: "kg" | "lb") => value * (unit === "lb" ? 0.45359237 : 1);
 const cleanName = (text: string) => parsePlanMove(text).name.normalize("NFKC").toLowerCase();
 type Best = { value: number; weight: number; reps: number; date: string };
 export type ExerciseResult = { name: string; catalogueId?: string; weight?: Best; max?: Best; sets: number };
@@ -70,8 +71,6 @@ export const muscleGroups = [
 ] as const;
 
 const muscleBucket = new Map<string, string>(muscleGroups.flatMap((group) => group.muscles.map((name) => [name, group.id])));
-const isWarmup = (move: Session["plan"]["exercises"][number]) =>
-  move.block?.split("-")[0] === "W" || /^(?:W\d*|[A-Z]-warmup)$/.test(move.sourceSlot ?? parsePlanMove(move.name).sourceSlot ?? "");
 const pick = (previous: Best | undefined, candidate: Best) =>
   !previous || candidate.value > previous.value || candidate.value === previous.value && candidate.date > previous.date ? candidate : previous;
 
@@ -107,8 +106,8 @@ export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], m
           : data.plan.category === "力量训练" && line.reps > 0))));
       if (!rows.length) return;
       score.sets += rows.length;
-      for (const line of rows) score.volume += kg(line.weight * line.reps + (line.right ? line.right.weight * line.right.reps : 0), move.unit);
-      const work = isWarmup(move) ? [] : rows.filter((line) => line.kind !== "warmup");
+      for (const line of rows) score.volume += setVolumeKg(line, move);
+      const work = isWarmupMove(move) ? [] : rows.filter((line) => line.kind !== "warmup");
       if (!work.length) return;
       const referenceName = move.sourceName && researchedGuide(move.sourceName) ? move.sourceName : name;
       const weights = exerciseMuscles(referenceName, catalog ?? undefined);
@@ -124,7 +123,7 @@ export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], m
       work.forEach((line) => {
         for (const side of [line, line.right]) {
           if (!side || side.weight <= 0 || side.reps <= 0) continue;
-          const weight = kg(side.weight, move.unit);
+          const weight = toKg(side.weight, move.unit);
           const result = { weight, reps: side.reps, date: data.date };
           performance.weight = pick(performance.weight, { ...result, value: weight });
           const max = estimatedMax(weight, side.reps);

@@ -16,7 +16,7 @@ const font = 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-s
 
 // Match the Costa Rica 1/6–1/11 poster with device fonts and no font service dependency.
 const handwriting = '"Patrick Hand", "Ma Shan Zheng", "HanziPen SC", "Hannotate SC", "Kaiti SC", "STKaiti", KaiTi, "Comic Sans MS", system-ui, cursive';
-const markerColors = ["#2a70cf", "#b35408", "#1e7947", "#bd3827", "#167883", "#7747ad"];
+const slotColors: Record<string, string> = { W: "#68634f", A: "#2a70cf", B: "#b35408", C: "#1e7947", D: "#bd3827", E: "#167883" };
 
 function lines(ctx: CanvasRenderingContext2D, value: string, maxWidth: number, maxLines = Infinity) {
   const parts: string[] = [];
@@ -76,25 +76,24 @@ export function renderShareCard(canvas: HTMLCanvasElement, {
   const muscleHeight = geometry ? 349 : 190;
 
   const setsByWorkout = showDetails ? summary.workouts.map(({ title, moves }) => ({
-    title, moves: moves.map(({ name, sets }) => {
+    title, moves: moves.map(({ name, slot, sets }) => {
       setFont(20, 700);
-      const heading = lines(ctx, name, inner - (sketch ? 74 : 44), 3);
+      const heading = lines(ctx, name, inner - (slot ? 85 : 44), 3);
       setFont(17);
       const detail: string[] = [];
       let line = "";
-      sets.forEach((set, i) => {
-        const next = (i + 1) + "  " + set;
-        if (line && ctx.measureText(line + "    ·    " + next).width <= inner - 48) line += "    ·    " + next;
+      sets.forEach((set) => {
+        if (line && ctx.measureText(line + "    ·    " + set).width <= inner - 48) line += "    ·    " + set;
         else {
           if (line) detail.push(line);
           line = "";
-          const parts = lines(ctx, next, inner - 48);
+          const parts = lines(ctx, set, inner - 48);
           line = parts.pop() ?? "";
           detail.push(...parts);
         }
       });
       if (line) detail.push(line);
-      return { heading, detail, height: heading.length * 26 + detail.length * 24 + 21 };
+      return { heading, detail, slot, height: heading.length * 26 + detail.length * 24 + 21 };
     }),
   })).filter(({ moves }) => moves.length) : [];
   const detailHeight = setsByWorkout.map(({ moves }) => 55 + moves.reduce((height, item) => height + item.height, 0));
@@ -168,8 +167,7 @@ export function renderShareCard(canvas: HTMLCanvasElement, {
     const box = { ...anatomyBox, y: y + 74 };
     if (sketch) {
       ctx.beginPath(); ctx.roundRect(box.x, box.y, box.width, box.height, [11, 7, 11, 8]);
-      ctx.fillStyle = "#e3f1f2"; ctx.fill();
-      ctx.strokeStyle = "#8eaeb3"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.stroke();
     } else rule(box.x + box.width + 6, box.y, box.x + box.width + 6, box.y + box.height);
     drawShareAnatomy(ctx, geometry, summary.muscles, box, c, font);
   } else {
@@ -218,16 +216,16 @@ export function renderShareCard(canvas: HTMLCanvasElement, {
     panel(y, height);
     label(setsByWorkout.length > 1 ? title : "训练明细", edge + 20, y + 33, 20, inner - 40, c.ink, 730);
     let row = y + 65;
-    moves.forEach(({ heading, detail, height }, i) => {
+    moves.forEach(({ heading, detail, slot, height }, i) => {
       if (i) rule(edge + 19, row - 21, width - edge - 19, row - 21);
-      if (sketch) {
-        const x = edge + 30;
-        ctx.beginPath(); ctx.arc(x, row - 6, 11, 0, 2 * Math.PI);
-        ctx.fillStyle = markerColors[i % markerColors.length]; ctx.fill();
-        ctx.strokeStyle = c.ink; ctx.lineWidth = 1.3; ctx.stroke();
-        ctx.textAlign = "center"; text(String(i + 1), x, row - 2, 12, "#ffffff", 770); ctx.textAlign = "left";
+      if (slot) {
+        const x = edge + 18;
+        ctx.beginPath(); ctx.roundRect(x, row - 18, 33, 23, 7);
+        ctx.fillStyle = sketch ? slotColors[slot[0]] ?? c.accent : c.accent;
+        ctx.fill();
+        ctx.textAlign = "center"; text(slot, x + 16.5, row - 2, 13, "#ffffff", 770); ctx.textAlign = "left";
       }
-      heading.forEach((line, n) => text(line, edge + (sketch ? 49 : 20), row + n * 26, 20, c.ink, 700));
+      heading.forEach((line, n) => text(line, edge + (slot ? 61 : 20), row + n * 26, 20, c.ink, 700));
       detail.forEach((line, n) => text(line, edge + 22, row + heading.length * 26 + n * 24, 17, c.quiet));
       row += height;
     });
