@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Dumbbell } from "lucide-react";
+import { Bookmark, CalendarDays, Check, ChevronLeft, ChevronRight, Dumbbell } from "lucide-react";
 import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { offsetDate, shortDate, weekdayIndex, weekdays } from "@/shared/dates";
 import { sessionTotals } from "@/features/training/model";
@@ -10,8 +10,8 @@ import type { WhoopStatus } from "@/features/heart/whoop";
 import { kindLabels } from "@/features/training/set-row";
 import type { TrainingEntry } from "@/shared/state";
 
-export function LogDetail({ log, close, own, whoop }: {
-  log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus;
+export function LogDetail({ log, close, own, whoop, onTemplate }: {
+  log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus; onTemplate?: () => void;
 }) {
   const { volume, sets } = sessionTotals(log.data);
   return <Dialog title={log.data.plan.title} onClose={close}><div className="dialog-body form-fields">
@@ -19,6 +19,7 @@ export function LogDetail({ log, close, own, whoop }: {
     <div className="totals"><div><strong>{log.data.minutes}</strong><span>分钟</span></div><div><strong>{sets}</strong><span>完成组数</span></div><div><strong>{displayNumber(volume)}</strong><span>容量 kg</span></div></div>
     {log.data.note && <p className="note">{log.data.note}</p>}
     {log.data.plan.video && <VideoLink url={log.data.plan.video} />}
+    {onTemplate && <button className="button outline small" type="button" onClick={onTemplate}><Bookmark size={16} /> 另存为模板</button>}
     {own && <HeartPanel id={log.id} session={log.data} whoopResult={whoop} />}
     {log.data.plan.exercises.map((item, i) => <div className="log-move" key={i}><strong>{item.name}</strong>
       {log.data.rows[i].map((line, j) => line.done && <div key={j}>

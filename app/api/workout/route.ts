@@ -3,11 +3,17 @@ import { z } from "zod";
 import { getChatGPTUser } from "../../chatgpt-auth";
 import { asDate, planSchema, sessionSchema, sessionTotals, type Entry, type State } from "../../workout";
 
+import { api } from "@/server/http";
+import { dateSchema } from "@/shared/dates";
+import { checkPlanDates, reschedule } from "@/features/plans/schedule-server";
+
 export const dynamic = "force-dynamic";
 
 const id = z.string().uuid();
 const mutation = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("plans"), skipExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema })).min(1).max(20) }),
+  z.object({ action: z.literal("plans"), skipExisting: z.boolean().optional(), reviseExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema })).min(1).max(20) }),
+  z.object({ action: z.literal("move"), id, from: dateSchema, date: dateSchema, shift: z.boolean() }),
+  z.object({ action: z.literal("delete"), id, kind: z.enum(["plan", "draft"]) }),
   z.object({ action: z.literal("draft"), id, data: sessionSchema }),
   z.object({ action: z.literal("log"), id, data: sessionSchema }),
   z.object({ action: z.literal("create") }),
@@ -37,7 +43,7 @@ export async function GET() {
   const member = await membership(env.DB, me.id);
   const rows = await env.DB.prepare(
     "SELECT id, owner, kind, payload, updated FROM entries " +
-    "WHERE owner = ? OR (owner = ? AND kind IN ('plan', 'log', 'cheer')) ORDER BY updated DESC"
+    "WHERE (owner = ? AND kind IN ('plan', 'draft', 'log', 'cheer')) OR (owner = ? AND kind IN ('plan', 'log', 'cheer')) ORDER BY updated DESC"
   ).bind(me.id, member?.partnerId ?? null).all<Row>();
   const entries: Entry[] = rows.results.map(({ payload, ...row }) => ({ ...row, data: JSON.parse(payload) } as Entry))
     .filter((entry) => entry.kind !== "plan" || entry.owner === me.id || entry.data.shared);
@@ -51,7 +57,7 @@ export async function GET() {
   return reply(state);
 }
 
-export async function POST(request: Request) {
+export const POST = api(async (request) => {
   const user = await getChatGPTUser();
   const db = env.DB;
   if (!user) return reply({ error: "请登录后再保存。" }, 401);
@@ -79,7 +85,29 @@ export async function POST(request: Request) {
     "WHERE (entries.kind = 'draft' AND excluded.kind IN ('draft', 'log')) OR (entries.kind = 'plan' AND excluded.kind = 'plan')"
   ).bind(owner, itemId, kind, JSON.stringify(data), now);
 
-  if (body.action === "plans") {
+  if (body.action === "move") {
+    return reply(await reschedule(db, owner, body.id, body.from, body.date, body.shift, now));
+  } else if (body.action === "delete") {
+    const removed = await db.prepare(
+      "INSERT INTO entries (owner, id, kind, payload, updated) VALUES (?, ?, ?, '{}', ?) " +
+      "ON CONFLICT(owner, id) DO UPDATE SET kind = excluded.kind, payload = '{}', updated = excluded.updated WHERE entries.kind = ? OR entries.kind = excluded.kind"
+    ).bind(owner, body.id, "deleted-" + body.kind, now, body.kind).run();
+    if (!removed.meta.changes) return reply({ error: "这条记录已变更，无法删除。" }, 409);
+  } else if (body.action === "plans") {
+    if (body.reviseExisting) {
+      const revised = await db.prepare(
+        "WITH incoming AS MATERIALIZED (SELECT json_extract(value, '$.id') AS id, json_extract(value, '$.data') AS data FROM json_each(?)), " +
+        "eligible AS MATERIALIZED (SELECT i.id, json_set(i.data, '$.date', json_extract(e.payload, '$.date'), " +
+        "'$.shared', json(CASE json_extract(e.payload, '$.shared') WHEN 1 THEN 'true' ELSE 'false' END)) AS payload " +
+        "FROM incoming i JOIN entries e ON e.id = i.id AND json_extract(e.payload, '$.title') = json_extract(i.data, '$.title') WHERE e.owner = ? AND e.kind = 'plan') " +
+        "UPDATE entries SET payload = (SELECT eligible.payload FROM eligible WHERE eligible.id = entries.id), updated = ? " +
+        "WHERE owner = ? AND kind = 'plan' AND id IN (SELECT id FROM eligible) " +
+        "AND (SELECT COUNT(DISTINCT id) FROM eligible) = (SELECT COUNT(*) FROM incoming)"
+      ).bind(JSON.stringify(body.items), owner, now, owner).run();
+      if (revised.meta.changes !== body.items.length) return reply({ error: "批次中有计划已改名或删除，更新未保存。" }, 409);
+      return reply({ revised: revised.meta.changes });
+    }
+    await checkPlanDates(db, owner, body.items);
     if (body.skipExisting) {
       const results = await db.batch(body.items.map(({ id, data }) => {
         const payload = JSON.stringify(data);
@@ -126,4 +154,4 @@ export async function POST(request: Request) {
     await save("cheer-" + date, "cheer", { date }).run();
   }
   return reply({ ok: true });
-}
+});

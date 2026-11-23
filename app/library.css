@@ -1,0 +1,99 @@
+.feature-stack { display: grid; gap: 14px; min-width: 0; }
+.feature-stack h2, .feature-stack h3 { margin: 0; }
+.feature-stack h3 { font-size: 1.06rem; font-weight: 780; }
+.feature-form-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.exercise-search { position: relative; display: block; min-width: 0; }
+.exercise-search svg { position: absolute; inset: 13px auto auto 10px; color: var(--muted); pointer-events: none; }
+.exercise-search input { padding-inline-start: 34px; width: 100%; }
+.exercise-results { display: grid; gap: 1px; }
+.exercise-results button { width: 100%; }
+.exercise-results button > span:nth-child(2) { text-align: start; }
+.exercise-dialog { width: min(100% - 20px, 690px); }
+.exercise-dialog .dialog-heading { z-index: 3; }
+.exercise-dialog .dialog-body { background: #f2f5ef; }
+.exercise-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 7px 13px; gap: 5px; border-bottom: 1px solid var(--stroke); position: sticky; top: 61px; z-index: 2; background: white; }
+.exercise-tabs button { display: flex; gap: 6px; align-items: center; justify-content: center; min-height: 40px; border-radius: 8px; color: var(--muted); font-size: .86rem; font-weight: 720; }
+.exercise-tabs button[aria-pressed=true] { background: #e3efd9; color: #304d2d; }
+.exercise-cover { width: 100%; max-height: 285px; aspect-ratio: 3 / 2; object-fit: cover; object-position: center; border-radius: 15px; }
+.exercise-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.exercise-toolbar > span { font-size: .9rem; color: var(--muted); }
+.exercise-toolbar > div { display: flex; gap: 7px; flex-wrap: wrap; }
+.exercise-steps { list-style: decimal; padding-left: 1.15rem; display: grid; gap: 10px; color: #33433a; font-size: .94rem; line-height: 1.6; }
+.exercise-video-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.exercise-video-row a { display: flex; gap: 6px; align-items: center; color: #30533c; overflow-wrap: anywhere; }
+.demonstration { text-decoration: none; }
+.exercise-sets { width: 100%; border-collapse: collapse; font-size: .88rem; font-variant-numeric: tabular-nums; }
+.exercise-sets td, .exercise-sets th { padding: 9px 4px; text-align: start; border-bottom: 1px solid var(--stroke); }
+.exercise-sets th, .exercise-sets small { color: var(--muted); }
+.exercise-sets small { display: block; }
+.exercise-sets th:last-child, .exercise-sets td:last-child { text-align: end; white-space: nowrap; }
+.exercise-period { color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.exercise-period select { width: auto; min-width: 106px; }
+.exercise-records { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.exercise-records > div { display: grid; gap: 3px; padding: 9px 7px; border: 1px solid var(--stroke); border-radius: 9px; background: white; }
+.exercise-records small { color: var(--muted); font-size: .73rem; }
+.exercise-records strong { font-size: 1.02rem; }
+.exercise-plot { background: #fff; border: 1px solid var(--stroke); padding: 9px 11px; border-radius: 10px; }
+.exercise-plot > div { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .77rem; }
+.exercise-plot > div strong { color: var(--text); font-size: .9rem; }
+.exercise-plot canvas { width: 100%; height: 67px; display: block; }
+.exercise-workout-link { margin-top: 4px; width: auto; }
+.muscle-figures { display: flex; justify-content: center; gap: min(9vw, 50px); margin: 17px 0 10px; text-align: center; }
+.body-map { width: 100px; height: 182px; position: relative; margin-bottom: 8px; --base-muscle: #d6e0d8; --base-body: #e9eee9; }
+.body-map span { position: absolute; display: block; }
+.body-head { top: 1px; left: 40px; width: 21px; height: 24px; border-radius: 46% 46% 48% 48%; background: var(--base-body); }
+.body-torso { inset: 21px 25px 66px; background: var(--base-body); clip-path: polygon(0 18%, 33% 10%, 38% 0, 62% 0, 67% 10%, 100% 18%, 84% 55%, 99% 86%, 75% 100%, 25% 100%, 1% 86%, 16% 55%); }
+.body-arm { inset: 37px 12px 67px; background: var(--base-body); clip-path: polygon(18% 0, 32% 12%, 19% 60%, 9% 100%, 0 97%, 5% 68%, 10% 27%, 18% 0, 82% 0, 90% 27%, 95% 68%, 100% 97%, 91% 100%, 81% 60%, 68% 12%, 82% 0); }
+.body-leg { inset: 103px 26px 0; background: var(--base-body); clip-path: polygon(4% 0, 96% 0, 93% 48%, 85% 87%, 100% 98%, 61% 100%, 55% 72%, 50% 30%, 45% 72%, 39% 100%, 0 98%, 15% 87%, 7% 48%); }
+.muscle-zone { background: var(--base-muscle); }
+.muscle-zone[data-level=primary] { background: #397457; }
+.muscle-zone[data-level=secondary] { background: #a5c687; }
+.muscle-shoulder { inset: 38px 22px auto; height: 15px; clip-path: polygon(0 30%, 18% 0, 25% 50%, 13% 100%, 0 79%, 0 30%, 100% 30%, 100% 79%, 87% 100%, 75% 50%, 82% 0, 100% 30%); }
+.muscle-chest { inset: 41px 33px auto; height: 17px; clip-path: polygon(0 20%, 42% 0, 49% 12%, 51% 12%, 58% 0, 100% 20%, 96% 80%, 57% 100%, 50% 80%, 43% 100%, 4% 80%); }
+.muscle-core { inset: 60px 36px auto; height: 33px; border-radius: 4px 4px 45% 45%; }
+.muscle-upper-arm { inset: 53px 17px auto; height: 34px; clip-path: polygon(8% 0, 19% 10%, 10% 93%, 0 100%, 8% 0, 92% 0, 100% 100%, 90% 93%, 81% 10%, 92% 0); }
+.muscle-back { inset: 37px 33px auto; height: 49px; clip-path: polygon(0 28%, 34% 0%, 50% 15%, 66% 0%, 100% 28%, 91% 69%, 50% 100%, 9% 69%); }
+.muscle-hips { inset: 92px 29px auto; height: 22px; clip-path: polygon(3% 22%, 32% 0, 50% 24%, 68% 0, 97% 22%, 92% 87%, 59% 100%, 50% 81%, 41% 100%, 8% 87%); }
+.muscle-thigh { inset: 114px 29px auto; height: 35px; clip-path: polygon(0 0, 43% 12%, 39% 96%, 11% 100%, 0 0, 100% 0, 89% 100%, 61% 96%, 57% 12%, 100% 0); }
+.muscle-calf { inset: 153px 33px auto; height: 19px; clip-path: polygon(0 6%, 35% 0, 40% 90%, 14% 100%, 0 6%, 100% 6%, 86% 100%, 60% 90%, 65% 0, 100% 6%); }
+.muscle-key { display: flex; justify-content: center; flex-wrap: wrap; gap: 7px 13px; color: var(--muted); font-size: .82rem; }
+.muscle-key i { display: inline-block; width: .65rem; height: .65rem; border-radius: 2px; background: #397457; }
+.muscle-key span:nth-child(2) i { background: #a5c687; }
+.nutrition-summary .section-head input { width: auto; max-width: 52%; }
+.nutrition-calories { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.nutrition-calories strong { font-size: 1.65rem; }
+.nutrition-calories span { font-size: .9rem; color: var(--muted); }
+.nutrition-calories button { margin-left: auto; }
+.nutrition-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; text-align: center; }
+.nutrition-metrics > div > span { font-size: .78rem; color: var(--muted); }
+.nutrition-ring { width: min(100%, 77px); margin: 0 auto 5px; padding: 4px; aspect-ratio: 1; display: grid; border-radius: 50%; background: conic-gradient(var(--ring) var(--percent), #e9eee7 0); }
+.nutrition-ring > div { display: grid; align-content: center; background: white; border-radius: 50%; min-width: 0; font-variant-numeric: tabular-nums; }
+.nutrition-ring strong { font-size: clamp(.85rem, 3.4vw, 1.2rem); overflow-wrap: anywhere; line-height: 1.05; }
+.nutrition-ring small { color: var(--muted); font-size: .68rem; }
+.nutrition-actions { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.nutrition-row { min-width: 0; }
+.nutrition-row > div:first-of-type { overflow-wrap: anywhere; min-width: 0; }
+.nutrition-row > div:last-of-type:not(:first-of-type) { display: flex; flex-wrap: wrap; justify-content: flex-end; }
+.template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.template-card { display: grid; gap: 6px; justify-items: start; align-content: start; }
+.template-card > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.template-card p { line-height: 1.42; overflow-wrap: anywhere; }
+.template-moves { color: #435348; font-size: .86rem; }
+.feature-tabs { justify-self: start; max-width: 100%; }
+.shortcut-help summary { cursor: pointer; }
+.shortcut-help > summary { display: flex; align-items: center; gap: 7px; }
+.shortcut-help li { margin-bottom: 5px; }
+.shortcut-scripts { display: grid; gap: 9px; }
+.shortcut-scripts textarea { display: block; width: 100%; margin-top: 6px; font-family: monospace; }
+@media(max-width: 640px) {
+  .nutrition-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .template-card { padding: 11px; }
+  .template-card .button { padding-inline: 7px; }
+  .exercise-dialog .dialog-body { padding-inline: 12px; }
+  .exercise-tabs { padding-inline: 8px; }
+  .exercise-toolbar > div { margin-left: auto; }
+}
+@media(max-width: 375px) {
+  .template-grid { grid-template-columns: 1fr; }
+  .exercise-tabs button { min-height: 42px; gap: 3px; }
+}

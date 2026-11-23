@@ -28,3 +28,15 @@ export const workoutHeart = sqliteTable("workout_heart", {
   primaryKey({ columns: [table.owner, table.workoutId] }),
   foreignKey({ columns: [table.owner, table.workoutId], foreignColumns: [entries.owner, entries.id] }).onDelete("cascade"),
 ]);
+
+export const personalLibrary = sqliteTable("personal_library", {
+  owner: text().notNull(),
+  kind: text().notNull(),
+  id: text().notNull(),
+  day: text(),
+  payload: text().notNull(),
+  updated: text().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.owner, table.kind, table.id] }),
+  index("personal_library_day").on(table.owner, table.kind, table.day),
+]);

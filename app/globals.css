@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./workout.css";
 @import "./heart.css";
+@import "./library.css";
 
 :root {
   color-scheme: light;
@@ -311,3 +312,19 @@ progress::-moz-progress-bar { background: #8fbc60; border-radius: 10px; }
 
 .feature-fields { min-width: 0; }
 .prompt-text { margin-top: 12px; width: 100%; }
+
+.today-plan-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
+.plan-options { position: relative; }
+.plan-options > summary { list-style: none; min-width: 36px; }
+.plan-options > summary::-webkit-details-marker { display: none; }
+.plan-options-menu { position: absolute; z-index: 5; right: 0; top: calc(100% + 5px); width: max-content; display: grid; padding: 5px; border: 1px solid var(--stroke); border-radius: 9px; background: white; box-shadow: 0 8px 24px #152c1940; }
+.plan-options-menu button { display: flex; align-items: center; gap: 6px; padding: 8px; min-height: 37px; border-radius: 5px; font-size: .88rem; text-align: left; }
+.plan-options-menu button:hover { background: #eef4e6; }
+.plan-options-menu button:last-child { color: #a34134; }
+.week-dot small { font-size: .68rem; color: var(--muted); }
+.weekday-settings { display: flex; flex-wrap: wrap; gap: 6px; }
+.weekday-settings button[aria-pressed=true] { background: #e5f1d6; border-color: #93ad82; }
+.workout-clock-line { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 14px; border-bottom: 1px solid var(--stroke); }
+.rest-counter { display: flex; align-items: center; gap: 3px; color: #375535; font-weight: 760; font-variant-numeric: tabular-nums; }
+.set-prescription { margin-top: 4px; }
+.exercise-dialog .exercise-tabs { top: 61px; }

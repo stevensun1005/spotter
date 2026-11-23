@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
 import { planSchema, type Plan } from "@/features/plans/model";
+import { maxWorkoutMs } from "./clock";
 
 const sets = z.object({
   reps: z.number().int().min(0).max(999),
@@ -20,6 +21,7 @@ export const sessionSchema = z.object({
   date: dateSchema,
   started: z.number().int().positive(),
   ended: z.number().int().positive().optional(),
+  clock: z.object({ elapsed: z.number().int().min(0).max(maxWorkoutMs), runningSince: z.number().int().positive().nullable() }).optional(),
   minutes: z.number().int().min(0).max(720),
   note: z.string().max(1500),
   finishedVideo: z.boolean(),
@@ -33,8 +35,9 @@ export type Session = z.infer<typeof sessionSchema>;
 export type SetLine = z.infer<typeof sets>;
 
 export function startSession(plan: Plan, planId: string, date: string): Session {
+  const started = Date.now();
   return {
-    plan, planId, date, started: Date.now(), minutes: 0, note: "",
+    plan, planId, date, started, clock: { elapsed: 0, runningSince: started }, minutes: 0, note: "",
     finishedVideo: false,
     rows: plan.exercises.map((item) => Array.from({ length: item.sets }, () => ({
       weight: item.weight, reps: item.reps, seconds: item.seconds, done: false,

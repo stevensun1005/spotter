@@ -6,7 +6,8 @@
 - 计划可以粘贴文本、视频链接或 JSON 后预览。批次最多 20 个计划，保存时跳过已经存在的相同计划。
 - 个人打卡详情里的「训练心率」支持 Apple 健康 ZIP/XML、Garmin FIT/TCX、WHOOP CSV/ZIP 以及通用 CSV。选文件、核对时间和心率，再保存。网页只上传选定时段的心率数据。搭子可以看到训练打卡。
 - WHOOP 在线同步需要在 WHOOP 开发者应用登记 `https://<本站域名>/api/health/whoop/callback`，并为 Sites 设置 `WHOOP_CLIENT_ID` 和 `WHOOP_CLIENT_SECRET` 两个运行时值。启用后可授权同步匹配训练的平均和最高心率。
-- iPhone HealthKit 直连需要原生授权，以及原生应用能访问的设备同步服务。当前 Sites 用 Apple 健康导出文件导入。
+- iPhone 在 Safari 的打卡详情选择「从 iPhone 健康读取」。按页面配置一次快捷指令后，直接从 iPhone 健康读取训练时段的心率。完成预览后在网页保存。也可导入 Apple 健康导出文件。
+- 动作库含原创建议、部位图示和卧推示范。动作备注、视频、版本、个人模板与饮食记录均按账号存储。
 
 # vinext-starter
 

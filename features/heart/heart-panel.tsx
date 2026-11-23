@@ -6,6 +6,7 @@ import { errorText, send } from "@/shared/client";
 import type { Session } from "@/features/training/model";
 import { sources, workoutWindow, type HeartData } from "./model";
 import type { WhoopStatus } from "./whoop";
+import { AppleShortcut } from "./apple-shortcut";
 
 const providerMessage: Record<WhoopStatus, string> = {
   synced: "已保存 WHOOP 训练心率。",
@@ -184,10 +185,13 @@ export function HeartPanel({ id, session, whoopResult }: { id: string; session: 
         <button type="button" className="button subtle small" disabled={busy} onClick={() => setConfirmRemove(true)}>移除心率</button>)}
     </div>}
     {busy && <p role="status" className="muted">正在处理心率…</p>}
+    {!preview && !loading && !busy && <AppleShortcut window={workoutWindow(session)} receive={(value) => {
+      setPreview(value); setError(""); setResult(""); setConfirmRemove(false);
+    }} fail={(message) => { setError(message); setResult(""); }} />}
     {!preview && <details className="heart-help">
       <summary>支持的设备与文件</summary>
       <ul>
-        <li>Apple Watch：在账号里连接 iPhone 配套应用，从 Apple 健康直接同步。也可在「健康」里导出 ZIP 或 export.xml。</li>
+        <li>Apple Watch：可通过 iPhone 快捷指令读取心率，或在「健康」里导出 ZIP／export.xml。</li>
         <li>Garmin：在 Garmin Connect 打开这一项活动，导出 FIT 原始文件或 TCX。</li>
         <li>WHOOP：选择导出包里的 workouts.csv，也可直接选择 ZIP。配置授权后可在这里同步单次训练的平均及最高心率。</li>
         <li>其他设备：支持含时间和 BPM 的 FIT、TCX 或 CSV。</li>

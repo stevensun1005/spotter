@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cloud,
-  Copy, Dumbbell, Flame, House, Link2, LogIn, Play, Plus, Sparkles, Users,
+  Bookmark, CalendarClock, Copy, Dumbbell, Flame, House, Link2, LogIn, Menu, Play, Plus, Settings2, Sparkles, Trash2, Utensils, Users,
 } from "lucide-react";
 import {
   asDate, examples, offsetDate, planBlank, sessionTotals, startSession,
@@ -18,17 +18,30 @@ import { TrainingNotice } from "@/features/training/training-notice";
 import { Workout } from "@/features/training/workout";
 import { ImportView } from "@/features/import/import-view";
 import type { WhoopStatus } from "@/features/heart/whoop";
+import { ExerciseDetail, ExerciseLibrary } from "@/features/exercises/exercise-view";
+import { NutritionView } from "@/features/nutrition/nutrition-view";
+import { PlanSections } from "@/features/plans/plan-sections";
+import { moveBlank } from "@/features/plans/model";
+import { useLibrary } from "@/features/library/use-library";
+import { PlanActions } from "@/features/plans/plan-actions";
+import { MovePlan, ScheduleSettings } from "@/features/plans/schedule-view";
+import { blocked, openSchedule } from "@/features/plans/schedule";
+import { pauseClock, resumeClock, workoutElapsed } from "@/features/training/clock";
+import { refreshDraftPlan } from "@/features/training/refresh-plan";
 
-type View = "today" | "plans" | "history" | "stats" | "import";
+type View = "today" | "plans" | "history" | "stats" | "import" | "exercises" | "nutrition" | "more";
 type KeyedPlan = { id: string; data: Plan };
-type Overlay = { kind: "pair" } | { kind: "editor"; plan: KeyedPlan } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
+type Overlay = { kind: "pair" | "schedule" } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
 const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
   { id: "plans", title: "训练计划", mobile: "计划", icon: ClipboardList },
+  { id: "exercises", title: "动作库", mobile: "动作", icon: Dumbbell },
   { id: "history", title: "打卡历史", mobile: "打卡", icon: CalendarDays },
-  { id: "stats", title: "训练统计", mobile: "统计", icon: BarChart3 },
-  { id: "import", title: "导入计划", mobile: "导入", icon: Sparkles },
+  { id: "nutrition", title: "饮食记录", mobile: "", icon: Utensils },
+  { id: "stats", title: "训练统计", mobile: "", icon: BarChart3 },
+  { id: "import", title: "导入计划", mobile: "", icon: Sparkles },
+  { id: "more", title: "更多功能", mobile: "更多", icon: Menu },
 ] as const;
 const demoUser = { id: "demo", name: "我" };
 const demoPartner = { id: "demo-partner", name: "搭子" };
@@ -72,6 +85,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
   const [view, setView] = useState<View>(heartReturn ? "history" : "today");
+  const [exercise, setExercise] = useState<string>();
+  const [planTab, setPlanTab] = useState<"个人模板">();
+  const [confirmRemoveTemplate, setConfirmRemoveTemplate] = useState(false);
+  const library = useLibrary(Boolean(viewer));
   const [returnToLog, setReturnToLog] = useState(heartReturn);
   const [state, setState] = useState<State>(() => viewer ? { me: viewer, entries: [], room: null } : demoState(initialDate));
   const [cloud, setCloud] = useState(viewer ? "正在连接" : "本机演示");
@@ -84,6 +101,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [invite, setInvite] = useState("");
   const [pendingDrafts, setPendingDrafts] = useState<Record<string, Session>>({});
   const pendingRef = useRef<Record<string, Session>>({});
+  const deletedDrafts = useRef(new Set<string>());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queue = useRef(Promise.resolve());
   const refreshId = useRef(0);
@@ -112,7 +130,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const flushDraft = useCallback((id: string, data: Session) => {
     if (!viewer) { setSync("本机草稿"); return; }
     queue.current = queue.current.then(async () => {
-      if (pendingRef.current[id] !== data) return;
+      if (deletedDrafts.current.has(id) || pendingRef.current[id] !== data) return;
       setSync("正在保存");
       try {
         await post({ action: "draft", id, data });
@@ -187,6 +205,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     .filter(([id]) => !logs.some((log) => log.owner === me.id && log.id === id));
   const routeDraft = drafts.find(([id]) => id === trainingNav.id);
   const completedWorkout = logs.find((log) => log.owner === me.id && log.id === trainingNav.id);
+  const profiles = library.rows.filter((item) => item.kind === "exercise").map(({ item }) => item);
+  const templates = library.rows.filter((item) => item.kind === "template");
+  const schedule = library.rows.find((item) => item.kind === "schedule")?.values ?? openSchedule;
+  const exerciseNames = [
+    ...plans.filter((plan) => plan.owner === me.id).flatMap((plan) => plan.data.exercises.map((item) => item.name)),
+    ...logs.filter((log) => log.owner === me.id).flatMap((log) => log.data.plan.exercises.map((item) => item.name)),
+  ];
   const todaysPlans = plans.filter((item) => item.data.date === selected);
   const sample: KeyedPlan = { id: "example", data: examples(today) };
   const current = todaysPlans[0] ?? (selected === today && !drafts.some(([, data]) => data.date === today) && !logs.some((log) => log.owner === me.id && log.data.date === today) ? sample : null);
@@ -198,16 +223,37 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const receivedCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === partner?.id && entry.data.date === today);
   const weekStart = offsetDate(selected, -weekdayIndex(selected));
 
-  const go = (next: View) => { setView(next); setWarning(""); window.scrollTo({ top: 0 }); };
+  const go = (next: View) => { setView(next); setPlanTab(undefined); setWarning(""); window.scrollTo({ top: 0 }); };
   const open = (next: Overlay) => { setWarning(""); setOverlay(next); };
+  const parkWorkout = useCallback((id: string, data: Session) => {
+    const latest = pendingRef.current[id] ?? data;
+    const paused = pauseClock(latest);
+    if (paused !== latest) {
+      setPending({ ...pendingRef.current, [id]: paused });
+      setOverlay((value) => value?.kind === "session" && value.id === id ? { ...value, data: paused } : value);
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (pendingRef.current[id]) void flushDraft(id, pendingRef.current[id]);
+  }, [setPending, flushDraft]);
+
+  useEffect(() => {
+    if (overlay?.kind !== "session" || busy) return;
+    const { id, data } = overlay;
+    const park = () => parkWorkout(id, data);
+    const onVisibility = () => { if (document.visibilityState === "hidden") park(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", park);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", park);
+    };
+  }, [overlay, busy, parkWorkout]);
+
   const close = useCallback(() => {
     if (busy) return;
-    if (overlay?.kind === "session" && pendingRef.current[overlay.id]) {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      void flushDraft(overlay.id, pendingRef.current[overlay.id]);
-    }
+    if (overlay?.kind === "session") parkWorkout(overlay.id, overlay.data);
     setOverlay(null); setWarning("");
-  }, [busy, overlay, flushDraft]);
+  }, [busy, overlay, parkWorkout]);
 
   const activeSessionId = overlay?.kind === "session" ? overlay.id : null;
 
@@ -231,6 +277,32 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   function newPlan(data = planBlank(selected)) {
     open({ kind: "editor", plan: { id: crypto.randomUUID(), data } });
+  }
+
+  async function importPlans(items: KeyedPlan[], revise: boolean) {
+    if (!revise) { await savePlans(items, true); return; }
+    const owned = plans.filter((plan) => plan.owner === me.id);
+    const next = items.map(({ data }) => {
+      const existing = owned.filter((plan) => plan.data.title === data.title.trim());
+      if (existing.length !== 1) throw new Error("找不到唯一的现有计划「" + data.title + "」。更新未保存。");
+      const [plan] = existing;
+      return { id: plan.id, data: { ...data, date: plan.data.date, shared: plan.data.shared } };
+    });
+    if (new Set(next.map((item) => item.id)).size !== next.length) throw new Error("同一计划在这批文件里出现了多次。");
+    const response = await post({ action: "plans", items: next, reviseExisting: true });
+    const { revised } = await response.json() as { revised: number };
+    await refresh(); setToast("已更新 " + revised + " 个现有计划");
+  }
+
+  function openTemplate(plan = planBlank(selected), id = crypto.randomUUID(), editing = false) {
+    setConfirmRemoveTemplate(false);
+    open({ kind: "template", item: { id, data: { ...plan, shared: false } }, editing });
+  }
+
+  function planExercise(name: string) {
+    setExercise(undefined);
+    go("plans");
+    newPlan({ ...planBlank(selected), title: name, exercises: [{ ...moveBlank(), name }] });
   }
 
   async function savePlans(items: KeyedPlan[], skipExisting = false) {
@@ -265,11 +337,42 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   function begin(item: KeyedPlan) {
     const existing = drafts.find(([, data]) => data.planId === item.id && data.date === today);
     const id = existing?.[0] ?? crypto.randomUUID();
-    const data = existing?.[1] ?? startSession(item.data, item.id, today);
-    if (!existing) upsertLocalDraft(id, data);
+    const data = existing ? resumeClock(refreshDraftPlan(existing[1], item.data)) : startSession(item.data, item.id, today);
+    if (!existing || data !== existing[1]) upsertLocalDraft(id, data);
     else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
     open({ kind: "session", id, data });
     trainingNav.enter(id);
+  }
+
+  function resumeDraft(id: string, data: Session) {
+    const latest = plans.find((plan) => plan.id === data.planId && plan.owner === me.id);
+    const next = resumeClock(refreshDraftPlan(data, latest?.data));
+    if (next !== data) upsertLocalDraft(id, next);
+    else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
+    open({ kind: "session", id, data: next });
+    trainingNav.enter(id);
+  }
+
+  async function deleteRecord(id: string, kind: "plan" | "draft") {
+    await act(async () => {
+      if (kind === "draft") {
+        deletedDrafts.current.add(id);
+        await queue.current;
+      }
+      try {
+        if (viewer) await post({ action: "delete", id, kind });
+        if (kind === "draft") {
+          const next = { ...pendingRef.current };
+          delete next[id]; setPending(next);
+        }
+        setState((prev) => ({ ...prev, entries: prev.entries.filter((item) => item.id !== id || item.owner !== me.id) }));
+        if (viewer) void refresh();
+        setOverlay(null); setToast(kind === "draft" ? "草稿已删除" : "计划已删除");
+      } catch (reason) {
+        deletedDrafts.current.delete(id);
+        throw reason;
+      }
+    });
   }
 
   async function finishSession(id: string, data: Session) {
@@ -278,7 +381,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       await queue.current;
       const now = Date.now();
       const ended = Math.max(data.started, Math.min(now, data.started + 86_400_000));
-      const finalized = { ...data, date: asDate(now), ended, minutes: data.minutes || Math.min(720, Math.max(1, Math.round((ended - data.started) / 60000))) };
+      const finalized = { ...pauseClock(data, now), date: asDate(now), ended, minutes: data.minutes || Math.min(720, Math.max(1, Math.round(workoutElapsed(data, now) / 60000))) };
       if (viewer) await post({ action: "log", id, data: finalized });
       const next = { ...pendingRef.current };
       delete next[id]; setPending(next);
@@ -296,20 +399,31 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     catch { setToast("请长按文本手动复制。"); }
   }
 
+  function planActions(item: KeyedPlan) {
+    return viewer ? <PlanActions title={item.data.title} edit={() => open({ kind: "editor", plan: item })}
+      move={() => open({ kind: "move", item })} saveTemplate={() => openTemplate(item.data)}
+      remove={() => open({ kind: "delete", itemId: item.id, label: item.data.title, type: "plan" })} /> :
+      <button className="button subtle small" onClick={() => open({ kind: "editor", plan: item })}>编辑</button>;
+  }
+
   function renderPlan(item: KeyedPlan, i: number) {
     const own = plans.some((plan) => plan.id === item.id && plan.owner === me.id);
     return <div className="plan-line" key={item.id}>
       <span className={"tile " + (i % 2 ? "lilac" : "mint")}>{item.data.video ? <Play size={20} /> : <Dumbbell size={20} />}</span>
       <div><strong>{item.data.title}</strong><small>{shortDate(item.data.date)} · {item.data.category}{item.data.minutes ? " · " + item.data.minutes + " 分钟" : ""}{item.data.shared ? " · 共享" : ""}</small></div>
-      <div className="plan-actions">{own && <button className="button subtle small" onClick={() => open({ kind: "editor", plan: item })}>编辑</button>}<button className="button outline small" onClick={() => begin(item)}>开始</button></div>
+      <div className="plan-actions">{own && planActions(item)}<button className="button outline small" onClick={() => begin(item)}>开始</button></div>
     </div>;
   }
 
+  const exerciseDialog = exercise && <ExerciseDetail key={exercise} name={exercise} close={() => setExercise(undefined)}
+    select={setExercise} profiles={profiles} names={exerciseNames} logs={logs} owner={me.id}
+    save={(item) => library.save({ kind: "exercise", item })} addToPlan={trainingNav.id ? undefined : planExercise} />;
+
   if (trainingNav.id) {
     if (overlay?.kind === "session" && overlay.id === trainingNav.id && !completedWorkout) {
-      return <Workout key={overlay.id} data={overlay.data} close={() => { close(); trainingNav.leave(); }}
+      return <><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} close={() => { close(); trainingNav.leave(); }}
         update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }}
-        finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />;
+        finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />{exerciseDialog}</>;
     }
     return <TrainingNotice loading={!draftsReady || cloud === "正在连接" || Boolean(routeDraft)}
       finished={Boolean(completedWorkout)} onBack={trainingNav.leave}
@@ -324,7 +438,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     <aside className="sidebar">
       <button className="brand" onClick={() => go("today")}><span className="brand-mark"><Dumbbell size={23} strokeWidth={2.5} /></span><span>训练搭子<small>SPOTTER CLUB</small></span></button>
       <nav aria-label="主导航" className="desktop-nav">
-        {navigation.map(({ id, icon: Icon, title }) => <button className={id === view ? "active" : ""} aria-current={id === view ? "page" : undefined} key={id} onClick={() => go(id)}><Icon size={19} /><span>{title}</span>{id === view && <i />}</button>)}
+        {navigation.filter((item) => item.id !== "more").map(({ id, icon: Icon, title }) => <button className={id === view ? "active" : ""} aria-current={id === view ? "page" : undefined} key={id} onClick={() => go(id)}><Icon size={19} /><span>{title}</span>{id === view && <i />}</button>)}
       </nav>
       <button className="sidebar-pair" onClick={() => open({ kind: "pair" })}><span className="tile lilac"><Users size={19} /></span><span><strong>搭子空间</strong><small>{partner ? "查看搭子" : "邀请训练搭子"}</small></span><ChevronRight size={16} /></button>
       <div className="sidebar-footer"><span className="avatar lime">{avatar(me.name)}</span><div><strong>{me.name}</strong><small>{demo ? "演示账号" : "个人账号"}</small></div></div>
@@ -340,6 +454,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             {view === "today" && <p>{demo ? "正在查看示例数据。登录后可同步你们的记录。" : "安排今天的训练，看看搭子练得怎么样。"}</p>}
             {view === "import" && <p>把聊天里的训练安排或视频链接变成可打卡的计划。</p>}
           </div>
+          {view === "plans" && viewer && <button className="button outline page-action" disabled={library.loading || Boolean(library.error)} onClick={() => open({ kind: "schedule" })}><Settings2 size={18} /> 个人计划设置</button>}
           {(view === "today" || view === "plans") && <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>}
         </div>
 
@@ -350,13 +465,15 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               <div className="week-days">
                 {weekdays.map((day, i) => {
                   const date = offsetDate(weekStart, i);
-                  return <button key={day} aria-pressed={selected === date} aria-label={date} onClick={() => setSelected(date)}><span>周{day}</span><strong>{Number(date.slice(8))}</strong><span className="week-dot">{(plans.some((item) => item.data.date === date) || logs.some((log) => log.data.date === date)) && <i />}</span></button>;
+                  return <button key={day} aria-pressed={selected === date} aria-label={date + (blocked(schedule, date) ? "，休息" : "")} onClick={() => setSelected(date)}><span>周{day}</span><strong>{Number(date.slice(8))}</strong><span className="week-dot">{blocked(schedule, date) ? <small>休</small> : (plans.some((item) => item.data.date === date) || logs.some((log) => log.data.date === date)) && <i />}</span></button>;
                 })}
               </div>
             </section>
 
+            {blocked(schedule, selected) && <p className="muted">这天设为不安排训练。已有计划可移动到其他日期。</p>}
             <div className="section-head section-break"><h2>{selected === today ? "今日训练" : shortDate(selected) + "的训练"}</h2><button className="text-button" onClick={() => go("plans")}>全部计划 <ChevronRight size={15} /></button></div>
-            {selected === today && drafts.length > 0 && <section className="card plan-list">{drafts.map(([id, data]) => <div className="plan-line" key={id}><span className="tile mint"><Clock3 size={19} /></span><div><strong>{data.plan.title}</strong><small>{sessionTotals(data).sets} 组完成 · {pendingDrafts[id] && !demo ? "待同步" : "训练草稿"}</small></div><button className="button outline small" onClick={() => trainingNav.enter(id)}>继续</button></div>)}</section>}
+            {selected === today && drafts.length > 0 && <section className="card plan-list">{drafts.map(([id, data]) => <div className="plan-line" key={id}><span className="tile mint"><Clock3 size={19} /></span><div><strong>{data.plan.title}</strong><small>{sessionTotals(data).sets} 组完成 · {pendingDrafts[id] && !demo ? "待同步" : "训练草稿"}</small></div><div className="plan-actions"><button className="button outline small" onClick={() => resumeDraft(id, data)}>继续</button>
+              <button className="icon-button" aria-label={"删除草稿 " + data.plan.title} onClick={() => open({ kind: "delete", itemId: id, label: data.plan.title, type: "draft" })}><Trash2 size={16} /></button></div></div>)}</section>}
             {current ? <>
               <section className="hero">
                 <div className="hero-content">
@@ -366,10 +483,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                   <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> {current.id === "example" ? "试练示例" : "开始训练"}</button>
                 </div>
               </section>
+              {(current.data.durationNote || (current.id !== sample.id && plans.some((item) => item.id === current.id && item.owner === me.id))) &&
+                <div className="card padded today-plan-actions"><p className="muted">{current.data.durationNote || "需要调整日期？"}</p>
+                  {current.id !== sample.id && plans.some((item) => item.id === current.id && item.owner === me.id) && planActions(current)}</div>}
               {(todaysPlans.length > 1) && <section className="card plan-list">{todaysPlans.slice(1).map(renderPlan)}</section>}
               {current.data.exercises.length > 0 && <section className="card padded movement-card">
                 <div className="section-head"><h2>动作清单</h2><span className="count-label">{current.data.exercises.length} 个动作</span></div>
-                {current.data.exercises.map((move, i) => <div className="list-line move-line" key={i}><span className={"tile " + (i % 3 === 1 ? "lilac" : i % 3 === 2 ? "sand" : "mint")}><Dumbbell size={19} /></span><span><strong>{move.name}</strong><small>{move.seconds ? "计时动作" : move.weight ? move.weight + " " + move.unit : "自重／待填重量"}</small></span><span className="move-reps">{move.sets} 组 × {move.seconds ? move.seconds + " 秒" : move.reps + " 次"}</span></div>)}
+                {current.data.exercises.map((move, i) => <button type="button" className="list-line move-line" key={i} onClick={() => setExercise(move.name)}><span className={"tile " + (i % 3 === 1 ? "lilac" : i % 3 === 2 ? "sand" : "mint")}><Dumbbell size={19} /></span><span><strong>{move.name}</strong><small>{move.seconds ? "计时动作" : move.weight ? move.weight + " " + move.unit : "自重／待填重量"}</small></span><span className="move-reps">{move.sets} 组 × {move.seconds ? move.seconds + " 秒" : move.reps + (move.repsMax && move.repsMax !== move.reps ? "–" + move.repsMax : "") + " 次"}</span></button>)}
               </section>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
             </> : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3><button className="button outline small" onClick={() => newPlan()}>添加训练</button></section>}
@@ -395,30 +515,68 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 return <div key={date}><span className={active ? "on" : ""}>{active ? <Check size={13} /> : <i />}</span><small>{weekdays[weekdayIndex(date)]}</small></div>;
               })}</div>
             </section>
+            <button className="import-callout" onClick={() => go("nutrition")}><span className="tile mint"><Utensils size={20} /></span><span><strong>饮食记录</strong><small>三餐、饮水和体重</small></span><ChevronRight size={18} /></button>
             <button className="import-callout" onClick={() => go("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>从聊天导入</strong><small>GPT、Claude 或跟练视频</small></span><ChevronRight size={18} /></button>
             {warning && !overlay && <p className="inline-error" role="alert">{warning}</p>}
           </aside>
         </div>}
 
-        {view === "plans" && <section className="card padded">
+        {view === "plans" && <PlanSections key={planTab ?? "plans"} date={selected} templates={templates} initial={planTab}
+          schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, true)}><section className="card padded">
           <div className="section-head"><h2>全部计划</h2><button className="button subtle small" onClick={() => go("import")}><Sparkles size={17} /> 导入计划</button></div>
           {plans.length ? [...plans].sort((a, b) => a.data.date.localeCompare(b.data.date)).map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span><h3>还没有训练计划</h3><button className="button outline small" onClick={() => newPlan(examples(today))}>使用示例计划</button></div>}
+        </section></PlanSections>}
+        {(view === "plans" || view === "exercises") && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
+        {view === "exercises" && <ExerciseLibrary names={exerciseNames} profiles={profiles} choose={setExercise} />}
+        {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
+        {view === "more" && <section className="card padded feature-stack">
+          {navigation.filter((item) => !item.mobile).map(({ id, icon: Icon, title }) =>
+            <button key={id} className="list-line" type="button" onClick={() => go(id)}><span className="tile mint"><Icon size={18} /></span><strong>{title}</strong><ChevronRight size={16} /></button>)}
+          <button className="list-line" type="button" onClick={() => open({ kind: "pair" })}><span className="tile mint"><Users size={18} /></span><strong>账号与搭子空间</strong><ChevronRight size={16} /></button>
         </section>}
 
         {view === "history" && <History today={today} self={me.id} partner={partner?.name} logs={logs} show={(log) => open({ kind: "log", log })} />}
         {view === "stats" && <Stats today={today} self={me.id} partner={partner ?? null} logs={logs} />}
 
-        <div hidden={view !== "import"}><ImportView today={today} save={(items) => savePlans(items, true)} saved={() => go("plans")} notify={setToast} /></div>
+        <div hidden={view !== "import"}><ImportView today={today} save={importPlans} canRevise={Boolean(viewer)} saved={() => go("plans")} notify={setToast} /></div>
       </main>
     </div>
-    <nav aria-label="底部导航" className="mobile-nav">{navigation.map(({ id, icon: Icon, mobile }) => <button key={id} className={view === id ? "active" : ""} aria-current={id === view ? "page" : undefined} onClick={() => go(id)}><Icon size={21} /><span>{mobile}</span></button>)}</nav>
+    <nav aria-label="底部导航" className="mobile-nav">{navigation.filter((item) => item.mobile).map(({ id, icon: Icon, mobile }) => <button key={id} className={view === id ? "active" : ""} aria-current={id === view ? "page" : undefined} onClick={() => go(id)}><Icon size={21} /><span>{mobile}</span></button>)}</nav>
     {overlay?.kind === "editor" && <Dialog title={plans.some((plan) => plan.id === overlay.plan.id && plan.owner === me.id) ? "编辑计划" : "新建计划"} onClose={close}>
       <form onSubmit={(e) => { e.preventDefault(); const item = overlay.plan; void act(async () => { await savePlans([item]); setSelected(item.data.date); setOverlay(null); }); }}>
         <div className="dialog-body"><PlanFields value={overlay.plan.data} change={(data) => setOverlay({ kind: "editor", plan: { ...overlay.plan, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
         <div className="dialog-footer"><button type="button" className="button outline" onClick={close} disabled={busy}>取消</button><button className="button primary" disabled={busy}><Check size={18} /> 保存计划</button></div>
       </form>
     </Dialog>}
-    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} />}
+    {overlay?.kind === "schedule" && <ScheduleSettings settings={schedule} close={close} save={async (values) => {
+      await library.save({ kind: "schedule", values }); setToast("计划设置已保存");
+    }} />}
+    {overlay?.kind === "move" && <MovePlan item={overlay.item} settings={schedule} close={close} save={async (date, shift) => {
+      const response = await post({ action: "move", id: overlay.item.id, from: overlay.item.data.date, date, shift });
+      const { moved } = await response.json() as { moved: number };
+      await refresh(); setSelected(date); setToast(moved > 1 ? "已顺延 " + moved + " 个计划" : "训练已移动");
+    }} />}
+    {overlay?.kind === "delete" && <Dialog title={overlay.type === "plan" ? "删除训练计划" : "删除训练草稿"} onClose={close}>
+      <div className="dialog-body feature-stack"><p>确定删除「{overlay.label}」？{overlay.type === "plan" ? "已打卡的历史仍可查看。" : "这次尚未打卡的组记录会一同删除。"}</p>{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
+      <div className="dialog-footer"><button className="button outline" disabled={busy} onClick={close}>取消</button><button className="button primary" disabled={busy} onClick={() => void deleteRecord(overlay.itemId, overlay.type)}>确认删除</button></div>
+    </Dialog>}
+    {overlay?.kind === "template" && <Dialog title={overlay.editing ? "编辑模板" : "保存训练模板"} onClose={close}>
+      <form onSubmit={(event) => { event.preventDefault(); const { id, data } = overlay.item; void act(async () => {
+        const parsed = cleanPlan(data);
+        if (!parsed.success) throw new Error("请检查模板名称、日期、动作或视频。");
+        await library.save({ kind: "template", id, plan: { ...parsed.data, shared: false } });
+        setOverlay(null); go("plans"); setPlanTab("个人模板"); setToast("模板已保存");
+      }); }}>
+        <div className="dialog-body"><PlanFields template value={overlay.item.data} change={(data) => setOverlay({ ...overlay, item: { ...overlay.item, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
+        <div className="dialog-footer">{overlay.editing && <button type="button" className="button outline" disabled={busy} onClick={() => {
+          if (!confirmRemoveTemplate) { setConfirmRemoveTemplate(true); return; }
+          void act(async () => { await library.remove("template", overlay.item.id); setOverlay(null); setToast("模板已删除"); });
+        }}>{confirmRemoveTemplate ? "确认删除" : "删除模板"}</button>}
+          <button className="button primary" disabled={busy}><Check size={18} /> 保存模板</button></div>
+      </form>
+    </Dialog>}
+    {exerciseDialog}
+    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} onTemplate={viewer && overlay.log.owner === me.id ? () => openTemplate(overlay.log.data.plan) : undefined} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
         {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。配对后会互相看到打卡和共享计划。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :

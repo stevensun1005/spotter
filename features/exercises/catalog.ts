@@ -1,0 +1,35 @@
+export type Muscle = "胸肌" | "肩部" | "肱二头肌" | "肱三头肌" | "背部" | "核心" | "臀部" | "股四头肌" | "腘绳肌" | "小腿";
+type Guide = {
+  equipment: string;
+  primary: Muscle[];
+  secondary: Muscle[];
+  steps: string[];
+  source?: string;
+  photos?: { cover: string; label: string };
+  demonstrations?: { label: string; source: string; url: string }[];
+};
+
+export const guides: Record<string, Guide> = {
+  "杠铃卧推": {
+    equipment: "杠铃 · 平板卧推凳",
+    primary: ["胸肌"], secondary: ["肩部", "肱三头肌"],
+    photos: { cover: "/bench-press.webp", label: "杠铃卧推插图" },
+    source: "https://www.nasm.org/resource-center/exercise-library/barbell-bench-press",
+    demonstrations: [
+      { label: "五步卧推技巧", source: "Jeff Nippard · YouTube", url: "https://www.youtube.com/watch?v=hWbUlkb5Ms4" },
+      { label: "侧向完整动作", source: "Wikimedia Commons · 真人示范", url: "https://commons.wikimedia.org/wiki/File:Bench_press_-_exercise_demonstration_video.webm" },
+      { label: "动作教学示范", source: "NASM · YouTube", url: "https://www.youtube.com/watch?v=CayG6UYqL8g" },
+    ],
+    steps: ["仰卧在平凳上，双脚踩稳地面。握住杠铃，拇指绕过杠杆，让手腕保持稳定。", "收稳肩胛，出杠后将杠铃举稳在上身上方。", "控制下放，向胸部靠近，肘部沿自然方向屈曲。", "持续踩稳地面，将杠铃推回起点。完成后把杠铃放回两侧挂钩。"],
+  },
+  "哑铃卧推": { equipment: "哑铃 · 平凳", primary: ["胸肌"], secondary: ["肩部", "肱三头肌"], steps: ["躺稳，双脚踩地，哑铃放在胸部两侧上方。", "屈肘控制下放，保持手腕在前臂上方。", "平稳推起，避免用两只哑铃互相碰撞。"] },
+  "坐姿划船": { equipment: "绳索器械", primary: ["背部"], secondary: ["肱二头肌"], steps: ["脚踩脚踏，保持躯干稳定。", "将把手拉向腹部，肘部随动作向后。", "控制把手回到起点，避免用躯干前后摆动带动。"] },
+  "高位下拉": { equipment: "绳索器械", primary: ["背部"], secondary: ["肱二头肌"], steps: ["调好腿垫，握住把手并坐稳。", "肘部向下，将把手带向上胸前方。", "控制回放，让肩背在可控范围内伸展。"] },
+  "哑铃肩推": { equipment: "哑铃", primary: ["肩部"], secondary: ["肱三头肌", "核心"], steps: ["哑铃在肩两侧，先站稳或坐稳。", "保持躯干稳定，将哑铃推向头顶。", "控制下放回到肩部附近。"] },
+  "哑铃弯举": { equipment: "哑铃", primary: ["肱二头肌"], secondary: [], steps: ["身体站稳，手臂放在身体两侧。", "屈肘举起哑铃，肩膀和躯干保持稳定。", "控制哑铃回到起始位置。"] },
+  "高脚杯深蹲": { equipment: "哑铃或壶铃", primary: ["股四头肌", "臀部"], secondary: ["核心"], steps: ["将重量抱在胸前，双脚踩稳。", "髋膝同时弯曲，膝盖跟随脚尖方向。", "下蹲到能保持稳定的位置，再踩地站起。"] },
+  "罗马尼亚硬拉": { equipment: "哑铃或杠铃", primary: ["腘绳肌", "臀部"], secondary: ["背部", "核心"], steps: ["双脚踩稳，微屈膝，重量放在腿前。", "髋部向后移动，让重量贴近腿部下放。", "后侧大腿有拉伸感时，伸髋回到站姿。"] },
+  "平板支撑": { equipment: "自重", primary: ["核心"], secondary: ["肩部"], steps: ["肘放在肩下，脚尖撑地。", "躯干和腿保持一条直线，避免腰塌。", "保持呼吸，用时间记录这一组。"] },
+  "俯卧撑": { equipment: "自重", primary: ["胸肌"], secondary: ["肱三头肌", "核心"], steps: ["双手撑地，保持头、躯干和腿对齐。", "屈肘控制身体下移。", "双手推地返回开始位置。"] },
+};
+export const exerciseNames = Object.keys(guides);

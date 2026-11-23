@@ -10,7 +10,9 @@ const move = z.object({
   weight: z.number().min(0).max(2000),
   unit: z.enum(["kg", "lb"]),
   seconds: z.number().int().min(0).max(18000),
-});
+  restSeconds: z.number().int().min(0).max(600).optional(),
+  repsMax: z.number().int().min(1).max(999).optional(),
+}).refine(({ reps, repsMax }) => repsMax === undefined || reps > 0 && repsMax >= reps);
 export const videoUrl = z.string().max(1200).refine((value) => {
   if (!value) return true;
   try {
@@ -26,6 +28,7 @@ export const planSchema = z.object({
   date: dateSchema,
   category: z.enum(categories),
   minutes: z.number().int().min(0).max(720),
+  durationNote: z.string().trim().max(380).optional(),
   shared: z.boolean(),
   video: videoUrl,
   exercises: z.array(move).max(30),
