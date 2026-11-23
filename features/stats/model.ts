@@ -3,6 +3,7 @@ import type { TrainingEntry } from "@/shared/state";
 import { estimatedMax } from "@/features/exercises/history";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import type { CatalogEntry } from "@/features/exercises/open-gym";
+import { expandAnatomyWeights } from "@/features/exercises/labels";
 import { exerciseMuscles, researchedGuide } from "@/features/exercises/guidance";
 import type { Session } from "@/features/training/model";
 import { isWarmupMove } from "@/features/training/sequence";
@@ -60,6 +61,7 @@ const cleanName = (text: string) => parsePlanMove(text).name.normalize("NFKC").t
 type Best = { value: number; weight: number; reps: number; date: string };
 export type ExerciseResult = { name: string; catalogueId?: string; weight?: Best; max?: Best; sets: number };
 type MuscleCounts = { regions: Record<string, number>; buckets: Record<string, number> };
+type MuscleWork = { loaded: number; unloaded: number; direct: boolean };
 export const muscleGroups = [
   { id: "chest", name: "胸部", muscles: ["chest", "upper-chest", "lower-chest", "serratus"] },
   { id: "back", name: "背部", muscles: ["lats", "upper-back", "lower-back", "rhomboids", "trapezius", "upper-trapezius", "lower-trapezius"] },
@@ -86,6 +88,7 @@ export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], m
   const unlabelled = new Set<string>();
   const primary: MuscleCounts = { regions: {}, buckets: {} };
   const secondary: MuscleCounts = { regions: {}, buckets: {} };
+  const muscleWork = new Map<string, MuscleWork>();
   const addMuscles = (counts: MuscleCounts, keys: string[], count: number) => {
     keys.forEach((key) => { counts.regions[key] = (counts.regions[key] ?? 0) + count; });
     const buckets = new Set(keys.map((muscle) => muscleBucket.get(muscle)).filter(Boolean) as string[]);
@@ -115,6 +118,23 @@ export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], m
       if (tags.length) {
         addMuscles(primary, tags.filter(([, value]) => value >= 75).map(([key]) => key), work.length);
         addMuscles(secondary, tags.filter(([, value]) => value < 75).map(([key]) => key), work.length);
+        let loaded = 0;
+        let unloaded = 0;
+        for (const line of work) {
+          const load = setVolumeKg(line, move);
+          loaded += load;
+          if (!load && (line.reps || line.seconds || line.right?.reps)) unloaded++;
+        }
+        if (loaded || unloaded) {
+          for (const [muscle, weight] of Object.entries(expandAnatomyWeights(weights))) {
+            if (weight <= 0 || muscle === "cardiovascular system") continue;
+            const current = muscleWork.get(muscle) ?? { loaded: 0, unloaded: 0, direct: false };
+            current.loaded += loaded * weight / 100;
+            current.unloaded += unloaded * weight / 100;
+            current.direct ||= weight >= 75;
+            muscleWork.set(muscle, current);
+          }
+        }
       } else if (!Object.keys(weights).length && !researchedGuide(referenceName)) {
         unlabelled.add(id);
       }
@@ -142,7 +162,7 @@ export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], m
     }
     daily.set(data.date, day);
   }
-  return { total, daily, exercises, primary, secondary, unlabelled: unlabelled.size };
+  return { total, daily, exercises, primary, secondary, muscleWork, unlabelled: unlabelled.size };
 }
 export type StatsSummary = ReturnType<typeof summarize>;
 

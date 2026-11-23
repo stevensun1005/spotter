@@ -46,7 +46,7 @@ function setText(line: SetLine, unit: "kg" | "lb", warmup: boolean, perSide: boo
 export function shareSummary(input: ShareScope & { catalogue?: CatalogEntry[] }) {
   const entries = shareEntries(input);
   if (!entries.length) return null;
-  const { total, primary, secondary } = summarize(entries, input.catalogue ?? [], "all");
+  const { total, primary, secondary, muscleWork } = summarize(entries, input.catalogue ?? [], "all");
   const workouts = entries.map(({ id, data }) => {
     const slots = new Map<number, string>();
     for (const block of trainingBlocks(data.plan.exercises)) {
@@ -62,10 +62,16 @@ export function shareSummary(input: ShareScope & { catalogue?: CatalogEntry[] })
     });
     return { id, title: data.plan.title, moves };
   });
-  const muscles = Object.fromEntries([
-    ...Object.keys(secondary.regions).map((key) => [key, 40] as const),
-    ...Object.keys(primary.regions).map((key) => [key, 100] as const),
-  ]);
+  const loads = [...muscleWork.values()];
+  const maxLoaded = Math.max(0, ...loads.map(({ loaded }) => loaded));
+  const maxUnloaded = Math.max(0, ...loads.map(({ unloaded }) => unloaded));
+  const muscles = Object.fromEntries([...muscleWork].map(([region, { loaded, unloaded, direct }]) => {
+    const weightedShare = maxLoaded ? 100 * loaded / maxLoaded : 0;
+    // Completed unweighted sets supply their own reference and are never converted to kilograms.
+    const unweightedShare = maxUnloaded ? (maxLoaded ? 34 : 100) * unloaded / maxUnloaded : 0;
+    const intensity = Math.max(weightedShare, unweightedShare);
+    return [region, direct ? intensity : Math.min(intensity, 34)];
+  }));
 
   return {
     date: input.log.data.date,

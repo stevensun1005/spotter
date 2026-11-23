@@ -47,4 +47,12 @@ const parent: Record<string, string> = {
   rhomboids: "upper-back", "rotator-cuff": "rear-delts",
 };
 export const regionMuscle = (region: string) => parent[region] ?? region;
+
+export function expandAnatomyWeights(weights: Record<string, number>) {
+  const expanded = { ...weights };
+  for (const [region, group] of Object.entries(parent)) {
+    if (expanded[region] === undefined && weights[group] !== undefined) expanded[region] = weights[group];
+  }
+  return expanded;
+}
 export const termMuscles = (term: string) => groups.find((group) => "group:" + group.id === term)?.muscles ?? [term];

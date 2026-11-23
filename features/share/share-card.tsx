@@ -115,7 +115,7 @@ export function ShareCard({ log, logs, name, owner, close }: {
   return <Dialog title="训练分享卡" className="share-dialog" onClose={close}>
     <div className="share-preview" role="region" aria-label="可滚动的海报预览" tabIndex={0}>
       <canvas ref={canvas} hidden={!prepared && loading || drawError} role="img"
-        aria-label={summary.date + "，" + summary.title + "，" + summary.minutes + " 分钟，" + summary.sets + " 组，训练容量 " + displayNumber(summary.volume) + " kg" + (muscleDescription ? "。" + muscleDescription : "")} />
+        aria-label={summary.date + "，" + summary.title + "，" + summary.minutes + " 分钟，" + summary.sets + " 组，训练容量 " + displayNumber(summary.volume) + " kg" + (muscleDescription ? "。肌群颜色越深，相对训练量越高。" + muscleDescription : "")} />
     </div>
     <div className="share-footer">
       <div className="share-settings" aria-label="海报设置">

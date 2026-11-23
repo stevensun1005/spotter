@@ -495,9 +495,9 @@
     "muscles": {
       "chest": 100,
       "front-delts": 40,
-      "gluteal": 100,
+      "gluteal": 20,
       "obliques": 40,
-      "quadriceps": 100,
+      "quadriceps": 20,
       "serratus": 40,
       "triceps": 100
     },

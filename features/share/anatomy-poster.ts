@@ -1,12 +1,11 @@
-import { regionMuscle } from "@/features/exercises/labels";
-
 export type AnatomyGeometry = Record<string, { viewBox: string; regions: Record<string, string[]> }>;
 
 type Callout = readonly [region: string, name: string, x: number, y: number];
 type Palette = { neutral: string; ink: string; quiet: string; tile: string };
 
-const primaryMuscle = "#494b7d";
-const secondaryMuscle = "#8d93b7";
+const heavyMuscle = "#494b7d";
+const moderateMuscle = "#808ab4";
+const lightMuscle = "#c0cbed";
 
 const sides = {
   front: {
@@ -57,7 +56,7 @@ export function drawShareAnatomy(
   font: string,
 ) {
   const half = box.width / 2;
-  const score = (region: string) => muscles[region] ?? muscles[regionMuscle(region)] ?? 0;
+  const score = (region: string) => muscles[region] ?? 0;
 
   for (const [index, side] of (["front", "back"] as const).entries()) {
     const shape = geometry["male-" + side];
@@ -80,7 +79,7 @@ export function drawShareAnatomy(
     ctx.strokeStyle = palette.tile;
     for (const [region, paths] of Object.entries(shape.regions).sort(([a], [b]) => layer(a) - layer(b))) {
       const emphasis = score(region);
-      ctx.fillStyle = emphasis >= 75 ? primaryMuscle : emphasis ? secondaryMuscle : palette.neutral;
+      ctx.fillStyle = emphasis >= 70 ? heavyMuscle : emphasis >= 35 ? moderateMuscle : emphasis ? lightMuscle : palette.neutral;
       for (const path of paths) {
         const outline = new Path2D(path);
         ctx.fill(outline);
@@ -105,8 +104,8 @@ export function drawShareAnatomy(
         lastY = lineY;
 
         const emphasis = score(region);
-        const ink = emphasis >= 75 ? primaryMuscle : emphasis ? palette.ink : palette.quiet;
-        ctx.font = (emphasis >= 75 ? 740 : 560) + " 10.5px " + font;
+        const ink = emphasis >= 70 ? heavyMuscle : emphasis ? palette.ink : palette.quiet;
+        ctx.font = (emphasis >= 70 ? 740 : 560) + " 10.5px " + font;
         const displacement = ctx.measureText(name).width + 2;
         const lineStart = textX + (onLeft ? displacement : -displacement);
         const elbow = lineStart + (onLeft ? 4 : -4);

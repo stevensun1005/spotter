@@ -343,3 +343,49 @@ test("share headings use workout slots and all volume views count logged sides o
   rows[6][0].right = { weight: 9, reps: 8 };
   assert.equal(training.sessionTotals(data).volume, expected - 72 - 8);
 });
+
+test("share anatomy uses completed working volume, including load on both sides and overlapping muscle regions", async () => {
+  const { shareSummary } = await import("../features/share/model.ts");
+  const { summarize } = await import("../features/stats/model.ts");
+  const move = { sets: 1, reps: 10, weight: 10, unit: "kg", seconds: 0 };
+  const plan = {
+    title: "容量测试", date: "2026-11-23", category: "力量训练", minutes: 30, shared: false, video: "",
+    exercises: [
+      { ...move, name: "卧推测试", catalogueId: "0011", weight: 40 },
+      { ...move, name: "上斜卧推测试", catalogueId: "0012", weight: 20 },
+      { ...move, name: "深蹲测试", catalogueId: "0013", sets: 3 },
+      { ...move, name: "后撤弓步回位接双绳索快推胸" },
+      { ...move, name: "自重测试", catalogueId: "0014", weight: 0 },
+    ],
+  };
+  const catalogue = [
+    { id: "0011", name: "卧推测试", en: "Flat press", muscles: { chest: 100 } },
+    { id: "0012", name: "上斜卧推测试", en: "Incline press", muscles: { "upper-chest": 100, chest: 40 } },
+    { id: "0013", name: "深蹲测试", en: "Squat", muscles: { quadriceps: 100 } },
+    { id: "0014", name: "自重测试", en: "Bodyweight", muscles: { abs: 100, obliques: 40 } },
+  ];
+  const started = training.startSession(plan, "plan", plan.date);
+  const rows = started.rows.map((lines) => lines.map((line) => ({ ...line, done: true })));
+  rows[2][1] = { ...rows[2][1], weight: 100, kind: "warmup" };
+  rows[2][2] = { ...rows[2][2], weight: 150, done: false };
+  const data = { ...started, minutes: 30, rows };
+  const log = { id: "work", kind: "log", owner: "me", data };
+  const input = { log, logs: [], owner: "me", merge: false, catalogue };
+  const summary = shareSummary(input);
+  const { muscleWork } = summarize([log], catalogue, "all");
+  assert.equal(muscleWork.get("upper-chest").loaded, 800);
+  assert.equal(muscleWork.get("lower-chest").loaded, 680);
+  assert.equal(muscleWork.get("quadriceps").loaded, 140);
+  assert.equal(summary.muscles["upper-chest"], 100);
+  assert.equal(summary.muscles.quadriceps, 17.5);
+  assert.equal(summary.muscles.gluteal, 5);
+  assert.equal(summary.muscles.abs, 34);
+  assert.equal(summary.muscles.hamstring, undefined);
+
+  const bodyLog = { ...log, data: { ...data, rows: data.rows.map((lines, i) =>
+    lines.map((line) => ({ ...line, done: i === 4 }))) } };
+  const body = shareSummary({ ...input, log: bodyLog });
+  assert.equal(body.volume, 0);
+  assert.equal(body.muscles.abs, 100);
+  assert.ok(body.muscles.obliques < 35);
+});
