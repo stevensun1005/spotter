@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { parsePlanMove } from "./move-name";
 
 export type CatalogEntry = {
   id: string; name: string; en: string; part: string; equipment: string; type: string;
   muscles: Record<string, number>; target: string; hold?: boolean; distance?: boolean;
   needs?: string[]; machine?: string; animation?: boolean;
 };
-export type ExerciseChoice = { name: string; catalogueId?: string };
+export type ExerciseChoice = { name: string; catalogueId?: string; sourceName?: string; cue?: string };
 export type CatalogDetail = { description: string; steps: string[]; language?: "zh" };
 
 type Catalog = { rows: CatalogEntry[]; variants: Record<string, string> };
@@ -46,8 +47,9 @@ export function fromCatalogue(data: Catalog | undefined, choice: ExerciseChoice)
   if (!data) return undefined;
   const id = choice.catalogueId || originalIds[choice.name];
   if (id) return data.rows.find((item) => item.id === (data.variants[id] || id));
-  const name = searchable(choice.name).replace(/^(?:[a-z]\d*|热身组)\s+/, "").split(" ")[0];
-  const matches = data.rows.filter((item) => searchable(item.name) === name || searchable(item.en) === searchable(choice.name));
+  const name = searchable(parsePlanMove(choice.name).name);
+  if (!name) return undefined;
+  const matches = data.rows.filter((item) => searchable(item.name) === name || searchable(item.en) === name);
   return matches.length === 1 ? matches[0] : undefined;
 }
 

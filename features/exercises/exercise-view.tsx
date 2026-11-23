@@ -13,6 +13,8 @@ import { MuscleBreakdown } from "./anatomy";
 import { ExerciseAnimation } from "./exercise-animation";
 import { fromCatalogue, useCatalogue, useCatalogDetail, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 import { label as translate } from "./labels";
+import { exerciseMuscles, researchedGuide } from "./guidance";
+import { GuideEditor } from "./guide-editor";
 
 const sections = [
   { id: "guide", label: "要点", icon: BookOpen }, { id: "history", label: "历史", icon: Clock3 },
@@ -30,13 +32,13 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
   const { data } = useCatalogue();
   const item = fromCatalogue(data, { name: base, catalogueId });
   const detail = useCatalogDetail(item?.id);
-  const fallback = { "胸肌": "chest", "肩部": "front-delts", "肱二头肌": "biceps", "肱三头肌": "triceps",
-    "背部": "upper-back", "核心": "abs", "臀部": "gluteal", "股四头肌": "quadriceps", "腘绳肌": "hamstring", "小腿": "calves" } as const;
-  const weights = item?.muscles ?? Object.fromEntries([
-    ...(guide?.secondary ?? []).map((region) => [fallback[region], 40]),
-    ...(guide?.primary ?? []).map((region) => [fallback[region], 100]),
-  ]);
-  const steps = detail?.data?.steps?.length ? detail.data.steps : guide?.steps;
+  const inherited = profiles.find((entry) => entry.name === base)?.guide;
+  const personal = profile.guide ?? inherited;
+  const referenceName = choice.sourceName && researchedGuide(choice.sourceName) ? choice.sourceName : base;
+  const reference = researchedGuide(referenceName);
+  const weights = exerciseMuscles(referenceName, item, personal);
+  const steps = personal?.steps.length ? personal.steps : reference?.steps ?? (detail?.data?.steps.length ? detail.data.steps : guide?.steps);
+  const description = personal?.description || reference?.description || detail?.data?.description;
   const [tab, setTab] = useState<typeof sections[number]["id"]>("guide");
   const [note, setNote] = useState(profile.note);
   const [label, setLabel] = useState("");
@@ -73,10 +75,25 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
         {item?.animation ? <ExerciseAnimation key={item.id} id={item.id} name={name} thumbnail /> :
           guide?.photos && <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} />}
         {item && <p className="muted catalogue-detail-label">{item.en} · {translate(item.type)} · #{item.id}</p>}
-        <div className="exercise-toolbar"><span>{item ? translate(item.equipment) : guide?.equipment ?? "自定义动作"}</span><div>
+        <div className="exercise-toolbar"><span>{reference?.equipment || (item ? translate(item.equipment) : guide?.equipment ?? "自定义动作")}</span><div>
           {addToPlan && <button type="button" className="button outline small" onClick={() => addToPlan(choice, item)}><Plus size={15} /> 加入计划</button>}
           <button type="button" className="button outline small" aria-pressed={profile.pinned} disabled={busy} onClick={() => void update({ ...profile, pinned: !profile.pinned })}><Pin size={15} /> {profile.pinned ? "取消置顶" : "置顶"}</button>
         </div></div>
+        <section className="card padded feature-stack"><h3>动作步骤</h3>
+          {description && <p>{description}</p>}
+          {choice.cue && <p className="exercise-plan-cue"><strong>本次计划</strong> {choice.cue}</p>}
+          {steps?.length ? <ol className="exercise-steps">{steps.map((step, index) => <li key={index}>{step}</li>)}</ol> :
+            <p className="muted">{detail?.error ? "暂时无法读取动作步骤，请重新打开详情。" :
+              item && !detail ? "正在加载动作步骤…" : "这个动作还没有步骤。你可以补充自己的做法。"}</p>}
+          {(reference?.source || guide?.source) && <a className="text-button" href={reference?.source || guide?.source} target="_blank" rel="noreferrer">
+            {reference?.sourceLabel || (reference ? "动作参考" : "动作参考 · NASM")} <ExternalLink size={14} />
+          </a>}
+        </section>
+        <MuscleBreakdown weights={weights} emptyLabel={reference && !Object.keys(reference.muscles).length
+          ? "此动作以放松和呼吸练习为主。" : undefined} />
+        {!item && !reference && !guide && <GuideEditor value={profile.guide} busy={busy}
+          save={(next) => void update({ ...profile, guide: { ...next, muscles: Object.fromEntries(
+            Object.entries(next.muscles).map(([key, value]) => [key, value === 100 ? 100 : 40])) } })} />}
         <section className="card padded feature-stack">
           <div className="section-head"><h3>置顶备注</h3><button type="button" className="button outline small" disabled={busy || note === profile.note} onClick={() => void update({ ...profile, note })}>保存备注</button></div>
           <textarea aria-label="置顶备注" value={note} maxLength={2000} rows={2} onChange={(event) => setNote(event.target.value)} placeholder="记下座椅档位、握距或动作提示" />
@@ -93,13 +110,6 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
             <button className="button primary small" disabled={busy}>保存视频</button>
           </form>}
         </section>
-        <section className="card padded feature-stack"><h3>动作步骤</h3>
-          {detail?.data?.description && <p className="muted">{detail.data.description}</p>}
-          {steps ? <ol className="exercise-steps">{steps.map((step, index) => <li key={index}>{step}</li>)}</ol> :
-            <p className="muted">{item && !detail ? "正在加载动作步骤…" : "这个动作还没有内置步骤，可以在置顶备注里记下自己的要点。"}</p>}
-          {guide?.source && <a className="text-button" href={guide.source} target="_blank" rel="noreferrer">查看完整动作说明 · NASM <ExternalLink size={14} /></a>}
-        </section>
-        {(item || guide) && <MuscleBreakdown weights={weights} />}
         {!!guide?.demonstrations?.length && <section className="card padded feature-stack"><h3>视频讲解与真人示范</h3>
           {guide.demonstrations.map((video) => <a key={video.url} className="list-line demonstration" href={video.url} target="_blank" rel="noreferrer">
             <span className="tile lilac"><Film size={17} /></span><span><strong>{video.label}</strong><small>{video.source}</small></span><ExternalLink size={16} />

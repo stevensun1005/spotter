@@ -1,4 +1,4 @@
-const slotPattern = /^(?:([A-Z]\d+)\s+|([A-Z])\s+热身组\s*·\s*|([A-Z])\s+(?![A-Za-z]))/;
+const slotPattern = /^(?:([A-Z]\d+)\s+|([A-Z])\s+热身组\s*·\s*|(E)\s+(?![A-Za-z]))/;
 
 export function parsePlanMove(value: string) {
   const match = slotPattern.exec(value.trim());

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
 import { planSchema, videoUrl } from "@/features/plans/model";
 import { scheduleSchema } from "@/features/plans/schedule";
+import { muscleNames } from "@/features/exercises/labels";
 import { measurements } from "@/features/body/measurements";
 
 export const exerciseName = z.string().trim().min(1).max(100);
@@ -12,6 +13,11 @@ export const exerciseProfile = z.object({
   note: z.string().trim().max(2000),
   videos: z.array(video).max(8),
   versionOf: exerciseName.optional(),
+  guide: z.object({
+    description: z.string().trim().max(400),
+    steps: z.array(z.string().trim().min(1).max(400)).max(12),
+    muscles: z.record(z.string().refine((key) => Object.hasOwn(muscleNames, key)), z.union([z.literal(100), z.literal(40)])),
+  }).optional(),
 }).refine((item) => item.name !== item.versionOf);
 export type ExerciseProfile = z.infer<typeof exerciseProfile>;
 export const blankProfile = (name: string): ExerciseProfile => ({ name, pinned: false, note: "", videos: [] });

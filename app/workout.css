@@ -77,3 +77,7 @@
 .edit-log-move summary { cursor: pointer; min-height: 42px; align-content: center; }
 .edit-log-move summary .muted { margin-inline-start: 8px; }
 .edit-log-row { border-top: 1px solid var(--stroke); display: grid; gap: 7px; padding-block: 8px; }
+
+.workout-exercise-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 8px 0; }
+.workout-exercise-actions > .button { min-width: 0; min-height: 44px; height: 100%; padding: 7px 6px; white-space: normal; }
+.workout-exercise-actions > .button:only-child { grid-column: 1 / -1; }

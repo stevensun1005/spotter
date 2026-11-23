@@ -214,8 +214,10 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
           {(move.cue || cue) && <p className="muted set-prescription">{move.cue ?? cue}</p>}
           {(move.repsMax || move.restSeconds) && <p className="muted set-prescription">{move.seconds ? move.seconds + " 秒／组" : move.reps + (move.repsMax && move.repsMax > move.reps ? "–" + move.repsMax : "") + " 次／组"}
             {move.restSeconds !== undefined ? " · " + (block.moves.length > 1 ? "轮间" : "组间") + "休息 " + move.restSeconds + " 秒" : ""}</p>}
-          {onExercise && <button type="button" className="button subtle small exercise-workout-link" onClick={() => onExercise(move)}><BookOpen size={16} /> 查看动作详情</button>}
-          <button type="button" className="button subtle small exercise-workout-link" disabled={data.rows[i].some((line) => line.done)} onClick={() => setPicker(i)}>替换动作</button>
+          <div className="workout-exercise-actions" role="group" aria-label="动作操作">
+            {onExercise && <button type="button" className="button subtle" onClick={() => onExercise(move)}><BookOpen size={16} /> 查看动作详情</button>}
+            <button type="button" className="button subtle" disabled={data.rows[i].some((line) => line.done)} onClick={() => setPicker(i)}>替换动作</button>
+          </div>
           {data.rows[i].map((line, j) => <div id={"workout-set-" + i + "-" + j} key={j} className={pendingSet?.move === i && pendingSet.row === j ? "workout-next-set" : undefined}><SetRow move={move} line={line} index={j}
             selected={edit?.move === i && edit.row === j ? edit.field : undefined}
             edit={(field) => activate({ move: i, row: j, field })}

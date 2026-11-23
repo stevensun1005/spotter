@@ -14,6 +14,10 @@
 .exercise-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 7px 13px; gap: 5px; border-bottom: 1px solid var(--stroke); position: sticky; top: 61px; z-index: 2; background: white; }
 .exercise-tabs button { display: flex; gap: 6px; align-items: center; justify-content: center; min-height: 40px; border-radius: 8px; color: var(--muted); font-size: .86rem; font-weight: 720; }
 .exercise-tabs button[aria-pressed=true] { background: #e3efd9; color: #304d2d; }
+.exercise-plan-cue { background: var(--mint); border-radius: 8px; padding: 8px 10px; font-size: .9rem; }
+.exercise-plan-cue strong { margin-inline-end: 5px; }
+.custom-guide summary { cursor: pointer; font-weight: 740; min-height: 44px; align-content: center; }
+.custom-guide .form-fields { margin-top: 8px; }
 .exercise-cover { width: 100%; max-height: 285px; aspect-ratio: 3 / 2; object-fit: cover; object-position: center; border-radius: 15px; }
 .exercise-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
 .exercise-toolbar > span { font-size: .9rem; color: var(--muted); }
@@ -37,7 +41,6 @@
 .exercise-plot > div { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .77rem; }
 .exercise-plot > div strong { color: var(--text); font-size: .9rem; }
 .exercise-plot canvas { width: 100%; height: 67px; display: block; }
-.exercise-workout-link { margin-top: 4px; width: auto; }
 .nutrition-summary .section-head input { width: auto; max-width: 52%; }
 .nutrition-calories { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .nutrition-calories strong { font-size: 1.65rem; }

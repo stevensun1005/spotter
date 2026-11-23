@@ -243,3 +243,15 @@ test("backup scopes keep body measurements distinct from nutrition", async () =>
   assert.deepEqual(scopeBackup(file, "nutrition").library.map((item) => item.entry.type), ["water"]);
   assert.equal(backupSchema.safeParse({ ...file, library: [{ ...row, entry: { type: "measurement", metric: "fat", value: 300 } }] }).success, false);
 });
+
+test("workout guidance covers custom variants and preserves Y-shaped exercise names", async () => {
+  const { parsePlanMove } = await import("../features/exercises/move-name.ts");
+  const { exerciseMuscles, researchedGuide } = await import("../features/exercises/guidance.ts");
+  assert.equal(parsePlanMove("Y 字举臂弹力带侧向走").name, "Y 字举臂弹力带侧向走");
+  assert.equal(parsePlanMove("A1 上斜俯卧哑铃展臂（试重）").name, "上斜俯卧哑铃展臂");
+  assert.ok(researchedGuide("A1 上斜俯卧哑铃展臂").steps.length >= 3);
+  assert.equal(exerciseMuscles("上斜俯卧哑铃展臂")["rear-delts"], 100);
+  assert.equal(exerciseMuscles("杠杆式坐姿脚尖抬起", { target: "shins", muscles: {} }).tibialis, 100);
+  assert.deepEqual(exerciseMuscles("放松呼吸"), {});
+  assert.match(researchedGuide("站姿正握慢放弯举").steps.join(" "), /掌心/);
+});

@@ -57,7 +57,7 @@ export function Anatomy({ weights, onPick, showIntensity = false }: {
   </div>;
 }
 
-export function MuscleBreakdown({ weights }: { weights: Record<string, number> }) {
+export function MuscleBreakdown({ weights, emptyLabel = "这个动作尚未标注训练部位。" }: { weights: Record<string, number>; emptyLabel?: string }) {
   const active = Object.entries(weights).filter(([, value]) => value > 0).sort(([, a], [, b]) => b - a);
   return <section className="card padded feature-stack">
     <h3>训练部位</h3>
@@ -66,6 +66,6 @@ export function MuscleBreakdown({ weights }: { weights: Record<string, number> }
       const list = active.filter(([, value]) => (value >= 75) === primary);
       return list.length ? <div key={String(primary)}><i className={primary ? "primary-muscle" : "secondary-muscle"} /><strong>{primary ? "主要部位" : "辅助部位"}</strong>
         <span>{list.map(([key]) => muscleNames[key] ?? key).join("、")}</span></div> : null;
-    })}</div> : <p className="muted">该动作暂无目录标注的肌群。</p>}
+    })}</div> : <p className="muted">{emptyLabel}</p>}
   </section>;
 }

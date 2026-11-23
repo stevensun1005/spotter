@@ -3,6 +3,7 @@ import type { TrainingEntry } from "@/shared/state";
 import { estimatedMax } from "@/features/exercises/history";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import type { CatalogEntry } from "@/features/exercises/open-gym";
+import { exerciseMuscles, researchedGuide } from "@/features/exercises/guidance";
 import type { Session } from "@/features/training/model";
 
 export type Period = "week" | "month" | "quarter" | "year" | "recent" | "custom";
@@ -109,11 +110,13 @@ export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], m
       for (const line of rows) score.volume += kg(line.weight * line.reps + (line.right ? line.right.weight * line.right.reps : 0), move.unit);
       const work = isWarmup(move) ? [] : rows.filter((line) => line.kind !== "warmup");
       if (!work.length) return;
-      const tags = Object.entries(catalog?.muscles ?? {}).filter(([key, value]) => value > 0 && key !== "cardiovascular system");
+      const referenceName = move.sourceName && researchedGuide(move.sourceName) ? move.sourceName : name;
+      const weights = exerciseMuscles(referenceName, catalog ?? undefined);
+      const tags = Object.entries(weights).filter(([key, value]) => value > 0 && key !== "cardiovascular system");
       if (tags.length) {
         addMuscles(primary, tags.filter(([, value]) => value >= 75).map(([key]) => key), work.length);
         addMuscles(secondary, tags.filter(([, value]) => value < 75).map(([key]) => key), work.length);
-      } else if (!catalog || !Object.keys(catalog.muscles).length) {
+      } else if (!Object.keys(weights).length && !researchedGuide(referenceName)) {
         unlabelled.add(id);
       }
       const performance = exercises.get(id) ?? { name: catalog?.name ?? name, catalogueId: catalog?.id ?? move.catalogueId, sets: 0 };
