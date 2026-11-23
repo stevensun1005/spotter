@@ -25,6 +25,11 @@ export const sessionSchema = z.object({
   minutes: z.number().int().min(0).max(720),
   note: z.string().max(1500),
   finishedVideo: z.boolean(),
+  rest: z.object({
+    until: z.number().int().min(0).max(maxWorkoutMs + 600_000),
+    kind: z.enum(["换动作", "轮间休息", "组间休息", "换站"]),
+  }).optional(),
+  defaultRestOverride: z.number().int().min(0).max(600).optional(),
   rows: z.array(z.array(sets).min(1).max(30)).max(30),
 }).refine((value) =>
   (value.ended === undefined || (value.ended >= value.started && value.ended - value.started <= 86_400_000)) &&

@@ -1,5 +1,6 @@
 import type { TrainingEntry } from "@/shared/state";
 import type { SetLine } from "@/features/training/model";
+import { parsePlanMove } from "./move-name";
 
 const toKg = (weight: number, unit: "kg" | "lb") => unit === "lb" ? weight * 0.45359237 : weight;
 export function estimatedMax(weight: number, reps: number) {
@@ -20,7 +21,7 @@ function setMetrics(line: SetLine, unit: "kg" | "lb") {
 export function exerciseHistory(name: string, logs: TrainingEntry[], owner: string, catalogueId?: string) {
   return logs.filter((log) => log.kind === "log" && log.owner === owner).flatMap((log) =>
     log.data.plan.exercises.flatMap((move, index) => {
-      if (catalogueId && move.catalogueId ? catalogueId !== move.catalogueId : move.name !== name) return [];
+      if (catalogueId && move.catalogueId ? catalogueId !== move.catalogueId : ![parsePlanMove(move.name).name, move.sourceName].includes(parsePlanMove(name).name)) return [];
       const sets = (log.data.rows[index] ?? []).filter((line) => line.done).map((line) => ({ line, ...setMetrics(line, move.unit) }));
       return sets.length ? [{
         id: log.id + ":" + index, title: log.data.plan.title, date: log.data.date, started: log.data.started,

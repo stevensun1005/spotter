@@ -31,6 +31,8 @@ import { MovePlan, ScheduleSettings } from "@/features/plans/schedule-view";
 import { blocked, openSchedule } from "@/features/plans/schedule";
 import { pauseClock, resumeClock, workoutElapsed } from "@/features/training/clock";
 import { refreshDraftPlan } from "@/features/training/refresh-plan";
+import { parsePlanMove } from "@/features/exercises/move-name";
+import { PlanSequence } from "@/features/training/plan-sequence";
 
 type View = "today" | "plans" | "history" | "stats" | "import" | "exercises" | "nutrition" | "more";
 type KeyedPlan = { id: string; data: Plan };
@@ -216,7 +218,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const exerciseNames = [
     ...plans.filter((plan) => plan.owner === me.id).flatMap((plan) => plan.data.exercises.map((item) => item.name)),
     ...logs.filter((log) => log.owner === me.id).flatMap((log) => log.data.plan.exercises.map((item) => item.name)),
-  ];
+  ].map((name) => parsePlanMove(name).name);
   const todaysPlans = plans.filter((item) => item.data.date === selected);
   const sample: KeyedPlan = { id: "example", data: examples(today) };
   const current = todaysPlans[0] ?? (selected === today && !drafts.some(([, data]) => data.date === today) && !logs.some((log) => log.owner === me.id && log.data.date === today) ? sample : null);
@@ -264,14 +266,15 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   useEffect(() => {
     if (trainingNav.id && routeDraft && activeSessionId !== trainingNav.id) {
-      const [id, data] = routeDraft;
+      const [id, draft] = routeDraft;
+      const data = refreshDraftPlan(draft, plans.find((plan) => plan.id === draft.planId)?.data);
       setWarning("");
       setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
       setOverlay({ kind: "session", id, data });
     } else if (!trainingNav.id && activeSessionId) {
       close();
     }
-  }, [trainingNav.id, routeDraft, activeSessionId, close, demo, pendingDrafts]);
+  }, [trainingNav.id, routeDraft, activeSessionId, close, demo, pendingDrafts, plans]);
 
   async function act(action: () => Promise<void>) {
     if (busy) return;
@@ -505,7 +508,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               {(todaysPlans.length > 1) && <section className="card plan-list">{todaysPlans.slice(1).map(renderPlan)}</section>}
               {current.data.exercises.length > 0 && <section className="card padded movement-card">
                 <div className="section-head"><h2>动作清单</h2><span className="count-label">{current.data.exercises.length} 个动作</span></div>
-                {current.data.exercises.map((move, i) => <button type="button" className="list-line move-line" key={i} onClick={() => setExercise(move)}><span className={"tile " + (i % 3 === 1 ? "lilac" : i % 3 === 2 ? "sand" : "mint")}><Dumbbell size={19} /></span><span><strong>{move.name}</strong><small>{move.seconds ? "计时动作" : move.weight ? move.weight + " " + move.unit : "自重／待填重量"}</small></span><span className="move-reps">{move.sets} 组 × {move.seconds ? move.seconds + " 秒" : move.reps + (move.repsMax && move.repsMax !== move.reps ? "–" + move.repsMax : "") + " 次"}</span></button>)}
+                <PlanSequence plan={current.data} onExercise={setExercise} />
               </section>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
             </> : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3><button className="button outline small" onClick={() => newPlan()}>添加训练</button></section>}

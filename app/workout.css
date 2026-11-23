@@ -49,3 +49,26 @@
 }
 .set-summary { display: inline-flex; align-items: center; gap: 7px; }
 .set-card[open] .set-summary > svg { transform: rotate(180deg); }
+
+.plan-sequence { display: grid; gap: 10px; }
+.sequence-rest { margin-block: 0 2px; font-size: .83rem; }
+.sequence-block { border: 1px solid var(--stroke); border-radius: 14px; padding: 12px; }
+.sequence-heading { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; }
+.sequence-heading h3 { margin: 0; font-size: .98rem; font-weight: 800; }
+.sequence-heading > span { color: var(--muted); font-size: .8rem; }
+.sequence-moves { list-style: none; margin: 5px 0 0; padding: 0; }
+.sequence-moves li { display: flex; align-items: start; gap: 9px; padding: 8px 0; }
+.sequence-moves li + li { border-top: 1px solid var(--stroke); }
+.sequence-moves small { display: block; color: var(--muted); font-size: .8rem; }
+.sequence-slot { display: inline-flex; flex: none; align-items: center; justify-content: center; min-width: 34px; min-height: 30px; padding-inline: 4px; border-radius: 8px; background: #e5f0da; color: #3a5935; font-weight: 800; font-size: .81rem; }
+.sequence-exercise { padding: 3px 0 5px; text-align: left; color: var(--text); font-weight: 780; }
+.sequence-exercise:hover { text-decoration: underline; }
+.workout-block { display: grid; gap: 7px; }
+.workout-block > .sequence-heading { margin: 5px 2px 0; }
+.workout-next { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 9px; background: #e5f0da; color: #294b2b; padding: 10px; border-radius: 10px; font-size: .86rem; }
+.workout-next strong { flex: 1 1 auto; }
+.workout-next-set { border-radius: 11px; outline: 2px solid #a0c587; outline-offset: 1px; margin: 3px 2px; scroll-margin-block: 8px; }
+.workout-rest-setting { display: flex; gap: 8px; align-items: end; padding: 8px 16px; border-bottom: 1px solid var(--stroke); }
+.workout-rest-setting label { display: grid; gap: 3px; font-size: .85rem; }
+.workout-rest-setting input { width: 125px; padding: 4px 8px; border: 1px solid var(--stroke); border-radius: 7px; }
+.workout-clock-line { flex-wrap: wrap; }

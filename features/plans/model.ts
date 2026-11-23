@@ -1,11 +1,17 @@
 import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
+import { parsePlanMove } from "@/features/exercises/move-name";
 
 export const categories = ["力量训练", "有氧训练", "拉伸恢复", "跟练视频", "其他"] as const;
 const text = (max: number) => z.string().trim().min(1).max(max);
 const move = z.object({
   name: text(100),
   catalogueId: z.string().regex(/^\d{4,6}$/).optional(),
+  block: z.string().regex(/^[A-Z](?:-[2-9]|-[12]\d|-30)?$/).optional(),
+  station: text(60).optional(),
+  cue: text(220).optional(),
+  sourceSlot: z.string().regex(/^[A-Z](?:\d+|-warmup)?$/).optional(),
+  sourceName: text(100).optional(),
   sets: z.number().int().min(1).max(30),
   reps: z.number().int().min(0).max(999),
   weight: z.number().min(0).max(2000),
@@ -30,6 +36,7 @@ export const planSchema = z.object({
   category: z.enum(categories),
   minutes: z.number().int().min(0).max(720),
   durationNote: z.string().trim().max(380).optional(),
+  defaultRestSeconds: z.number().int().min(0).max(600).optional(),
   shared: z.boolean(),
   video: videoUrl,
   exercises: z.array(move).max(30),
@@ -57,5 +64,12 @@ export const examples = (date: string): Plan => ({
 });
 
 export function cleanPlan(value: Plan) {
-  return planSchema.safeParse({ ...value, exercises: value.exercises.filter((item) => item.name.trim()) });
+  const exercises = value.exercises.filter((item) => item.name.trim()).map((item) => {
+    const parsed = parsePlanMove(item.name);
+    return {
+      ...item, name: parsed.name, station: item.station?.trim() || undefined,
+      cue: item.cue?.trim() || parsed.cue, block: item.block ?? parsed.sourceSlot?.[0],
+    };
+  });
+  return planSchema.safeParse({ ...value, exercises });
 }

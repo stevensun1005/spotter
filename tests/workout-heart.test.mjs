@@ -156,3 +156,53 @@ test("complete openGym snapshot keeps IDs, translations, filtering and artwork s
     assert.ok(index.get(shard)[item.id]?.steps);
   }
 });
+
+test("workout circuits alternate by round, skip missing sets, and finish before changing stations", async () => {
+  const { nextSet, restFor, trainingBlocks } = await import("../features/training/sequence.ts");
+  const first = { name: "推举", sets: 2, weight: 20, unit: "kg", reps: 10, seconds: 0, block: "A", station: "龙门架", restSeconds: 75 };
+  const plan = {
+    title: "组合", date: "2026-11-23", minutes: 35, category: "力量训练", shared: false, video: "", defaultRestSeconds: 30,
+    exercises: [first, { ...first, name: "划船", sets: 1 }, { ...first, name: "面拉" },
+      { ...first, block: "A-2", station: "哑铃区" }, { ...first, block: "B" }],
+  };
+  let session = training.startSession(plan, "combined", plan.date);
+  assert.deepEqual(trainingBlocks(plan.exercises).map((block) => block.slots), [["A1", "A2", "A3"], ["A4"], ["B1"]]);
+  const order = [[0, 0], [1, 0], [2, 0], [0, 1], [2, 1], [3, 0], [3, 1], [4, 0], [4, 1]]
+    .map(([move, row]) => ({ move, row }));
+  assert.deepEqual(nextSet(plan, session.rows), order[0]);
+  for (const [index, here] of order.entries()) {
+    session = set.changeSet(session, here.move, here.row, (line) => ({ ...line, done: true }));
+    assert.deepEqual(nextSet(plan, session.rows, here), order[index + 1]);
+  }
+  assert.deepEqual(restFor(plan, order[0], order[1]), { seconds: 30, kind: "换动作" });
+  assert.deepEqual(restFor(plan, order[2], order[3]), { seconds: 75, kind: "轮间休息" });
+  assert.deepEqual(restFor(plan, order[4], order[5]), { seconds: 75, kind: "换站" });
+  const adjusted = { ...session, defaultRestOverride: 0, rest: { kind: "换动作", until: 30_000 } };
+  assert.deepEqual(training.sessionSchema.parse(adjusted), adjusted);
+});
+
+test("clean exercise labels and regrouped plans preserve previously completed sets", async () => {
+  const { refreshDraftPlan } = await import("../features/training/refresh-plan.ts");
+  const { parsePlanMove } = await import("../features/exercises/move-name.ts");
+  assert.deepEqual(parsePlanMove("B1 后脚抬高分腿跳（每侧，落稳再跳） · 本周可省"), {
+    name: "后脚抬高分腿跳", cue: "每侧，落稳再跳 · 本周可省", sourceSlot: "B1",
+  });
+  const first = { name: "A1 站姿单臂锤式弯举（每手）", sets: 2, weight: 20, unit: "lb", reps: 10, seconds: 0 };
+  const rest = [
+    { ...first, name: "A2 半跪绳索划船（每侧）" },
+    { ...first, name: "A3 上斜俯卧哑铃展臂（每手）" },
+  ];
+  const plan = { title: "力量", date: "2026-11-23", minutes: 30, category: "力量训练", shared: false, video: "", exercises: [first, ...rest] };
+  let session = training.startSession(plan, "example", plan.date);
+  session = set.changeSet(session, 1, 0, (line) => ({ ...line, weight: 22.5, rpe: 8.5, done: true }));
+  const latest = { ...plan, defaultRestSeconds: 30, exercises: [
+    { ...first, name: "哑铃单臂站姿锤式弯举", sourceName: "站姿单臂锤式弯举", sourceSlot: "A1", block: "A", station: "可调凳＋哑铃", catalogueId: "1671" },
+    { ...rest[1], name: "上斜俯卧哑铃展臂", sourceSlot: "A3", block: "A", station: "可调凳＋哑铃" },
+    { ...rest[0], name: "半跪绳索划船", sourceSlot: "A2", block: "A-2", station: "龙门架" },
+  ] };
+  const refreshed = refreshDraftPlan(session, latest);
+  assert.equal(refreshed.plan.exercises[0].catalogueId, "1671");
+  assert.equal(refreshed.rows[1][0].done, false);
+  assert.deepEqual(refreshed.rows[2][0], session.rows[1][0]);
+  assert.equal(refreshDraftPlan(refreshed, latest), refreshed);
+});
