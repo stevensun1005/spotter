@@ -1,0 +1,411 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cloud,
+  Copy, Dumbbell, Flame, House, Link2, LogIn, Play, Plus, Sparkles, Users,
+} from "lucide-react";
+import {
+  asDate, examples, importPrompt, offsetDate, parseImport, planBlank, sessionTotals, startSession,
+  type Entry, type Plan, type Session, type State,
+} from "./workout";
+import {
+  cleanPlan, Dialog, draftsOrLogs, History, LogDetail, PlanFields, shortDate, Stats, VideoLink, weekdayIndex, weekdays, Workout,
+  type Log,
+} from "./panels";
+
+type View = "today" | "plans" | "history" | "stats" | "import";
+type KeyedPlan = { id: string; data: Plan };
+type Overlay = { kind: "pair" } | { kind: "editor"; plan: KeyedPlan } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log };
+type PlanEntry = Extract<Entry, { kind: "plan" }>;
+const navigation = [
+  { id: "today", title: "今日训练", mobile: "今日", icon: House },
+  { id: "plans", title: "训练计划", mobile: "计划", icon: ClipboardList },
+  { id: "history", title: "打卡历史", mobile: "打卡", icon: CalendarDays },
+  { id: "stats", title: "训练统计", mobile: "统计", icon: BarChart3 },
+  { id: "import", title: "导入计划", mobile: "导入", icon: Sparkles },
+] as const;
+const demoUser = { id: "demo", name: "我" };
+const demoPartner = { id: "demo-partner", name: "搭子" };
+
+function demoState(today: string): State {
+  const entries: Entry[] = [[-6, "全身拉伸", 22], [-4, "下肢力量训练", 43], [-2, "核心稳定训练", 28], [0, "轻有氧跟练", 24]].map(([days, title, minutes], i) => {
+    const date = offsetDate(today, days as number);
+    const plan = { ...examples(date), title: String(title), minutes: Number(minutes) };
+    const data: Session = {
+      plan, planId: "sample-" + i, date, started: new Date(date + "T16:00:00Z").getTime(),
+      minutes: Number(minutes), note: "", finishedVideo: false,
+      rows: plan.exercises.map((move) => Array.from({ length: move.sets }, () => ({ weight: move.weight, reps: move.reps, seconds: 0, done: true }))),
+    };
+    return { id: "sample-log-" + i, owner: i === 3 ? demoPartner.id : demoUser.id, kind: "log", data, updated: date };
+  });
+  return { me: demoUser, room: { invite: null, partner: demoPartner }, entries };
+}
+
+function avatar(name: string) {
+  return Array.from(name.trim())[0]?.toUpperCase() || "我";
+}
+
+async function post(body: unknown) {
+  const response = await fetch("/api/workout", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: string } | null;
+    throw Object.assign(new Error(data?.error || "云端保存失败，请重试。"), { status: response.status });
+  }
+}
+
+const message = (reason: unknown, fallback: string) =>
+  reason instanceof Error && reason.name === "Error" ? reason.message : fallback;
+
+export default function Dashboard({ viewer, initialDate }: { viewer: State["me"] | null; initialDate: string }) {
+  const [today, setToday] = useState(initialDate);
+  const [selected, setSelected] = useState(initialDate);
+  const [view, setView] = useState<View>("today");
+  const [state, setState] = useState<State>(() => viewer ? { me: viewer, entries: [], room: null } : demoState(initialDate));
+  const [cloud, setCloud] = useState(viewer ? "正在连接" : "本机演示");
+  const [overlay, setOverlay] = useState<Overlay | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [warning, setWarning] = useState("");
+  const [toast, setToast] = useState("");
+  const [invite, setInvite] = useState("");
+  const [source, setSource] = useState("");
+  const [imported, setImported] = useState<KeyedPlan[]>([]);
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const [importError, setImportError] = useState("");
+  const [pendingDrafts, setPendingDrafts] = useState<Record<string, Session>>({});
+  const pendingRef = useRef<Record<string, Session>>({});
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queue = useRef(Promise.resolve());
+  const refreshId = useRef(0);
+  const draftKey = "spotter-drafts:" + (viewer?.id ?? "demo");
+  const [sync, setSync] = useState("正在保存");
+
+  const setPending = useCallback((next: Record<string, Session>) => {
+    pendingRef.current = next;
+    setPendingDrafts(next);
+    try { localStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* Browser storage may be disabled. */ }
+  }, [draftKey]);
+
+  const refresh = useCallback(async () => {
+    if (!viewer) return;
+    const generation = ++refreshId.current;
+    try {
+      const response = await fetch("/api/workout", { cache: "no-store", signal: AbortSignal.timeout(10000) });
+      if (!response.ok) throw new Error();
+      const next: State = await response.json();
+      if (generation === refreshId.current) { setState(next); setCloud("云端已连接"); }
+    } catch {
+      if (generation === refreshId.current) setCloud("云端连接异常");
+    }
+  }, [viewer]);
+
+  const flushDraft = useCallback((id: string, data: Session) => {
+    if (!viewer) { setSync("本机草稿"); return; }
+    queue.current = queue.current.then(async () => {
+      if (pendingRef.current[id] !== data) return;
+      setSync("正在保存");
+      try {
+        await post({ action: "draft", id, data });
+        if (pendingRef.current[id] === data) {
+          const next = { ...pendingRef.current };
+          delete next[id];
+          setPending(next);
+          setSync("云端已保存");
+        }
+        setState((current) => {
+          if (current.entries.some((entry) => entry.id === id && entry.owner === viewer.id && entry.kind === "log")) return current;
+          const entry: Entry = { id, data, owner: viewer.id, kind: "draft", updated: new Date().toISOString() };
+          return { ...current, entries: [entry, ...current.entries.filter((row) => row.id !== id || row.owner !== viewer.id)] };
+        });
+      } catch (reason) {
+        if ((reason as { status?: number })?.status === 409) {
+          const next = { ...pendingRef.current };
+          delete next[id];
+          setPending(next);
+          setSync("已在其他设备打卡");
+          void refresh();
+        } else setSync("草稿待同步");
+      }
+    });
+  }, [viewer, setPending, refresh]);
+
+  useEffect(() => {
+    let drafts: Record<string, Session> = {};
+    try { drafts = JSON.parse(localStorage.getItem(draftKey) || "{}"); } catch { /* A malformed cache can be ignored. */ }
+    setPending(drafts);
+    const retry = () => {
+      for (const [id, data] of Object.entries(pendingRef.current)) flushDraft(id, data);
+    };
+    retry();
+    void refresh();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") { void refresh(); retry(); setToday(asDate()); }
+    }, 15000);
+    const wake = () => { void refresh(); retry(); setToday(asDate()); };
+    window.addEventListener("online", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      clearInterval(timer);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      window.removeEventListener("online", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, [draftKey, flushDraft, refresh, setPending]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 3200);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const { me, room, entries } = state;
+  const partner = room?.partner;
+  const demo = !viewer;
+  const logs = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "log");
+  const plans = entries.filter((entry): entry is PlanEntry => entry.kind === "plan");
+  const myDrafts = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "draft" && entry.owner === me.id);
+  const drafts = [...Object.entries(pendingDrafts), ...myDrafts.filter((item) => !pendingDrafts[item.id]).map((item) => [item.id, item.data] as const)]
+    .filter(([id]) => !logs.some((log) => log.owner === me.id && log.id === id));
+  const todaysPlans = plans.filter((item) => item.data.date === selected);
+  const sample: KeyedPlan = { id: "example", data: examples(today) };
+  const current = todaysPlans[0] ?? (selected === today && !drafts.some(([, data]) => data.date === today) && !logs.some((log) => log.owner === me.id && log.data.date === today) ? sample : null);
+  const latestPartner = logs.filter((log) => log.owner === partner?.id).sort((a, b) => b.data.date.localeCompare(a.data.date))[0];
+  const myToday = logs.filter((log) => log.owner === me.id && log.data.date === today);
+  const partnerToday = logs.filter((log) => log.owner === partner?.id && log.data.date === today);
+  const recent = logs.filter((log) => log.owner === me.id && log.data.date >= offsetDate(today, -6) && log.data.date <= today);
+  const sentCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === me.id && entry.data.date === today);
+  const receivedCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === partner?.id && entry.data.date === today);
+  const weekStart = offsetDate(selected, -weekdayIndex(selected));
+
+  const go = (next: View) => { setView(next); setWarning(""); window.scrollTo({ top: 0 }); };
+  const open = (next: Overlay) => { setWarning(""); setOverlay(next); };
+  const close = () => {
+    if (busy) return;
+    if (overlay?.kind === "session" && pendingRef.current[overlay.id]) {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      flushDraft(overlay.id, pendingRef.current[overlay.id]);
+    }
+    setOverlay(null); setWarning("");
+  };
+
+  async function act(action: () => Promise<void>) {
+    if (busy) return;
+    setBusy(true); setWarning("");
+    try { await action(); } catch (reason) { setWarning(message(reason, "操作未保存，请检查网络后重试。")); }
+    finally { setBusy(false); }
+  }
+
+  function newPlan(data = planBlank(selected)) {
+    open({ kind: "editor", plan: { id: crypto.randomUUID(), data } });
+  }
+
+  async function savePlans(items: KeyedPlan[]) {
+    const clean = items.map((item) => ({ ...item, checked: cleanPlan(item.data) }));
+    const broken = clean.findIndex((item) => !item.checked.success);
+    if (broken >= 0) throw new Error("请检查第 " + (broken + 1) + " 个计划的名称、日期、动作和视频链接。");
+    const ready = clean.flatMap((item) => item.checked.success ? [{ id: item.id, data: item.checked.data }] : []);
+    if (viewer) {
+      await post({ action: "plans", items: ready });
+      await refresh();
+    } else {
+      setState((value) => ({ ...value, entries: [
+        ...ready.map((item): Entry => ({ ...item, owner: me.id, kind: "plan", updated: new Date().toISOString() })),
+        ...value.entries.filter((entry) => entry.owner !== me.id || !ready.some((item) => item.id === entry.id)),
+      ] }));
+    }
+    setToast(demo ? "已添加到演示计划" : "计划已保存到云端");
+  }
+
+  function upsertLocalDraft(id: string, data: Session) {
+    setPending({ ...pendingRef.current, [id]: data });
+    setSync(demo ? "本机草稿" : "草稿待同步");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => flushDraft(id, data), 420);
+  }
+
+  function begin(item: KeyedPlan) {
+    const existing = drafts.find(([, data]) => data.planId === item.id && data.date === today);
+    const id = existing?.[0] ?? crypto.randomUUID();
+    const data = existing?.[1] ?? startSession(item.data, item.id);
+    if (!existing) upsertLocalDraft(id, data);
+    else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
+    open({ kind: "session", id, data });
+  }
+
+  async function finishSession(id: string, data: Session) {
+    await act(async () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      await queue.current;
+      const finalized = { ...data, date: asDate(), minutes: data.minutes || Math.min(720, Math.max(1, Math.round((Date.now() - data.started) / 60000))) };
+      if (viewer) await post({ action: "log", id, data: finalized });
+      const next = { ...pendingRef.current };
+      delete next[id]; setPending(next);
+      const record: Entry = { id, owner: me.id, kind: "log", data: finalized, updated: new Date().toISOString() };
+      setState((value) => ({ ...value, entries: [record, ...value.entries.filter((entry) => entry.owner !== me.id || entry.id !== id)] }));
+      if (viewer) void refresh();
+      setToast(demo ? "演示打卡完成" : "打卡完成，已上传云端");
+      setOverlay(null);
+    });
+  }
+
+  async function copy(value: string, label: string) {
+    try { await navigator.clipboard.writeText(value); setToast(label); }
+    catch { setToast("请长按文本手动复制。"); }
+  }
+
+  const preview = (event: FormEvent) => {
+    event.preventDefault(); setImportError(""); setWarning("");
+    try {
+      const result = parseImport(source, today);
+      setImported(result.map((data) => ({ id: crypto.randomUUID(), data }))); setPreviewIndex(0);
+    } catch (reason) { setImportError(message(reason, "导入失败，请检查内容。")); }
+  };
+
+  function renderPlan(item: KeyedPlan, i: number) {
+    const own = plans.some((plan) => plan.id === item.id && plan.owner === me.id);
+    return <div className="plan-line" key={item.id}>
+      <span className={"tile " + (i % 2 ? "lilac" : "mint")}>{item.data.video ? <Play size={20} /> : <Dumbbell size={20} />}</span>
+      <div><strong>{item.data.title}</strong><small>{shortDate(item.data.date)} · {item.data.category}{item.data.minutes ? " · " + item.data.minutes + " 分钟" : ""}{item.data.shared ? " · 共享" : ""}</small></div>
+      <div className="plan-actions">{own && <button className="button subtle small" onClick={() => open({ kind: "editor", plan: item })}>编辑</button>}<button className="button outline small" onClick={() => begin(item)}>开始</button></div>
+    </div>;
+  }
+
+  const heading = view === "today" ? "今天练什么？" : navigation.find((item) => item.id === view)?.title;
+  return <div className="app">
+    <aside className="sidebar">
+      <button className="brand" onClick={() => go("today")}><span className="brand-mark"><Dumbbell size={23} strokeWidth={2.5} /></span><span>训练搭子<small>SPOTTER CLUB</small></span></button>
+      <nav aria-label="主导航" className="desktop-nav">
+        {navigation.map(({ id, icon: Icon, title }) => <button className={id === view ? "active" : ""} aria-current={id === view ? "page" : undefined} key={id} onClick={() => go(id)}><Icon size={19} /><span>{title}</span>{id === view && <i />}</button>)}
+      </nav>
+      <button className="sidebar-pair" onClick={() => open({ kind: "pair" })}><span className="tile lilac"><Users size={19} /></span><span><strong>搭子空间</strong><small>{partner ? "查看搭子" : "邀请训练搭子"}</small></span><ChevronRight size={16} /></button>
+      <div className="sidebar-footer"><span className="avatar lime">{avatar(me.name)}</span><div><strong>{me.name}</strong><small>{demo ? "演示账号" : "个人账号"}</small></div></div>
+    </aside>
+    <div className="stage">
+      <header className="topbar">
+        <div className="crumb"><span className="mini-mark"><Dumbbell size={18} /></span><span>训练搭子</span><span className="crumb-slash">/</span><strong>{navigation.find((item) => item.id === view)?.title}</strong></div>
+        <div className="top-actions"><span className="cloud-status"><Cloud size={17} />{cloud}</span><button className="top-profile" onClick={() => open({ kind: "pair" })} aria-label="账号与搭子空间"><span className="avatar lime">{avatar(me.name)}</span><ChevronDown size={15} /></button></div>
+      </header>
+      <main className="content">
+        <div className="page-heading">
+          <div>{view === "today" && <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>}<h1>{heading}</h1>
+            {view === "today" && <p>{demo ? "正在查看示例数据。登录后可同步你们的记录。" : "安排今天的训练，看看搭子练得怎么样。"}</p>}
+            {view === "import" && <p>把聊天里的训练安排或视频链接变成可打卡的计划。</p>}
+          </div>
+          {(view === "today" || view === "plans") && <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>}
+        </div>
+
+        {view === "today" && <div className="today-grid">
+          <div className="main-column">
+            <section className="card week-card" aria-label="本周训练日期">
+              <div className="section-head"><h2>训练日程</h2><div className="steppers"><button className="icon-button" onClick={() => setSelected(offsetDate(selected, -7))} aria-label="上一周"><ChevronLeft size={18} /></button><button className="icon-button" onClick={() => setSelected(offsetDate(selected, 7))} aria-label="下一周"><ChevronRight size={18} /></button></div></div>
+              <div className="week-days">
+                {weekdays.map((day, i) => {
+                  const date = offsetDate(weekStart, i);
+                  return <button key={day} aria-pressed={selected === date} aria-label={date} onClick={() => setSelected(date)}><span>周{day}</span><strong>{Number(date.slice(8))}</strong><span className="week-dot">{(plans.some((item) => item.data.date === date) || logs.some((log) => log.data.date === date)) && <i />}</span></button>;
+                })}
+              </div>
+            </section>
+
+            <div className="section-head section-break"><h2>{selected === today ? "今日训练" : shortDate(selected) + "的训练"}</h2><button className="text-button" onClick={() => go("plans")}>全部计划 <ChevronRight size={15} /></button></div>
+            {selected === today && drafts.length > 0 && <section className="card plan-list">{drafts.map(([id, data]) => <div className="plan-line" key={id}><span className="tile mint"><Clock3 size={19} /></span><div><strong>{data.plan.title}</strong><small>{sessionTotals(data).sets} 组完成 · {pendingDrafts[id] && !demo ? "待同步" : "训练草稿"}</small></div><button className="button outline small" onClick={() => { setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存"); open({ kind: "session", id, data }); }}>继续</button></div>)}</section>}
+            {current ? <>
+              <section className="hero">
+                <div className="hero-content">
+                  <span className="hero-tag"><span />{current.id === "example" ? "示例计划" : current.data.category}</span>
+                  <h2>{current.data.title}</h2>
+                  <div className="hero-meta">{current.data.minutes > 0 && <span><Clock3 size={16} /> {current.data.minutes} 分钟</span>}{current.data.exercises.length > 0 && <span><Dumbbell size={16} /> {current.data.exercises.length} 个动作</span>}{current.data.video && <span><Play size={16} /> 跟练视频</span>}</div>
+                  <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> {current.id === "example" ? "试练示例" : "开始训练"}</button>
+                </div>
+              </section>
+              {(todaysPlans.length > 1) && <section className="card plan-list">{todaysPlans.slice(1).map(renderPlan)}</section>}
+              {current.data.exercises.length > 0 && <section className="card padded movement-card">
+                <div className="section-head"><h2>动作清单</h2><span className="count-label">{current.data.exercises.length} 个动作</span></div>
+                {current.data.exercises.map((move, i) => <div className="list-line move-line" key={i}><span className={"tile " + (i % 3 === 1 ? "lilac" : i % 3 === 2 ? "sand" : "mint")}><Dumbbell size={19} /></span><span><strong>{move.name}</strong><small>{move.seconds ? "计时动作" : move.weight ? move.weight + " " + move.unit : "自重／待填重量"}</small></span><span className="move-reps">{move.sets} 组 × {move.seconds ? move.seconds + " 秒" : move.reps + " 次"}</span></div>)}
+              </section>}
+              {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
+            </> : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3><button className="button outline small" onClick={() => newPlan()}>添加训练</button></section>}
+          </div>
+
+          <aside className="right-column">
+            <section className="card padded partner-card">
+              <div className="section-head"><h2>搭子动态</h2><span className="tile lilac"><Users size={18} /></span></div>
+              <div className="partner-row"><span className="avatar lime">{avatar(me.name)}</span><div><strong>我</strong><small>{myToday.length ? myToday[0].data.plan.title : "今天还未打卡"}</small></div><span className={"state-tag " + (myToday.length ? "checked" : "")}>{myToday.length ? "已完成" : "待打卡"}</span></div>
+              <div className="partner-row"><span className="avatar lilac">{partner ? avatar(partner.name) : <Users size={18} />}</span><div><strong>{partner?.name || "训练搭子"}</strong><small>{partnerToday.length ? partnerToday[0].data.plan.title : partner ? "今天还未打卡" : "等待配对"}</small></div><span className={"state-tag " + (partnerToday.length ? "checked" : "")}>{partnerToday.length ? "已完成" : partner ? "待打卡" : "未连接"}</span></div>
+              {receivedCheer && <p className="cheer-note"><Flame size={16} /> 搭子今天给你加油了</p>}
+              {latestPartner && partner && <button className="text-button partner-link" onClick={() => open({ kind: "log", log: latestPartner })}>最近一次打卡 <ChevronRight size={15} /></button>}
+              <button className="button outline full" disabled={busy || sentCheer} onClick={() => partner && viewer ? void act(async () => { await post({ action: "cheer" }); await refresh(); setToast("已给搭子加油"); }) : open({ kind: "pair" })}>
+                {partner && viewer ? <Flame size={16} /> : <Link2 size={16} />}{sentCheer ? "今天已加油" : partner && viewer ? "给搭子加油" : "连接训练搭子"}
+              </button>
+            </section>
+            <section className="card padded activity-card">
+              <div className="section-head"><h2>近 7 天</h2><button className="icon-button stat-link" aria-label="打开训练统计" onClick={() => go("stats")}><BarChart3 size={19} /></button></div>
+              <div className="quick-stats"><div><strong>{recent.length}<small> 次</small></strong><span>训练打卡</span></div><div><strong>{recent.reduce((sum, entry) => sum + entry.data.minutes, 0)}<small> 分钟</small></strong><span>训练时长</span></div></div>
+              <div className="mini-week">{Array.from({ length: 7 }, (_, i) => {
+                const date = offsetDate(today, i - 6);
+                const active = recent.some((log) => log.data.date === date);
+                return <div key={date}><span className={active ? "on" : ""}>{active ? <Check size={13} /> : <i />}</span><small>{weekdays[weekdayIndex(date)]}</small></div>;
+              })}</div>
+            </section>
+            <button className="import-callout" onClick={() => go("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>从聊天导入</strong><small>GPT、Claude 或跟练视频</small></span><ChevronRight size={18} /></button>
+            {warning && !overlay && <p className="inline-error" role="alert">{warning}</p>}
+          </aside>
+        </div>}
+
+        {view === "plans" && <section className="card padded">
+          <div className="section-head"><h2>全部计划</h2><button className="button subtle small" onClick={() => go("import")}><Sparkles size={17} /> 导入计划</button></div>
+          {plans.length ? [...plans].sort((a, b) => a.data.date.localeCompare(b.data.date)).map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span><h3>还没有训练计划</h3><button className="button outline small" onClick={() => newPlan(examples(today))}>使用示例计划</button></div>}
+        </section>}
+
+        {view === "history" && <History today={today} self={me.id} partner={partner?.name} logs={logs} show={(log) => open({ kind: "log", log })} />}
+        {view === "stats" && <Stats today={today} self={me.id} partner={partner ?? null} logs={logs} />}
+
+        {view === "import" && <div className="import-grid">
+          <section className="card padded"><div className="section-head"><h2>粘贴训练内容</h2><span className="tile lilac"><Sparkles size={18} /></span></div>
+            <form className="form-fields import-form" onSubmit={preview}>
+              <label>计划文本、JSON 或视频链接<textarea rows={9} maxLength={450000} value={source} onChange={(e) => setSource(e.target.value)} placeholder={"例如：上肢训练\n哑铃卧推 3×10，12 kg\n坐姿划船 3×12，25 kg\n\n也可以粘贴 YouTube 或 B站链接"} /></label>
+              {importError && <p className="inline-error" role="alert">{importError}</p>}
+              <button className="button primary" type="submit" disabled={!source.trim() || busy}><ClipboardList size={18} /> 预览导入</button>
+            </form>
+          </section>
+          <section className="card padded ai-instructions"><div className="section-head"><h2>让 GPT 或 Claude 整理</h2></div>
+            <ol><li>复制提示词，和训练笔记、计划或视频链接一起发到 GPT／Claude 对话。</li><li>把返回的 JSON 粘贴到这里。预览时可以修改动作、日期和分享设置。</li></ol>
+            <button className="button outline" onClick={() => void copy(importPrompt(today), "已复制导入提示词")}><Copy size={17} /> 复制导入提示词</button>
+            <div className="external-chats"><a href="https://chatgpt.com" target="_blank" rel="noopener noreferrer">打开 ChatGPT</a><a href="https://claude.ai" target="_blank" rel="noopener noreferrer">打开 Claude</a></div>
+          </section>
+          {imported.length > 0 && <section className="card padded import-preview"><div className="section-head"><h2>导入预览</h2><span className="count-label">{imported.length} 个计划</span></div>
+            {imported.length > 1 && <div className="import-tabs">{imported.map(({ id, data }, i) => <button className="button small outline" aria-pressed={previewIndex === i} key={id} onClick={() => setPreviewIndex(i)}>{data.title || "训练 " + (i + 1)}</button>)}</div>}
+            <form onSubmit={(e) => { e.preventDefault(); void act(async () => { await savePlans(imported); setImported([]); setSource(""); go("plans"); }); }}>
+              <PlanFields value={imported[previewIndex].data} change={(data) => setImported(imported.map((row, i) => i === previewIndex ? { ...row, data } : row))} />
+              {warning && <p className="inline-error" role="alert">{warning}</p>}
+              <button className="button primary" disabled={busy}><Check size={18} /> 保存 {imported.length} 个计划</button>
+            </form>
+          </section>}
+        </div>}
+      </main>
+    </div>
+    <nav aria-label="底部导航" className="mobile-nav">{navigation.map(({ id, icon: Icon, mobile }) => <button key={id} className={view === id ? "active" : ""} aria-current={id === view ? "page" : undefined} onClick={() => go(id)}><Icon size={21} /><span>{mobile}</span></button>)}</nav>
+    {overlay?.kind === "editor" && <Dialog title={plans.some((plan) => plan.id === overlay.plan.id && plan.owner === me.id) ? "编辑计划" : "新建计划"} onClose={close}>
+      <form onSubmit={(e) => { e.preventDefault(); const item = overlay.plan; void act(async () => { await savePlans([item]); setSelected(item.data.date); setOverlay(null); }); }}>
+        <div className="dialog-body"><PlanFields value={overlay.plan.data} change={(data) => setOverlay({ kind: "editor", plan: { ...overlay.plan, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
+        <div className="dialog-footer"><button type="button" className="button outline" onClick={close} disabled={busy}>取消</button><button className="button primary" disabled={busy}><Check size={18} /> 保存计划</button></div>
+      </form>
+    </Dialog>}
+    {overlay?.kind === "session" && <Workout data={overlay.data} close={close} update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }} finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />}
+    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} />}
+    {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
+      <div className="dialog-body form-fields">
+        {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。配对后会互相看到打卡和共享计划。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :
+          partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partner.name}</strong><small>配对成功，可以查看对方的打卡和共享计划。</small></div><span className="state-tag checked">已连接</span></div> :
+          room?.invite ? <><p className="muted">把邀请码发给搭子。对方需要先有网站访问权限，再登录并输入邀请码。</p><input aria-label="搭子邀请码" value={room.invite} readOnly onFocus={(e) => e.target.select()} /><button className="button primary" onClick={() => void copy(room.invite!, "已复制邀请码")}><Copy size={17} /> 复制邀请码</button></> :
+          <><p className="muted">配对后，你们可以互相查看训练记录、共享计划和加油。</p><button className="button primary" disabled={busy} onClick={() => void act(async () => { await post({ action: "create" }); await refresh(); })}><Users size={18} /> 创建搭子空间</button>
+            <form className="form-fields join-form" onSubmit={(e) => { e.preventDefault(); void act(async () => { await post({ action: "join", invite: invite.trim().toLowerCase() }); await refresh(); setInvite(""); setToast("搭子已连接"); }); }}><label>已有邀请码<input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="粘贴搭子的邀请码" autoCapitalize="none" spellCheck={false} /></label><button className="button outline" disabled={busy || !/^[a-fA-F0-9]{32}$/.test(invite.trim())}>加入搭子空间</button></form></>}
+        {warning && <p className="inline-error" role="alert">{warning}</p>}
+        {viewer && <a className="text-button sign-out" href="/signout-with-chatgpt?return_to=%2F" target="_top">退出 {me.name} 的账号</a>}
+      </div>
+    </Dialog>}
+    {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
+  </div>;
+}
