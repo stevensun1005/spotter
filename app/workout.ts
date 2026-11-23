@@ -36,6 +36,12 @@ const sets = z.object({
   weight: z.number().min(0).max(2000),
   seconds: z.number().int().min(0).max(18000),
   done: z.boolean(),
+  kind: z.enum(["warmup", "drop"]).optional(),
+  rpe: z.number().min(1).max(10).multipleOf(0.5).optional(),
+  right: z.object({
+    weight: z.number().min(0).max(2000),
+    reps: z.number().int().min(0).max(999),
+  }).optional(),
 });
 export const sessionSchema = z.object({
   plan: planSchema,
@@ -106,7 +112,7 @@ export function sessionTotals(session: Session) {
   session.rows.forEach((row, i) => row.forEach((line) => {
     if (!line.done) return;
     sets++;
-    volume += line.reps * line.weight * (session.plan.exercises[i].unit === "lb" ? 0.45359237 : 1);
+    volume += (line.reps * line.weight + (line.right ? line.right.reps * line.right.weight : 0)) * (session.plan.exercises[i].unit === "lb" ? 0.45359237 : 1);
   }));
   return { sets, volume };
 }

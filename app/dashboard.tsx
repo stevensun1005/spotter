@@ -10,9 +10,12 @@ import {
   type Entry, type Plan, type Session, type State,
 } from "./workout";
 import {
-  cleanPlan, Dialog, draftsOrLogs, History, LogDetail, PlanFields, shortDate, Stats, VideoLink, weekdayIndex, weekdays, Workout,
+  cleanPlan, Dialog, draftsOrLogs, History, LogDetail, PlanFields, shortDate, Stats, VideoLink, weekdayIndex, weekdays,
   type Log,
 } from "./panels";
+import { useTrainingNavigation } from "@/features/training/navigation";
+import { TrainingNotice } from "@/features/training/training-notice";
+import { Workout } from "@/features/training/workout";
 
 type View = "today" | "plans" | "history" | "stats" | "import";
 type KeyedPlan = { id: string; data: Plan };
@@ -60,13 +63,15 @@ async function post(body: unknown) {
 const message = (reason: unknown, fallback: string) =>
   reason instanceof Error && reason.name === "Error" ? reason.message : fallback;
 
-export default function Dashboard({ viewer, initialDate }: { viewer: State["me"] | null; initialDate: string }) {
+export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { viewer: State["me"] | null; initialDate: string; initialWorkoutId?: string }) {
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
   const [view, setView] = useState<View>("today");
   const [state, setState] = useState<State>(() => viewer ? { me: viewer, entries: [], room: null } : demoState(initialDate));
   const [cloud, setCloud] = useState(viewer ? "正在连接" : "本机演示");
   const [overlay, setOverlay] = useState<Overlay | null>(null);
+  const trainingNav = useTrainingNavigation(initialWorkoutId ?? null);
+  const [draftsReady, setDraftsReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [warning, setWarning] = useState("");
   const [toast, setToast] = useState("");
@@ -136,6 +141,7 @@ export default function Dashboard({ viewer, initialDate }: { viewer: State["me"]
     let drafts: Record<string, Session> = {};
     try { drafts = JSON.parse(localStorage.getItem(draftKey) || "{}"); } catch { /* A malformed cache can be ignored. */ }
     setPending(drafts);
+    setDraftsReady(true);
     const retry = () => {
       for (const [id, data] of Object.entries(pendingRef.current)) flushDraft(id, data);
     };
@@ -169,6 +175,8 @@ export default function Dashboard({ viewer, initialDate }: { viewer: State["me"]
   const myDrafts = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "draft" && entry.owner === me.id);
   const drafts = [...Object.entries(pendingDrafts), ...myDrafts.filter((item) => !pendingDrafts[item.id]).map((item) => [item.id, item.data] as const)]
     .filter(([id]) => !logs.some((log) => log.owner === me.id && log.id === id));
+  const routeDraft = drafts.find(([id]) => id === trainingNav.id);
+  const completedWorkout = logs.find((log) => log.owner === me.id && log.id === trainingNav.id);
   const todaysPlans = plans.filter((item) => item.data.date === selected);
   const sample: KeyedPlan = { id: "example", data: examples(today) };
   const current = todaysPlans[0] ?? (selected === today && !drafts.some(([, data]) => data.date === today) && !logs.some((log) => log.owner === me.id && log.data.date === today) ? sample : null);
@@ -182,14 +190,27 @@ export default function Dashboard({ viewer, initialDate }: { viewer: State["me"]
 
   const go = (next: View) => { setView(next); setWarning(""); window.scrollTo({ top: 0 }); };
   const open = (next: Overlay) => { setWarning(""); setOverlay(next); };
-  const close = () => {
+  const close = useCallback(() => {
     if (busy) return;
     if (overlay?.kind === "session" && pendingRef.current[overlay.id]) {
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      flushDraft(overlay.id, pendingRef.current[overlay.id]);
+      void flushDraft(overlay.id, pendingRef.current[overlay.id]);
     }
     setOverlay(null); setWarning("");
-  };
+  }, [busy, overlay, flushDraft]);
+
+  const activeSessionId = overlay?.kind === "session" ? overlay.id : null;
+
+  useEffect(() => {
+    if (trainingNav.id && routeDraft && activeSessionId !== trainingNav.id) {
+      const [id, data] = routeDraft;
+      setWarning("");
+      setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
+      setOverlay({ kind: "session", id, data });
+    } else if (!trainingNav.id && activeSessionId) {
+      close();
+    }
+  }, [trainingNav.id, routeDraft, activeSessionId, close, demo, pendingDrafts]);
 
   async function act(action: () => Promise<void>) {
     if (busy) return;
@@ -233,6 +254,7 @@ export default function Dashboard({ viewer, initialDate }: { viewer: State["me"]
     if (!existing) upsertLocalDraft(id, data);
     else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
     open({ kind: "session", id, data });
+    trainingNav.enter(id);
   }
 
   async function finishSession(id: string, data: Session) {
@@ -247,7 +269,8 @@ export default function Dashboard({ viewer, initialDate }: { viewer: State["me"]
       setState((value) => ({ ...value, entries: [record, ...value.entries.filter((entry) => entry.owner !== me.id || entry.id !== id)] }));
       if (viewer) void refresh();
       setToast(demo ? "演示打卡完成" : "打卡完成，已上传云端");
-      setOverlay(null);
+      setOverlay({ kind: "log", log: record });
+      trainingNav.leave();
     });
   }
 
@@ -271,6 +294,20 @@ export default function Dashboard({ viewer, initialDate }: { viewer: State["me"]
       <div><strong>{item.data.title}</strong><small>{shortDate(item.data.date)} · {item.data.category}{item.data.minutes ? " · " + item.data.minutes + " 分钟" : ""}{item.data.shared ? " · 共享" : ""}</small></div>
       <div className="plan-actions">{own && <button className="button subtle small" onClick={() => open({ kind: "editor", plan: item })}>编辑</button>}<button className="button outline small" onClick={() => begin(item)}>开始</button></div>
     </div>;
+  }
+
+  if (trainingNav.id) {
+    if (overlay?.kind === "session" && overlay.id === trainingNav.id && !completedWorkout) {
+      return <Workout key={overlay.id} data={overlay.data} close={() => { close(); trainingNav.leave(); }}
+        update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }}
+        finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />;
+    }
+    return <TrainingNotice loading={!draftsReady || cloud === "正在连接" || Boolean(routeDraft)}
+      finished={Boolean(completedWorkout)} onBack={trainingNav.leave}
+      onDetails={() => {
+        if (completedWorkout) open({ kind: "log", log: completedWorkout });
+        trainingNav.leave();
+      }} />;
   }
 
   const heading = view === "today" ? "今天练什么？" : navigation.find((item) => item.id === view)?.title;
@@ -310,7 +347,7 @@ export default function Dashboard({ viewer, initialDate }: { viewer: State["me"]
             </section>
 
             <div className="section-head section-break"><h2>{selected === today ? "今日训练" : shortDate(selected) + "的训练"}</h2><button className="text-button" onClick={() => go("plans")}>全部计划 <ChevronRight size={15} /></button></div>
-            {selected === today && drafts.length > 0 && <section className="card plan-list">{drafts.map(([id, data]) => <div className="plan-line" key={id}><span className="tile mint"><Clock3 size={19} /></span><div><strong>{data.plan.title}</strong><small>{sessionTotals(data).sets} 组完成 · {pendingDrafts[id] && !demo ? "待同步" : "训练草稿"}</small></div><button className="button outline small" onClick={() => { setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存"); open({ kind: "session", id, data }); }}>继续</button></div>)}</section>}
+            {selected === today && drafts.length > 0 && <section className="card plan-list">{drafts.map(([id, data]) => <div className="plan-line" key={id}><span className="tile mint"><Clock3 size={19} /></span><div><strong>{data.plan.title}</strong><small>{sessionTotals(data).sets} 组完成 · {pendingDrafts[id] && !demo ? "待同步" : "训练草稿"}</small></div><button className="button outline small" onClick={() => trainingNav.enter(id)}>继续</button></div>)}</section>}
             {current ? <>
               <section className="hero">
                 <div className="hero-content">
@@ -393,7 +430,6 @@ export default function Dashboard({ viewer, initialDate }: { viewer: State["me"]
         <div className="dialog-footer"><button type="button" className="button outline" onClick={close} disabled={busy}>取消</button><button className="button primary" disabled={busy}><Check size={18} /> 保存计划</button></div>
       </form>
     </Dialog>}
-    {overlay?.kind === "session" && <Workout data={overlay.data} close={close} update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }} finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />}
     {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">

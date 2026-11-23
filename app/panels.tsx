@@ -64,52 +64,6 @@ export function VideoLink({ url }: { url: string }) {
   return <a className="button outline" href={url} target="_blank" rel="noopener noreferrer"><CirclePlay size={18} /> 打开跟练视频 <ExternalLink size={14} /></a>;
 }
 
-export function Workout({ data, update, finish, close, pending, error, sync }: {
-  data: Session; update: (next: Session) => void; finish: () => void; close: () => void;
-  pending: boolean; error: string; sync: string;
-}) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, []);
-  const seconds = Math.round(Math.max(0, now - data.started) / 1000);
-  const timer = [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, "0")).join(":");
-  const done = sessionTotals(data).sets;
-  const total = data.rows.flat().length;
-  const changeLine = (move: number, set: number, key: "weight" | "reps" | "seconds" | "done", value: number | boolean) => {
-    update({ ...data, rows: data.rows.map((group, i) => i === move ? group.map((line, j) => j === set ? { ...line, [key]: value } : line) : group) });
-  };
-  return <Dialog title="正在训练" onClose={close}>
-    <div className="dialog-body workout-body">
-      <div className="workout-top"><div><p className="muted">{data.plan.category}</p><h3>{data.plan.title}</h3></div><div className="workout-timer"><Clock3 size={17} />{timer}</div></div>
-      <div className="workout-progress"><span>{done} / {total} 组完成</span><span>{sync}</span></div>
-      <progress value={done + Number(data.finishedVideo)} max={total + Number(Boolean(data.plan.video))} />
-      <fieldset disabled={pending} className="session-fields">
-        {data.plan.video && <div className="video-panel"><VideoLink url={data.plan.video} /><label className="toggle-label"><input type="checkbox" checked={data.finishedVideo} onChange={(e) => update({ ...data, finishedVideo: e.target.checked })} /> 已完成跟练</label></div>}
-        {data.plan.exercises.map((move, i) => <details className="set-card" key={i} open={i === 0 || undefined}>
-          <summary><span className="tile mint"><Dumbbell size={17} /></span><strong>{move.name}</strong><span className="muted">{data.rows[i].filter((line) => line.done).length}/{move.sets} 组</span></summary>
-          {data.rows[i].map((line, j) => {
-            const elapsed = move.seconds > 0;
-            return <div className={"set-row" + (line.done ? " done" : "")} key={j}>
-              <span className="set-index">{j + 1}</span>
-              {!elapsed && <label>{move.unit}<input aria-label={move.name + " 第 " + (j + 1) + " 组重量"} type="number" min={0} max={2000} step="any" value={line.weight} onFocus={(e) => e.target.select()} onChange={(e) => changeLine(i, j, "weight", Math.max(0, Math.min(2000, Number(e.target.value))))} /></label>}
-              <label>{elapsed ? "秒" : "次"}<input aria-label={move.name + " 第 " + (j + 1) + (elapsed ? " 组秒数" : " 组次数")} type="number" min={0} max={elapsed ? 18000 : 999} value={elapsed ? line.seconds : line.reps} onFocus={(e) => e.target.select()} onChange={(e) => changeLine(i, j, elapsed ? "seconds" : "reps", Math.max(0, Math.min(elapsed ? 18000 : 999, Math.trunc(Number(e.target.value)))))} /></label>
-              <button className="check-button" type="button" aria-pressed={line.done} aria-label={move.name + " 第 " + (j + 1) + " 组完成"} onClick={() => changeLine(i, j, "done", !line.done)}><Check size={20} /></button>
-            </div>;
-          })}
-        </details>)}
-        <div className="form-fields">
-          <label>训练心得<textarea value={data.note} maxLength={1500} onChange={(e) => update({ ...data, note: e.target.value })} placeholder="今天练得怎么样？" rows={3} /></label>
-          <label>实际时长（分钟）<input type="number" min={0} max={720} value={data.minutes || ""} placeholder="留空时使用计时" onChange={(e) => update({ ...data, minutes: Math.max(0, Math.min(720, Math.trunc(Number(e.target.value)))) })} /></label>
-        </div>
-      </fieldset>
-      {error && <p className="inline-error" role="alert">{error}</p>}
-    </div>
-    <div className="dialog-footer"><button className="button outline" onClick={close} disabled={pending}>稍后继续</button><button className="button primary" disabled={pending || (!done && !data.finishedVideo)} onClick={finish}><Check size={18} /> 完成打卡</button></div>
-  </Dialog>;
-}
-
 export function LogDetail({ log, close }: { log: Log; close: () => void }) {
   const { volume, sets } = sessionTotals(log.data);
   return <Dialog title={log.data.plan.title} onClose={close}><div className="dialog-body form-fields">
@@ -117,7 +71,7 @@ export function LogDetail({ log, close }: { log: Log; close: () => void }) {
     <div className="totals"><div><strong>{log.data.minutes}</strong><span>分钟</span></div><div><strong>{sets}</strong><span>完成组数</span></div><div><strong>{displayNumber(volume)}</strong><span>容量 kg</span></div></div>
     {log.data.note && <p className="note">{log.data.note}</p>}
     {log.data.plan.video && <VideoLink url={log.data.plan.video} />}
-    {log.data.plan.exercises.map((item, i) => <div className="log-move" key={i}><strong>{item.name}</strong>{log.data.rows[i].map((line, j) => line.done && <div key={j}><span>第 {j + 1} 组</span><span>{line.seconds ? line.seconds + " 秒" : line.weight + " " + item.unit + " × " + line.reps + " 次"}</span><Check size={16} /></div>)}</div>)}
+    {log.data.plan.exercises.map((item, i) => <div className="log-move" key={i}><strong>{item.name}</strong>{log.data.rows[i].map((line, j) => line.done && <div key={j}><span>第 {j + 1} 组{line.kind === "warmup" ? " · 热身" : line.kind === "drop" ? " · 递减" : ""}</span><span>{line.seconds ? line.seconds + " 秒" : line.weight + " " + item.unit + " × " + line.reps + " 次"}{line.right && <> · 右 {line.right.weight} {item.unit} × {line.right.reps} 次</>}{line.rpe && <> · RPE {line.rpe}</>}</span><Check size={16} /></div>)}</div>)}
   </div></Dialog>;
 }
 

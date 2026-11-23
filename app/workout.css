@@ -1,0 +1,51 @@
+.training-page { width: 100%; height: 100dvh; display: flex; justify-content: center; overflow: hidden; background: #edf2e9; }
+.training-shell { width: min(100%, 690px); height: 100%; display: flex; flex-direction: column; background: #fff; }
+.training-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; padding: max(11px, env(safe-area-inset-top)) 16px 11px; border-bottom: 1px solid var(--stroke); flex: none; }
+.training-header h1 { margin: 0; font-size: 1.05rem; font-weight: 800; }
+.training-header > button { justify-self: start; white-space: nowrap; min-height: 38px; }
+.training-header .workout-timer { justify-self: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.training-page .workout-body { flex: 1; min-height: 0; overflow: auto; align-content: start; overscroll-behavior: contain; }
+.training-page .workout-top h2 { font-size: 1.4rem; font-weight: 820; margin: 2px 0 0; }
+.training-footer { display: flex; justify-content: flex-end; gap: 8px; flex: none; background: white; padding: 10px 16px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--stroke); }
+.training-footer .button { min-height: 44px; }
+.training-notice { display: flex; flex: 1; justify-content: center; align-items: center; flex-direction: column; gap: 12px; padding: 18px; }
+.training-notice h2 { font-size: 1.07rem; font-weight: 760; }
+.training-page .set-row { align-items: start; background: #f3f6f0; }
+.training-page .set-row.done { background: #e6f2de; }
+.training-page .set-index, .training-page .check-button { min-height: 50px; }
+.training-page .set-index { align-content: center; gap: 2px; }
+.training-page .set-index small { font-size: .65rem; line-height: 1.1; color: #475d44; }
+.set-fields { display: grid; gap: 5px; flex: 1; min-width: 0; }
+.set-field-line { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.set-number { min-height: 50px; min-width: 0; border: 1px solid #dce8d6; border-radius: 10px; background: #fff; color: var(--text); display: grid; align-content: center; justify-items: center; gap: 1px; padding: 3px; font-variant-numeric: tabular-nums; }
+.set-number span { color: #506850; font-size: .7rem; font-weight: 650; }
+.set-number strong { font-size: 1.14rem; line-height: 1.15; }
+.set-number[aria-expanded=true] { border-color: #55734a; box-shadow: inset 0 0 0 1px #55734a; background: #edf8d9; }
+.set-row.done .set-number { background: #f5fce9; }
+.set-rpe { justify-self: start; border-radius: 7px; background: #e4eedf; color: #38583b; font-size: .76rem; font-weight: 730; padding: 4px 8px; }
+.workout-keypad { flex: none; border-top: 1px solid #cfddca; background: #ebf0e8; padding: 8px 10px max(10px, env(safe-area-inset-bottom)); }
+.keypad-heading { display: flex; justify-content: space-between; gap: 6px; align-items: center; padding-bottom: 6px; }
+.keypad-heading > div { display: flex; gap: 9px; align-items: center; min-width: 0; }
+.keypad-heading span { color: var(--muted); font-size: .81rem; }
+.keypad-heading strong { color: #294932; font-variant-numeric: tabular-nums; font-size: 1.06rem; }
+.keypad-heading strong[aria-invalid=true] { color: #9d3a22; }
+.keypad-close { min-height: 36px; padding-inline: 8px; }
+.keypad-grid { display: grid; gap: 5px; }
+.keypad-row { display: grid; grid-template-columns: 1.24fr repeat(3, 1fr) 1.24fr; gap: 5px; }
+.keypad-grid button { min-height: 45px; border: 1px solid #dbe6d8; border-radius: 9px; display: flex; align-items: center; justify-content: center; gap: 3px; padding: 3px 2px; min-width: 0; color: var(--text); line-height: 1.08; font-weight: 750; }
+.keypad-grid .pad-digit { background: #fff; font-size: 1.38rem; font-variant-numeric: tabular-nums; }
+.keypad-grid .pad-action { background: #f6f9f4; font-size: .76rem; }
+.keypad-grid .pad-action[aria-pressed=true] { background: #d7edb7; border-color: #aece92; }
+.keypad-grid button:active { background: #d7edb7; }
+.keypad-notice { padding: 4px 11px; color: #8c3b28; font-size: .78rem; }
+@media (max-width: 620px) {
+  .training-header { padding-inline: 12px; }
+  .training-footer { padding-inline: 12px; }
+  .training-footer .primary { flex: 1; }
+}
+@media (max-height: 500px) {
+  .workout-keypad { padding-block: 4px; }
+  .keypad-grid button { min-height: 35px; }
+}
+.set-summary { display: inline-flex; align-items: center; gap: 7px; }
+.set-card[open] .set-summary > svg { transform: rotate(180deg); }
