@@ -314,7 +314,7 @@ test("share headings use workout slots and all volume views count logged sides o
       { ...move, name: "绳索单臂划船", block: "A-2", sourceSlot: "A2" },
       { ...move, name: "哑铃飞鸟", block: "B", cue: "每手" },
       { ...move, name: "绳索三头下压", block: "C", cue: "双手共用一个配重" },
-      { ...move, name: "双绳索快推胸", block: "D", cue: "每侧换腿" },
+      { ...move, name: "后撤弓步回位接双绳索快推胸", block: "D", cue: "每侧换腿" },
       { ...move, name: "站姿单臂绳索下拉", cue: "仅做左侧" },
     ],
   };
@@ -327,7 +327,7 @@ test("share headings use workout slots and all volume views count logged sides o
   const data = { ...started, minutes: 20, rows };
   const log = { id: "a", kind: "log", owner: "me", data };
   const share = shareSummary({ log, logs: [], owner: "me", merge: false });
-  const expected = 160 + 152 + 160 + 80 + 80 + 80;
+  const expected = 160 + 152 + 160 + 80 + 160 + 80;
   assert.equal(training.sessionTotals(data).volume, expected);
   assert.equal(summarize([log], [], "all").total.volume, expected);
   assert.equal(share.volume, expected);
@@ -337,7 +337,9 @@ test("share headings use workout slots and all volume views count logged sides o
   assert.deepEqual(moves.map((item) => item.slot), ["W", "A1", "A3", "B1", "C1", "D1", undefined]);
   assert.deepEqual(moves[1].sets, ["10 kg × 8 次／侧"]);
   assert.deepEqual(moves[2].sets, ["左 10 kg × 8 · 右 12 kg × 6"]);
-  assert.deepEqual(moves[5].sets, ["W · 10 kg × 8 次"]);
+  assert.deepEqual(moves[5].sets, ["W · 10 kg × 8 次／侧"]);
   rows[3][0].right = { weight: 0, reps: 0 };
   assert.equal(training.sessionTotals(data).volume, expected - 72);
+  rows[6][0].right = { weight: 9, reps: 8 };
+  assert.equal(training.sessionTotals(data).volume, expected - 72 - 8);
 });

@@ -10,7 +10,7 @@ export function isPerSideLoad(move: Load) {
   const { name, cue: legacyCue } = parsePlanMove(move.name);
   const cue = move.cue ?? legacyCue ?? "";
   if (/总重|合计|总次数|(?:只做|仅做?)[左右]/.test(name + " " + cue)) return false;
-  return /每手|单手|每侧(?:重量|配重|负重)/.test(cue) || /单臂|单手|\b(?:single|one)[ -]arm\b/i.test(name);
+  return /每手|单手|每侧(?:重量|配重|负重)/.test(cue) || /单臂|单手|双(?:绳索|滑轮).*推胸|\b(?:single|one)[ -]arm\b/i.test(name);
 }
 
 export function setVolumeKg(line: SetLine, move: Load & Pick<Move, "unit">) {
