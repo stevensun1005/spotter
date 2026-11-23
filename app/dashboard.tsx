@@ -533,10 +533,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 <div className="card padded today-plan-actions"><p className="muted">{current.data.durationNote || "需要调整日期？"}</p>
                   {current.id !== sample.id && plans.some((item) => item.id === current.id && item.owner === me.id) && planActions(current)}</div>}
               {(todaysPlans.length > 1) && <section className="card plan-list">{todaysPlans.slice(1).map(renderPlan)}</section>}
-              {current.data.exercises.length > 0 && <section className="card padded movement-card">
-                <div className="section-head"><h2>动作清单</h2><span className="count-label">{current.data.exercises.length} 个动作</span></div>
-                <PlanSequence plan={current.data} onExercise={setExercise} />
-              </section>}
+              {current.data.exercises.length > 0 && <details className="card movement-card" key={current.id + ":" + selected}>
+                <summary className="movement-toggle">
+                  <h2><span>动作清单</span><span className="movement-meta"><span className="count-label">{current.data.exercises.length} 个动作</span><ChevronDown size={18} aria-hidden="true" /></span></h2>
+                </summary>
+                <div className="movement-content"><PlanSequence plan={current.data} onExercise={setExercise} /></div>
+              </details>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
             </> : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3><button className="button outline small" onClick={() => newPlan()}>添加训练</button></section>}
           </div>

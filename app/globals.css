@@ -114,7 +114,12 @@ small { font-size: .81rem; }
 .tile.sand { background: #f6efdf; color: #7b5c29; }
 .avatar { width: 41px; height: 41px; border-radius: 50%; display: inline-grid; place-items: center; font-size: .95rem; font-weight: 780; flex: none; }
 .avatar.lime { background: #e6f4d7; color: #395a30; }
-.movement-card .section-head { margin-bottom: 9px; }
+.movement-toggle { cursor: pointer; list-style: none; border-radius: inherit; }
+.movement-toggle::-webkit-details-marker { display: none; }
+.movement-toggle h2 { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 52px; padding: 8px 16px; font-size: 1.13rem; font-weight: 790; }
+.movement-meta { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.movement-card[open] .movement-meta svg { transform: rotate(180deg); }
+.movement-content { padding: 0 16px 16px; }
 .count-label { border-radius: 100px; padding: 4px 8px; background: #eff3ec; color: #506251; font-size: .78rem; font-weight: 680; white-space: nowrap; }
 .list-line, .plan-line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 11px 0; width: 100%; text-align: left; min-width: 0; }
 .list-line + .list-line, .plan-line + .plan-line { border-top: 1px solid #ebefea; }
