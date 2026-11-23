@@ -7,7 +7,9 @@ import { catalogAsset, useCatalogue } from "@/features/exercises/open-gym";
 import type { HeartData } from "@/features/heart/model";
 import type { TrainingEntry } from "@/shared/state";
 import { shareEntries, shareHeart, shareSummary } from "./model";
-import { renderShareCard, shareThemes, type AnatomyGeometry, type ShareTheme } from "./poster";
+import { muscleNames } from "@/features/exercises/labels";
+import { renderShareCard, shareThemes, type ShareTheme } from "./poster";
+import type { AnatomyGeometry } from "./anatomy-poster";
 
 let geometryRequest: Promise<AnatomyGeometry> | undefined;
 const geometryAsset = () => geometryRequest ??= catalogAsset<AnatomyGeometry>("anatomy.json").catch((reason) => {
@@ -106,10 +108,14 @@ export function ShareCard({ log, logs, name, owner, close }: {
   }
 
   if (!summary) return null;
+  const muscleDescription = [summary.primary, summary.secondary].flatMap((group, i) => {
+    const names = Object.keys(group).map((key) => muscleNames[key]).filter(Boolean);
+    return names.length ? [i === 0 ? "主要肌群 " + names.join("、") : "辅助肌群 " + names.join("、")] : [];
+  }).join("。");
   return <Dialog title="训练分享卡" className="share-dialog" onClose={close}>
     <div className="share-preview" role="region" aria-label="可滚动的海报预览" tabIndex={0}>
       <canvas ref={canvas} hidden={!prepared && loading || drawError} role="img"
-        aria-label={summary.date + "，" + summary.title + "，" + summary.minutes + " 分钟，" + summary.sets + " 组，训练容量 " + displayNumber(summary.volume) + " kg"} />
+        aria-label={summary.date + "，" + summary.title + "，" + summary.minutes + " 分钟，" + summary.sets + " 组，训练容量 " + displayNumber(summary.volume) + " kg" + (muscleDescription ? "。" + muscleDescription : "")} />
     </div>
     <div className="share-footer">
       <div className="share-settings" aria-label="海报设置">

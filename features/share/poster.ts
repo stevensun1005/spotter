@@ -1,8 +1,6 @@
-import { muscleNames, regionMuscle } from "@/features/exercises/labels";
+import { drawShareAnatomy, type AnatomyGeometry } from "./anatomy-poster";
 import { displayNumber } from "@/shared/ui";
 import type { ShareHeart, ShareSummary } from "./model";
-
-export type AnatomyGeometry = Record<string, { viewBox: string; regions: Record<string, string[]> }>;
 
 export const shareThemes = {
   travel: { label: "手绘方格", paper: "#fbf7ec", tile: "#fffdf5", ink: "#2a2a2e", quiet: "#62626b", line: "#d9d3c2", accent: "#1e7947", light: "#bddbab", neutral: "#c3d5d8", highlight: "#fff0a0" },
@@ -74,10 +72,8 @@ export function renderShareCard(canvas: HTMLCanvasElement, {
   setFont(36, 800, titleFont);
   const title = lines(ctx, summary.title, inner, 3);
   const header = 73 + title.length * 43;
-  const hasMuscle = Object.keys(summary.muscles).length > 0;
-  const muscleHeight = geometry ? 377 : 208;
-  const displayMuscle = (regions: Record<string, number>) =>
-    Object.entries(regions).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([slug]) => muscleNames[slug] ?? slug).join("、");
+  const anatomyBox = { x: edge + 15, width: inner - 136, height: 258 };
+  const muscleHeight = geometry ? 349 : 190;
 
   const setsByWorkout = showDetails ? summary.workouts.map(({ title, moves }) => ({
     title, moves: moves.map(({ name, sets }) => {
@@ -156,52 +152,28 @@ export function renderShareCard(canvas: HTMLCanvasElement, {
 
   const stats = [[String(summary.minutes), "分钟 · 时长"], [String(summary.sets), "组 · 已完成"], [displayNumber(summary.volume), "kg · 容量"]];
   stats.forEach(([amount, name], i) => {
-    const x = geometry ? width - edge - 148 : edge + 23 + i * inner / 3;
-    const top = geometry ? y + 112 + i * 71 : y + 117;
+    const x = geometry ? width - edge - 105 : edge + 23 + i * inner / 3;
+    const top = geometry ? y + 118 + i * 80 : y + 117;
     if (geometry && sketch) {
-      ctx.beginPath(); ctx.roundRect(x - 10, top - 29, 135, 60, [8, 5, 9, 5]);
+      ctx.beginPath(); ctx.roundRect(x - 8, top - 29, 101, 60, [8, 5, 9, 5]);
       ctx.fillStyle = i === 2 ? "#e1edf8" : c.paper; ctx.fill();
       ctx.strokeStyle = c.ink; ctx.lineWidth = 1.35; ctx.stroke();
-    } else if (geometry && i) rule(x, top - 32, width - edge - 21, top - 32);
-    label(amount, x, top, 31, geometry && sketch ? 114 : 129, i === 2 && sketch ? "#205fac" : c.ink, 790);
-    label(name, x, top + 22, 14, 120, c.quiet, 630);
+    } else if (geometry && i) rule(x, top - 38, width - edge - 15, top - 38);
+    const size = geometry && amount.length >= 7 ? 23 : 28;
+    label(amount, x, top, size, geometry ? 86 : 129, i === 2 && sketch ? "#205fac" : c.ink, 790);
+    label(name, x, top + 21, 13, geometry ? 87 : 120, c.quiet, 630);
   });
 
   if (geometry) {
+    const box = { ...anatomyBox, y: y + 74 };
     if (sketch) {
-      ctx.beginPath(); ctx.roundRect(edge + 18, y + 74, inner - 184, 229, [11, 7, 11, 8]);
+      ctx.beginPath(); ctx.roundRect(box.x, box.y, box.width, box.height, [11, 7, 11, 8]);
       ctx.fillStyle = "#e3f1f2"; ctx.fill();
       ctx.strokeStyle = "#8eaeb3"; ctx.lineWidth = 1; ctx.stroke();
-    } else rule(width - edge - 163, y + 82, width - edge - 163, y + 298);
-    ["front", "back"].forEach((side, index) => {
-      const shape = geometry["male-" + side];
-      if (!shape) return;
-      const [x, minY, w, h] = shape.viewBox.trim().split(/\s+/).map(Number);
-      const scale = Math.min(136 / w, 197 / h);
-      if (!Number.isFinite(scale) || scale <= 0) return;
-      const center = edge + 92 + 144 * index;
-      ctx.save(); ctx.translate(center - w * scale / 2 - x * scale, y + 78 - minY * scale);
-      ctx.scale(scale, scale); ctx.lineWidth = 1.4 / scale; ctx.strokeStyle = c.tile;
-      const layers = ["head", "hair", "feet", "hands", "knees", "ankles", "neck", "gluteal", "quadriceps", "chest", "abs", "trapezius", "upper-back", "deltoids"];
-      const rank = (key: string) => layers.includes(key) ? layers.indexOf(key) : layers.length;
-      for (const [region, paths] of Object.entries(shape.regions).sort(([a], [b]) => rank(a) - rank(b))) {
-        const score = summary.muscles[region] ?? summary.muscles[regionMuscle(region)] ?? 0;
-        ctx.fillStyle = score >= 75 ? c.accent : score ? c.light : c.neutral;
-        for (const path of paths) { const p = new Path2D(path); ctx.fill(p); ctx.stroke(p); }
-      }
-      ctx.restore();
-      ctx.textAlign = "center"; text(index === 0 ? "正面" : "背面", center, y + 296, 14, c.quiet, 680); ctx.textAlign = "left";
-    });
-    rule(edge + 19, y + 310, width - edge - 19, y + 310);
-  }
-  const legendY = y + (geometry ? 337 : 171);
-  if (hasMuscle) {
-    ctx.fillStyle = c.accent; ctx.fillRect(edge + 20, legendY - 10, 10, 10);
-    ctx.fillStyle = c.light; ctx.fillRect(edge + 20, legendY + 8, 10, 10);
-    label("主要  " + (displayMuscle(summary.primary) || "—"), edge + 37, legendY, 14, inner - 57, c.ink, 660);
-    label("辅助  " + (displayMuscle(summary.secondary) || "—"), edge + 37, legendY + 18, 14, inner - 57, c.quiet);
+    } else rule(box.x + box.width + 6, box.y, box.x + box.width + 6, box.y + box.height);
+    drawShareAnatomy(ctx, geometry, summary.muscles, box, c, font);
   } else {
-    text("暂无可汇总的肌群", edge + 20, legendY, 14, c.quiet);
+    text("肌群图暂不可用", edge + 23, y + 163, 12, c.quiet);
   }
   y += muscleHeight + 20;
 
