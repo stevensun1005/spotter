@@ -6,7 +6,7 @@ import {
   Copy, Dumbbell, Flame, House, Link2, LogIn, Play, Plus, Sparkles, Users,
 } from "lucide-react";
 import {
-  asDate, examples, importPrompt, offsetDate, parseImport, planBlank, sessionTotals, startSession,
+  asDate, examples, offsetDate, planBlank, sessionTotals, startSession,
   type Entry, type Plan, type Session, type State,
 } from "./workout";
 import {
@@ -16,10 +16,12 @@ import {
 import { useTrainingNavigation } from "@/features/training/navigation";
 import { TrainingNotice } from "@/features/training/training-notice";
 import { Workout } from "@/features/training/workout";
+import { ImportView } from "@/features/import/import-view";
+import type { WhoopStatus } from "@/features/heart/whoop";
 
 type View = "today" | "plans" | "history" | "stats" | "import";
 type KeyedPlan = { id: string; data: Plan };
-type Overlay = { kind: "pair" } | { kind: "editor"; plan: KeyedPlan } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log };
+type Overlay = { kind: "pair" } | { kind: "editor"; plan: KeyedPlan } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
 const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
@@ -58,15 +60,19 @@ async function post(body: unknown) {
     const data = await response.json().catch(() => null) as { error?: string } | null;
     throw Object.assign(new Error(data?.error || "云端保存失败，请重试。"), { status: response.status });
   }
+  return response;
 }
 
 const message = (reason: unknown, fallback: string) =>
   reason instanceof Error && reason.name === "Error" ? reason.message : fallback;
 
-export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { viewer: State["me"] | null; initialDate: string; initialWorkoutId?: string }) {
+export default function Dashboard({ viewer, initialDate, initialWorkoutId, heartReturn }: {
+  viewer: State["me"] | null; initialDate: string; initialWorkoutId?: string; heartReturn?: { id: string; result: WhoopStatus };
+}) {
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
-  const [view, setView] = useState<View>("today");
+  const [view, setView] = useState<View>(heartReturn ? "history" : "today");
+  const [returnToLog, setReturnToLog] = useState(heartReturn);
   const [state, setState] = useState<State>(() => viewer ? { me: viewer, entries: [], room: null } : demoState(initialDate));
   const [cloud, setCloud] = useState(viewer ? "正在连接" : "本机演示");
   const [overlay, setOverlay] = useState<Overlay | null>(null);
@@ -76,10 +82,6 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { v
   const [warning, setWarning] = useState("");
   const [toast, setToast] = useState("");
   const [invite, setInvite] = useState("");
-  const [source, setSource] = useState("");
-  const [imported, setImported] = useState<KeyedPlan[]>([]);
-  const [previewIndex, setPreviewIndex] = useState(0);
-  const [importError, setImportError] = useState("");
   const [pendingDrafts, setPendingDrafts] = useState<Record<string, Session>>({});
   const pendingRef = useRef<Record<string, Session>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -168,6 +170,14 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { v
   }, [toast]);
 
   const { me, room, entries } = state;
+  useEffect(() => {
+    if (!returnToLog || cloud !== "云端已连接") return;
+    const log = entries.find((entry): entry is Log => entry.kind === "log" && entry.owner === me.id && entry.id === returnToLog.id);
+    if (log) setOverlay({ kind: "log", log, whoop: returnToLog.result });
+    setReturnToLog(undefined);
+    window.history.replaceState(window.history.state, "", "/");
+  }, [returnToLog, entries, cloud, me.id]);
+
   const partner = room?.partner;
   const demo = !viewer;
   const logs = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "log");
@@ -223,14 +233,19 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { v
     open({ kind: "editor", plan: { id: crypto.randomUUID(), data } });
   }
 
-  async function savePlans(items: KeyedPlan[]) {
+  async function savePlans(items: KeyedPlan[], skipExisting = false) {
     const clean = items.map((item) => ({ ...item, checked: cleanPlan(item.data) }));
     const broken = clean.findIndex((item) => !item.checked.success);
     if (broken >= 0) throw new Error("请检查第 " + (broken + 1) + " 个计划的名称、日期、动作和视频链接。");
     const ready = clean.flatMap((item) => item.checked.success ? [{ id: item.id, data: item.checked.data }] : []);
     if (viewer) {
-      await post({ action: "plans", items: ready });
+      const reply = await post({ action: "plans", items: ready, skipExisting });
       await refresh();
+      if (skipExisting) {
+        const { added, skipped } = await reply.json() as { added: number; skipped: number };
+        setToast("已导入 " + added + " 个计划" + (skipped ? "，跳过 " + skipped + " 个重复计划" : ""));
+        return;
+      }
     } else {
       setState((value) => ({ ...value, entries: [
         ...ready.map((item): Entry => ({ ...item, owner: me.id, kind: "plan", updated: new Date().toISOString() })),
@@ -250,7 +265,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { v
   function begin(item: KeyedPlan) {
     const existing = drafts.find(([, data]) => data.planId === item.id && data.date === today);
     const id = existing?.[0] ?? crypto.randomUUID();
-    const data = existing?.[1] ?? startSession(item.data, item.id);
+    const data = existing?.[1] ?? startSession(item.data, item.id, today);
     if (!existing) upsertLocalDraft(id, data);
     else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
     open({ kind: "session", id, data });
@@ -261,7 +276,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { v
     await act(async () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       await queue.current;
-      const finalized = { ...data, date: asDate(), minutes: data.minutes || Math.min(720, Math.max(1, Math.round((Date.now() - data.started) / 60000))) };
+      const now = Date.now();
+      const ended = Math.max(data.started, Math.min(now, data.started + 86_400_000));
+      const finalized = { ...data, date: asDate(now), ended, minutes: data.minutes || Math.min(720, Math.max(1, Math.round((ended - data.started) / 60000))) };
       if (viewer) await post({ action: "log", id, data: finalized });
       const next = { ...pendingRef.current };
       delete next[id]; setPending(next);
@@ -278,14 +295,6 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { v
     try { await navigator.clipboard.writeText(value); setToast(label); }
     catch { setToast("请长按文本手动复制。"); }
   }
-
-  const preview = (event: FormEvent) => {
-    event.preventDefault(); setImportError(""); setWarning("");
-    try {
-      const result = parseImport(source, today);
-      setImported(result.map((data) => ({ id: crypto.randomUUID(), data }))); setPreviewIndex(0);
-    } catch (reason) { setImportError(message(reason, "导入失败，请检查内容。")); }
-  };
 
   function renderPlan(item: KeyedPlan, i: number) {
     const own = plans.some((plan) => plan.id === item.id && plan.owner === me.id);
@@ -399,28 +408,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { v
         {view === "history" && <History today={today} self={me.id} partner={partner?.name} logs={logs} show={(log) => open({ kind: "log", log })} />}
         {view === "stats" && <Stats today={today} self={me.id} partner={partner ?? null} logs={logs} />}
 
-        {view === "import" && <div className="import-grid">
-          <section className="card padded"><div className="section-head"><h2>粘贴训练内容</h2><span className="tile lilac"><Sparkles size={18} /></span></div>
-            <form className="form-fields import-form" onSubmit={preview}>
-              <label>计划文本、JSON 或视频链接<textarea rows={9} maxLength={450000} value={source} onChange={(e) => setSource(e.target.value)} placeholder={"例如：上肢训练\n哑铃卧推 3×10，12 kg\n坐姿划船 3×12，25 kg\n\n也可以粘贴 YouTube 或 B站链接"} /></label>
-              {importError && <p className="inline-error" role="alert">{importError}</p>}
-              <button className="button primary" type="submit" disabled={!source.trim() || busy}><ClipboardList size={18} /> 预览导入</button>
-            </form>
-          </section>
-          <section className="card padded ai-instructions"><div className="section-head"><h2>让 GPT 或 Claude 整理</h2></div>
-            <ol><li>复制提示词，和训练笔记、计划或视频链接一起发到 GPT／Claude 对话。</li><li>把返回的 JSON 粘贴到这里。预览时可以修改动作、日期和分享设置。</li></ol>
-            <button className="button outline" onClick={() => void copy(importPrompt(today), "已复制导入提示词")}><Copy size={17} /> 复制导入提示词</button>
-            <div className="external-chats"><a href="https://chatgpt.com" target="_blank" rel="noopener noreferrer">打开 ChatGPT</a><a href="https://claude.ai" target="_blank" rel="noopener noreferrer">打开 Claude</a></div>
-          </section>
-          {imported.length > 0 && <section className="card padded import-preview"><div className="section-head"><h2>导入预览</h2><span className="count-label">{imported.length} 个计划</span></div>
-            {imported.length > 1 && <div className="import-tabs">{imported.map(({ id, data }, i) => <button className="button small outline" aria-pressed={previewIndex === i} key={id} onClick={() => setPreviewIndex(i)}>{data.title || "训练 " + (i + 1)}</button>)}</div>}
-            <form onSubmit={(e) => { e.preventDefault(); void act(async () => { await savePlans(imported); setImported([]); setSource(""); go("plans"); }); }}>
-              <PlanFields value={imported[previewIndex].data} change={(data) => setImported(imported.map((row, i) => i === previewIndex ? { ...row, data } : row))} />
-              {warning && <p className="inline-error" role="alert">{warning}</p>}
-              <button className="button primary" disabled={busy}><Check size={18} /> 保存 {imported.length} 个计划</button>
-            </form>
-          </section>}
-        </div>}
+        <div hidden={view !== "import"}><ImportView today={today} save={(items) => savePlans(items, true)} saved={() => go("plans")} notify={setToast} /></div>
       </main>
     </div>
     <nav aria-label="底部导航" className="mobile-nav">{navigation.map(({ id, icon: Icon, mobile }) => <button key={id} className={view === id ? "active" : ""} aria-current={id === view ? "page" : undefined} onClick={() => go(id)}><Icon size={21} /><span>{mobile}</span></button>)}</nav>
@@ -430,7 +418,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId }: { v
         <div className="dialog-footer"><button type="button" className="button outline" onClick={close} disabled={busy}>取消</button><button className="button primary" disabled={busy}><Check size={18} /> 保存计划</button></div>
       </form>
     </Dialog>}
-    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} />}
+    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
         {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。配对后会互相看到打卡和共享计划。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :

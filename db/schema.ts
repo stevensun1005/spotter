@@ -1,4 +1,4 @@
-import { index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { foreignKey, index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const rooms = sqliteTable("rooms", {
   id: text().primaryKey(),
@@ -19,3 +19,12 @@ export const entries = sqliteTable("entries", {
   payload: text().notNull(),
   updated: text().notNull(),
 }, (table) => [primaryKey({ columns: [table.owner, table.id] })]);
+
+export const workoutHeart = sqliteTable("workout_heart", {
+  owner: text().notNull(),
+  workoutId: text("workout_id").notNull(),
+  payload: text().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.owner, table.workoutId] }),
+  foreignKey({ columns: [table.owner, table.workoutId], foreignColumns: [entries.owner, entries.id] }).onDelete("cascade"),
+]);

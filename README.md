@@ -1,3 +1,13 @@
+# 训练搭子 · Sites
+
+这是当前试用版。项目约定见 [AGENTS.md](AGENTS.md)。使用 Sites 登录和原有 D1 数据库。验证时使用本地 D1。
+
+- 开始或继续训练会打开独立训练页。点组数值或底部「数字键盘」可编辑。返回后可以恢复草稿。
+- 计划可以粘贴文本、视频链接或 JSON 后预览。批次最多 20 个计划，保存时跳过已经存在的相同计划。
+- 个人打卡详情里的「训练心率」支持 Apple 健康 ZIP/XML、Garmin FIT/TCX、WHOOP CSV/ZIP 以及通用 CSV。选文件、核对时间和心率，再保存。网页只上传选定时段的心率数据。搭子可以看到训练打卡。
+- WHOOP 在线同步需要在 WHOOP 开发者应用登记 `https://<本站域名>/api/health/whoop/callback`，并为 Sites 设置 `WHOOP_CLIENT_ID` 和 `WHOOP_CLIENT_SECRET` 两个运行时值。启用后可授权同步匹配训练的平均和最高心率。
+- iPhone HealthKit 直连需要原生授权，以及原生应用能访问的设备同步服务。当前 Sites 用 Apple 健康导出文件导入。
+
 # vinext-starter
 
 A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.

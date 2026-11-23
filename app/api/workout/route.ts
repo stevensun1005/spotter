@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 const id = z.string().uuid();
 const mutation = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("plans"), items: z.array(z.object({ id, data: planSchema })).min(1).max(20) }),
+  z.object({ action: z.literal("plans"), skipExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema })).min(1).max(20) }),
   z.object({ action: z.literal("draft"), id, data: sessionSchema }),
   z.object({ action: z.literal("log"), id, data: sessionSchema }),
   z.object({ action: z.literal("create") }),
@@ -80,6 +80,19 @@ export async function POST(request: Request) {
   ).bind(owner, itemId, kind, JSON.stringify(data), now);
 
   if (body.action === "plans") {
+    if (body.skipExisting) {
+      const results = await db.batch(body.items.map(({ id, data }) => {
+        const payload = JSON.stringify(data);
+        return db.prepare(
+          "INSERT INTO entries (owner, id, kind, payload, updated) " +
+          "SELECT ?, ?, 'plan', ?, ? WHERE NOT EXISTS (" +
+          "SELECT 1 FROM entries WHERE owner = ? AND kind = 'plan' AND payload = ?) " +
+          "ON CONFLICT (owner, id) DO NOTHING"
+        ).bind(owner, id, payload, now, owner, payload);
+      }));
+      const added = results.reduce((count, result) => count + result.meta.changes, 0);
+      return reply({ added, skipped: body.items.length - added });
+    }
     await db.batch(body.items.map((item) => save(item.id, "plan", item.data)));
   } else if (body.action === "draft" || body.action === "log") {
     if (body.action === "log" && !body.data.finishedVideo && sessionTotals(body.data).sets === 0) {

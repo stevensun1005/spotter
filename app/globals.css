@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./workout.css";
+@import "./heart.css";
 
 :root {
   color-scheme: light;
@@ -179,8 +180,6 @@ small { font-size: .81rem; }
 .bar-track [data-empty=true] { background: #dce7d9; }
 .bars small { color: var(--muted); font-size: .75rem; }
 .ai-instructions ol { padding-left: 1.3em; margin: 13px 0; color: var(--muted); display: grid; gap: 8px; font-size: .94rem; }
-.external-chats { display: flex; gap: 13px; margin-top: 13px; flex-wrap: wrap; }
-.external-chats a { color: #4b663b; font-size: .87rem; font-weight: 700; }
 .import-form { margin-top: 14px; }
 .import-form > .button { justify-self: start; }
 .import-preview { grid-column: 1 / -1; }
@@ -309,3 +308,6 @@ progress::-moz-progress-bar { background: #8fbc60; border-radius: 10px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+
+.feature-fields { min-width: 0; }
+.prompt-text { margin-top: 12px; width: 100%; }

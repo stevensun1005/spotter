@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, Clock3, Dumbbell, Keyboard, Plus } from "lucide-react";
-import { VideoLink } from "@/app/panels";
-import { sessionTotals, type Session } from "@/app/workout";
+import { VideoLink } from "@/shared/ui";
+import { sessionTotals, type Session } from "./model";
 import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldValue, flipWeightUnit, validNumberText, type NumberField, type SetTarget } from "./set-editor";
 import { fieldLabels, SetRow } from "./set-row";
 import { WorkoutKeypad } from "./workout-keypad";

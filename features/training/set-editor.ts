@@ -1,4 +1,4 @@
-import type { Session, SetLine } from "@/app/workout";
+import type { Session, SetLine } from "./model";
 
 export type NumberField = "weight" | "reps" | "seconds" | "rightWeight" | "rightReps" | "rpe";
 export type SetTarget = { move: number; row: number; field: NumberField };

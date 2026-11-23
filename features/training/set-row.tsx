@@ -1,7 +1,8 @@
 "use client";
 
 import { Check } from "lucide-react";
-import type { Move, SetLine } from "@/app/workout";
+import type { Move } from "@/features/plans/model";
+import type { SetLine } from "./model";
 import { fieldValue, type NumberField } from "./set-editor";
 
 export const fieldLabels: Record<NumberField, string> = {
