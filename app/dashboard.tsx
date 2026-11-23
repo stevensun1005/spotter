@@ -231,13 +231,14 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   ].map((name) => parsePlanMove(name).name);
   const todaysPlans = plans.filter((item) => item.data.date === selected)
     .sort((a, b) => Number(b.owner === me.id) - Number(a.owner === me.id));
-  const sample: KeyedPlan = { id: "example", data: examples(today) };
-  const current = todaysPlans[0] ?? (selected === today && !drafts.some(([, data]) => data.date === today) && !logs.some((log) => log.owner === me.id && log.data.date === today) ? sample : null);
-  const canManageToday = current && current.id !== sample.id && todaysPlans.some((item) => item.id === current.id && item.owner === me.id);
   const latestPartner = logs.filter((log) => log.owner === partner?.id).sort((a, b) => b.data.date.localeCompare(a.data.date))[0];
   const myToday = logs.filter((log) => log.owner === me.id && log.data.date === today);
   const partnerToday = logs.filter((log) => log.owner === partner?.id && log.data.date === today);
   const buddyStatus = demo ? "signed-out" : cloud === "正在连接" ? "loading" : cloud === "云端已连接" ? "ready" : "offline";
+  const showExample = (demo || buddyStatus === "ready") && selected === today &&
+    myToday.length === 0 && !drafts.some(([, data]) => data.date === today);
+  const current: KeyedPlan | null = todaysPlans[0] ?? (showExample ? { id: "example", data: examples(today) } : null);
+  const canManageToday = current && todaysPlans.some((item) => item.id === current.id && item.owner === me.id);
   const sentCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === me.id && entry.data.date === today);
   const receivedCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === partner?.id && entry.data.date === today);
   const weekStart = offsetDate(selected, -weekdayIndex(selected));
@@ -536,7 +537,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               </div>)}
             </section>}
             {current ? <>
-              <section className={"card today-workout-card" + (current.data.durationNote ? " has-estimate" : "")} key={current.id + ":" + selected}>
+              <section className={"card today-workout-card" + (current.data.durationNote ? " has-estimate" : "")}>
                 <div className="hero">
                   <div className="hero-content">
                     <span className="hero-tag"><span />{current.id === "example" ? "示例计划" : !canManageToday ? "搭子共享 · " + current.data.category : current.data.category}</span>
@@ -545,7 +546,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                     <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> {current.id === "example" ? "试练示例" : "开始训练"}</button>
                   </div>
                 </div>
-                {canManageToday && <div className="hero-menu">{planActions(current)}</div>}
+                {canManageToday && <div className="hero-menu" key={current.id}>{planActions(current)}</div>}
                 {current.data.durationNote && <p className="hero-duration-note">{current.data.durationNote}</p>}
               </section>
               {(todaysPlans.length > 1) && <section className="card plan-list">{todaysPlans.slice(1).map(renderPlan)}</section>}
@@ -556,7 +557,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 <div className="movement-content"><PlanSequence plan={current.data} onExercise={setExercise} /></div>
               </details>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
-            </> : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3><button className="button outline small" onClick={() => newPlan()}>添加训练</button></section>}
+            </> : buddyStatus === "loading" ? null : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3><button className="button outline small" onClick={() => newPlan()}>添加训练</button></section>}
           </div>
 
           <aside className="right-column">
