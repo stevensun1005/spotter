@@ -4,7 +4,7 @@ import { parsePlanMove } from "./move-name";
 import type { CatalogEntry } from "./open-gym";
 
 export type ExerciseGuide = { description: string; steps: string[]; muscles: Record<string, number> };
-type ReferenceGuide = ExerciseGuide & { equipment?: string; source?: string; sourceLabel?: string; adapted?: boolean };
+type ReferenceGuide = ExerciseGuide & { equipment?: string; source?: string; sourceLabel?: string; demoCatalogueId?: string };
 
 function nameKey(name: string) {
   return parsePlanMove(name).name.normalize("NFKC").toLowerCase().replace(/\s+/g, "");

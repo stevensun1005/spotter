@@ -36,6 +36,9 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
   const personal = profile.guide ?? inherited;
   const referenceName = choice.sourceName && researchedGuide(choice.sourceName) ? choice.sourceName : base;
   const reference = researchedGuide(referenceName);
+  const demo = reference?.demoCatalogueId
+    ? fromCatalogue(data, { name: referenceName, catalogueId: reference.demoCatalogueId })
+    : item;
   const weights = exerciseMuscles(referenceName, item, personal);
   const steps = personal?.steps.length ? personal.steps : reference?.steps ?? (detail?.data?.steps.length ? detail.data.steps : guide?.steps);
   const description = personal?.description || reference?.description || detail?.data?.description;
@@ -72,9 +75,9 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
     <div className="dialog-body feature-stack">
       {error && <p className="inline-error" role="alert">{error}</p>}
       {tab === "guide" && <>
-        {item?.animation ? <ExerciseAnimation key={item.id} id={item.id} name={name} thumbnail /> :
+        {demo?.animation ? <ExerciseAnimation key={demo.id} id={demo.id} name={referenceName} thumbnail /> :
           guide?.photos && <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} />}
-        {item && <p className="muted catalogue-detail-label">{item.en} · {translate(item.type)} · #{item.id}</p>}
+        {item && <p className="muted catalogue-detail-label">{referenceName === base ? item.en : referenceName} · {translate(item.type)}</p>}
         <div className="exercise-toolbar"><span>{reference?.equipment || (item ? translate(item.equipment) : guide?.equipment ?? "自定义动作")}</span><div>
           {addToPlan && <button type="button" className="button outline small" onClick={() => addToPlan(choice, item)}><Plus size={15} /> 加入计划</button>}
           <button type="button" className="button outline small" aria-pressed={profile.pinned} disabled={busy} onClick={() => void update({ ...profile, pinned: !profile.pinned })}><Pin size={15} /> {profile.pinned ? "取消置顶" : "置顶"}</button>
