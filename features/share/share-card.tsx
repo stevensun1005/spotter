@@ -106,28 +106,34 @@ export function ShareCard({ log, logs, name, owner, close }: {
   }
 
   if (!summary) return null;
-  return <Dialog title="分享训练" className="share-dialog" onClose={close}>
-    <div className="share-preview">
-      <div className="share-settings">
-        <label className="share-style">样式<select value={theme} onChange={(event) => { setTheme(event.target.value as ShareTheme); setMessage(""); }}>
+  return <Dialog title="训练分享卡" className="share-dialog" onClose={close}>
+    <div className="share-preview" role="region" aria-label="可滚动的海报预览" tabIndex={0}>
+      <canvas ref={canvas} hidden={!prepared && loading || drawError} role="img"
+        aria-label={summary.date + "，" + summary.title + "，" + summary.minutes + " 分钟，" + summary.sets + " 组，训练容量 " + displayNumber(summary.volume) + " kg"} />
+    </div>
+    <div className="share-footer">
+      <div className="share-settings" aria-label="海报设置">
+        <button className="button subtle" type="button" aria-pressed={!details}
+          onClick={() => { setDetails(!details); setMessage(""); }}>{details ? "隐藏明细" : "显示明细"}</button>
+        <button className="button subtle" type="button" aria-pressed={merge} disabled={!canMerge}
+          title={!canMerge ? "同一天有多次打卡时可合并" : undefined}
+          onClick={() => { setMerge(!merge); setMessage(""); }}>{merge ? "仅本次" : "合并当天"}</button>
+        <label className="share-style"><select aria-label="海报样式" value={theme}
+          onChange={(event) => { setTheme(event.target.value as ShareTheme); setMessage(""); }}>
           {Object.entries(shareThemes).map(([value, t]) => <option value={value} key={value}>{t.label}</option>)}
         </select></label>
-        <button className="button subtle" type="button" onClick={() => { setDetails(!details); setMessage(""); }}>{details ? "隐藏训练明细" : "显示训练明细"}</button>
-        {canMerge && <button className="button subtle" type="button" aria-pressed={merge} onClick={() => { setMerge(!merge); setMessage(""); }}>{merge ? "只分享本次" : "合并当天"}</button>}
+      </div>
+      <div className="share-state">
         <label className="toggle-label"><input type="checkbox" checked={withHeart} onChange={(event) => {
           setWithHeart(event.target.checked); setHeartLoad(undefined); setMessage("");
         }} /> 附带心率</label>
+        {loading && <p className="muted" role="status">正在生成分享卡…</p>}
+        {drawError && <p className="inline-error" role="alert">生成图片失败，请重新打开分享。</p>}
+        {activeHeart && (!options?.heart.length || activeHeart.trouble) && <p className="muted" role="status">
+          {activeHeart.trouble ? "部分心率记录读取失败。" : "所选训练暂无心率记录。"}
+        </p>}
+        {message && <p className="muted" role="status">{message}</p>}
       </div>
-      {loading && <p className="muted" role="status">正在生成分享卡…</p>}
-      {drawError && <p className="inline-error" role="alert">生成图片失败，请重新打开分享。</p>}
-      {activeHeart && (!options?.heart.length || activeHeart.trouble) && <p className="muted" role="status">
-        {activeHeart.trouble ? "有记录的心率暂时无法读取，图片只包含已读取的数据。" : "选中的训练暂无已保存心率。"}
-      </p>}
-      <canvas ref={canvas} hidden={loading || drawError} role="img"
-        aria-label={summary.title + "，" + summary.minutes + " 分钟，" + summary.sets + " 组，训练容量 " + displayNumber(summary.volume) + " kg"} />
-    </div>
-    <div className="share-footer">
-      {message && <p className="muted" role="status">{message}</p>}
       <div className="share-output">
         <button className="button subtle" type="button" disabled={!file} onClick={download}><Download size={18} /> 保存图片</button>
         <button className="button primary" type="button" disabled={!file} onClick={() => void share()}><Share2 size={18} /> 分享图片</button>
