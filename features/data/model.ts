@@ -37,7 +37,7 @@ export type DateBounds = z.infer<typeof dateBounds>;
 export function libraryScope(item: LibraryItem): DataScope {
   if (item.kind === "template") return "templates";
   if (item.kind === "nutrition") return item.entry.type === "weight" || item.entry.type === "measurement" ? "body" : "nutrition";
-  if (item.kind === "targets") return "nutrition";
+  if (item.kind === "targets" || item.kind === "food") return "nutrition";
   return "training";
 }
 

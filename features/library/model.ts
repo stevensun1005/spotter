@@ -5,6 +5,7 @@ import { scheduleSchema } from "@/features/plans/schedule";
 import { muscleNames } from "@/features/exercises/labels";
 import { proteinPreference } from "@/features/training/protein";
 import { measurements } from "@/features/body/measurements";
+import { maxFoodGrams } from "@/features/nutrition/foods";
 
 export const exerciseName = z.string().trim().min(1).max(100);
 const video = z.object({ label: z.string().trim().min(1).max(45), url: videoUrl.refine(Boolean) });
@@ -25,15 +26,19 @@ export const blankProfile = (name: string): ExerciseProfile => ({ name, pinned: 
 
 export const mealTypes = ["早餐", "午餐", "晚餐", "加餐"] as const;
 const amount = z.number().finite().min(0).max(20000);
-export const nutritionValues = z.object({ calories: amount, protein: amount, carbs: amount, fat: amount, water: amount });
+const foodValues = z.object({ calories: amount, protein: amount, carbs: amount, fat: amount });
+const foodName = z.string().trim().min(1).max(100);
+export const nutritionValues = foodValues.extend({ water: amount });
 export const nutritionEntry = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("meal"), meal: z.enum(mealTypes), name: z.string().trim().min(1).max(100),
-    calories: amount, protein: amount, carbs: amount, fat: amount }),
+  foodValues.extend({ type: z.literal("meal"), meal: z.enum(mealTypes), name: foodName,
+    calories: z.number().finite().min(0).max(maxFoodGrams * 10),
+    grams: z.number().finite().min(0.1).max(maxFoodGrams).optional(), foodId: z.string().trim().min(1).max(80).optional() }),
   z.object({ type: z.literal("water"), ml: amount.positive() }),
   z.object({ type: z.literal("weight"), kg: z.number().finite().min(10).max(700) }),
   z.object({ type: z.literal("measurement"), metric: z.enum(["fat", "muscle", "waist", "chest", "hip", "neck", "shoulders", "arm", "thigh"]), value: z.number().finite() }),
 ]).refine((entry) => entry.type !== "measurement" || entry.value >= measurements[entry.metric].min && entry.value <= measurements[entry.metric].max);
 export type NutritionEntry = z.infer<typeof nutritionEntry>;
+export type MealEntry = Extract<NutritionEntry, { type: "meal" }>;
 export type NutritionValues = z.infer<typeof nutritionValues>;
 export const emptyNutrition: NutritionValues = { calories: 0, protein: 0, carbs: 0, fat: 0, water: 0 };
 
@@ -42,8 +47,12 @@ const saveProfile = z.object({ kind: z.literal("exercise"), item: exerciseProfil
 const template = z.object({ kind: z.literal("template"), id: uuid, plan: planSchema });
 const nutrition = z.object({ kind: z.literal("nutrition"), id: uuid, date: dateSchema, entry: nutritionEntry });
 const targets = z.object({ kind: z.literal("targets"), values: nutritionValues });
+const personalFood = z.object({ kind: z.literal("food"), id: uuid, name: foodName,
+  per100g: foodValues.extend({ calories: amount.max(1000), protein: amount.max(100), carbs: amount.max(100), fat: amount.max(100) }),
+});
+export type PersonalFood = z.infer<typeof personalFood>;
 const statsPins = z.object({ kind: z.literal("stats-pins"), ids: z.array(z.string().min(1).max(100)).max(80) });
-export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, statsPins, proteinPreference, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
+export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, personalFood, statsPins, proteinPreference, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
 export type LibraryItem = z.infer<typeof libraryItem>;
 export type LibraryRow = LibraryItem & { updated: string };
 export const libraryMutation = z.discriminatedUnion("action", [

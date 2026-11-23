@@ -55,7 +55,29 @@
 .nutrition-actions { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
 .nutrition-row { min-width: 0; }
 .nutrition-row > div:first-of-type { overflow-wrap: anywhere; min-width: 0; }
-.nutrition-row > div:last-of-type:not(:first-of-type) { display: flex; flex-wrap: wrap; justify-content: flex-end; }
+.nutrition-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.nutrition-row-actions .icon-button { width: 44px; height: 44px; }
+.nutrition-meal-log { padding-top: 6px; }
+.nutrition-meal-log .text-button { min-height: 44px; }
+.food-dialog .dialog-body { gap: 12px; }
+.food-dialog input { font-size: 16px; }
+.food-search { display: block; position: relative; }
+.food-search svg { position: absolute; left: 11px; top: 14px; color: var(--muted); pointer-events: none; }
+.food-search input { min-height: 46px; padding-left: 37px; }
+.food-list-heading, .food-selected { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.food-list-heading .text-button, .food-selected .text-button, .food-back { min-height: 44px; }
+.food-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.food-option { min-width: 0; min-height: 60px; padding: 9px 11px; border-radius: 12px; border: 1px solid var(--stroke); text-align: left; background: #f5f8f2; color: var(--text); display: grid; gap: 3px; align-content: center; overflow-wrap: anywhere; }
+.food-option strong { font-size: .95rem; line-height: 1.3; }
+.food-option small, .food-selected small { font-size: .8rem; color: var(--muted); }
+.food-alternatives { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.food-alternatives .text-button { min-height: 44px; }
+.food-back { justify-self: start; }
+.food-selected { flex-wrap: wrap; }
+.food-preview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.food-preview > div { min-width: 0; display: grid; gap: 5px; text-align: center; padding: 9px 2px; border-radius: 10px; background: #edf4e7; }
+.food-preview span, .food-preview small { color: var(--muted); font-size: .75rem; font-weight: 550; }
+.food-preview strong { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; font-size: .99rem; }
 .template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .template-card { display: grid; gap: 6px; justify-items: start; align-content: start; }
 .template-card > div { display: flex; flex-wrap: wrap; gap: 6px; }
