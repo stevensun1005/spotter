@@ -7,6 +7,7 @@ import { api } from "@/server/http";
 import { dateSchema } from "@/shared/dates";
 import { checkPlanDates, reschedule } from "@/features/plans/schedule-server";
 import { updateLog } from "@/features/history/update-log";
+import { withoutProteinShake } from "@/features/training/protein";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +48,10 @@ export async function GET() {
     "SELECT id, owner, kind, payload, updated FROM entries " +
     "WHERE (owner = ? AND kind IN ('plan', 'draft', 'log', 'cheer')) OR (owner = ? AND kind IN ('plan', 'log', 'cheer')) ORDER BY updated DESC"
   ).bind(me.id, member?.partnerId ?? null).all<Row>();
-  const entries: Entry[] = rows.results.map(({ payload, ...row }) => ({ ...row, data: JSON.parse(payload) } as Entry))
-    .filter((entry) => entry.kind !== "plan" || entry.owner === me.id || entry.data.shared);
+  const entries: Entry[] = rows.results.map(({ payload, ...row }) => {
+    const entry = { ...row, data: JSON.parse(payload) } as Entry;
+    return entry.kind === "log" && entry.owner !== me.id ? { ...entry, data: withoutProteinShake(entry.data) } : entry;
+  }).filter((entry) => entry.kind !== "plan" || entry.owner === me.id || entry.data.shared);
   const state: State = {
     me, entries,
     room: member ? {

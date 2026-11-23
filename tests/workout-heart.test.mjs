@@ -389,3 +389,27 @@ test("share anatomy uses completed working volume, including load on both sides 
   assert.equal(body.muscles.abs, 100);
   assert.ok(body.muscles.obliques < 35);
 });
+
+test("optional protein preferences and check-ins survive private backups", async () => {
+  const { withoutProteinShake } = await import("../features/training/protein.ts");
+  const { libraryItem } = await import("../features/library/model.ts");
+  const { backupSchema, emptyBackup, libraryKey, scopeBackup } = await import("../features/data/model.ts");
+  const plan = {
+    title: "训练", date: "2026-11-23", category: "力量训练", minutes: 10, shared: false, video: "",
+    exercises: [{ name: "哑铃卧推", sets: 1, reps: 8, weight: 10, unit: "kg", seconds: 0 }],
+  };
+  const id = "e780ae49-7d6b-4c38-8ee0-2802b35fd70c";
+  const legacy = training.startSession(plan, id, plan.date);
+  assert.equal(training.sessionSchema.parse(legacy).proteinShake, undefined);
+  const data = { ...legacy, proteinShake: true, rows: [[{ ...legacy.rows[0][0], done: true }]] };
+  assert.equal(training.sessionSchema.parse({ ...data, proteinShake: false }).proteinShake, false);
+  assert.deepEqual(withoutProteinShake(data), { ...legacy, rows: data.rows });
+  assert.equal(data.proteinShake, true);
+
+  const enabled = libraryItem.parse({ kind: "protein-preference", enabled: true });
+  assert.equal(libraryKey(enabled), libraryKey({ ...enabled, enabled: false }));
+  const backup = backupSchema.parse({ ...emptyBackup(), library: [enabled], training: [{ kind: "log", id, data }] });
+  assert.equal(scopeBackup(backup, "training").training[0].data.proteinShake, true);
+  assert.deepEqual(scopeBackup(backup, "training").library, [enabled]);
+  assert.deepEqual(scopeBackup(backup, "nutrition").library, []);
+});

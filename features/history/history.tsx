@@ -11,11 +11,12 @@ import { ShareCard } from "@/features/share/share-card";
 import { HeartPanel } from "@/features/heart/heart-panel";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { kindLabels } from "@/features/training/set-row";
+import { ProteinCheck } from "@/features/training/protein-check";
 import type { TrainingEntry } from "@/shared/state";
 
-export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share }: {
+export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share, trackProtein }: {
   log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus; onTemplate?: () => void;
-  today?: string; onEdit?: (next: Session) => Promise<void>;
+  today?: string; onEdit?: (next: Session) => Promise<void>; trackProtein?: boolean;
   share?: { name: string; owner: string; logs: TrainingEntry[] };
 }) {
   const [editing, setEditing] = useState(false);
@@ -31,6 +32,8 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
   return <Dialog title={log.data.plan.title} onClose={close}><div className="dialog-body form-fields">
     <p className="muted">{shortDate(log.data.date)} · {log.data.plan.category}</p>
     <div className="totals"><div><strong>{log.data.minutes}</strong><span>分钟</span></div><div><strong>{sets}</strong><span>完成组数</span></div><div><strong>{displayNumber(volume)}</strong><span>容量 kg</span></div></div>
+    {own && trackProtein && onEdit && <ProteinCheck checked={log.data.proteinShake === true}
+      save={(proteinShake) => onEdit({ ...log.data, proteinShake })} />}
     {log.data.note && <p className="note">{log.data.note}</p>}
     {log.data.plan.video && <VideoLink url={log.data.plan.video} />}
     {(onTemplate || onEdit || own && share) && <div className="exercise-toolbar">

@@ -5,6 +5,7 @@
 @import "./open-gym.css";
 @import "./stats.css";
 @import "./share.css";
+@import "./protein.css";
 
 :root {
   color-scheme: light;

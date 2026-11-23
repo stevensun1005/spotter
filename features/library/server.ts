@@ -15,7 +15,7 @@ export async function readLibrary(owner: string, day?: string, body = false): Pr
     ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind = 'nutrition' AND json_extract(payload, '$.entry.type') IN ('weight','measurement') ORDER BY day ASC, updated DESC").bind(owner)
     : day
     ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind = 'targets' OR (kind = 'nutrition' AND day = ?)) ORDER BY updated DESC").bind(owner, day)
-    : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins') ORDER BY updated DESC").bind(owner);
+    : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins', 'protein-preference') ORDER BY updated DESC").bind(owner);
   const { results } = await statement.all<{ payload: string; updated: string }>();
   return results.map(({ payload, updated }) => ({ ...JSON.parse(payload) as LibraryItem, updated }));
 }

@@ -3,6 +3,7 @@ import { dateSchema } from "@/shared/dates";
 import { planSchema, videoUrl } from "@/features/plans/model";
 import { scheduleSchema } from "@/features/plans/schedule";
 import { muscleNames } from "@/features/exercises/labels";
+import { proteinPreference } from "@/features/training/protein";
 import { measurements } from "@/features/body/measurements";
 
 export const exerciseName = z.string().trim().min(1).max(100);
@@ -42,7 +43,7 @@ const template = z.object({ kind: z.literal("template"), id: uuid, plan: planSch
 const nutrition = z.object({ kind: z.literal("nutrition"), id: uuid, date: dateSchema, entry: nutritionEntry });
 const targets = z.object({ kind: z.literal("targets"), values: nutritionValues });
 const statsPins = z.object({ kind: z.literal("stats-pins"), ids: z.array(z.string().min(1).max(100)).max(80) });
-export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, statsPins, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
+export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, statsPins, proteinPreference, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
 export type LibraryItem = z.infer<typeof libraryItem>;
 export type LibraryRow = LibraryItem & { updated: string };
 export const libraryMutation = z.discriminatedUnion("action", [

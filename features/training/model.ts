@@ -26,6 +26,7 @@ export const sessionSchema = z.object({
   minutes: z.number().int().min(0).max(720),
   note: z.string().max(1500),
   finishedVideo: z.boolean(),
+  proteinShake: z.boolean().optional(),
   rest: z.object({
     until: z.number().int().min(0).max(maxWorkoutMs + 600_000),
     kind: z.enum(["换动作", "轮间休息", "组间休息", "换站"]),

@@ -16,6 +16,7 @@ import {
 import { useTrainingNavigation } from "@/features/training/navigation";
 import { TrainingNotice } from "@/features/training/training-notice";
 import { Workout } from "@/features/training/workout";
+import { ProteinCheck } from "@/features/training/protein-check";
 import { ImportView } from "@/features/import/import-view";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
@@ -219,6 +220,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const completedWorkout = logs.find((log) => log.owner === me.id && log.id === trainingNav.id);
   const profiles = library.rows.filter((item) => item.kind === "exercise").map(({ item }) => item);
   const templates = library.rows.filter((item) => item.kind === "template");
+  const trackProtein = Boolean(viewer && library.rows.find((item) => item.kind === "protein-preference")?.enabled);
   const schedule = library.rows.find((item) => item.kind === "schedule")?.values ?? openSchedule;
   const exerciseNames = [
     ...plans.filter((plan) => plan.owner === me.id).flatMap((plan) => plan.data.exercises.map((item) => item.name)),
@@ -457,7 +459,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   if (trainingNav.id) {
     if (overlay?.kind === "session" && overlay.id === trainingNav.id && !completedWorkout) {
-      return <><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} close={() => { close(); trainingNav.leave(); }}
+      return <><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} trackProtein={trackProtein} close={() => { close(); trainingNav.leave(); }}
         update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }}
         finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />{exerciseDialog}</>;
     }
@@ -510,6 +512,14 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             <div className="section-head section-break"><h2>{selected === today ? "今日训练" : shortDate(selected) + "的训练"}</h2><button className="text-button" onClick={() => go("plans")}>全部计划 <ChevronRight size={15} /></button></div>
             {selected === today && drafts.length > 0 && <section className="card plan-list">{drafts.map(([id, data]) => <div className="plan-line" key={id}><span className="tile mint"><Clock3 size={19} /></span><div><strong>{data.plan.title}</strong><small>{sessionTotals(data).sets} 组完成 · {pendingDrafts[id] && !demo ? "待同步" : "训练草稿"}</small></div><div className="plan-actions"><button className="button outline small" onClick={() => resumeDraft(id, data)}>继续</button>
               <button className="icon-button" aria-label={"删除草稿 " + data.plan.title} onClick={() => open({ kind: "delete", itemId: id, label: data.plan.title, type: "draft" })}><Trash2 size={16} /></button></div></div>)}</section>}
+            {trackProtein && selected === today && myToday.length > 0 && <section className="card padded">
+              <h3>今日打卡</h3>
+              {myToday.map((log) => <div className="protein-record" key={log.id}>
+                <button className="text-button" type="button" onClick={() => open({ kind: "log", log })}>{log.data.plan.title}</button>
+                <ProteinCheck checked={log.data.proteinShake === true}
+                  save={(proteinShake) => saveLogEdit(log, { ...log.data, proteinShake })} />
+              </div>)}
+            </section>}
             {current ? <>
               <section className="hero">
                 <div className="hero-content">
@@ -629,7 +639,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         <button className="button primary"><Plus size={17} /> 加入并编辑</button>
       </form>
     </Dialog>}
-    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today}
+    {overlay?.kind === "log" && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today} trackProtein={trackProtein}
       share={viewer && overlay.log.owner === me.id ? { name: me.name, owner: me.id, logs } : undefined}
       onEdit={viewer && overlay.log.owner === me.id ? (data) => saveLogEdit(overlay.log, data) : undefined}
       onTemplate={viewer && overlay.log.owner === me.id ? () => openTemplate(overlay.log.data.plan) : undefined} />}
@@ -641,6 +651,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           <><p className="muted">配对后，你们可以互相查看训练记录、共享计划和加油。</p><button className="button primary" disabled={busy} onClick={() => void act(async () => { await post({ action: "create" }); await refresh(); })}><Users size={18} /> 创建搭子空间</button>
             <form className="form-fields join-form" onSubmit={(e) => { e.preventDefault(); void act(async () => { await post({ action: "join", invite: invite.trim().toLowerCase() }); await refresh(); setInvite(""); setToast("搭子已连接"); }); }}><label>已有邀请码<input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="粘贴搭子的邀请码" autoCapitalize="none" spellCheck={false} /></label><button className="button outline" disabled={busy || !/^[a-fA-F0-9]{32}$/.test(invite.trim())}>加入搭子空间</button></form></>}
         {warning && <p className="inline-error" role="alert">{warning}</p>}
+        {viewer && <ProteinCheck label="显示蛋白粉打卡" checked={trackProtein}
+          disabled={library.loading} save={(enabled) => library.save({ kind: "protein-preference", enabled })} />}
         {viewer && <a className="text-button sign-out" href="/signout-with-chatgpt?return_to=%2F" target="_top">退出 {me.name} 的账号</a>}
       </div>
     </Dialog>}

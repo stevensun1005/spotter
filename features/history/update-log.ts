@@ -15,7 +15,7 @@ export async function updateLog(db: D1Database, owner: string, id: string, revis
     return name === item.name ? move : { ...move, name, catalogueId: undefined, sourceName: undefined, cue: undefined };
   });
   const data: Session = { ...prior, date: next.date, minutes: next.minutes, note: next.note, rows: next.rows,
-    plan: { ...prior.plan, exercises } };
+    proteinShake: next.proteinShake ?? prior.proteinShake, plan: { ...prior.plan, exercises } };
   const saved = await db.prepare("UPDATE entries SET payload = ?, updated = ? WHERE owner = ? AND id = ? AND kind = 'log' AND updated = ?")
     .bind(JSON.stringify(data), now, owner, id, revision).run();
   if (!saved.meta.changes) throw new HttpError(409, "记录已在别处更新，请关闭后重新打开。");

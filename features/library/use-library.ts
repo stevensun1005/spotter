@@ -7,7 +7,7 @@ import { libraryItem, type LibraryItem, type LibraryRow } from "./model";
 function matches(a: LibraryItem, b: LibraryItem) {
   if (a.kind !== b.kind) return false;
   if (a.kind === "exercise" && b.kind === "exercise") return a.item.name === b.item.name;
-  if (a.kind === "targets" || a.kind === "schedule" || a.kind === "stats-pins") return true;
+  if (a.kind === "targets" || a.kind === "schedule" || a.kind === "stats-pins" || a.kind === "protein-preference") return true;
   return "id" in a && "id" in b && a.id === b.id;
 }
 

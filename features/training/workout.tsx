@@ -7,6 +7,7 @@ import { sessionTotals, type Session } from "./model";
 import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldValue, flipWeightUnit, validNumberText, type NumberField, type SetTarget } from "./set-editor";
 import { fieldLabels, SetRow } from "./set-row";
 import { WorkoutKeypad } from "./workout-keypad";
+import { ProteinCheck } from "./protein-check";
 import { ExercisePicker } from "@/features/exercises/exercise-picker";
 import type { Move } from "@/features/plans/model";
 import { pauseClock, resumeClock, workoutElapsed } from "./clock";
@@ -17,9 +18,9 @@ const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].m
 
 type Edit = SetTarget & { text: string; pristine: boolean };
 
-export function Workout({ data, update, finish, close, pending, error, sync, onExercise }: {
+export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein }: {
   data: Session; update: (next: Session) => void; finish: () => void; close: () => void;
-  pending: boolean; error: string; sync: string; onExercise?: (move: Move) => void;
+  pending: boolean; error: string; sync: string; onExercise?: (move: Move) => void; trackProtein?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [edit, setEdit] = useState<Edit | null>(null);
@@ -233,6 +234,9 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
       </fieldset>
       {error && <p className="inline-error" role="alert">{error}</p>}
     </div>
+    {trackProtein && !edit && <div className="protein-workout">
+      <ProteinCheck checked={data.proteinShake === true} disabled={pending} save={(proteinShake) => update({ ...data, proteinShake })} />
+    </div>}
     {edit ? renderPad() : <div className="training-footer">
       {total > 0 && <button className="button outline" onClick={openKeypad} disabled={pending}><Keyboard size={18} /> 数字键盘</button>}
       <button className="button primary" disabled={pending || (!done && !data.finishedVideo)} onClick={finish}><Check size={18} /> {pending ? "正在保存" : "完成打卡"}</button>
