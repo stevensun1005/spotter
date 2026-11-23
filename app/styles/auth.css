@@ -1,0 +1,15 @@
+.auth-page { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(410px, .9fr); min-height: 100dvh; }
+.auth-hero { display: flex; align-items: start; gap: 10px; color: var(--lime); padding: 24px; background: linear-gradient(120deg, #17241ced, #17241c00 80%), url("/training.webp") 64% center / cover no-repeat, var(--dark); }
+.auth-hero strong { font-size: 1.18rem; }
+.auth-content { display: grid; place-items: center; padding: 20px; }
+.auth-card { width: min(410px, 100%); padding: 25px; display: grid; gap: 14px; }
+.auth-mark { display: flex; align-items: center; gap: 9px; color: #3a523b; }
+.auth-card h1 { font-size: 1.75rem; font-weight: 820; letter-spacing: -.04em; }
+.auth-card .text-button { justify-self: start; }
+@media (max-width: 690px) {
+  .auth-page { grid-template-columns: 1fr; grid-template-rows: minmax(130px, 22dvh) auto; }
+  .auth-hero { background-position: center, 61% 33%; padding: 16px; }
+  .auth-content { align-items: start; padding: 14px; }
+  .auth-card { padding: 17px; }
+  .auth-mark { display: none; }
+}

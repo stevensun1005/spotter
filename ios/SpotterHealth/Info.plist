@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>训练搭子心率</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>读取您已打卡训练时段内的心率，并同步到您的训练搭子账号。</string>
+    <key>UILaunchScreen</key>
+    <dict/>
+</dict>
+</plist>

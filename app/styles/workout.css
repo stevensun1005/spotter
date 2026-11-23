@@ -1,0 +1,38 @@
+.workout-dialog[open] { display: flex; flex-direction: column; overflow: hidden; height: min(90dvh, 850px); }
+.workout-dialog .dialog-heading, .workout-dialog .dialog-footer { position: static; flex: none; }
+.workout-dialog .workout-body { flex: 1; min-height: 0; overflow: auto; align-content: start; overscroll-behavior: contain; }
+.workout-dialog .set-row { align-items: start; background: #f3f6f0; }
+.workout-dialog .set-row.done { background: #e6f2de; }
+.workout-dialog .set-index, .workout-dialog .check-button { min-height: 50px; }
+.workout-dialog .set-index { align-content: center; gap: 2px; }
+.workout-dialog .set-index small { font-size: .65rem; line-height: 1.1; color: #475d44; }
+.set-fields { display: grid; gap: 5px; flex: 1; min-width: 0; }
+.set-field-line { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.set-number { min-height: 50px; min-width: 0; border: 1px solid #dce8d6; border-radius: 10px; background: #fff; color: var(--text); display: grid; align-content: center; justify-items: center; gap: 1px; padding: 3px; font-variant-numeric: tabular-nums; }
+.set-number span { color: #506850; font-size: .7rem; font-weight: 650; }
+.set-number strong { font-size: 1.14rem; line-height: 1.15; }
+.set-number[aria-expanded=true] { border-color: #55734a; box-shadow: inset 0 0 0 1px #55734a; background: #edf8d9; }
+.set-row.done .set-number { background: #f5fce9; }
+.set-rpe { justify-self: start; border-radius: 7px; background: #e4eedf; color: #38583b; font-size: .76rem; font-weight: 730; padding: 4px 8px; }
+.workout-keypad { flex: none; border-top: 1px solid #cfddca; background: #ebf0e8; padding: 8px 10px max(10px, env(safe-area-inset-bottom)); }
+.keypad-heading { display: flex; justify-content: space-between; gap: 6px; align-items: center; padding-bottom: 6px; }
+.keypad-heading > div { display: flex; gap: 9px; align-items: center; min-width: 0; }
+.keypad-heading span { color: var(--muted); font-size: .81rem; }
+.keypad-heading strong { color: #294932; font-variant-numeric: tabular-nums; font-size: 1.06rem; }
+.keypad-heading strong[aria-invalid=true] { color: #9d3a22; }
+.keypad-close { min-height: 36px; padding-inline: 8px; }
+.keypad-grid { display: grid; gap: 5px; }
+.keypad-row { display: grid; grid-template-columns: 1.24fr repeat(3, 1fr) 1.24fr; gap: 5px; }
+.keypad-grid button { min-height: 45px; border: 1px solid #dbe6d8; border-radius: 9px; display: flex; align-items: center; justify-content: center; gap: 3px; padding: 3px 2px; min-width: 0; color: var(--text); line-height: 1.08; font-weight: 750; }
+.keypad-grid .pad-digit { background: #fff; font-size: 1.38rem; font-variant-numeric: tabular-nums; }
+.keypad-grid .pad-action { background: #f6f9f4; font-size: .76rem; }
+.keypad-grid .pad-action[aria-pressed=true] { background: #d7edb7; border-color: #aece92; }
+.keypad-grid button:active { background: #d7edb7; }
+.keypad-notice { padding: 4px 11px; color: #8c3b28; font-size: .78rem; }
+@media (max-width: 620px) {
+  .workout-dialog[open] { height: calc(96dvh - env(safe-area-inset-bottom)); }
+}
+@media (max-height: 500px) {
+  .workout-keypad { padding-block: 4px; }
+  .keypad-grid button { min-height: 35px; }
+}

@@ -1,0 +1,63 @@
+.dialog { position: fixed; margin: auto; inset: 0; padding: 0; width: min(600px, calc(100% - 26px)); max-height: min(90dvh, 850px); border: 1px solid #dce6d8; border-radius: 20px; background: white; color: var(--text); box-shadow: 0 18px 90px #1320164b; overflow: auto; overscroll-behavior: contain; }
+.dialog::backdrop { background: #15201680; }
+.dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 11px; position: sticky; top: 0; z-index: 1; padding: 13px 18px; background: #fff; border-bottom: 1px solid var(--stroke); }
+.dialog-heading h2 { font-size: 1.16rem; font-weight: 780; overflow-wrap: anywhere; }
+.dialog-body { padding: 16px 18px 19px; }
+.dialog-footer { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding: 11px 18px; gap: 9px; background: #fff; border-top: 1px solid var(--stroke); }
+.dialog-footer > .button { min-width: 104px; }
+.form-fields { display: grid; gap: 13px; }
+.form-fields > .button { justify-self: start; }
+.form-fields label, .field-title { display: grid; gap: 5px; font-size: .9rem; font-weight: 690; min-width: 0; }
+.field-grid, .move-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; min-width: 0; }
+.move-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+input:not([type=checkbox]), select, textarea { color: var(--text); background: #f8faf7; border: 1px solid #dfe7db; width: 100%; min-width: 0; padding: 8px 10px; min-height: 43px; border-radius: 9px; font-size: 1rem; font-weight: 500; }
+input::placeholder, textarea::placeholder { color: #627064; }
+textarea { resize: vertical; }
+select { appearance: none; padding-right: 27px; background-image: linear-gradient(45deg, transparent 50%, #536954 50%), linear-gradient(135deg, #536954 50%, transparent 50%); background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.toggle-label, .form-fields .toggle-label { display: flex; align-items: center; gap: 8px; min-height: 42px; color: var(--muted); font-size: .88rem; font-weight: 690; }
+input[type=checkbox] { width: 19px; height: 19px; flex: none; accent-color: #547b3d; }
+.field-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.move-editor { background: #f5f8f2; border: 1px solid #e7eee3; border-radius: 12px; padding: 9px; min-width: 0; }
+.move-editor-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-bottom: 8px; }
+.move-editor-top .icon-button { height: 43px; width: 39px; }
+.move-editor input, .move-editor select { background-color: #fff; }
+.move-grid input { padding-left: 6px; padding-right: 3px; }
+.move-grid select { padding-left: 6px; padding-right: 19px; background-position: calc(100% - 10px) 50%, calc(100% - 5px) 50%; }
+.join-form { border-top: 1px solid #edf1e9; padding-top: 12px; }
+.sign-out { justify-self: start; }
+.workout-body { display: grid; gap: 12px; }
+.workout-top, .workout-progress { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
+.workout-top h3 { font-size: 1.45rem; font-weight: 810; overflow-wrap: anywhere; }
+.workout-timer { flex: none; display: flex; gap: 6px; align-items: center; color: #34502e; font-size: 1.15rem; font-weight: 760; font-variant-numeric: tabular-nums; }
+.workout-progress { color: var(--muted); font-size: .83rem; }
+progress { width: 100%; height: 9px; background: #edf2eb; appearance: none; border: 0; border-radius: 10px; }
+progress::-webkit-progress-bar { background: #edf2eb; border-radius: 10px; }
+progress::-webkit-progress-value { background: #8fbc60; border-radius: 10px; }
+progress::-moz-progress-bar { background: #8fbc60; border-radius: 10px; }
+.session-fields { display: grid; gap: 10px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.feature-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.prompt-text { margin-top: 10px; }
+.set-card, .video-panel { border-radius: 12px; border: 1px solid #e3eae0; background: #fff; padding: 8px; }
+.video-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.set-card summary { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 2px 0; cursor: pointer; list-style: none; }
+.set-card summary::-webkit-details-marker { display: none; }
+.set-card summary .tile { width: 34px; height: 34px; border-radius: 9px; }
+.set-row { display: flex; align-items: end; gap: 7px; margin-top: 7px; padding: 6px; border-radius: 9px; background: #f3f6f0; }
+.set-row.done { background: #e8f3e0; }
+.set-row label { flex: 1; display: grid; gap: 3px; font-size: .78rem; color: var(--muted); min-width: 0; }
+.set-row input { background: #fff; }
+.set-index, .check-button { display: grid; place-items: center; width: 43px; min-height: 43px; flex: none; border-radius: 8px; font-weight: 760; }
+.set-index { background: #e6eee3; }
+.check-button { border: 1px solid #d7e2d2; background: white; color: #64835b; }
+.check-button[aria-pressed=true] { background: var(--lime); color: #243d24; border-color: #bde46a; }
+.totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.totals > div { padding: 9px; border-radius: 10px; background: #edf3ea; display: grid; gap: 3px; }
+.totals strong { font-size: 1.14rem; overflow-wrap: anywhere; }
+.totals span, .log-move div { font-size: .85rem; color: var(--muted); }
+.note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-move { border-top: 1px solid var(--stroke); padding: 8px 0 3px; }
+.log-move > div { display: flex; justify-content: space-between; gap: 6px; padding-top: 5px; }
+.inline-error { padding: 8px 10px; border-radius: 8px; background: #fbeee9; color: #862d1e; font-size: .87rem; margin-top: 5px; }
+.toast { position: fixed; z-index: 5; bottom: 20px; right: 20px; display: flex; align-items: center; gap: 7px; background: var(--dark); color: white; padding: 10px 13px; border-radius: 10px; box-shadow: 0 5px 20px #10251642; font-size: .88rem; }
+.set-summary { display: inline-flex; align-items: center; gap: 7px; }
+.set-card[open] .set-summary > svg { transform: rotate(180deg); }

@@ -1,0 +1,34 @@
+{
+  "name": "spotter-duo",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "plans:import": "node --env-file-if-exists=.env.local tools/import-plans.mjs"
+  },
+  "dependencies": {
+    "@garmin/fitsdk": "^21.222.0",
+    "fflate": "^0.8.3",
+    "lucide-react": "^1.31.0",
+    "next": "16.3.4",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3"
+  }
+}
