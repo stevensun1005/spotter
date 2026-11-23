@@ -10,7 +10,8 @@ export const GET = api(async (request) => {
   const { id } = await requireAccount();
   const day = new URL(request.url).searchParams.get("date");
   if (day !== null && !dateSchema.safeParse(day).success) throw new HttpError(400, "日期无效。");
-  return json({ rows: await readLibrary(id, day ?? undefined) });
+  const body = new URL(request.url).searchParams.get("section") === "body";
+  return json({ rows: await readLibrary(id, day ?? undefined, body) });
 });
 
 export const POST = api(async (request) => {

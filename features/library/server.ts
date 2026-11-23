@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { HttpError } from "@/server/http";
 import type { LibraryItem, LibraryRow } from "./model";
+import { libraryKey } from "@/features/data/model";
 import { openSchedule, scheduleSchema } from "@/features/plans/schedule";
 
 function database() {
@@ -8,17 +9,19 @@ function database() {
   return env.DB;
 }
 
-export async function readLibrary(owner: string, day?: string): Promise<LibraryRow[]> {
+export async function readLibrary(owner: string, day?: string, body = false): Promise<LibraryRow[]> {
   const db = database();
-  const statement = day
+  const statement = body
+    ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind = 'nutrition' AND json_extract(payload, '$.entry.type') IN ('weight','measurement') ORDER BY day ASC, updated DESC").bind(owner)
+    : day
     ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind = 'targets' OR (kind = 'nutrition' AND day = ?)) ORDER BY updated DESC").bind(owner, day)
-    : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule') ORDER BY updated DESC").bind(owner);
+    : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins') ORDER BY updated DESC").bind(owner);
   const { results } = await statement.all<{ payload: string; updated: string }>();
   return results.map(({ payload, updated }) => ({ ...JSON.parse(payload) as LibraryItem, updated }));
 }
 
 export async function saveLibrary(owner: string, item: LibraryItem) {
-  const id = item.kind === "exercise" ? item.item.name : item.kind === "targets" || item.kind === "schedule" ? item.kind : item.id;
+  const id = libraryKey(item);
   const day = item.kind === "nutrition" ? item.date : null;
   await database().prepare(
     "INSERT INTO personal_library (owner, kind, id, day, payload, updated) VALUES (?, ?, ?, ?, ?, ?) " +

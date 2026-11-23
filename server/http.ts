@@ -28,6 +28,10 @@ export async function readJson<T>(request: Request, schema: z.ZodType<T>, limit 
       request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
     throw new HttpError(403, "请求来源或格式无效。");
   }
+  return readJsonBody(request, schema, limit);
+}
+
+export async function readJsonBody<T>(request: Request, schema: z.ZodType<T>, limit: number) {
   if (Number(request.headers.get("content-length")) > limit) throw new HttpError(413, "内容太长，请分批提交。");
   const reader = request.body?.getReader();
   const decoder = new TextDecoder();

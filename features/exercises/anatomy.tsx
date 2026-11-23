@@ -10,7 +10,10 @@ let geometry: Promise<Geometry> | undefined;
 const layer = ["head", "hair", "feet", "hands", "knees", "ankles", "neck", "gluteal", "quadriceps", "chest", "abs", "trapezius", "upper-back", "deltoids"];
 const order = (key: string) => layer.includes(key) ? layer.indexOf(key) : layer.length;
 
-export function Anatomy({ weights, onPick }: { weights: Record<string, number>; onPick?: (slug: string) => void }) {
+export function Anatomy({ weights, onPick, showIntensity = false }: {
+  weights: Record<string, number>; onPick?: (slug: string) => void; showIntensity?: boolean;
+}) {
+  const highest = Math.max(1, ...Object.values(weights));
   const [figure, setFigure] = useState<"male" | "female">("male");
   const [data, setData] = useState<Geometry>();
   const [error, setError] = useState(false);
@@ -34,13 +37,17 @@ export function Anatomy({ weights, onPick }: { weights: Record<string, number>; 
           const slug = regionMuscle(region);
           const name = muscleNames[region] ?? muscleNames[slug];
           const weight = weights[region] ?? weights[slug] ?? 0;
-          const select = () => { if (name) setNote(name); if (name) onPick?.(slug); };
-          return <g key={region} className={name ? "anatomy-region" : ""} aria-label={name}
+          const description = name && showIntensity ? name + " · " + weight + " 组" : name;
+          const fill = showIntensity && weight
+            ? "var(--heat-" + Math.ceil(weight / highest * 5) + ")"
+            : weight >= 75 ? "#273e9c" : weight > 0 ? "#8caaff" : name ? "#dce4ef" : "#f3f6fc";
+          const select = () => { if (description) setNote(description); if (name) onPick?.(slug); };
+          return <g key={region} className={name ? "anatomy-region" : ""} aria-label={description}
             role={name ? "button" : undefined} tabIndex={name ? 0 : undefined}
             onClick={name ? select : undefined} onKeyDown={(event) => {
               if (name && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); select(); }
-            }} fill={weight >= 75 ? "#273e9c" : weight > 0 ? "#8caaff" : name ? "#dce4ef" : "#f3f6fc"}>
-            {name && <title>{name}{weight ? weight >= 75 ? " · 主要" : " · 辅助" : ""}</title>}
+            }} fill={fill}>
+            {name && <title>{description}{!showIntensity && weight ? weight >= 75 ? " · 主要" : " · 辅助" : ""}</title>}
             {paths.map((path, i) => <path key={i} d={path} stroke="#f7f9fe" strokeWidth={2.3} />)}
           </g>;
         })}

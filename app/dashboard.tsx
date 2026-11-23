@@ -33,8 +33,11 @@ import { pauseClock, resumeClock, workoutElapsed } from "@/features/training/clo
 import { refreshDraftPlan } from "@/features/training/refresh-plan";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import { PlanSequence } from "@/features/training/plan-sequence";
+import { BodyView } from "@/features/body/body-view";
+import { DataView } from "@/features/data/data-view";
+import { HardDriveDownload, Ruler } from "lucide-react";
 
-type View = "today" | "plans" | "history" | "stats" | "import" | "exercises" | "nutrition" | "more";
+type View = "today" | "plans" | "history" | "stats" | "import" | "exercises" | "nutrition" | "body" | "data" | "more";
 type KeyedPlan = { id: string; data: Plan };
 type Overlay = { kind: "pair" | "schedule" } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
@@ -44,7 +47,9 @@ const navigation = [
   { id: "exercises", title: "动作库", mobile: "动作", icon: Dumbbell },
   { id: "history", title: "打卡历史", mobile: "打卡", icon: CalendarDays },
   { id: "nutrition", title: "饮食记录", mobile: "", icon: Utensils },
-  { id: "stats", title: "训练统计", mobile: "", icon: BarChart3 },
+  { id: "stats", title: "训练统计", mobile: "统计", icon: BarChart3 },
+  { id: "body", title: "身体数据", mobile: "", icon: Ruler },
+  { id: "data", title: "数据导出与导入", mobile: "", icon: HardDriveDownload },
   { id: "import", title: "导入计划", mobile: "", icon: Sparkles },
   { id: "more", title: "更多功能", mobile: "更多", icon: Menu },
 ] as const;
@@ -548,6 +553,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {(view === "plans" || view === "exercises") && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "exercises" && <OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
+        {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
+        {view === "data" && <DataView enabled={Boolean(viewer)} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
         {view === "more" && <section className="card padded feature-stack">
           {navigation.filter((item) => !item.mobile).map(({ id, icon: Icon, title }) =>
             <button key={id} className="list-line" type="button" onClick={() => go(id)}><span className="tile mint"><Icon size={18} /></span><strong>{title}</strong><ChevronRight size={16} /></button>)}
@@ -555,7 +562,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         </section>}
 
         {view === "history" && <History today={today} self={me.id} partner={partner?.name} logs={logs} show={(log) => open({ kind: "log", log })} />}
-        {view === "stats" && <Stats today={today} self={me.id} partner={partner ?? null} logs={logs} />}
+        {view === "stats" && <Stats today={today} self={me.id} partner={partner ?? null} logs={logs} onExercise={setExercise}
+          pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
+          savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
 
         <div hidden={view !== "import"}><ImportView today={today} save={importPlans} canRevise={Boolean(viewer)} saved={() => go("plans")} notify={setToast} /></div>
       </main>

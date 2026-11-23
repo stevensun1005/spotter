@@ -26,7 +26,7 @@ export function NutritionView({ enabled, today }: { enabled: boolean; today: str
   const [saveId, setSaveId] = useState("");
   const store = useLibrary(enabled, date);
   const targets = store.rows.find((row) => row.kind === "targets")?.values ?? emptyNutrition;
-  const rows = store.rows.filter((row) => row.kind === "nutrition");
+  const rows = store.rows.filter((row) => row.kind === "nutrition").filter((row): row is typeof row & { entry: Exclude<NutritionEntry, { type: "measurement" }> } => row.entry.type !== "measurement");
   const totals = rows.reduce<NutritionValues>((sum, { entry }) => {
     if (entry.type === "water") sum.water += entry.ml;
     if (entry.type === "meal") {

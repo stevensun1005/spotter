@@ -3,6 +3,7 @@
 @import "./heart.css";
 @import "./library.css";
 @import "./open-gym.css";
+@import "./stats.css";
 
 :root {
   color-scheme: light;
@@ -258,7 +259,7 @@ progress::-moz-progress-bar { background: #8fbc60; border-radius: 10px; }
 @media (max-width: 840px) {
   .app { display: block; }
   .sidebar { display: none; }
-  .mobile-nav { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; padding: 5px 7px calc(5px + env(safe-area-inset-bottom)); position: fixed; bottom: 0; left: 0; right: 0; z-index: 3; background: #fbfcf9f7; border-top: 1px solid #dbe5d9; }
+  .mobile-nav { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 2px; padding: 5px 7px calc(5px + env(safe-area-inset-bottom)); position: fixed; bottom: 0; left: 0; right: 0; z-index: 3; background: #fbfcf9f7; border-top: 1px solid #dbe5d9; }
   .mobile-nav button { min-height: 50px; border-radius: 10px; display: grid; place-content: center; justify-items: center; gap: 3px; background: transparent; border: 0; color: #526257; font-size: .77rem; font-weight: 690; white-space: nowrap; }
   .mobile-nav button.active { color: #254322; background: #e5f1d6; }
   .content { padding-bottom: calc(82px + env(safe-area-inset-bottom)); }

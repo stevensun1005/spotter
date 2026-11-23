@@ -206,3 +206,40 @@ test("clean exercise labels and regrouped plans preserve previously completed se
   assert.deepEqual(refreshed.rows[2][0], session.rows[1][0]);
   assert.equal(refreshDraftPlan(refreshed, latest), refreshed);
 });
+
+test("period statistics keep unit conversions, hot spots, and previous periods consistent", async () => {
+  const { periodRange, previousRange, summarize, cumulative } = await import("../features/stats/model.ts");
+  const date = "2024-02-29";
+  const month = periodRange("month", date, 0, 30, { from: date, to: date });
+  assert.deepEqual(month, { from: "2024-02-01", to: date });
+  assert.deepEqual(previousRange("month", month, date, 0, 30), { from: "2024-01-01", to: "2024-01-31" });
+  const move = { name: "杠铃卧推", catalogueId: "0025", sets: 2, reps: 6, weight: 45, unit: "lb", seconds: 0 };
+  const plan = { title: "力量", date, category: "力量训练", minutes: 40, video: "", shared: false, exercises: [move] };
+  const data = { ...training.startSession(plan, "plan", date), minutes: 40 };
+  data.rows[0][0] = { reps: 8, weight: 20, seconds: 0, done: true, kind: "warmup" };
+  data.rows[0][1] = { ...data.rows[0][1], done: true, right: { weight: 50, reps: 6 } };
+  const log = { id: "log", kind: "log", owner: "self", updated: "", data };
+  const catalogue = [{ id: "0025", name: move.name, en: "bench press", equipment: "barbell", muscles: { chest: 100, triceps: 45 } }];
+  const summary = summarize([log, { ...log, kind: "draft" }], catalogue, "weighted");
+  assert.deepEqual({ sets: summary.total.sets, sessions: summary.total.sessions, minutes: summary.total.minutes }, { sets: 2, sessions: 1, minutes: 40 });
+  assert.ok(Math.abs(summary.total.volume - (20 * 8 + 45 * 6 + 50 * 6) * 0.45359237) < 1e-6);
+  assert.deepEqual(summary.primary.buckets, { chest: 1 });
+  assert.deepEqual(summary.secondary.buckets, { arms: 1 });
+  assert.ok(Math.abs(summary.exercises.get("0025").max.value - 50 * 0.45359237 * 1.2) < 1e-6);
+  assert.deepEqual(cumulative(summary, month, "sets", 5), [0, 0, 0, 0, 2]);
+  assert.equal(summarize([log], catalogue, "bodyweight").total.sessions, 0);
+});
+
+test("backup scopes keep body measurements distinct from nutrition", async () => {
+  const { backupSchema, emptyBackup, scopeBackup } = await import("../features/data/model.ts");
+  const row = { kind: "nutrition", date: "2026-11-23", id: "a0014d9d-483e-4755-99f9-7fb75d53fa31" };
+  const file = { ...emptyBackup(), library: [
+    { ...row, entry: { type: "weight", kg: 74.2 } },
+    { ...row, entry: { type: "measurement", metric: "waist", value: 78.4 } },
+    { ...row, entry: { type: "water", ml: 500 } },
+  ] };
+  assert.equal(backupSchema.safeParse(file).success, true);
+  assert.deepEqual(scopeBackup(file, "body").library.map((item) => item.entry.type), ["weight", "measurement"]);
+  assert.deepEqual(scopeBackup(file, "nutrition").library.map((item) => item.entry.type), ["water"]);
+  assert.equal(backupSchema.safeParse({ ...file, library: [{ ...row, entry: { type: "measurement", metric: "fat", value: 300 } }] }).success, false);
+});

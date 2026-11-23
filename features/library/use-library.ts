@@ -7,12 +7,12 @@ import { libraryItem, type LibraryItem, type LibraryRow } from "./model";
 function matches(a: LibraryItem, b: LibraryItem) {
   if (a.kind !== b.kind) return false;
   if (a.kind === "exercise" && b.kind === "exercise") return a.item.name === b.item.name;
-  if (a.kind === "targets" || a.kind === "schedule") return true;
+  if (a.kind === "targets" || a.kind === "schedule" || a.kind === "stats-pins") return true;
   return "id" in a && "id" in b && a.id === b.id;
 }
 
-export function useLibrary(enabled: boolean, date?: string) {
-  const url = "/api/library" + (date ? "?date=" + encodeURIComponent(date) : "");
+export function useLibrary(enabled: boolean, date?: string, body = false) {
+  const url = "/api/library" + (body ? "?section=body" : date ? "?date=" + encodeURIComponent(date) : "");
   const [state, setState] = useState<{ url: string; rows: LibraryRow[]; error: string }>();
   const revision = useRef(0);
   const load = useCallback(async (signal?: AbortSignal) => {
