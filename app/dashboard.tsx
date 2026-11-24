@@ -498,7 +498,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   }
 
   const showPageHeading = view !== "plans" && view !== "stats" && view !== "nutrition";
-  const heading = view === "today" ? "今天一起练" : navigation.find((item) => item.id === view)?.title;
+  const heading = navigation.find((item) => item.id === view)?.title;
   return <div className="app">
     <aside className="sidebar">
       <button className="brand" onClick={() => go("today")}><span className="brand-mark"><Dumbbell size={23} strokeWidth={2.5} /></span><span>训练搭子<small>SPOTTER CLUB</small></span></button>
@@ -514,8 +514,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         <div className="top-actions"><span className="cloud-status"><Cloud size={17} />{cloud}</span><button className="top-profile" onClick={() => open({ kind: "pair" })} aria-label="账号与搭子空间"><span className="avatar lime">{avatar(me.name)}</span><ChevronDown size={15} /></button></div>
       </header>
       <main className="content">
-        {showPageHeading && <div className="page-heading">
-          <div>{view === "today" && <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>}<h1>{heading}</h1>
+        {showPageHeading && <div className={view === "today" ? "page-heading today-heading" : "page-heading"}>
+          <div>{view === "today"
+            ? <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>
+            : <h1>{heading}</h1>}
             {view === "today" && demo && <p>正在查看示例数据。登录后可同步你们的记录。</p>}
             {view === "import" && <p>把聊天里的训练安排或视频链接变成可打卡的计划。</p>}
           </div>
