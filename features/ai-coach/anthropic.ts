@@ -2,17 +2,16 @@ import { z } from "zod";
 import { planContentRules } from "@/features/import/ai-instructions";
 import { categories } from "@/features/plans/model";
 import { HttpError } from "@/server/http";
-import { coachDraftEnd, maxCoachMessageLength, maxDraftMoves, maxDraftPlans, normalizeCoachDraft,
+import { coachDraftEnd, coachModel, maxCoachMessageLength, maxDraftMoves, maxDraftPlans, normalizeCoachDraft,
   type CoachRequest, type CoachResponse } from "./model";
 
 const messageUrl = "https://api.anthropic.com/v1/messages";
-export const modelIds = { haiku: "claude-haiku-5-5", sonnet: "claude-sonnet-5-5" } as const;
 
 export function postAnthropicMessage(key: string, body: object, signal: AbortSignal) {
   return fetch(messageUrl, {
     method: "POST", redirect: "error", cache: "no-store", signal,
     headers: { "Content-Type": "application/json", "anthropic-version": "2026-10-21", "x-api-key": key },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, model: "claude-haiku-5-5", output_config: { effort: "medium" } }),
   });
 }
 const draftTool = {
@@ -105,7 +104,7 @@ function coachSystemPrompt(request: CoachRequest) {
 }
 
 export async function askAnthropic(key: string, request: CoachRequest, context: string): Promise<CoachResponse> {
-  const { intent, model, messages } = request;
+  const { intent, messages } = request;
   const drafting = intent === "draft";
   const lastMessage = messages[messages.length - 1];
   const system = coachSystemPrompt(request);
@@ -113,11 +112,10 @@ export async function askAnthropic(key: string, request: CoachRequest, context: 
   let decoded: unknown;
   try {
     const response = await postAnthropicMessage(key, {
-        model: modelIds[model], system,
+        system,
         service_tier: "standard_only",
         max_tokens: drafting ? 8_192 : 750,
-        thinking: { type: model === "sonnet" ? "between_tools" : "disabled" },
-        output_config: { effort: drafting ? "medium" : "low" },
+        thinking: { type: "disabled" },
         messages: context ? [...messages.slice(0, -1), { role: "user", content: [
           { type: "text", text: context }, { type: "text", text: lastMessage.content },
         ] }] : messages,
@@ -136,7 +134,7 @@ export async function askAnthropic(key: string, request: CoachRequest, context: 
     const { stop_reason, content } = result.data;
     const text = () => content.flatMap(({ type, text }) => type === "text" && text ? [text] : [])
       .join("\n").trim().slice(0, maxCoachMessageLength);
-    if (stop_reason === "refusal") return { reply: text() || "这项请求无法处理，可以换一个训练安排相关的问题。", model };
+    if (stop_reason === "refusal") return { reply: text() || "这项请求无法处理，可以换一个训练安排相关的问题。", model: coachModel };
     if (stop_reason === "max_tokens") throw new HttpError(502, "AI 回复过长，请缩小问题或计划范围后重试。");
     const toolCalls = content.filter(({ type }) => type === "tool_use");
     if (drafting && stop_reason === "tool_use" && toolCalls.length === 1 && toolCalls[0].name === draftTool.name) {
@@ -146,7 +144,7 @@ export async function askAnthropic(key: string, request: CoachRequest, context: 
     }
     if (!toolCalls.length && stop_reason === "end_turn") {
       const reply = text();
-      if (reply) return { reply, model };
+      if (reply) return { reply, model: coachModel };
     }
   }
   throw new HttpError(502, "AI 回复格式异常，请调整问题或计划要求后重试。");

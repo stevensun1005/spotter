@@ -7,8 +7,8 @@ import type { Plan } from "@/features/plans/model";
 import { asksForTrainingPlan } from "./chat-intent";
 import { guidedMessage } from "./guided";
 import { GuidedCoachPanel, type GuidedCoachSelection } from "./guided-panel";
-import { maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
-  type CoachConfig, type CoachModel, type CoachRequest, type CoachResponse } from "./model";
+import { coachModel, maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
+  type CoachConfig, type CoachRequest, type CoachResponse } from "./model";
 
 export type CoachShortcuts = {
   logMeal?: () => void;
@@ -31,7 +31,6 @@ type Availability = CoachConfig | { error: string };
 
 const endpoint = "/api/ai-coach";
 const planRequest = "帮我制定训练计划";
-const modelNames = { haiku: "Haiku 5.5", sonnet: "Sonnet 5.5" };
 const shortcutCards = [
   { key: "logMeal", title: "记饮食", detail: "记录一餐和营养摄入", icon: Utensils, tone: "apricot" },
   { key: "trainingStats", title: "训练统计", detail: "查看记录与训练趋势", icon: ChartNoAxesColumn, tone: "blue" },
@@ -112,7 +111,6 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
   const currentGuide = turns.find((turn) => turn.kind === "guide" && !turn.cancelled && !turn.response?.draft);
   const latestDraft = [...turns].reverse().find((turn) => turn.response?.draft && turn.window);
   const available = !!owner && availability && "enabled" in availability && availability.enabled;
-  const sonnet = !!available && availability.models.includes("sonnet");
   const chatDate = includePlans ? contextDate ?? selectedDate : selectedDate;
 
   useEffect(() => {
@@ -198,7 +196,7 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
       });
       const result = await response.json().catch(() => null) as (CoachResponse & { error?: string }) | null;
       if (!response.ok) throw new Error(result?.error || "AI 教练暂时无法回复。请稍后重试。");
-      if (typeof result?.reply !== "string" || !result.reply || (result.model !== "haiku" && result.model !== "sonnet")) throw new Error("未收到完整回复。请重试。");
+      if (typeof result?.reply !== "string" || !result.reply || result.model !== coachModel) throw new Error("未收到完整回复。请重试。");
       if (!controller.signal.aborted) receive(result);
     } catch (reason) {
       if (!controller.signal.aborted) showError(reason instanceof Error && reason.name === "Error"
@@ -238,7 +236,7 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
     const id = addTurn(priorDraft ? "revision" : "chat", question);
     setInput("");
     void askCoach({
-      expectedOwner: owner, messages: recentMessages(turns, question), model: "haiku",
+      expectedOwner: owner, messages: recentMessages(turns, question), model: coachModel,
       ...(priorDraft && draftWindow ? { ...draftWindow, intent: "draft" as const, priorDraft, includePlans: false }
         : { intent: "chat" as const, date: chatDate, includePlans, contextRange }),
     }, (response) => {
@@ -250,12 +248,12 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
     });
   }
 
-  function generate(id: string, selection: GuidedCoachSelection, model: CoachModel) {
+  function generate(id: string, selection: GuidedCoachSelection) {
     if (!owner || !available || request.current || currentGuide?.id !== id) return;
     updateTurn(id, { error: undefined });
     void askCoach({
       ...selection, expectedOwner: owner, messages: [{ role: "user", content: guidedMessage }],
-      intent: "draft", model: sonnet ? model : "haiku", includePlans: false,
+      intent: "draft", model: coachModel, includePlans: false,
     }, (response) => updateTurn(id, { response, window: { date: selection.date, draftDays: selection.draftDays } }),
     (message) => updateTurn(id, { error: message }));
   }
@@ -279,12 +277,11 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
                 <button className="text-button" type="button" disabled={waiting} onClick={() => updateTurn(id, { cancelled: true })}>结束问答</button>
               </div>
               <GuidedCoachPanel presentation="conversation" selectedDate={selectedDate} busy={waiting} enabled={!!available}
-                sonnet={sonnet} status={available ? undefined : status} error={turn.error}
-                onGenerate={(selection, model) => generate(id, selection, model)} />
+                status={available ? undefined : status} error={turn.error} onGenerate={(selection) => generate(id, selection)} />
             </div>}
             {cancelled && <p className="coach-turn-status">已结束本次问答</p>}
             {response && <div className="coach-reply" aria-live="polite">
-              <div className="coach-reply-byline"><span>Spotter 教练</span><small>{modelNames[response.model]}</small></div>
+              <div className="coach-reply-byline"><span>Spotter 教练</span><small>Haiku 5.5</small></div>
               <p>{response.reply}</p>
               {draft && <DraftPreview draft={draft} saved={savedDrafts.has(draft)} onReview={() => onReview(draft)} />}
             </div>}

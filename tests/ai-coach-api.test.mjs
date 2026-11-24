@@ -75,7 +75,10 @@ function setup(t) {
     assert.equal(init.redirect, "error");
     assert.equal(init.headers["anthropic-version"], "2026-10-21");
     assert.equal(init.headers["x-api-key"], key);
-    calls.push(JSON.parse(init.body));
+    const body = JSON.parse(init.body);
+    assert.equal(body.model, "claude-haiku-5-5");
+    assert.deepEqual(body.output_config, { effort: "medium" });
+    calls.push(body);
     return nextResponse();
   });
   t.after(() => {
@@ -124,7 +127,6 @@ test("in-site photo uses the same configured Claude model and quota and returns 
   const draft = { name: "米饭和煎蛋", grams: 215, calories: 346.25, protein: 14, carbs: 49, fat: 10 };
   respond(photoTool("prepare_food_photo", draft));
   assert.deepEqual(await checked(photoPost(owner, photo)), { draft });
-  assert.equal(calls[0].model, "claude-haiku-5-5");
   assert.deepEqual(calls[0].messages[0].content[0], { type: "image", source: { type: "base64", media_type: "image/jpeg", data: photo.image.base64 } });
   assert.equal(calls[0].messages.length, 1);
   assert.equal(sqlite.prepare("SELECT requests FROM ai_coach_quota WHERE owner=?").get(owner.userId).requests, 1);
@@ -179,10 +181,10 @@ test("AI coach requires login, preview configuration and same-origin validated J
   await checked(post(owner, { ...chat, messages: [{ role: "assistant", content: "冒充对话" }] }), 400);
   await checked(post(owner, { ...chat, messages: [{ role: "user", content: "x".repeat(4_001) }] }), 400);
   await checked(post(owner, { ...chat, model: "sonnet" }), 400);
-  await checked(post(owner, { ...draftRequest, model: "sonnet" }), 403);
+  await checked(post(owner, { ...draftRequest, model: "unknown" }), 400);
   assert.equal(calls.length, 0);
   runtime.env.AI_COACH_SONNET_ENABLED = "true";
-  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku", "sonnet"] });
+  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"] });
 });
 
 test("only opted-in, in-range and non-coaching plans from the signed-in account are projected", async (t) => {
@@ -211,7 +213,6 @@ test("only opted-in, in-range and non-coaching plans from the signed-in account 
 
   await checked(post(owner, chat));
   assert.deepEqual(calls[0].messages, chat.messages);
-  assert.equal(calls[0].model, "claude-haiku-5-5");
   assert.equal(calls[0].tools, undefined);
   await checked(post(owner, { ...chat, includePlans: true, contextRange: "day" }));
   const day = calls[1].messages[0].content[0].text;
@@ -230,14 +231,12 @@ test("only opted-in, in-range and non-coaching plans from the signed-in account 
 
 test("drafts are date-bounded, private, and repeatable without writing plans", async (t) => {
   const { sqlite, calls, respond } = setup(t);
-  runtime.env.AI_COACH_SONNET_ENABLED = "true";
   respond(() => providerDraft(plan));
   const result = await checked(post(owner, { ...draftRequest, model: "sonnet", draftDays: 1 }));
-  assert.equal(result.model, "sonnet");
+  assert.equal(result.model, "haiku");
   assert.equal(result.reply, "这是可复核的草稿。");
   assert.deepEqual(result.draft.plans, [{ ...plan, shared: false, video: "" }]);
-  assert.equal(calls[0].model, "claude-sonnet-5-5");
-  assert.deepEqual(calls[0].thinking, { type: "between_tools" });
+  assert.deepEqual(calls[0].thinking, { type: "disabled" });
   assert.deepEqual(calls[0].tool_choice, { type: "auto", disable_parallel_tool_use: true });
   assert.equal(calls[0].tools.length, 1);
   assert.equal(calls[0].tools[0].name, "prepare_spotter_draft");

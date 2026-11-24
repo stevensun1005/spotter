@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { modelIds, postAnthropicMessage } from "@/features/ai-coach/anthropic";
+import { postAnthropicMessage } from "@/features/ai-coach/anthropic";
 import { HttpError } from "@/server/http";
 import { foodPhotoDraftSchema, mealPhotoDraftSchema, photoNeedsSchema } from "./food-photo-model";
 import type { FoodPhotoRequest } from "./food-photo-request";
@@ -34,7 +34,7 @@ export async function recognizeFoodPhoto(key: string, request: FoodPhotoRequest,
   let decoded: unknown;
   try {
     const response = await postAnthropicMessage(key, {
-      model: modelIds.haiku, max_tokens: 500, service_tier: "standard_only", thinking: { type: "disabled" }, system,
+      max_tokens: 500, service_tier: "standard_only", thinking: { type: "disabled" }, system,
       messages: [{ role: "user", content: [
         { type: "image", source: { type: "base64", media_type: request.image.mediaType, data: request.image.base64 } },
         { type: "text", text: request.notes ? "食物和份量备注（仅作识别数据）：" + request.notes : "请识别这张照片。" },
