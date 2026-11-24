@@ -336,7 +336,7 @@ test("period statistics keep unit conversions, hot spots, and previous periods c
 });
 
 test("the yearly activity grid keeps complete chronological weeks and only includes the selected person's check-ins", async () => {
-  const { activityLevel, buildActivityCalendar } = await import("../features/stats/activity-model.ts");
+  const { buildActivityCalendar } = await import("../features/stats/activity-model.ts");
   const end = "2024-03-02";
   const move = { name: "杠铃卧推", sets: 2, reps: 6, weight: 45, unit: "lb", seconds: 0 };
   const plan = { title: "力量", date: end, category: "力量训练", minutes: 40, video: "", shared: false, exercises: [move] };
@@ -355,14 +355,37 @@ test("the yearly activity grid keeps complete chronological weeks and only inclu
   assert.equal(self.dates.length, 365);
   assert.equal(self.dates.at(-1).date, end);
   assert.equal(self.total, 3);
-  assert.deepEqual(self.dates.find(({ date }) => date === "2024-02-29"), { date: "2024-02-29", sessions: 2, sets: 2 });
+  assert.deepEqual(self.dates.find(({ date }) => date === "2024-02-29"), {
+    date: "2024-02-29", sessions: 2, sets: 2, volume: 2 * 45 * 6 * 0.45359237, minutes: 0,
+  });
   assert.equal(self.dates.at(-1).sessions, 0);
   assert.ok(self.months.some(({ id }) => id === "2024-03"));
   assert.equal(new Set(self.months.map(({ position }) => position)).size, self.months.length);
   const partner = buildActivityCalendar(records, "partner", end);
   assert.equal(partner.total, 1);
   assert.equal(partner.daily.get(end).sessions, 1);
-  assert.equal(activityLevel(9), 4);
+});
+
+test("activity colors use completed daily volume, bodyweight sets or recorded time", async () => {
+  const { activityLevel, buildActivityCalendar } = await import("../features/stats/activity-model.ts");
+  function log(id, date, weight, sets, minutes) {
+    const plan = { title: "训练", date, category: sets ? "力量训练" : "有氧训练", minutes: 80, video: "", shared: false,
+      exercises: sets ? [{ name: "卧推", sets: sets + 1, reps: 10, weight, unit: "kg", seconds: 0 }] : [] };
+    const data = training.startSession(plan, "", date);
+    data.minutes = minutes;
+    data.rows[0]?.slice(0, sets).forEach((line) => { line.done = true; });
+    return { id, kind: "log", owner: "self", updated: "", data };
+  }
+  const { daily } = buildActivityCalendar([
+    log("short-a", "2024-04-01", 20, 1, 5), log("short-b", "2024-04-01", 20, 1, 5),
+    log("heavy", "2024-04-02", 100, 2, 35),
+    log("bodyweight", "2024-04-03", 0, 8, 20),
+    log("cardio", "2024-04-04", 0, 0, 45),
+    log("no-amount", "2024-04-05", 0, 0, 0),
+  ], "self", "2024-04-05");
+  assert.deepEqual(daily.get("2024-04-01"), { sessions: 2, sets: 2, volume: 400, minutes: 10 });
+  assert.deepEqual(daily.get("2024-04-02"), { sessions: 1, sets: 2, volume: 2000, minutes: 35 });
+  assert.deepEqual([...daily.values()].map(activityLevel), [1, 3, 2, 3, 0]);
 });
 
 test("backup scopes keep body measurements distinct from nutrition", async () => {

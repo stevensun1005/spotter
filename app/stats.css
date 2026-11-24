@@ -127,6 +127,7 @@
   display: flex; align-items: center; flex-wrap: wrap; gap: 5px; color: var(--stats-muted); font-size: .73rem;
 }
 .stats-activity-footer { justify-content: space-between; gap: 6px 12px; margin-top: 4px; }
+.stats-activity-selection:not(:empty) { margin-top: 6px; color: var(--stats-muted); font-size: .8rem; }
 @media (pointer: coarse) { .stats-activity-layout { --activity-cell: 14px; } }
 :root[data-spotter-theme="dark"] .stats-activity-panel {
   --stats-muted: var(--muted);
