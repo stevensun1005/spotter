@@ -12,8 +12,8 @@ globalThis[runtimeKey] = runtime;
 const mock = (code) => ({ url: "data:text/javascript," + encodeURIComponent(code), shortCircuit: true });
 registerHooks({ resolve(specifier, context, next) {
   if (specifier === "cloudflare:workers") return mock('export const env = globalThis[Symbol.for("spotter-buddy-tests")].env;');
-  if (specifier === "../../chatgpt-auth" && context.parentURL?.endsWith("/app/api/workout/route.ts")) {
-    return mock('export async function getChatGPTUser() { return { userId: globalThis[Symbol.for("spotter-buddy-tests")].owner, email: "example@example.invalid" }; }');
+  if (specifier === "@/app/chatgpt-auth" || (specifier === "../../chatgpt-auth" && context.parentURL?.endsWith("/app/api/workout/route.ts"))) {
+    return mock('export async function getChatGPTUser() { const { owner } = globalThis[Symbol.for("spotter-buddy-tests")]; return owner ? { userId: owner, fullName: "Test User", email: "example@example.invalid" } : null; }');
   }
   if (specifier.startsWith("@/")) return next(new URL(specifier.slice(2) + ".ts", root).href, context);
   if (specifier.startsWith(".") && context.parentURL?.endsWith(".ts")) {
@@ -22,12 +22,14 @@ registerHooks({ resolve(specifier, context, next) {
   }
   return next(specifier, context);
 } });
-const { buddyCheckins, changeFriends, friendDay, listFriends, shareAccess } = await import("../features/friends/server.ts");
+const { buddyCheckins, changeFriends, friendDay, friendFeed, listFriends, shareAccess } = await import("../features/friends/server.ts");
+const { changeSocial } = await import("../features/friends/social-server.ts");
 
 const { disconnectPair, sendPairCheer } = await import("../features/pair/server.ts");
 const { publicPartnerSession } = await import("../features/friends/public-training.ts");
 const { sessionTotals } = await import("../features/training/model.ts");
 const { GET: loadWorkout } = await import("../app/api/workout/route.ts");
+const { GET: loadFriends, POST: mutateFriends } = await import("../app/api/friends/route.ts");
 
 function fixture(t, beforeMigration = false) {
   const sqlite = new DatabaseSync(":memory:");
@@ -243,6 +245,129 @@ function pair(db, left = alex, right = sam, connection = crypto.randomUUID()) {
   member.run(right.id, connection, right.name);
   return connection;
 }
+
+function setPrivacy(db, person, overrides) {
+  return changeSocial(db, person, {
+    action: "social-preferences", preferences: { closed: false, discoverable: false, recentOnly: false, ...overrides },
+  });
+}
+
+function copyLog(db, owner, id, day) {
+  db.sqlite.prepare("INSERT INTO entries (owner, id, kind, payload, updated) " +
+    "SELECT owner, ?, kind, json_set(payload, '$.date', ?), ? FROM entries WHERE owner = ? AND id = 'log'")
+    .run(id, day, day, owner);
+}
+
+test("friends feed limits dates and omits unshared workout metadata", async (t) => {
+  const db = fixture(t);
+  const outsider = { id: "outsider", name: "Outsider" };
+  pair(db);
+  db.sqlite.prepare("INSERT INTO friend_links (first_id, second_id, first_name, second_name, linked) VALUES (?, ?, ?, ?, 1)")
+    .run(alex.id, lee.id, alex.name, lee.name);
+  await changeFriends(db, lee, { action: "share", id: alex.id, sharing: disabled });
+  for (const person of [alex, sam, lee, outsider]) seedRecords(db, person.id);
+  copyLog(db, sam.id, "future", "2026-11-26");
+  copyLog(db, sam.id, "old", "2026-11-22");
+  copyLog(db, sam.id, "latest", "2026-11-25");
+  copyLog(db, outsider.id, "latest", "2026-11-25");
+
+  const { days } = await friendFeed(db, alex.id, "2026-11-25");
+  assert.deepEqual(days.map(({ date }) => date), ["2026-11-25", "2026-11-24", "2026-11-23"]);
+  assert.deepEqual(days[0].items, [{
+    friend: { id: sam.id, name: sam.name, buddy: true },
+    workouts: [{ id: "latest", title: "力量", category: "力量训练", minutes: 25, sets: 1, exercises: 1 }],
+  }]);
+  assert.deepEqual(days[1].items, []);
+  assert.deepEqual(days[2].items[1], { friend: { id: lee.id, name: lee.name, buddy: false }, workouts: null });
+  const serialized = JSON.stringify(days);
+  for (const privateText of ["私人来源", "只给自己看的备注", "燕麦片", outsider.id, "future", '"old"']) {
+    assert.equal(serialized.includes(privateText), false);
+  }
+  await setPrivacy(db, sam, { closed: true });
+  assert.deepEqual((await friendFeed(db, alex.id, "2026-11-25")).days.map(({ items }) => items.map(({ friend }) => friend.id)),
+    [[], [], [lee.id]]);
+  assert.equal((await listFriends(db, alex.id)).friends[0].id, sam.id);
+});
+
+test("friends API requires authentication and routes social and legacy operations", async (t) => {
+  const origin = "https://example.invalid";
+  const endpoint = origin + "/api/friends";
+  const db = fixture(t);
+  runtime.owner = null;
+  runtime.env.DB = db;
+  t.after(() => { runtime.owner = alex.id; runtime.env.DB = undefined; });
+  const post = (action) => mutateFriends(new Request(endpoint, {
+    method: "POST", body: JSON.stringify(action), headers: { origin, "Content-Type": "application/json" },
+  }));
+  assert.equal((await loadFriends(new Request(endpoint + "?feed=1"))).status, 401);
+  assert.equal((await post({ action: "invite" })).status, 401);
+  runtime.owner = alex.id;
+  const preferences = { closed: true, discoverable: false, recentOnly: true };
+  assert.deepEqual(await (await post({ action: "social-preferences", preferences })).json(), { preferences, incoming: [], outgoing: [] });
+  assert.deepEqual(await (await loadFriends(new Request(endpoint + "?section=social"))).json(), { preferences, incoming: [], outgoing: [] });
+  assert.deepEqual(await (await loadFriends(new Request(endpoint + "?search=somebody"))).json(), { results: [] });
+  assert.match((await (await post({ action: "invite" })).json()).invite.code, /^[a-f0-9]{32}$/);
+});
+
+test("global privacy is reciprocal for dates and hides a closed buddy across all workout data reads", async (t) => {
+  const db = fixture(t);
+  runtime.owner = alex.id;
+  runtime.env.DB = db;
+  t.after(() => { runtime.env.DB = undefined; });
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-26T01:30:00Z") });
+  const request = new Request("https://example.invalid/api/workout?today=2026-11-22&timezone=Pacific/Honolulu");
+  Object.defineProperty(request, "cf", { value: { timezone: "America/Toronto" } });
+  const today = "2026-11-25";
+  const old = "2026-11-22";
+  const connection = pair(db);
+  for (const person of [alex, sam]) {
+    seedRecords(db, person.id);
+    copyLog(db, person.id, "old", old);
+  }
+  copyLog(db, sam.id, "future", "2026-11-26");
+  seedBodyProfile(db, sam.id, "female");
+  db.sqlite.prepare("INSERT INTO entries (owner, id, kind, payload, updated) VALUES (?, 'next-plan', 'plan', ?, ?)")
+    .run(sam.id, JSON.stringify({ date: "2026-11-26", shared: true, title: "Private future" }), today);
+  assert.equal((await friendDay(db, alex.id, sam.id, old, today)).workoutCheckin, true);
+
+  await setPrivacy(db, sam, { recentOnly: true });
+  for (const [viewer, peer] of [[alex, sam], [sam, alex]]) {
+    const restricted = await friendDay(db, viewer.id, peer.id, old, today);
+    assert.deepEqual({ ...restricted, friend: undefined }, {
+      friend: undefined, date: old, restricted: true, workoutCheckin: false, dietCheckin: null, training: null, nutrition: null,
+    });
+    const allowed = await friendDay(db, viewer.id, peer.id, date, today);
+    assert.equal(allowed.restricted, undefined);
+    assert.equal(allowed.workoutCheckin, true);
+    assert.equal(allowed.training.length, 1);
+    assert.equal(allowed.nutrition.length, 1);
+    assert.equal((await listFriends(db, viewer.id, old, today)).friends[0].checkedIn, undefined);
+  }
+  assert.deepEqual(await buddyCheckins(db, alex.id, sam.id, connection, today), [{ date, count: 1 }]);
+  const limited = await (await loadWorkout(request)).json();
+  assert.deepEqual(limited.entries.filter((entry) => entry.owner === sam.id).map((entry) => entry.id), ["log"]);
+  assert.equal(limited.entries.some((entry) => entry.owner === alex.id && entry.id === "old"), true);
+  assert.deepEqual(limited.room.partnerCheckins, [{ date, count: 1 }]);
+  assert.equal(limited.room.partnerCheckinsFrom, date);
+  assert.equal(limited.room.partnerTrainingShared, true);
+
+  await setPrivacy(db, sam, { closed: true });
+  const closed = await friendDay(db, alex.id, sam.id, date, today);
+  assert.equal(closed.restricted, true);
+  assert.equal(closed.workoutCheckin, false);
+  assert.equal(closed.dietCheckin, null);
+  assert.equal(closed.training, null);
+  assert.equal(closed.nutrition, null);
+  assert.equal(closed.anatomyVariant, undefined);
+  assert.equal((await friendDay(db, sam.id, alex.id, date, today)).workoutCheckin, true);
+  assert.equal((await listFriends(db, alex.id, date, today)).friends[0].checkedIn, undefined);
+  const shared = await (await loadWorkout(request)).json();
+  assert.equal(shared.entries.some((entry) => entry.owner === sam.id), false);
+  assert.deepEqual(shared.room.partnerCheckins, []);
+  assert.equal(shared.room.partnerCheckinsFrom, undefined);
+  assert.deepEqual(shared.room.partner, { id: sam.id, name: sam.name });
+  assert.equal(shared.room.partnerTrainingShared, false);
+});
 
 test("workout GET serves only performed sets and keeps the same two-sided volume", async (t) => {
   const db = fixture(t);

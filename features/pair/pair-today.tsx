@@ -8,6 +8,7 @@ import { avatar } from "@/shared/ui";
 type PairTodayProps = {
   me: Person;
   partner?: Person | null;
+  partnerHidden?: boolean;
   myToday: readonly TrainingEntry[];
   partnerToday: readonly TrainingEntry[];
   latestPartner?: TrainingEntry;
@@ -59,24 +60,24 @@ function Member({ name, person, mine, status, log, open, checked = Boolean(log) 
 }
 
 export function PairToday({
-  me, partner, myToday, partnerToday, latestPartner, today, partnerLastDay, signedIn, loading, unavailable,
+  me, partner, partnerHidden = false, myToday, partnerToday, latestPartner, today, partnerLastDay, signedIn, loading, unavailable,
   busy, sentCheer, receivedCheer, onShowLog, onCheer, onConnect, onPartnerHistory,
 }: PairTodayProps) {
   const buddy = signedIn ? partner ?? undefined : undefined;
   const mine = signedIn ? myToday.find((log) => log.owner === me.id && log.kind === "log") : undefined;
-  const theirs = buddy ? partnerToday.find((log) => log.owner === buddy.id && log.kind === "log") : undefined;
-  const buddyChecked = Boolean(buddy && (theirs || partnerLastDay === today));
-  const recentDay = buddy && !buddyChecked ? partnerLastDay : undefined;
+  const theirs = buddy && !partnerHidden ? partnerToday.find((log) => log.owner === buddy.id && log.kind === "log") : undefined;
+  const buddyChecked = Boolean(buddy && !partnerHidden && (theirs || partnerLastDay === today));
+  const recentDay = buddy && !partnerHidden && !buddyChecked ? partnerLastDay : undefined;
   const pending = loading ? "同步中" : unavailable ? "待同步" : "未打卡";
   const myStatus = mine ? "已打卡" : signedIn ? pending : "登录后查看";
-  const buddyStatus = buddyChecked ? "已打卡" : buddy || loading || unavailable ? pending : "未连接";
+  const buddyStatus = buddy && partnerHidden ? "打卡未公开" : buddyChecked ? "已打卡" : buddy || loading || unavailable ? pending : "未连接";
   const checked = Number(Boolean(mine)) + Number(buddyChecked);
 
   return <section className="card pair-today" aria-labelledby="pair-today-title">
     <div className="pair-today-heading">
       <span className="tile mint" aria-hidden="true"><Users size={20} /></span>
       <h2 id="pair-today-title">今日搭子打卡</h2>
-      {buddy && !loading && !unavailable && <span className="pair-today-progress">{checked} / 2 已打卡</span>}
+      {buddy && !partnerHidden && !loading && !unavailable && <span className="pair-today-progress">{checked} / 2 已打卡</span>}
     </div>
     <div className="pair-today-members">
       <Member name="我" person={signedIn ? me : undefined} mine status={myStatus} log={mine} open={onShowLog} />
@@ -89,7 +90,7 @@ export function PairToday({
     </button>}
     {buddy && receivedCheer && <p className="pair-today-cheer" role="status"><Flame size={16} aria-hidden="true" /> 搭子今天给你加油了</p>}
     {!loading && <div className="pair-today-actions">
-      {buddy && onPartnerHistory && <button type="button" className="button outline" onClick={() => onPartnerHistory()}>
+      {buddy && !partnerHidden && onPartnerHistory && <button type="button" className="button outline" onClick={() => onPartnerHistory()}>
         看搭子打卡 <ChevronRight size={16} aria-hidden="true" />
       </button>}
       {buddy

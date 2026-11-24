@@ -1,12 +1,12 @@
 import { HttpError } from "@/server/http";
-import { dateSchema } from "@/shared/dates";
+import { asDate, dateSchema, offsetDate } from "@/shared/dates";
 import { anatomyVariant } from "@/features/body/profile";
 import type { MealEntry } from "@/features/library/model";
 import type { Session } from "@/features/training/model";
-import { activePair } from "@/features/pair/server";
+import { activePair, validTimeZone } from "@/features/pair/server";
 import { completedMoves, publicMoveInfo } from "./public-training";
 import type { Checkin, Person } from "@/shared/state";
-import type { Friend, FriendDay, FriendList, FriendMutation, SharedMeal, SharedWorkout, Sharing } from "./model";
+import type { Friend, FriendDay, FriendFeed, FriendList, FriendMutation, SharedMeal, SharedWorkout, SharedWorkoutSummary, Sharing } from "./model";
 
 type Buddy = Person & { selfNutrition: number; peerNutrition: number };
 
@@ -24,7 +24,7 @@ type Link = {
 };
 
 const inviteLifetime = 24 * 60 * 60 * 1000;
-const buddySubquery = (alias: "f" | "pair") =>
+const buddySubquery = (alias: "f") =>
   "SELECT 1 FROM members m JOIN members p ON p.room = m.room WHERE m.user = " + alias + ".first_id AND p.user = " + alias + ".second_id";
 const activeLink = "(f.linked = 1 OR EXISTS (" + buddySubquery("f") + "))";
 const friendMissing = () => new HttpError(404, "找不到这位好友。");
@@ -75,7 +75,28 @@ async function getFriend(db: D1Database, owner: string, id: string) {
   throw friendMissing();
 }
 
-export async function listFriends(db: D1Database, owner: string, day?: string): Promise<FriendList> {
+export function friendCurrentDay(request?: Request) {
+  const zone = (request as (Request & { cf?: { timezone?: string } }) | undefined)?.cf?.timezone;
+  return asDate(Date.now(), zone && zone.length <= 64 && validTimeZone(zone) ? zone : "UTC");
+}
+
+export function friendDataOpen(peer: string) {
+  return "NOT EXISTS (SELECT 1 FROM friend_profiles WHERE owner = " + peer + " AND closed = 1)";
+}
+
+export function friendDateLimited(peer: string) {
+  return "EXISTS (SELECT 1 FROM friend_profiles WHERE recent_only = 1 AND (owner = ? OR owner = " + peer + "))";
+}
+
+export function friendDataVisible(owner: string, peer: string, day: string, today: string) {
+  return {
+    condition: friendDataOpen(peer) + " AND (NOT " + friendDateLimited(peer) +
+      " OR " + day + " BETWEEN ? AND ?)",
+    args: [owner, offsetDate(today, -2), today] as const,
+  };
+}
+
+export async function listFriends(db: D1Database, owner: string, day?: string, today = friendCurrentDay()): Promise<FriendList> {
   const [links, invite, buddy] = await Promise.all([
     db.prepare("SELECT f.* FROM friend_links f WHERE (f.first_id = ? OR f.second_id = ?) AND " + activeLink).bind(owner, owner).all<Link>(),
     db.prepare("SELECT code, expires_at AS expiresAt FROM friend_invites WHERE owner = ? AND expires_at > ?")
@@ -86,47 +107,52 @@ export async function listFriends(db: D1Database, owner: string, day?: string): 
   if (buddy && !friends.some((item) => item.buddy)) friends.push(pairedFriend(buddy));
   friends.sort((a, b) => Number(b.buddy) - Number(a.buddy) || a.name.localeCompare(b.name, "zh-CN"));
   if (day && friends.length) {
+    const visible = friendDataVisible(owner, "contact.value", "target.day", today);
     const { results } = await db.prepare(
-      "SELECT DISTINCT e.owner FROM entries e WHERE e.owner IN (SELECT value FROM json_each(?)) " +
-      "AND e.kind = 'log' AND json_extract(e.payload, '$.date') = ? AND (" +
-      "EXISTS (SELECT 1 FROM friend_links f WHERE f.first_id = MIN(?, e.owner) " +
-      "AND f.second_id = MAX(?, e.owner) AND f.linked = 1) OR " +
-      "EXISTS (SELECT 1 FROM members m JOIN members p ON p.room = m.room WHERE m.user = ? AND p.user = e.owner))"
-    ).bind(JSON.stringify(friends.map((friend) => friend.id)), day, owner, owner, owner).all<{ owner: string }>();
-    const checked = new Set(results.map((row) => row.owner));
-    return { friends: friends.map((friend) => ({ ...friend, checkedIn: checked.has(friend.id) })), invite };
+      "SELECT contact.value AS owner, EXISTS (SELECT 1 FROM entries e WHERE e.owner = contact.value " +
+      "AND e.kind = 'log' AND json_extract(e.payload, '$.date') = target.day) AS checkedIn " +
+      "FROM json_each(?) contact CROSS JOIN (SELECT ? AS day) target WHERE " +
+      relationshipAccess("SELECT ? AS viewer, contact.value AS peer", "checkin") + " AND " + visible.condition
+    ).bind(JSON.stringify(friends.map((friend) => friend.id)), day, owner, ...visible.args).all<{ owner: string; checkedIn: number }>();
+    const statuses = new Map(results.map(({ owner, checkedIn }) => [owner, Boolean(checkedIn)]));
+    return { friends: friends.map((friend) => ({ ...friend, checkedIn: statuses.get(friend.id) })), invite };
   }
   return { friends, invite };
 }
 
+type Scope = "checkin" | "training" | "dietCheckin" | "nutrition";
+
 // Verify the relationship and consent in the same query that reads the friend's data.
-export function shareAccess(owner: string, friend: string, scope: "checkin" | "training" | "dietCheckin" | "nutrition") {
-  const { first, second, peer } = sides(owner, friend);
-  const paired = "EXISTS (" + buddySubquery("pair") + ")";
-  const details = "f." + peer + "_nutrition";
-  const pairedDiet = "(SELECT m.share_nutrition FROM members m JOIN members p ON p.room = m.room " +
-    "WHERE m.user = pair." + peer + "_id AND p.user = pair." + (peer === "first" ? "second" : "first") + "_id)";
-  const dietStatus = "CASE WHEN " + paired + " THEN " + pairedDiet +
-    " ELSE COALESCE(f." + peer + "_nutrition_status, " + details + ", 1) END = 1";
+function relationshipAccess(selection: string, scope: Scope) {
+  const buddy = " FROM members m JOIN members p ON p.room = m.room WHERE m.user = pair.peer AND p.user = pair.viewer";
+  const paired = "EXISTS (SELECT 1" + buddy + ")";
+  const flag = (name: string) => "(CASE WHEN pair.peer = f.first_id THEN f.first_" + name + " ELSE f.second_" + name + " END)";
+  const details = flag("nutrition");
+  const dietStatus = "CASE WHEN " + paired + " THEN (SELECT m.share_nutrition" + buddy + ")" +
+    " ELSE COALESCE(" + flag("nutrition_status") + ", " + details + ", 1) END = 1";
   const allowed = {
     checkin: "1",
-    training: "(" + paired + " OR f." + peer + "_training = 1)",
+    training: "(" + paired + " OR " + flag("training") + " = 1)",
     dietCheckin: dietStatus,
     nutrition: "(" + dietStatus + " AND (" + paired + " OR " + details + " = 1))",
   }[scope];
-  return {
-    condition: "EXISTS (SELECT 1 FROM (SELECT ? AS first_id, ? AS second_id) AS pair " +
-      "LEFT JOIN friend_links f ON f.first_id = pair.first_id AND f.second_id = pair.second_id " +
-      "WHERE pair.first_id <> pair.second_id AND (" + paired + " OR f.linked = 1) AND " + allowed + ")",
-    identifiers: [first, second] as const,
-  };
+  return "EXISTS (SELECT 1 FROM (" + selection + ") AS pair " +
+    "LEFT JOIN friend_links f ON f.first_id = MIN(pair.viewer, pair.peer) AND f.second_id = MAX(pair.viewer, pair.peer) " +
+    "WHERE pair.viewer <> pair.peer AND (" + paired + " OR f.linked = 1) AND " + allowed + ")";
 }
 
-export async function buddyCheckins(db: D1Database, owner: string, friend: string, connection: string): Promise<Checkin[]> {
+export function shareAccess(owner: string, friend: string, scope: Scope) {
+  return { condition: relationshipAccess("SELECT ? AS viewer, ? AS peer", scope), identifiers: [owner, friend] as const };
+}
+
+export async function buddyCheckins(db: D1Database, owner: string, friend: string, connection: string,
+  today = friendCurrentDay()): Promise<Checkin[]> {
+  const day = "json_extract(e.payload, '$.date')";
+  const visible = friendDataVisible(owner, "e.owner", day, today);
   const { results } = await db.prepare(
-    "SELECT json_extract(payload, '$.date') AS date, COUNT(*) AS count FROM entries WHERE owner = ? AND kind = 'log' AND " +
-    activePair + " GROUP BY date ORDER BY date DESC"
-  ).bind(friend, connection, owner, friend).all<{ date: unknown; count: number }>();
+    "SELECT " + day + " AS date, COUNT(*) AS count FROM entries e WHERE e.owner = ? AND e.kind = 'log' AND " +
+    activePair + " AND " + visible.condition + " GROUP BY date ORDER BY date DESC"
+  ).bind(friend, connection, owner, friend, ...visible.args).all<{ date: unknown; count: number }>();
   return results.flatMap(({ date, count }) => typeof date === "string" && dateSchema.safeParse(date).success ? [{ date, count }] : []);
 }
 
@@ -136,30 +162,78 @@ function publicWorkout(id: string, data: Session): SharedWorkout {
     sets: exercises.reduce((total, move) => total + move.sets.length, 0), exercises };
 }
 
+export async function friendFeed(db: D1Database, owner: string, today = friendCurrentDay()): Promise<FriendFeed> {
+  const dates = [today, offsetDate(today, -1), offsetDate(today, -2)];
+  const { friends } = await listFriends(db, owner);
+  const days: FriendFeed["days"] = dates.map((date) => ({ date, items: [] }));
+  if (!friends.length) return { days };
+
+  const day = "json_extract(e.payload, '$.date')";
+  const pair = "SELECT ? AS viewer, e.owner AS peer";
+  const { results } = await db.prepare(
+    "SELECT e.owner, e.id, " + day + " AS date, CASE WHEN " + relationshipAccess(pair, "training") +
+    " THEN e.payload END AS payload FROM entries e WHERE e.owner IN (SELECT value FROM json_each(?)) " +
+    "AND e.kind = 'log' AND " + day + " IN (SELECT value FROM json_each(?)) AND " +
+    relationshipAccess(pair, "checkin") + " AND " + friendDataOpen("e.owner") + " ORDER BY e.updated DESC, e.id ASC"
+  ).bind(owner, JSON.stringify(friends.map((friend) => friend.id)), JSON.stringify(dates), owner)
+    .all<{ owner: string; id: string; date: string; payload: string | null }>();
+
+  const grouped = new Map<string, Map<string, SharedWorkoutSummary[] | null>>();
+  for (const { owner: id, date, payload, id: workoutId } of results) {
+    const byFriend = grouped.get(date) ?? new Map();
+    grouped.set(date, byFriend);
+    if (!payload) {
+      byFriend.set(id, null);
+      continue;
+    }
+    const { title, category, minutes, sets, exercises } = publicWorkout(workoutId, JSON.parse(payload) as Session);
+    const workouts = byFriend.get(id) ?? [];
+    workouts.push({ id: workoutId, title, category, minutes, sets, exercises: exercises.length });
+    byFriend.set(id, workouts);
+  }
+  for (const day of days) {
+    const byFriend = grouped.get(day.date);
+    if (!byFriend) continue;
+    for (const { id, name, buddy } of friends) {
+      const workouts = byFriend.get(id);
+      if (workouts !== undefined) day.items.push({ friend: { id, name, buddy }, workouts });
+    }
+  }
+  return { days };
+}
+
 function publicMeal(id: string, entry: MealEntry): SharedMeal {
   const { meal, name, grams, calories, protein, carbs, fat } = entry;
   return { id, meal, name, grams, calories, protein, carbs, fat };
 }
 
-export async function friendDay(db: D1Database, owner: string, id: string, date: string): Promise<FriendDay> {
+export async function friendDay(db: D1Database, owner: string, id: string, date: string,
+  today = friendCurrentDay()): Promise<FriendDay> {
   const friend = await getFriend(db, owner, id);
+  const access = friendDataVisible(owner, "target.peer", "target.day", today);
+  const visible = await db.prepare("SELECT 1 FROM (SELECT ? AS peer, ? AS day) AS target WHERE " + access.condition)
+    .bind(id, date, ...access.args).first();
+  if (!visible) return { friend, date, restricted: true, workoutCheckin: false, dietCheckin: null, training: null, nutrition: null };
   const checkin = shareAccess(owner, id, "checkin");
   const training = shareAccess(owner, id, "training");
   const dietCheckin = shareAccess(owner, id, "dietCheckin");
   const nutrition = shareAccess(owner, id, "nutrition");
-  const workoutFilter = " FROM entries WHERE owner = ? AND kind = 'log' AND json_extract(payload, '$.date') = ? AND ";
-  const mealFilter = " FROM personal_library WHERE owner = ? AND kind = 'nutrition' AND day = ? AND json_extract(payload, '$.entry.type') = 'meal' AND ";
+  const logAccess = friendDataVisible(owner, "entries.owner", "json_extract(entries.payload, '$.date')", today);
+  const nutritionAccess = friendDataVisible(owner, "personal_library.owner", "personal_library.day", today);
+  const workoutFilter = " FROM entries WHERE owner = ? AND kind = 'log' AND json_extract(payload, '$.date') = ? AND " + logAccess.condition + " AND ";
+  const mealFilter = " FROM personal_library WHERE owner = ? AND kind = 'nutrition' AND day = ? " +
+    "AND json_extract(payload, '$.entry.type') = 'meal' AND " + nutritionAccess.condition + " AND ";
   type Row = { id: string; payload: string };
   const [workedOut, workouts, ate, meals] = await Promise.all([
-    db.prepare("SELECT 1" + workoutFilter + checkin.condition + " LIMIT 1").bind(id, date, ...checkin.identifiers).first(),
+    db.prepare("SELECT 1" + workoutFilter + checkin.condition + " LIMIT 1").bind(id, date, ...logAccess.args, ...checkin.identifiers).first(),
     friend.shared.training ? db.prepare("SELECT id, payload, (SELECT json_extract(p.payload, '$.values.sex') " +
       "FROM personal_library p WHERE p.owner = entries.owner AND p.kind = 'body-profile') AS variant" +
       workoutFilter + training.condition + " ORDER BY updated DESC")
-      .bind(id, date, ...training.identifiers).all<Row & { variant: unknown }>() : null,
+      .bind(id, date, ...logAccess.args, ...training.identifiers).all<Row & { variant: unknown }>() : null,
     friend.shared.nutrition ? db.prepare("SELECT 1" + mealFilter + dietCheckin.condition + " LIMIT 1")
-      .bind(id, date, ...dietCheckin.identifiers).first() : null,
+      .bind(id, date, ...nutritionAccess.args, ...dietCheckin.identifiers).first() : null,
     friend.shared.nutritionDetails ? db.prepare("SELECT id, payload" + mealFilter + nutrition.condition + " ORDER BY updated DESC")
-      .bind(id, date, ...nutrition.identifiers).all<Row>() : null,
+      .bind(id, date, ...nutritionAccess.args, ...nutrition.identifiers).all<Row>() : null,
   ]);
   return { friend, date,
     anatomyVariant: anatomyVariant(workouts?.results[0]?.variant),
@@ -195,6 +269,9 @@ export async function changeFriends(db: D1Database, user: Person, mutation: Frie
         ["first_training", "second_training", "first_nutrition", "second_nutrition", "first_nutrition_status", "second_nutrition_status"]
           .map((field) => field + " = CASE WHEN friend_links.linked = 0 THEN excluded." + field + " ELSE friend_links." + field + " END").join(", ")
       ).bind(user.id, user.id, user.id, user.id, user.id, user.name, user.id, user.name, mutation.code, user.id, now),
+      db.prepare("DELETE FROM friend_requests AS r WHERE EXISTS (SELECT 1 FROM friend_invites WHERE " + validInvite +
+        " AND r.first_id = MIN(owner, ?) AND r.second_id = MAX(owner, ?))")
+        .bind(mutation.code, user.id, now, user.id, user.id),
       db.prepare("DELETE FROM friend_invites WHERE " + validInvite).bind(mutation.code, user.id, now),
     ]);
     if (!linked.meta.changes) throw new HttpError(409, "邀请码无效、已使用、已过期或是你自己的。");

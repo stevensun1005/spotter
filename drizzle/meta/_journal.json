@@ -64,6 +64,13 @@
       "when": 1795529342669,
       "tag": "0008_coaching_lessons",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795537379239,
+      "tag": "0009_friend_social",
+      "breakpoints": true
     }
   ]
 }

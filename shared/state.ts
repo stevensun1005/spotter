@@ -4,7 +4,14 @@ import type { Session } from "@/features/training/model";
 
 export type Person = { id: string; name: string; anatomyVariant?: AnatomyVariant };
 export type Checkin = { date: string; count: number };
-export type Pair = { connectionId?: string; invite: string | null; partner: Person | null; partnerCheckins?: Checkin[]; partnerTrainingShared?: boolean };
+export type Pair = {
+  connectionId?: string;
+  invite: string | null;
+  partner: Person | null;
+  partnerCheckins?: Checkin[];
+  partnerCheckinsFrom?: string;
+  partnerTrainingShared?: boolean;
+};
 type EntryBase = { id: string; owner: string; updated: string };
 export type PlanEntry = EntryBase & { kind: "plan"; data: Plan };
 export type TrainingEntry = EntryBase & { kind: "draft" | "log"; data: Session };

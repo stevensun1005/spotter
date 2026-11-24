@@ -44,9 +44,20 @@ export type SharedWorkout = {
 export type FriendDay = {
   friend: Friend;
   date: string;
+  restricted?: true;
   anatomyVariant?: AnatomyVariant;
   workoutCheckin: boolean;
   dietCheckin: boolean | null;
   training: SharedWorkout[] | null;
   nutrition: SharedMeal[] | null;
+};
+
+export type SharedWorkoutSummary = Pick<SharedWorkout, "id" | "title" | "category" | "minutes" | "sets"> & {
+  exercises: number;
+};
+export type FriendFeed = {
+  days: {
+    date: string;
+    items: { friend: Pick<Friend, "id" | "name" | "buddy">; workouts: SharedWorkoutSummary[] | null }[];
+  }[];
 };

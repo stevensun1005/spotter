@@ -69,6 +69,31 @@ export const friendInvites = sqliteTable("friend_invites", {
   expiresAt: text("expires_at").notNull(),
 });
 
+export const friendProfiles = sqliteTable("friend_profiles", {
+  owner: text().primaryKey().notNull(),
+  name: text().notNull(),
+  searchName: text("search_name").notNull(),
+  closed: integer({ mode: "boolean" }).notNull().default(false),
+  discoverable: integer({ mode: "boolean" }).notNull().default(false),
+  recentOnly: integer("recent_only", { mode: "boolean" }).notNull().default(false),
+}, (table) => [index("friend_profiles_discoverable").on(table.discoverable, table.searchName)]);
+
+export const friendRequests = sqliteTable("friend_requests", {
+  firstId: text("first_id").notNull(),
+  secondId: text("second_id").notNull(),
+  id: text().notNull().unique(),
+  sender: text().notNull(),
+  receiver: text().notNull(),
+  senderName: text("sender_name").notNull(),
+  receiverName: text("receiver_name").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.firstId, table.secondId] }),
+  index("friend_requests_sender").on(table.sender),
+  index("friend_requests_receiver").on(table.receiver),
+  check("friend_requests_members", sql`${table.firstId} < ${table.secondId} AND (${table.sender} = ${table.firstId} AND ${table.receiver} = ${table.secondId} OR ${table.sender} = ${table.secondId} AND ${table.receiver} = ${table.firstId})`),
+]);
+
 export const agentConnections = sqliteTable("agent_connections", {
   id: text().primaryKey().notNull(),
   owner: text().notNull(),

@@ -1,24 +1,30 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Bookmark, CalendarPlus, ClipboardList, Eye, Plus } from "lucide-react";
+import { Bookmark, CalendarPlus, ClipboardList, Eye, Plus, Users } from "lucide-react";
 import type { Plan } from "./model";
 import type { ExerciseProfile, LibraryRow } from "@/features/library/model";
 import { TemplatePreview } from "./template-preview";
 
 const tabs = ["我的计划", "个人模板", "动作库"] as const;
 
-export function PlanSections({ children, templates, date, schedule, edit, newTemplate, initial, exerciseLibrary, exerciseProfiles }: {
+export function PlanSections({ children, templates, date, schedule, edit, newTemplate, initial, exerciseLibrary, exerciseProfiles, openFriends }: {
   children: ReactNode; exerciseLibrary: ReactNode; exerciseProfiles?: ExerciseProfile[];
   templates: Extract<LibraryRow, { kind: "template" }>[]; date: string; schedule: (plan: Plan) => void;
   edit: (row: Extract<LibraryRow, { kind: "template" }>) => void; newTemplate: () => void; initial?: typeof tabs[number];
+  openFriends?: () => void;
 }) {
   const [tab, setTab] = useState<typeof tabs[number]>(initial ?? tabs[0]);
   const [previewId, setPreviewId] = useState<string>();
   const preview = tab === "个人模板" ? templates.find((row) => row.id === previewId) : undefined;
   const arrange = (row: typeof templates[number]) => schedule({ ...row.plan, date, shared: false, templateId: row.id, week: undefined, day: undefined });
   return <div className="feature-stack training-sections">
-    <div className="segmented training-tabs" role="group" aria-label="训练分类">{tabs.map((name) => <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</div>
+    <div className="training-section-toolbar">
+      <div className="segmented training-tabs" role="group" aria-label="训练分类">{tabs.map((name) => <button key={name} type="button" aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</div>
+      {openFriends && <button className="button subtle small training-friends" type="button" onClick={openFriends}>
+        <Users size={17} aria-hidden="true" /> 好友
+      </button>}
+    </div>
     {tab === "我的计划" && children}
     {tab === "动作库" && exerciseLibrary}
     {tab === "个人模板" && <>

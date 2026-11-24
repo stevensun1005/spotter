@@ -159,6 +159,15 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const draftKey = "spotter-drafts:" + (viewer?.id ?? "demo");
   const [sync, setSync] = useState("正在保存");
 
+  useEffect(() => {
+    const openFriendInvite = () => {
+      if (/^#friend-invite=[a-f0-9]{32}$/i.test(window.location.hash)) setView("friends");
+    };
+    openFriendInvite();
+    window.addEventListener("hashchange", openFriendInvite);
+    return () => window.removeEventListener("hashchange", openFriendInvite);
+  }, []);
+
   const setPending = useCallback((next: Record<string, Session>) => {
     pendingRef.current = next;
     setPendingDrafts(next);
@@ -630,7 +639,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         </div>
       </header>}
       <main className={view === "today" ? "content content-today" : "content"}>
-        {showPageHeading && <div className={view === "today" ? "page-heading today-heading" : "page-heading"}>
+        {showPageHeading && <div className={view === "today" || view === "friends" ? `page-heading ${view}-heading` : "page-heading"}>
           <div>{view === "today"
             ? <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>
             : <h1>{heading}</h1>}
@@ -640,11 +649,15 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           {view === "today" && <div className="plan-heading-actions">
             <button className="button primary page-action" onClick={() => open({ kind: "launch" })}><Play size={19} fill="currentColor" /> 开始训练</button>
           </div>}
+          {view === "friends" && <button className="button outline small" type="button" onClick={() => go("coaching")}>
+            <GraduationCap size={16} aria-hidden="true" /> 教练与学员
+          </button>}
         </div>}
 
         {view === "today" && <div className="today-grid">
           {display.social && <div className="home-pair">
-            <PairToday me={me} partner={partner} myToday={myToday} partnerToday={partnerToday} latestPartner={latestPartner} today={today} partnerLastDay={partnerLastDay}
+            <PairToday me={me} partner={partner} partnerHidden={room?.partnerTrainingShared === false}
+              myToday={myToday} partnerToday={partnerToday} latestPartner={latestPartner} today={today} partnerLastDay={partnerLastDay}
               signedIn={!demo} loading={buddyStatus === "loading"} unavailable={buddyStatus === "offline"} busy={busy}
               sentCheer={sentCheer} receivedCheer={receivedCheer} onShowLog={(log) => open({ kind: "log", log })}
               onConnect={() => open({ kind: "pair" })}
@@ -702,8 +715,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           </div>
 
           <aside className="right-column">
-            {display.weeklyCheckins && <WeekCheckins today={today} me={me} partner={display.social ? partner : undefined}
-              partnerCheckins={display.social ? room?.partnerCheckins : undefined} logs={logs} status={buddyStatus} showStats={() => go("stats")} />}
+            {display.weeklyCheckins && <WeekCheckins today={today} me={me} partner={display.social ? partnerWithDetails : undefined}
+              partnerCheckins={display.social ? room?.partnerCheckins : undefined} partnerCheckinsFrom={room?.partnerCheckinsFrom}
+              logs={logs} status={buddyStatus} showStats={() => go("stats")} />}
             {display.planShortcuts && <button className="import-callout" onClick={() => openPlanAssistant("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>添加计划</strong><small>训练文本、视频或自己的 AI</small></span><ChevronRight size={18} /></button>}
             {warning && !overlay && <p className="inline-error" role="alert">{warning}</p>}
           </aside>
@@ -712,6 +726,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "plans" && <PlanSections key={planTab ?? "plans"} date={selected} templates={templates} initial={planTab}
           exerciseLibrary={<OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
           schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, row.updated)}
+          openFriends={display.social ? () => go("friends") : undefined}
           exerciseProfiles={profiles}><section className="card padded plans-list-card">
           <div className="section-head plans-list-heading">
             <h2>全部计划</h2>
@@ -769,11 +784,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
               savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
         </div>}
-        {view === "friends" && <div className="feature-stack">
-          <div className="exercise-toolbar"><button className="button outline" type="button" onClick={() => go("coaching")}><GraduationCap size={18} /> 教练与学员 · 下发训练计划</button></div>
-          <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
-            today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} />
-        </div>}
+        {view === "friends" && <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
+          today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()} />}
 
         <div hidden={view !== "assistant"}><PlanAssistant today={today} save={importPlans} enabled={Boolean(viewer)} profileRef={profileRef}
           active={view === "assistant"} mode={assistantMode} onModeChange={setAssistantMode} notify={setToast}
@@ -796,7 +808,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       rest={viewer && !library.loading && !library.error ? () => openScheduleSettings(today) : undefined}
       body={() => { close(); go("body"); }} />}
     {overlay?.kind === "friend-sharing" && <Dialog title="好友分享设置" className="friend-settings-dialog" onClose={close}>
-      <div className="dialog-body"><FriendsView enabled={Boolean(viewer)} today={today} sharingOnly /></div>
+      <div className="dialog-body"><FriendsView enabled={Boolean(viewer)} today={today} sharingOnly onChanged={() => void refresh()} /></div>
     </Dialog>}
     {overlay?.kind === "schedule" && <ScheduleSettings
       settings={overlay.settings} restDay={overlay.restDay} close={close} save={async (values) => {
@@ -846,7 +858,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         <button className="button primary"><Plus size={17} /> 加入并编辑</button>
       </form>
     </Dialog>}
-    {overlay?.kind === "log" && (overlay.log.owner === me.id || overlay.log.owner === partnerWithDetails?.id) && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today} trackProtein={trackProtein}
+    {overlay?.kind === "log" && (overlay.log.owner === me.id || (overlay.log.owner === partnerWithDetails?.id &&
+      logs.some(({ owner, id }) => owner === partnerWithDetails.id && id === overlay.log.id))) && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today} trackProtein={trackProtein}
       sex={(overlay.log.owner === me.id ? me.anatomyVariant : partnerWithDetails?.anatomyVariant) ?? null}
       share={viewer && overlay.log.owner === me.id ? { name: me.name, owner: me.id, logs } : undefined}
       pendingSync={pendingLog}

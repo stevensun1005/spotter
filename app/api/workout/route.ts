@@ -11,10 +11,11 @@ import { resolvePlanTemplate } from "@/features/plans/template-link";
 import { ownTemplateJoin } from "@/features/plans/template-server";
 import { updateLog } from "@/features/history/update-log";
 import { checkinOwnerMatches, checkinProblem } from "@/features/training/checkin-outbox";
-import { buddyCheckins } from "@/features/friends/server";
-import { activePair, disconnectPair, membership, sendPairCheer, validTimeZone } from "@/features/pair/server";
+import { buddyCheckins, friendCurrentDay, friendDataOpen, friendDataVisible, friendDateLimited } from "@/features/friends/server";
+import { activePair, disconnectPair, joinPair, membership, sendPairCheer, validTimeZone } from "@/features/pair/server";
 import { publicPartnerSession } from "@/features/friends/public-training";
 import { anatomyVariant } from "@/features/body/profile";
+import { offsetDate } from "@/shared/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ type Row = Omit<Entry, "data"> & { payload: string; templatePlan: string | null 
 const reply = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
-export async function GET() {
+export async function GET(request?: Request) {
   const user = await getChatGPTUser();
   if (!user) return reply({ error: "登录后可以保存到云端。" }, 401);
   if (!env.DB) return reply({ error: "云端数据库暂不可用。" }, 503);
@@ -48,29 +49,33 @@ export async function GET() {
   const member = await membership(env.DB, me.id);
   const partner = member?.partnerId;
   const pair = partner && member ? [member.connectionId, me.id, partner] as const : null;
+  const today = friendCurrentDay(request);
+  const partnerVisibility = friendDataVisible(me.id, "e.owner", "json_extract(e.payload, '$.date')", today);
   const ownCheer = pair ? " OR (e.kind = 'cheer' AND json_extract(e.payload, '$.connection') = ? " +
     "AND json_extract(e.payload, '$.recipient') = ? AND " + activePair + ")" : "";
   const partnerFilter = pair ?
-    " OR (e.owner = ? AND " + activePair + " AND (e.kind = 'log' " +
+    " OR (e.owner = ? AND " + activePair + " AND " + partnerVisibility.condition + " AND (e.kind = 'log' " +
     "OR (e.kind = 'plan' AND json_extract(e.payload, '$.shared') = 1) " +
     "OR (e.kind = 'cheer' AND json_extract(e.payload, '$.connection') = ? AND json_extract(e.payload, '$.recipient') = ?)))" : "";
   const ownCheerArgs = pair ? [pair[0], pair[2], ...pair] : [];
-  const partnerArgs = pair ? [pair[2], ...pair, pair[0], me.id] : [];
+  const partnerArgs = pair ? [pair[2], ...pair, ...partnerVisibility.args, pair[0], me.id] : [];
   const [rows, partnerCheckins, stillPaired, profiles] = await Promise.all([
     env.DB.prepare("SELECT e.id, e.owner, e.kind, e.payload, e.updated, json_extract(t.payload, '$.plan') AS templatePlan FROM entries e" + ownTemplateJoin +
       "WHERE (e.owner = ? AND (e.kind IN ('plan', 'draft', 'log')" + ownCheer + "))" + partnerFilter + " ORDER BY e.updated DESC")
       .bind(me.id, me.id, ...ownCheerArgs, ...partnerArgs).all<Row>(),
-    pair ? buddyCheckins(env.DB, me.id, pair[2], pair[0]) : undefined,
-    pair ? env.DB.prepare("SELECT 1 WHERE " + activePair).bind(...pair).first() : undefined,
-    env.DB.prepare("SELECT owner, json_extract(payload, '$.values.sex') AS variant FROM personal_library " +
-      "WHERE kind = 'body-profile' AND (owner = ?" + (pair ? " OR (owner = ? AND " + activePair + ")" : "") + ")")
+    pair ? buddyCheckins(env.DB, me.id, pair[2], pair[0], today) : undefined,
+    pair ? env.DB.prepare("SELECT " + friendDataOpen("?") + " AS trainingShared, " + friendDateLimited("?") + " AS recentOnly WHERE " + activePair)
+      .bind(pair[2], me.id, pair[2], ...pair).first<{ trainingShared: number; recentOnly: number }>() : undefined,
+    env.DB.prepare("SELECT p.owner, json_extract(p.payload, '$.values.sex') AS variant FROM personal_library p " +
+      "WHERE p.kind = 'body-profile' AND (p.owner = ?" +
+      (pair ? " OR (p.owner = ? AND " + activePair + " AND " + friendDataOpen("p.owner") + ")" : "") + ")")
       .bind(me.id, ...(pair ? [pair[2], ...pair] : [])).all<{ owner: string; variant: unknown }>(),
   ]);
   const sharedPlanIds = new Set(rows.results.filter((row) => row.owner === partner && row.kind === "plan").map((row) => row.id));
   const entries: Entry[] = rows.results.flatMap(({ payload, templatePlan, ...row }): Entry[] => {
     const entry = { ...row, data: JSON.parse(payload) } as Entry;
     const own = entry.owner === me.id;
-    if (!own && !stillPaired) return [];
+    if (!own && !stillPaired?.trainingShared) return [];
     if (entry.kind === "cheer") return stillPaired ? [{ ...entry, data: { date: entry.data.date } }] : [];
     if (entry.kind === "plan") {
       if (!own) {
@@ -91,8 +96,13 @@ export async function GET() {
     room: member && (!partner || stillPaired) ? {
       connectionId: member.connectionId,
       invite: member.creator === me.id && !partner ? member.invite : null,
-      partner: partner ? { id: partner, name: member.partnerName || "搭子", anatomyVariant: variants.get(partner) } : null,
-      ...(partner ? { partnerCheckins, partnerTrainingShared: true } : {}),
+      partner: partner ? { id: partner, name: member.partnerName || "搭子",
+        anatomyVariant: stillPaired?.trainingShared ? variants.get(partner) : undefined } : null,
+      ...(partner ? {
+        partnerCheckins: stillPaired?.trainingShared ? partnerCheckins : [],
+        partnerTrainingShared: Boolean(stillPaired?.trainingShared),
+        partnerCheckinsFrom: stillPaired?.trainingShared && stillPaired.recentOnly ? offsetDate(today, -2) : undefined,
+      } : {}),
     } : null,
   };
   return reply(state);
@@ -175,12 +185,7 @@ export const POST = api(async (request) => {
       }
     }
   } else if (body.action === "join") {
-    const joined = await db.prepare(
-      "INSERT OR IGNORE INTO members (user, room, name) " +
-      "SELECT ?, r.id, ? FROM rooms r WHERE r.invite = ? " +
-      "AND (SELECT COUNT(*) FROM members m WHERE m.room = r.id) = 1"
-    ).bind(owner, name, body.invite).run();
-    if (!joined.meta.changes) return reply({ error: "邀请码无效、搭子已满，或你已有搭子空间。" }, 409);
+    await joinPair(db, owner, name, body.invite);
   } else if (body.action === "disconnect") {
     await disconnectPair(db, owner, body.partner, body.connection);
   } else if (body.action === "cheer") {

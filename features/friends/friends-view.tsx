@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Dumbbell, Lock, UserRoundPlus, Users, Utensils } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Dumbbell, Link, Lock, Search, UserRoundPlus, Utensils } from "lucide-react";
 import { Anatomy } from "@/features/exercises/anatomy";
 import { exerciseMuscles } from "@/features/exercises/guidance";
 import { muscleNames, regionMuscle } from "@/features/exercises/labels";
@@ -10,6 +10,7 @@ import { errorText } from "@/shared/client";
 import { offsetDate, shortDate } from "@/shared/dates";
 import { avatar, Dialog, displayNumber } from "@/shared/ui";
 import type { Friend, FriendDay, FriendList, FriendMutation, SharedMeal, SharedWorkout } from "./model";
+import type { FriendRequest, SocialMutation, SocialPerson, SocialPreferences, SocialState } from "./social-model";
 
 const endpoint = "/api/friends";
 
@@ -169,13 +170,190 @@ function SharingSettings({ friend, busy, save }: {
         checked={sharing.nutritionDetails} disabled={busy || !sharing.nutrition}
         change={(checked) => setSharing({ ...sharing, nutritionDetails: checked })} />
     </>}
-    <p className="muted">开启后，对方可查看这类历史和今后的记录。你可以随时调整开关。</p>
+    <p className="muted">好友可依照你的朋友圈权限查看已分享的记录。你可以随时调整开关。</p>
     <button className="button primary" type="button" disabled={busy || !changed} onClick={() => save(sharing)}>保存分享范围</button>
   </section>;
 }
 
-export function FriendsView({ enabled, today, initialFriendId, initialDate, sharingOnly = false }: {
-  enabled: boolean; today: string; initialFriendId?: string; initialDate?: string; sharingOnly?: boolean;
+type FriendsTab = "contacts" | "feed" | "privacy";
+type FeedWorkout = Pick<SharedWorkout, "id" | "title" | "category" | "minutes" | "sets"> & { exercises: number };
+type Feed = { days: { date: string; items: { friend: Pick<Friend, "id" | "name" | "buddy">; workouts: FeedWorkout[] | null }[] }[] };
+const tabOptions = [["contacts", "联系人"], ["feed", "朋友圈"], ["privacy", "权限设置"]] as const;
+const initials = [
+  ["阿", "A"], ["八", "B"], ["擦", "C"], ["搭", "D"], ["蛾", "E"], ["发", "F"], ["嘎", "G"], ["哈", "H"], ["击", "J"],
+  ["喀", "K"], ["垃", "L"], ["妈", "M"], ["拿", "N"], ["哦", "O"], ["啪", "P"], ["七", "Q"], ["然", "R"], ["撒", "S"],
+  ["他", "T"], ["挖", "W"], ["昔", "X"], ["压", "Y"], ["匝", "Z"],
+] as const;
+const nameOrder = new Intl.Collator("zh-CN-u-co-pinyin", { sensitivity: "base" });
+
+function initial(name: string) {
+  const first = Array.from(name.trim())[0] ?? "";
+  const latin = first.normalize("NFD")[0]?.toUpperCase() ?? "";
+  if (/^[A-Z]$/.test(latin)) return latin;
+  if (/^\p{Script=Han}$/u.test(first)) {
+    for (let index = initials.length - 1; index >= 0; index--) {
+      if (nameOrder.compare(first, initials[index][0]) >= 0) return initials[index][1];
+    }
+    return "A";
+  }
+  return "#";
+}
+
+function useFriendResource<T>(url: string | undefined, revision: number) {
+  const [state, setState] = useState<{ url: string; revision?: number; data?: T; error?: string }>();
+  const requestId = useRef(0);
+  useEffect(() => {
+    if (!url) return;
+    const id = ++requestId.current;
+    const abort = new AbortController();
+    void request<T>(url, { signal: abort.signal }).then(
+      (data) => { if (!abort.signal.aborted && id === requestId.current) setState({ url, revision, data }); },
+      (reason) => { if (!abort.signal.aborted && id === requestId.current) setState({ url, revision, error: errorText(reason) }); },
+    );
+    return () => abort.abort();
+  }, [url, revision]);
+  const result = state?.url === url && (state?.revision === undefined || state.revision === revision) ? state : undefined;
+  return {
+    data: result?.data,
+    error: result?.error,
+    replace(data: T) {
+      if (!url) return;
+      requestId.current++;
+      setState({ url, data });
+    },
+  };
+}
+
+function FriendRow({ person, sharingOnly, open }: { person: Friend; sharingOnly?: boolean; open: () => void }) {
+  return <button className="list-line friend-row" type="button" onClick={open}>
+    <span className={"avatar " + (person.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(person.name)}</span>
+    <span><strong>{person.name}{person.buddy && <span className="state-tag checked">训练搭子</span>}
+      {!sharingOnly && person.checkedIn !== undefined && <span className={"state-tag" + (person.checkedIn ? " checked" : "")}>
+        {person.checkedIn ? "今日已打卡" : "今日未打卡"}
+      </span>}</strong>
+      {!sharingOnly && <small>{["训练打卡", person.shared.training && "训练详情", person.shared.nutritionDetails ? "饮食详情" : person.shared.nutrition && "饮食状态"].filter(Boolean).join(" · ")}</small>}</span>
+    <ChevronRight size={18} aria-hidden="true" />
+  </button>;
+}
+
+function ContactList({ people, open }: { people: Friend[]; open: (person: Friend) => void }) {
+  const groups = new Map<string, Friend[]>();
+  for (const person of [...people].sort((a, b) => nameOrder.compare(a.name, b.name))) {
+    const letter = initial(person.name);
+    const group = groups.get(letter);
+    if (group) group.push(person);
+    else groups.set(letter, [person]);
+  }
+  const letters = Array.from(groups.keys()).sort((a, b) => a === "#" ? 1 : b === "#" ? -1 : a.localeCompare(b));
+  return <section className="card friend-contacts" aria-label="好友名单">
+    <nav className="friend-letters" aria-label="按首字母定位">
+      {letters.map((letter) => <button key={letter} type="button" aria-label={"跳转到 " + letter}
+        onClick={() => document.getElementById("friend-letter-" + letter)?.scrollIntoView({ block: "start" })}>{letter}</button>)}
+    </nav>
+    {letters.map((letter) => <section key={letter} className="friend-letter-group" id={"friend-letter-" + letter} aria-label={letter}>
+      <h3>{letter}</h3>
+      <div>{groups.get(letter)?.map((person) => <FriendRow key={person.id} person={person} open={() => open(person)} />)}</div>
+    </section>)}
+  </section>;
+}
+
+function FriendFeed({ days, today, open }: { days: Feed["days"]; today: string; open: (person: { id: string }, date: string) => void }) {
+  return <div className="feature-stack friend-feed" aria-label="好友训练动态">
+    {days.map(({ date, items }) => <section className="card padded feature-stack" key={date}>
+      <div className="section-head"><h2>{date === today ? "今天 · " : ""}{shortDate(date)}</h2></div>
+      {items.length === 0 && <p className="empty-copy">当天暂无可见训练打卡。</p>}
+      {items.map(({ friend, workouts }) => <button key={friend.id} type="button" className="friend-feed-entry" onClick={() => open(friend, date)}>
+        <span className={"avatar " + (friend.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(friend.name)}</span>
+        <span className="friend-feed-copy"><strong>{friend.name}</strong>
+          {!workouts?.length ? <small>训练已打卡</small> : workouts.map((workout) => <span key={workout.id} className="friend-feed-summary">
+            <span>{workout.title}</span>
+            <small>{[workout.category, workout.minutes > 0 ? displayNumber(workout.minutes) + " 分钟" : "",
+              workout.exercises > 0 ? workout.exercises + " 个动作" : "", workout.sets > 0 ? workout.sets + " 组" : ""].filter(Boolean).join(" · ")}</small>
+          </span>)}
+        </span>
+        <ChevronRight size={18} aria-hidden="true" />
+      </button>)}
+    </section>)}
+  </div>;
+}
+
+const privacyOptions = [
+  { key: "closed", label: "关闭朋友圈", description: "暂停向搭子和好友展示你的训练和饮食记录。" },
+  { key: "discoverable", label: "允许通过昵称搜索到我", description: "可以在添加好友时通过站内昵称搜索找到你。" },
+  { key: "recentOnly", label: "仅显示最近 3 天", description: "你与搭子、好友互相查看最近 3 天的活动。" },
+] as const;
+
+function SocialPrivacy({ preferences, busy, save }: {
+  preferences: SocialPreferences; busy: boolean; save: (preferences: SocialPreferences) => void;
+}) {
+  return <section className="card padded feature-stack friend-privacy">
+    <div className="friend-record-heading"><span className="tile lilac"><Lock size={18} aria-hidden="true" /></span><h2>朋友圈权限</h2></div>
+    {privacyOptions.map(({ key, label, description }) => <SharingSwitch title={label} description={description} checked={preferences[key]} disabled={busy}
+      key={key} change={(checked) => save({ ...preferences, [key]: checked })} />)}
+  </section>;
+}
+
+function FriendFinder({ incoming, outgoing, busy, send, openRequests }: {
+  incoming: FriendRequest[]; outgoing: FriendRequest[]; busy: boolean; send: (person: SocialPerson) => void; openRequests: () => void;
+}) {
+  const [input, setInput] = useState("");
+  const [submitted, setSubmitted] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const query = submitted ? endpoint + "?" + new URLSearchParams({ search: submitted }) : undefined;
+  const results = useFriendResource<{ results: SocialPerson[] }>(query, attempt);
+  return <>
+    <form className="form-fields friend-search-form" onSubmit={(event) => {
+      event.preventDefault();
+      if (!input.trim()) return;
+      setSubmitted(input.trim());
+      setAttempt((value) => value + 1);
+    }}>
+      <label>好友昵称<input type="search" value={input} maxLength={80} placeholder="输入对方的站内昵称" onChange={(event) => setInput(event.target.value)} /></label>
+      <button className="button primary" type="submit" disabled={!input.trim()}><Search size={17} aria-hidden="true" /> 搜索</button>
+    </form>
+    {query && !results.data && !results.error && <p className="muted" role="status">正在查找…</p>}
+    {results.error && <p className="inline-error" role="alert">{results.error}</p>}
+    {results.data?.results.length === 0 && <p className="empty-copy">暂无匹配用户。可以请对方开启昵称搜索，或改用邀请码。</p>}
+    {!!results.data?.results.length && <ul className="friend-people-list">
+      {results.data.results.map((person) => {
+        const pending = outgoing.some((item) => item.personId === person.id);
+        const received = incoming.some((item) => item.personId === person.id);
+        return <li className="friend-person-line" key={person.id}>
+          <span className="avatar lime" aria-hidden="true">{avatar(person.name)}</span><strong>{person.name}</strong>
+          <button className="button outline small" type="button" disabled={busy || pending}
+            onClick={() => received ? openRequests() : send(person)}>{received ? "处理申请" : pending ? "已申请" : "发送申请"}</button>
+        </li>;
+      })}
+    </ul>}
+  </>;
+}
+
+function FriendRequests({ state, busy, respond }: {
+  state: SocialState; busy: boolean; respond: (id: string, decision: "accept" | "decline" | "cancel") => void;
+}) {
+  return <>
+    {!state.incoming.length && !state.outgoing.length && <p className="empty-copy">暂无待处理的好友申请。</p>}
+    {state.incoming.length > 0 && <section className="feature-stack">
+      <h3>收到的申请</h3>
+      <p className="muted">接受后，双方可按各自的分享设置查看训练与饮食记录。</p>
+      <ul className="friend-people-list">{state.incoming.map((item) => <li className="friend-person-line with-actions" key={item.id}>
+        <span className="avatar lime" aria-hidden="true">{avatar(item.name)}</span><strong>{item.name}</strong>
+        <div className="friend-dialog-actions"><button className="button outline small" type="button" disabled={busy} onClick={() => respond(item.id, "decline")}>拒绝</button>
+          <button className="button primary small" type="button" disabled={busy} onClick={() => respond(item.id, "accept")}>接受</button></div>
+      </li>)}</ul>
+    </section>}
+    {state.outgoing.length > 0 && <section className="feature-stack">
+      <h3>发出的申请</h3>
+      <ul className="friend-people-list">{state.outgoing.map((item) => <li className="friend-person-line" key={item.id}>
+        <span className="avatar lime" aria-hidden="true">{avatar(item.name)}</span><strong>{item.name}</strong>
+        <button className="button outline small" type="button" disabled={busy} onClick={() => respond(item.id, "cancel")}>撤回申请</button>
+      </li>)}</ul>
+    </section>}
+  </>;
+}
+
+export function FriendsView({ enabled, today, initialFriendId, initialDate, sharingOnly = false, onChanged }: {
+  enabled: boolean; today: string; initialFriendId?: string; initialDate?: string; sharingOnly?: boolean; onChanged?: () => void;
 }) {
   const sharingView = useRef<HTMLDivElement>(null);
   const listUrl = sharingOnly ? endpoint : endpoint + "?" + new URLSearchParams({ today });
@@ -186,6 +364,9 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
   const [date, setDate] = useState(initialDate ?? today);
   const [dayRevision, setDayRevision] = useState(0);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteTab, setInviteTab] = useState<"search" | "code">("search");
+  const [requestsOpen, setRequestsOpen] = useState(false);
+  const [tab, setTab] = useState<FriendsTab>("contacts");
   const [removeOpen, setRemoveOpen] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -194,6 +375,20 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
   const friend = friends?.friends.find((item) => item.id === active);
   const invite = friends?.invite;
   const day = useFriendDay(enabled && !sharingOnly ? friend?.id : undefined, date, dayRevision);
+  const socialUrl = enabled ? endpoint + "?section=social" : undefined;
+  const feedUrl = enabled && !sharingOnly && tab === "feed" && !friend ? endpoint + "?feed=1" : undefined;
+  const social = useFriendResource<SocialState>(socialUrl, loadAttempt);
+  const feed = useFriendResource<Feed>(feedUrl, loadAttempt);
+
+  useEffect(() => {
+    if (sharingOnly) return;
+    const inviteLink = /^#friend-invite=([a-f0-9]{32})$/i.exec(window.location.hash);
+    if (inviteLink) {
+      setJoinCode(inviteLink[1].toLowerCase());
+      setInviteOpen(true);
+      setInviteTab("code");
+    }
+  }, [sharingOnly]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -221,9 +416,9 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
     else window.scrollTo({ top: 0 });
   }
 
-  function openFriend(item: Friend) {
+  function openFriend(item: { id: string }, selectedDate = today) {
     setActive(item.id);
-    setDate(today);
+    setDate(selectedDate);
     setError("");
     setStatus("");
     scrollToTop();
@@ -234,6 +429,20 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
     setError("");
     setStatus("");
     scrollToTop();
+  }
+
+  function openAdd() {
+    setInviteTab("search");
+    setInviteOpen(true);
+    setError("");
+    setStatus("");
+  }
+
+  function openRequests() {
+    setInviteOpen(false);
+    setRequestsOpen(true);
+    setError("");
+    setStatus("");
   }
 
   async function mutate(body: FriendMutation, message: string) {
@@ -250,11 +459,15 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
       if (body.action === "join") {
         setJoinCode("");
         setInviteOpen(false);
+        if (/^#friend-invite=[a-f0-9]{32}$/i.test(window.location.hash)) {
+          window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+        }
       }
       if (body.action === "remove") {
         setRemoveOpen(false);
         back();
       }
+      if (body.action === "join" || body.action === "remove" || body.action === "share") onChanged?.();
       setStatus(message);
     } catch (reason) {
       setError(errorText(reason));
@@ -263,11 +476,34 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
     }
   }
 
-  async function copyCode(code: string) {
+  async function mutateSocial(body: SocialMutation, message: string) {
+    if (busy || !socialUrl) return;
+    setBusy(true);
+    setError("");
+    setStatus("");
     try {
-      await navigator.clipboard.writeText(code);
+      const data = await request<SocialState>(socialUrl, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000),
+      });
+      social.replace(data);
+      if (body.action === "respond" && body.decision === "accept") setLoadAttempt((value) => value + 1);
+      if (body.action === "social-preferences" || body.action === "respond" && body.decision === "accept") onChanged?.();
+      setStatus(message);
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyInvite(code: string, link: boolean) {
+    const url = new URL("/", window.location.origin);
+    url.hash = "friend-invite=" + code;
+    try {
+      await navigator.clipboard.writeText(link ? url.href : code);
       setError("");
-      setStatus("好友邀请码已复制。");
+      setStatus(link ? "邀请链接已复制。" : "好友邀请码已复制。");
     } catch {
       setError("无法自动复制，可以长按邀请码复制。");
     }
@@ -276,7 +512,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
   if (!enabled) return <section className="card padded feature-stack">
     <h2>登录后查看好友</h2>
     <p className="muted">你可以邀请搭子、家人和朋友，并为每个人设置分享范围。</p>
-    <a className="button primary" href="/signin-with-chatgpt?return_to=%2F" target="_top">登录</a>
+    <a className="button primary" href={"/signin-with-chatgpt?return_to=" + encodeURIComponent(joinCode ? "/#friend-invite=" + joinCode : "/")} target="_top">登录</a>
   </section>;
 
   const feedback = <>{error && <p className="inline-error" role="alert">{error}</p>}
@@ -287,21 +523,21 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
     {listError && <section className="card padded feature-stack"><p className="inline-error" role="alert">{listError}</p>
       <button className="button outline" type="button" onClick={() => { setListError(""); setLoadAttempt((value) => value + 1); }}>重试</button></section>}
     {friends && !friends.friends.length && <p className="empty-copy">
-      {sharingOnly ? "添加好友或连接搭子后，可以在这里设置分享范围。" : "添加好友后，就能在这里点开对方分享的每日记录。"}
+      {sharingOnly ? "添加好友或连接搭子后，可以在这里设置分享范围。" : "添加好友后，可从联系人查看对方分享的每日记录。"}
     </p>}
     {active && friends && !listError && <p className="empty-copy">这位好友目前不可查看。</p>}
-    {Boolean(friends?.friends.length) && <section className="card padded friend-list" aria-label="好友名单">
-      {friends?.friends.map((item) => <button key={item.id} className="list-line friend-row" type="button" onClick={() => openFriend(item)}>
-        <span className={"avatar " + (item.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(item.name)}</span>
-        <span><strong>{item.name}{item.buddy && <span className="state-tag checked">训练搭子</span>}
-          {!sharingOnly && item.checkedIn !== undefined && <span className={"state-tag" + (item.checkedIn ? " checked" : "")}>
-            {item.checkedIn ? "今日已打卡" : "今日未打卡"}
-          </span>}</strong>
-          {!sharingOnly && <small>{["训练打卡", item.shared.training && "训练详情", item.shared.nutritionDetails ? "饮食详情" : item.shared.nutrition && "饮食状态"].filter(Boolean).join(" · ")}</small>}</span>
-        <ChevronRight size={18} aria-hidden="true" />
-      </button>)}
-    </section>}
+    {!!friends?.friends.length && (sharingOnly ?
+      <section className="card padded friend-list" aria-label="好友名单">
+        {friends.friends.map((person) => <FriendRow key={person.id} person={person} sharingOnly open={() => openFriend(person)} />)}
+      </section> :
+      <ContactList people={friends.friends} open={openFriend} />)}
   </>;
+
+  const socialError = social.error && <div className="feature-stack"><p className="inline-error" role="alert">{social.error}</p>
+    <button className="button outline" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>重新读取</button></div>;
+  const privacy = social.data ? <SocialPrivacy preferences={social.data.preferences} busy={busy}
+    save={(preferences) => void mutateSocial({ action: "social-preferences", preferences }, "朋友圈权限已保存。")} /> :
+    socialError || <p className="muted" role="status">正在读取朋友圈权限…</p>;
 
   if (sharingOnly) return <div className="feature-stack" ref={sharingView}>
     {friend ? <>
@@ -310,7 +546,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
         friend={friend} busy={busy}
         save={(sharing) => void mutate({ action: "share", id: friend.id, sharing }, "分享范围已保存。")} />
       {feedback}
-    </> : friendList}
+    </> : <>{privacy}{feedback}{friendList}</>}
   </div>;
 
   return <div className="friends-page feature-stack">
@@ -332,7 +568,9 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
         {day?.error && <div className="friend-status"><p className="inline-error" role="alert">{day.error}</p>
           <button className="text-button" type="button" onClick={() => setDayRevision((value) => value + 1)}>重新读取</button></div>}
       </section>
-      {day?.data && <FriendDailyRecords data={day.data} />}
+      {day?.data?.restricted
+        ? <section className="card padded"><p className="friend-private"><Lock size={15} aria-hidden="true" /> 朋友圈权限限制了这一天的记录。</p></section>
+        : day?.data && <FriendDailyRecords data={day.data} />}
       {!removeOpen && feedback}
       {!friend.buddy && <button className="text-button friend-remove" type="button" disabled={busy}
         onClick={() => { setRemoveOpen(true); setError(""); setStatus(""); }}>移除好友</button>}
@@ -342,30 +580,62 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
           <button className="button subtle" type="button" disabled={busy} onClick={() => void mutate({ action: "remove", id: friend.id }, "好友已移除。")}>确认移除</button></div>
       </Dialog>}
     </> : <>
-      <section className="card padded friend-intro">
-        <div className="friend-intro-copy"><span className="tile mint" aria-hidden="true"><Users size={22} /></span>
-          <div><h2>我的好友</h2><p className="muted">添加家人和朋友，互相查看训练打卡。</p></div></div>
-        <button className="button primary" type="button" disabled={!friends || busy}
-          onClick={() => { setInviteOpen(true); setError(""); setStatus(""); }}><UserRoundPlus size={18} aria-hidden="true" /> 添加好友</button>
-      </section>
-      {!inviteOpen && feedback}
-      {friendList}
+      <div className="segmented friends-tabs" role="group" aria-label="好友页面">
+        {tabOptions.map(([key, label]) => <button key={key} type="button" aria-pressed={tab === key}
+          onClick={() => { setTab(key); setError(""); setStatus(""); }}>{label}</button>)}
+      </div>
+      {!inviteOpen && !requestsOpen && feedback}
+      {tab === "contacts" && <>
+        <div className="section-head friend-contacts-toolbar">
+          <h2>联系人{friends && <span className="state-tag">{friends.friends.length} 位</span>}</h2>
+          <button className="button primary" type="button" disabled={busy} onClick={openAdd}><UserRoundPlus size={17} aria-hidden="true" /> 添加好友</button>
+        </div>
+        <section className="card padded friend-new">
+          <button className="list-line friend-row" type="button" onClick={openRequests}>
+            <span className="tile mint"><UserRoundPlus size={19} aria-hidden="true" /></span><span><strong>新的朋友
+              {!!social.data?.incoming.length && <span className="state-tag checked">{social.data.incoming.length} 条申请</span>}
+            </strong></span><ChevronRight size={18} aria-hidden="true" />
+          </button>
+        </section>
+        {friendList}
+      </>}
+      {tab === "feed" && (feed.data ? <FriendFeed days={feed.data.days} today={today} open={openFriend} /> :
+        feed.error ? <section className="card padded feature-stack"><p className="inline-error" role="alert">{feed.error}</p>
+          <button className="button outline" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>重新读取</button></section> :
+          <p className="muted" role="status">正在读取朋友圈…</p>)}
+      {tab === "privacy" && privacy}
     </>}
+    {requestsOpen && <Dialog title="新的朋友" onClose={() => { if (!busy) setRequestsOpen(false); }}>
+      <div className="dialog-body feature-stack">
+        {social.data ? <FriendRequests state={social.data} busy={busy} respond={(id, decision) =>
+          void mutateSocial({ action: "respond", id, decision }, decision === "accept" ? "好友已添加。" : decision === "decline" ? "已拒绝申请。" : "申请已撤回。")} /> :
+          socialError || <p className="muted" role="status">正在读取好友申请…</p>}
+        {feedback}
+      </div>
+    </Dialog>}
     {inviteOpen && <Dialog title="添加好友" onClose={() => { if (!busy) { setInviteOpen(false); setError(""); setStatus(""); } }}>
       <div className="dialog-body feature-stack">
         <section className="friend-invite-consent">
           <h3>添加后默认互相分享</h3>
-          <p>双方的每日训练打卡、训练详情和饮食记录状态，包括历史记录。具体吃了什么和营养数据可以单独开启。</p>
+          <p>好友默认互相分享训练打卡、训练详情和饮食记录状态，具体范围遵循双方的分享设置。</p>
         </section>
+        <div className="segmented friend-dialog-tabs" role="group" aria-label="添加好友方式">
+          <button type="button" aria-pressed={inviteTab === "search"} onClick={() => setInviteTab("search")}>搜索昵称</button>
+          <button type="button" aria-pressed={inviteTab === "code"} onClick={() => setInviteTab("code")}>邀请链接</button>
+        </div>
+        {inviteTab === "search" ? <FriendFinder incoming={social.data?.incoming ?? []} outgoing={social.data?.outgoing ?? []} busy={busy}
+          openRequests={openRequests} send={(person) => void mutateSocial({ action: "request", id: person.id }, "好友申请已发送。")} /> : <>
         <section className="feature-stack">
           <h3>我的邀请码</h3>
-          <p className="muted">把邀请码给已获网站访问权限的好友。对方登录训练搭子后输入邀请码，即可添加。</p>
+          <p className="muted">把邀请链接或邀请码给已获网站访问权限的好友。对方登录后可接受邀请。</p>
           {invite && Date.parse(invite.expiresAt) > Date.now() ? <>
             <label className="field-title" htmlFor="friend-invite-code">好友邀请码</label>
             <input className="friend-invite-code" id="friend-invite-code" readOnly value={invite.code} onFocus={(event) => event.target.select()} />
             <p className="muted">有效至 {new Date(invite.expiresAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}，使用一次后失效。</p>
             <div className="friend-dialog-actions"><button className="button primary" type="button" disabled={busy}
-              onClick={() => void copyCode(invite.code)}><Clipboard size={17} aria-hidden="true" /> 复制邀请码</button>
+              onClick={() => void copyInvite(invite.code, true)}><Link size={17} aria-hidden="true" /> 复制邀请链接</button>
+              <button className="button outline" type="button" disabled={busy}
+                onClick={() => void copyInvite(invite.code, false)}><Clipboard size={17} aria-hidden="true" /> 复制邀请码</button>
               <button className="button outline" type="button" disabled={busy}
                 onClick={() => void mutate({ action: "revoke" }, "邀请码已停用。")}>停用邀请码</button></div>
           </> : <button className="button primary" type="button" disabled={busy}
@@ -378,7 +648,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
           <label>对方的邀请码<input required type="text" autoCapitalize="none" autoComplete="off" spellCheck={false}
             maxLength={40} placeholder="输入或粘贴好友邀请码" value={joinCode} disabled={busy} onChange={(event) => setJoinCode(event.target.value)} /></label>
           <button className="button outline" disabled={busy || !/^[a-f0-9]{32}$/i.test(joinCode.trim())}>添加为好友</button>
-        </form>
+        </form></>}
         {feedback}
       </div>
     </Dialog>}

@@ -2,9 +2,10 @@ import { BarChart3, Check } from "lucide-react";
 import { offsetDate, shortDate, weekdayIndex, weekdays } from "@/shared/dates";
 import type { Checkin, Person, TrainingEntry } from "@/shared/state";
 
-export function WeekCheckins({ today, me, partner, partnerCheckins, logs, status, showStats }: {
+export function WeekCheckins({ today, me, partner, partnerCheckins, partnerCheckinsFrom, logs, status, showStats }: {
   today: string; me: Person; partner?: Person | null; logs: readonly TrainingEntry[];
   partnerCheckins?: readonly Checkin[];
+  partnerCheckinsFrom?: string;
   status: "ready" | "loading" | "offline" | "signed-out"; showStats: () => void;
 }) {
   const dates = Array.from({ length: 7 }, (_, index) => offsetDate(today, index - 6));
@@ -29,8 +30,10 @@ export function WeekCheckins({ today, me, partner, partnerCheckins, logs, status
           <span className="week-checkin-person" title={label}><strong>{label}</strong><small>{days.size} 天</small></span>
           {dates.map((date) => {
             const done = days.has(date);
-            return <span key={date} role="img" aria-label={label + " · " + shortDate(date) + (done ? " 已打卡" : " 未打卡")}
-              className={"week-checkin-dot" + (done ? " done" : "") + (date === today ? " current-day" : "")}>{done ? <Check size={13} /> : <i />}</span>;
+            const hidden = !own && partnerCheckinsFrom && date < partnerCheckinsFrom;
+            const description = label + " · " + shortDate(date) + (hidden ? " 未公开" : done ? " 已打卡" : " 未打卡");
+            return <span key={date} role="img" aria-label={description} title={hidden ? description : undefined}
+              className={"week-checkin-dot" + (done ? " done" : "") + (date === today ? " current-day" : "")}>{hidden ? "–" : done ? <Check size={13} /> : <i />}</span>;
           })}
         </div>;
       })}
