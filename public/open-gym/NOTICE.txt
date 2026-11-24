@@ -1,0 +1,27 @@
+目录来源和授权
+
+动作目录、中文翻译及肌肉数据来自 openGym，由 Duarte Santos 和项目贡献者维护。
+版本 e4a68a94c42a3c17cbd560d66ce2e46a7048ab99。
+目录数据保留 GNU AGPL v3.0 及原始条目的 MIT 许可。完整适用条款见 catalogue-source.zip 内的 LICENSE 和 NOTICE.md。
+https://github.com/DuarteSantos8/openGym/tree/e4a68a94c42a3c17cbd560d66ce2e46a7048ab99
+
+人体图来自 Melih Colpan 的 MuscleMap（MIT），包含原始主要肌群和子分区。许可见 MUSCLEMAP-MIT.txt。
+https://github.com/melihcolpan/MuscleMap/tree/d53ddf4d480b65979f1008b203e6b6eda0e67e54
+
+循环示意来自 Flow Exercise Dataset 的 CC0 1.0 自制帧，版本 961bb2739015da373daa43b960c28ee839fe93e6。
+按动作来源编号、英文名称和器械匹配。插画是动作示意，帧率仅为显示设置。
+https://github.com/ozansozuozgit/flow-exercise-dataset/tree/961bb2739015da373daa43b960c28ee839fe93e6
+许可和来源限制见 FLOW-ARTWORK-LICENSE.txt 与 FLOW-NOTICE.txt。
+
+部分目录动作的分帧示意来自 Workout Guide，由 Bryl Lim 创作，部分原始姿势由 Everkinetic 提供。
+这些帧根据 CC BY-SA 4.0 授权按原样转载。每帧的来源与改动记录见 workout-guide/attribution.json。
+https://github.com/bryllim/workout-guide/tree/aac599224bb9780305239607ef98540b7e0ce389
+
+原版 Gym visual 媒体需要独立许可。
+
+少量本地 MP4 动作示意来自 Workout Free Videos v2.0.0（CC0 1.0），按器械和训练动作匹配。
+https://github.com/namnq/workout-free-videos/tree/v2.0.0
+完整许可见 demo-video/LICENSE.txt。
+
+另有少量实拍示范来自 wger，由 Goulart 贡献，按 CC BY-SA 4.0 许可剪辑和转换。
+原始视频和许可链接见 demo-video/wger/CREDITS.txt。

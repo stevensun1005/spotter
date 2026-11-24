@@ -1,0 +1,16 @@
+.log-detail-body { display: grid; gap: 15px; }
+.log-overview { display: grid; gap: 10px; }
+.log-overview .totals { gap: 8px; }
+.log-exercises { padding: 12px; background: var(--card); border: 1px solid var(--stroke); border-radius: 14px; }
+.log-exercises h3 { font-size: 1rem; font-weight: 790; margin-bottom: 8px; }
+.log-detail-dialog .log-move { padding-block: 10px; }
+.log-detail-dialog .log-move:last-child { padding-block-end: 0; }
+.log-detail-dialog .log-move > div { display: grid; grid-template-columns: minmax(51px, auto) minmax(0, 1fr) 16px; align-items: start; gap: 8px; }
+.log-detail-dialog .log-move > div > span { overflow-wrap: anywhere; }
+.log-detail-dialog .log-move > div > svg { color: #40734a; }
+.dialog-footer.log-detail-actions { flex-wrap: wrap; justify-content: start; gap: 6px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+.log-detail-actions.dialog-footer > .button { min-width: 0; min-height: 42px; white-space: nowrap; }
+@media (max-width: 390px) {
+  .log-detail-actions.dialog-footer > .button { flex: 1 1 auto; padding-inline: 8px; gap: 4px; }
+  .log-detail-actions.dialog-footer > .button svg { width: 14px; height: 14px; }
+}

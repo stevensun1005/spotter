@@ -1,0 +1,53 @@
+.friends-page { max-width: 760px; margin-inline: auto; }
+.friend-intro { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 15px; }
+.friend-intro-copy, .friend-record-heading, .friend-profile { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.friend-intro-copy h2, .friend-record-heading h2, .friend-profile h2 { font-size: 1.13rem; font-weight: 790; overflow-wrap: anywhere; }
+.friend-record-heading > .state-tag { margin-inline-start: auto; }
+.friend-intro-copy p { margin-top: 4px; }
+.friend-intro-copy { flex: 1 1 250px; }
+.friend-list .friend-row { min-height: 63px; }
+.friend-row:hover { color: #36593c; }
+.friend-row strong { display: flex; flex-wrap: wrap; align-items: center; column-gap: 7px; }
+.friend-row strong, .friend-row small { min-width: 0; overflow-wrap: anywhere; }
+.friend-detail-heading { display: grid; align-items: start; gap: 3px; }
+.friend-back { min-height: 44px; justify-self: start; }
+.friend-profile { flex-wrap: wrap; }
+.friend-date { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 7px; }
+.friend-date .icon-button { width: 44px; height: 44px; }
+.friend-date input[type=date] { min-width: 0; }
+.friend-private, .friend-status { display: flex; align-items: center; gap: 6px; font-size: .88rem; color: var(--muted); }
+.friend-status[role=status] { border-radius: 9px; background: var(--mint); color: #385139; padding: 9px 11px; }
+.friend-workout { border: 1px solid var(--stroke); border-radius: 12px; overflow: hidden; }
+.friend-workout.simple, .friend-workout summary { padding: 10px 12px; min-height: 53px; }
+.friend-workout summary { display: flex; gap: 8px; justify-content: space-between; align-items: center; cursor: pointer; }
+.friend-workout[open] > summary > svg { transform: rotate(180deg); }
+.friend-workout summary::-webkit-details-marker { display: none; }
+.friend-workout strong, .friend-workout small { display: block; overflow-wrap: anywhere; }
+.friend-workout small, .friend-meal small, .friend-meal strong span, .friend-sets span:first-child { color: var(--muted); }
+.friend-moves { display: grid; gap: 11px; padding: 8px 12px 12px; }
+.friend-moves > li { display: grid; gap: 5px; border-top: 1px solid var(--stroke); padding-top: 9px; min-width: 0; }
+.friend-sets { display: grid; gap: 3px; }
+.friend-sets li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; font-size: .86rem; overflow-wrap: anywhere; }
+.friend-meal-list { display: grid; gap: 12px; }
+.friend-meal h3 { margin-block-end: 5px; font-size: 1rem; }
+.friend-meal li { display: grid; gap: 3px; padding: 7px 0; min-width: 0; overflow-wrap: anywhere; }
+.friend-meal li + li { border-top: 1px solid var(--stroke); }
+.friend-share-option { display: flex; align-items: center; justify-content: space-between; gap: 13px; min-height: 52px; padding: 8px 0; border-top: 1px solid var(--stroke); cursor: pointer; }
+.friend-share-option > span:first-child { display: grid; gap: 4px; }
+.friend-share-locked { cursor: default; }
+.friend-share-locked > .state-tag { align-items: center; gap: 4px; flex: none; }
+.friend-share-option strong { font-weight: 720; }
+.friend-share-option small { color: var(--muted); }
+.friend-sharing .button, .friend-remove { justify-self: start; }
+.friend-settings-dialog :is(.friend-list, .friend-sharing) { padding: 0; border: 0; box-shadow: none; }
+.friend-remove { color: #9d352e; min-height: 44px; }
+.friend-invite-consent { display: grid; gap: 5px; padding: 11px 13px; border-radius: 10px; background: var(--mint); color: #385139; }
+.friend-invite-consent p { font-size: .88rem; line-height: 1.45; }
+.friend-join { padding-top: 13px; border-top: 1px solid var(--stroke); }
+.friend-invite-code { font-family: ui-monospace, monospace; letter-spacing: .02em; }
+.friend-dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 440px) {
+  .friend-intro > .button { width: 100%; }
+  .friend-intro-copy { align-items: flex-start; }
+  .friend-intro-copy p { line-height: 1.5; }
+}

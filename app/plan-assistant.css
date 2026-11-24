@@ -1,0 +1,33 @@
+.plan-assistant { min-width: 0; }
+.plan-assistant-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.plan-assistant-tabs > button { display: flex; align-items: center; gap: 12px; padding: 17px 18px; min-width: 0; text-align: left; border: 1px solid var(--stroke); border-radius: 15px; color: var(--text); background: var(--card); }
+.plan-assistant-tabs > button > svg { flex: none; }
+.plan-assistant-tabs > button > span { display: grid; gap: 5px; font-weight: 700; }
+.plan-assistant-tabs small { font-size: .875rem; color: var(--muted); line-height: 1.5; font-weight: 400; }
+.plan-assistant-tabs > button[aria-pressed=true] { background: var(--lime); border-color: #b1d865; }
+.plan-assistant h2 { display: flex; align-items: center; gap: 8px; }
+.plan-ai-stack { display: grid; gap: 19px; }
+.plan-ai-stack[hidden] { display: none; }
+.plan-prompt-card > p { font-size: 1rem; line-height: 1.65; }
+.plan-prompt-intent { justify-self: start; flex-wrap: wrap; }
+.plan-prompt-card label { display: grid; gap: 6px; }
+.plan-prompt-card .prompt-text { margin: 0; min-width: 0; }
+.plan-assistant-feedback { padding: 12px; border-radius: 10px; background: var(--mint); }
+.plan-format-hint { display: grid; gap: 12px; padding: 13px; border: 1px solid var(--stroke); border-radius: 12px; background: #f2f7ed; font-size: 1rem; line-height: 1.6; }
+.plan-format-hint > button { justify-self: start; }
+.plan-import-help { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--stroke); padding-top: 13px; }
+.plan-assistant-related { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.plan-assistant-related > div { flex: 1; min-width: 180px; }
+.plan-assistant-related p { font-size: .9rem; line-height: 1.6; margin-top: 5px; }
+.plan-import-stack .import-form { margin-top: 0; }
+.plan-import-stack .import-preview { min-width: 0; }
+@media (max-width: 620px) {
+  .plan-assistant-tabs { gap: 8px; }
+  .plan-assistant-tabs > button { padding: 13px 11px; gap: 8px; align-items: start; }
+  .plan-assistant-tabs > button > span { font-size: .95rem; }
+  .plan-assistant-tabs small { font-size: .875rem; }
+  .plan-prompt-intent { width: 100%; }
+  .plan-assistant .exercise-toolbar { flex-wrap: wrap; }
+  .plan-assistant-related { align-items: start; }
+}
+@media (max-width: 360px) { .plan-assistant-tabs { grid-template-columns: minmax(0, 1fr); } }

@@ -1,0 +1,298 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Dumbbell, Keyboard, Minimize2, MoreHorizontal, NotebookPen, Pause, PencilLine, Play, Plus } from "lucide-react";
+import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
+import { freeWorkoutTitle, sessionTotals, type Session } from "./model";
+import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldValue, flipWeightUnit, validNumberText, type NumberField, type SetTarget } from "./set-editor";
+import { fieldLabels, SetRow } from "./set-row";
+import { WorkoutKeypad } from "./workout-keypad";
+import { ProteinCheck } from "./protein-check";
+import { ExercisePicker } from "@/features/exercises/exercise-picker";
+import type { Move } from "@/features/plans/model";
+import { prescriptionText } from "@/features/plans/prescription";
+import { pauseClock, resumeClock, workoutElapsed } from "./clock";
+import { parsePlanMove } from "@/features/exercises/move-name";
+import { fromCatalogue, useCatalogue, type ExerciseChoice } from "@/features/exercises/open-gym";
+import { exerciseTempo, tempoNotationHint } from "@/features/exercises/tempo";
+import { blockTitle, defaultRest, nextSet, restFor, trainingBlocks, type SetPosition } from "./sequence";
+
+const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, "0")).join(":");
+
+type Edit = SetTarget & { text: string; pristine: boolean };
+
+export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein }: {
+  data: Session; update: (next: Session) => void; finish: () => void; close: () => void;
+  pending: boolean; error: string; sync: string; onExercise?: (choice: ExerciseChoice) => void; trackProtein?: boolean;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const [edit, setEdit] = useState<Edit | null>(null);
+  const [padNotice, setPadNotice] = useState("");
+  const [openedMove, setOpenedMove] = useState(() => nextSet(data.plan, data.rows)?.move ?? 0);
+  const [focusSet, setFocusSet] = useState<SetPosition>();
+  const movedFocus = useRef<SetPosition>(undefined);
+  const [panel, setPanel] = useState<"settings" | "note">();
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  const [picker, setPicker] = useState<number>();
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  const editedMove = edit?.move;
+  const editedRow = edit?.row;
+  useEffect(() => {
+    if (editedMove !== undefined && editedRow !== undefined) {
+      document.getElementById("workout-set-" + editedMove + "-" + editedRow)?.scrollIntoView({ block: "nearest" });
+    }
+  }, [editedMove, editedRow]);
+
+  useEffect(() => {
+    if (!focusSet || movedFocus.current === focusSet) return;
+    movedFocus.current = focusSet;
+    const target = document.getElementById("workout-set-" + focusSet.move + "-" + focusSet.row);
+    target?.querySelector<HTMLButtonElement>(".check-button")?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "nearest" });
+  }, [focusSet]);
+
+  const plan = data.plan;
+  const blocks = trainingBlocks(plan.exercises);
+  const { data: catalogue } = useCatalogue();
+  const pendingSet = nextSet(plan, data.rows);
+  const activeBlock = pendingSet && blocks.find((block) => block.moves.includes(pendingSet.move));
+  const activeSlot = activeBlock && pendingSet && activeBlock.slots[activeBlock.moves.indexOf(pendingSet.move)];
+  const elapsed = workoutElapsed(data, now);
+  const running = data.clock?.runningSince != null;
+  const timer = showTime(Math.floor(elapsed / 1000));
+  const rest = data.rest ? Math.max(0, Math.ceil((data.rest.until - elapsed) / 1000)) : 0;
+  const restSeconds = data.defaultRestOverride ?? defaultRest(plan);
+  const { sets: done, volume } = sessionTotals(data);
+  const total = data.rows.flat().length;
+  const showFinish = trackProtein && confirmFinish;
+  const progressTotal = total + Number(Boolean(plan.video));
+  const defaultTitle = plan.category === "有氧训练" ? "有氧训练" : freeWorkoutTitle;
+
+  function activate(target: SetTarget, session = data) {
+    const value = fieldValue(session.rows[target.move][target.row], target.field);
+    setEdit({ ...target, text: value === undefined ? "" : String(value), pristine: true });
+    setPadNotice("");
+    setOpenedMove(target.move);
+  }
+
+  function openKeypad() {
+    const { move, row } = pendingSet ?? { move: 0, row: 0 };
+    activate({ move, row, field: data.plan.exercises[move].seconds > 0 ? "seconds" : "weight" });
+  }
+
+  function digit(key: string) {
+    if (!edit) return;
+    const base = edit.pristine ? "" : edit.text;
+    const raw = key === "Backspace" ? (edit.pristine ? edit.text : base).slice(0, -1) : base + key;
+    const text = raw.replace(/^0+(?=\d)/, "");
+    if (!validNumberText(edit.field, text)) return;
+    setEdit({ ...edit, text, pristine: false });
+    const next = changeNumber(data, edit, text);
+    if (next !== data) update(next);
+  }
+
+  function closePad() {
+    if (edit) document.getElementById("workout-set-" + edit.move + "-" + edit.row)
+      ?.querySelector<HTMLButtonElement>("[aria-expanded=true]")?.focus({ preventScroll: true });
+    setEdit(null);
+    setPadNotice("");
+  }
+
+  function renderPad() {
+    if (!edit) return null;
+    const { move, row, field } = edit;
+    const item = data.plan.exercises[move];
+    const group = data.rows[move];
+    const line = group[row];
+    const setKind = (kind: "warmup" | "drop") => update(changeSet(data, move, row, (value) => ({ ...value, kind: value.kind === kind ? undefined : kind })));
+    const invalid = field === "rpe" && Boolean(edit.text) && (Number(edit.text) < 1 || !Number.isInteger(Number(edit.text) * 2));
+    return <>
+      {padNotice && <p className="keypad-notice" role="status">{padNotice}</p>}
+      <WorkoutKeypad label={"第 " + (row + 1) + " 组 · " + fieldLabels[field] + (field.endsWith("eight") ? " (" + item.unit + ")" : "")}
+        value={edit.text} decimal={decimalField(field)} invalid={invalid} press={digit} close={closePad}
+        left={[
+          { text: item.unit === "kg" ? "用 lb" : "用 kg", name: "换算此动作重量为 " + (item.unit === "kg" ? "lb" : "kg"), press: () => {
+            const next = flipWeightUnit(data, move);
+            if (next === data) { setPadNotice("换算后超过单组可记录的最大重量。"); return; }
+            update(next); activate(edit, next);
+          } },
+          { text: "热身组", name: "标记热身组", active: line.kind === "warmup", press: () => setKind("warmup") },
+          { text: "递减组", name: "标记递减组", active: line.kind === "drop", press: () => setKind("drop") },
+          { text: line.right ? "仅留左侧" : "记录左右", name: line.right ? "仅保留左侧数据" : "此组分别记录左右侧", disabled: item.seconds > 0, active: Boolean(line.right), press: () => {
+            const next = changeSet(data, move, row, (value) => ({
+              ...value, right: value.right ? undefined : { weight: value.weight, reps: value.reps },
+            }));
+            update(next);
+            activate({ move, row, field: field.startsWith("right") ? "weight" : field }, next);
+          } },
+        ]}
+        right={[
+          { text: <><Plus size={15} /> 加一组</>, name: "添加一组", disabled: group.length >= 30, press: () => {
+            const next = appendSet(data, move, row);
+            update(next); activate({ move, row: group.length, field }, next);
+          } },
+          { text: <><ArrowUp size={15} /> 向上填</>, name: "将这个值填到上方各组", disabled: !row || invalid || (field === "rpe" && line.rpe === undefined), press: () => update(copySetNumber(data, edit, -1)) },
+          { text: <><ArrowDown size={15} /> 向下填</>, name: "将这个值填到下方各组", disabled: row === group.length - 1 || invalid || (field === "rpe" && line.rpe === undefined), press: () => update(copySetNumber(data, edit, 1)) },
+          { text: "RPE", name: "编辑本组 RPE", active: field === "rpe", press: () => activate({ move, row, field: "rpe" }) },
+        ]} />
+    </>;
+  }
+
+  function toggleSet(move: number, row: number) {
+    const marked = !data.rows[move][row].done;
+    const next = changeSet(data, move, row, (line) => ({ ...line, done: marked }));
+    if (!marked) { update({ ...next, rest: undefined }); return; }
+    setEdit(null);
+    const from = { move, row };
+    const target = nextSet(plan, next.rows, from);
+    if (!target) { update({ ...next, rest: undefined }); return; }
+    const restPlan = { ...plan, defaultRestSeconds: restSeconds };
+    const pause = restFor(restPlan, from, target);
+    const markedAt = Date.now();
+    setNow(markedAt);
+    setOpenedMove(target.move);
+    setFocusSet(target);
+    update({ ...next, rest: pause.seconds ? { until: workoutElapsed(next, markedAt) + pause.seconds * 1000, kind: pause.kind } : undefined });
+  }
+
+  function useExercise(move: Move) {
+    if (picker === undefined) return;
+    const index = picker < 0 ? data.plan.exercises.length : picker;
+    const rows = Array.from({ length: move.sets }, () => ({ reps: move.reps, weight: move.weight, seconds: move.seconds, done: false }));
+    if (index >= 30 || data.rows[index]?.some((line) => line.done)) { setPicker(undefined); return; }
+    const exercises = [...data.plan.exercises];
+    const next = [...data.rows];
+    exercises[index] = { ...move, name: parsePlanMove(move.name).name };
+    next[index] = rows;
+    setEdit(null); setOpenedMove(index); setPicker(undefined);
+    update({ ...data, plan: { ...data.plan, exercises }, rows: next });
+  }
+
+  return <main className="training-page" aria-label="正在训练">
+    <div className="training-shell workout-shell">
+      <header className="workout-header">
+        <h1 className="sr-only">正在训练</h1>
+        <div className="workout-header-row">
+          <div className="workout-clock">
+            <span className="workout-timer" role="timer" aria-label="训练用时">{timer}</span>
+            <button type="button" className="workout-clock-toggle" aria-label={running ? "暂停计时" : "继续计时"} disabled={pending}
+              onClick={() => {
+                const stamp = Date.now();
+                setNow(stamp);
+                update(running ? pauseClock(data, stamp) : resumeClock(data, stamp));
+              }}>
+              {running ? <Pause size={19} fill="currentColor" /> : <Play size={19} fill="currentColor" />}
+            </button>
+          </div>
+          <button type="button" className="button primary workout-finish" aria-label={pending ? "正在保存" : "完成打卡"}
+            disabled={pending || Boolean(edit) || (!done && !data.finishedVideo)}
+            onClick={() => { if (trackProtein) setConfirmFinish(true); else finish(); }}>{pending ? "正在保存" : "完成"}</button>
+        </div>
+        <div className="workout-header-row">
+          {data.planId === "" ? <label className="workout-title-field">
+            <PencilLine size={18} aria-hidden="true" />
+            <input aria-label="训练标题" placeholder="输入训练标题" defaultValue={plan.title === freeWorkoutTitle ? "" : plan.title}
+              maxLength={100} disabled={pending}
+              onChange={(event) => update({ ...data, plan: { ...plan, title: event.target.value.trim() || defaultTitle } })} />
+          </label> : <div className="workout-title"><p className="muted">{plan.category}</p><h2>{plan.title}</h2></div>}
+          <div className="workout-summary">
+            <strong>{done}/{total} 组</strong><small>{displayNumber(volume)} kg 容量</small>
+          </div>
+        </div>
+        <p className="workout-sync">{sync}</p>
+        {data.rest && <div className="rest-counter workout-rest-counter" aria-label="休息计时">
+          <span>{rest ? data.rest.kind + " " + showTime(rest) : "休息结束"}</span>
+          <button className="button subtle small" type="button" disabled={pending}
+            onClick={() => update({ ...data, rest: undefined })}>{rest ? "跳过" : "关闭"}</button>
+        </div>}
+      </header>
+    <div className="dialog-body workout-body">
+      {plan.durationNote && <p className="muted">{plan.durationNote}</p>}
+      {progressTotal > 0 && <progress value={done + Number(data.finishedVideo)} max={progressTotal} aria-label="训练进度" />}
+      <fieldset disabled={pending} className="session-fields">
+        {data.plan.video && <div className="video-panel"><VideoLink url={data.plan.video} /><label className="toggle-label"><input type="checkbox" checked={data.finishedVideo} onChange={(e) => update({ ...data, finishedVideo: e.target.checked })} /> 已完成跟练</label></div>}
+        {pendingSet && <div className="workout-next" role="status">
+          <span>下一组</span><strong>{activeSlot} · {parsePlanMove(plan.exercises[pendingSet.move].name).name}</strong>
+          <span>第 {pendingSet.row + 1} {activeBlock && activeBlock.moves.length > 1 ? "轮" : "组"}</span>
+        </div>}
+        {blocks.map((block) => <section className="workout-block" key={block.moves[0]}>
+          {(block.label || block.station) && <div className="sequence-heading">
+            <h3>{blockTitle(block)}</h3><span>{[block.station, block.moves.length > 1 && "循环 " + block.rounds + " 轮"].filter(Boolean).join(" · ")}</span>
+          </div>}
+          {block.moves.map((i, slot) => {
+            const item = plan.exercises[i];
+            const { name, cue } = parsePlanMove(item.name);
+            const move = { ...item, name, cue: item.cue ?? cue };
+            const tempo = exerciseTempo(move, fromCatalogue(catalogue, move), plan.category);
+            return <details className="set-card" key={i} open={openedMove === i}>
+          <summary onClick={(event) => { event.preventDefault(); setOpenedMove(openedMove === i ? -1 : i); }}>
+            <span className="sequence-slot">{block.label ? block.slots[slot] : <Dumbbell size={17} />}</span>
+            <strong>{move.name}</strong><span className="set-summary"><span className="muted">{data.rows[i].filter((line) => line.done).length}/{move.sets} 组</span><ChevronDown size={16} /></span>
+          </summary>
+          {move.cue && <p className="muted set-prescription">{move.cue}</p>}
+          {prescriptionText(move) && <p className="muted set-prescription">{prescriptionText(move)} · 实际 RPE 在组记录中填写</p>}
+          <p className="muted set-prescription" title={tempo.numeric ? tempoNotationHint : undefined}>{tempo.label} {tempo.text}</p>
+          {(move.repsMax || move.restSeconds) && <p className="muted set-prescription">{move.seconds ? move.seconds + " 秒／组" : move.reps + (move.repsMax && move.repsMax > move.reps ? "–" + move.repsMax : "") + " 次／组"}
+            {move.restSeconds !== undefined ? " · " + (block.moves.length > 1 ? "轮间" : "组间") + "休息 " + move.restSeconds + " 秒" : ""}</p>}
+          <div className="workout-exercise-actions" role="group" aria-label="动作操作">
+            {onExercise && <button type="button" className="button subtle" onClick={() => onExercise({ ...move, trainingCategory: plan.category })}><BookOpen size={16} /> 查看动作详情</button>}
+            <button type="button" className="button subtle" disabled={data.rows[i].some((line) => line.done)} onClick={() => setPicker(i)}>替换动作</button>
+          </div>
+          {data.rows[i].map((line, j) => <div id={"workout-set-" + i + "-" + j} key={j} className={pendingSet?.move === i && pendingSet.row === j ? "workout-next-set" : undefined}><SetRow move={move} line={line} index={j}
+            selected={edit?.move === i && edit.row === j ? edit.field : undefined}
+            edit={(field) => activate({ move: i, row: j, field })}
+            toggle={() => toggleSet(i, j)} /></div>)}
+            </details>;
+          })}
+        </section>)}
+      </fieldset>
+      {error && !showFinish && <p className="inline-error" role="alert">{error}</p>}
+    </div>
+    {edit ? renderPad() : <div className="workout-actions" role="group" aria-label="训练操作">
+      <button type="button" disabled={pending} onClick={close}><Minimize2 size={22} /> 最小化</button>
+      <button type="button" disabled={pending} onClick={() => setPanel("settings")}><MoreHorizontal size={22} /> 更多</button>
+      <button type="button" className="workout-add-action" aria-label="添加动作" disabled={pending || plan.exercises.length >= 30}
+        onClick={() => setPicker(-1)}><span><Plus size={23} /></span>加动作</button>
+      <button type="button" disabled={pending} onClick={() => setPanel("note")}><NotebookPen size={22} /> 写心得</button>
+      <button type="button" disabled={pending || !total} onClick={openKeypad}><Keyboard size={22} /> 数字键盘</button>
+    </div>}
+    </div>
+    {panel === "settings" && <Dialog title="训练设置" onClose={() => setPanel(undefined)}>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        const restOverride = Number(fields.get("rest"));
+        const minutes = Number(fields.get("minutes"));
+        update({ ...data, defaultRestOverride: restOverride === restSeconds ? data.defaultRestOverride : restOverride, minutes });
+        setPanel(undefined);
+      }}>
+        <div className="dialog-body form-fields">
+          <label>本次默认休息（秒）<input type="number" name="rest" min={0} max={600} defaultValue={restSeconds} required /></label>
+          <label>实际时长（分钟）<input type="number" name="minutes" min={0} max={720} defaultValue={data.minutes || ""} placeholder="留空时使用计时" /></label>
+        </div>
+        <div className="dialog-footer"><button type="submit" className="button primary">保存设置</button></div>
+      </form>
+    </Dialog>}
+    {panel === "note" && <Dialog title="训练心得" onClose={() => setPanel(undefined)}>
+      <div className="dialog-body">
+        <textarea aria-label="训练心得" value={data.note} maxLength={1500} placeholder="今天练得怎么样？" rows={4}
+          onChange={(event) => update({ ...data, note: event.target.value })} />
+      </div>
+      <div className="dialog-footer"><button type="button" className="button primary" onClick={() => setPanel(undefined)}>完成</button></div>
+    </Dialog>}
+    {showFinish && <Dialog title="完成训练" onClose={() => { if (!pending) setConfirmFinish(false); }}>
+      <div className="dialog-body">
+        <ProteinCheck checked={data.proteinShake === true} disabled={pending} save={(proteinShake) => update({ ...data, proteinShake })} />
+        {error && <p className="inline-error" role="alert">{error}</p>}
+      </div>
+      <div className="dialog-footer">
+        <button className="button outline" type="button" disabled={pending} onClick={() => setConfirmFinish(false)}>返回训练</button>
+        <button className="button primary" type="button" disabled={pending} onClick={finish}><Check size={18} /> {pending ? "正在保存" : "保存打卡"}</button>
+      </div>
+    </Dialog>}
+    {picker !== undefined && <ExercisePicker allowBlank={false} prior={data.plan.exercises[picker]} names={data.plan.exercises.map((move) => move.name)} close={() => setPicker(undefined)} onUse={useExercise} />}
+  </main>;
+}

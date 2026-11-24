@@ -1,0 +1,7 @@
+.family-chooser-fields.form-fields { gap: 10px; }
+.family-chooser-fields select { width: 100%; }
+.family-chooser-preview { display: grid; gap: 4px; padding: 9px 11px; background: #eef4e8; border-radius: 9px; }
+.family-chooser-preview strong { font-size: .94rem; overflow-wrap: anywhere; }
+.family-chooser-preview p { color: var(--muted); font-size: .84rem; line-height: 1.45; }
+.family-chooser-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 12px 0; }
+.family-chooser-inline .dialog-footer { position: static; border-radius: 0 0 var(--radius) var(--radius); }
