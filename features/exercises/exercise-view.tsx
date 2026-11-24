@@ -7,7 +7,7 @@ import { errorText } from "@/shared/client";
 import type { TrainingEntry } from "@/shared/state";
 import { blankProfile, exerciseName, type ExerciseProfile } from "@/features/library/model";
 import { guides, exerciseNames } from "./catalog";
-import { exerciseHistory } from "./history";
+import { exerciseHistory, type MaxFormula } from "./history";
 import { ExerciseProgress } from "./progress";
 import { MuscleBreakdown } from "./anatomy";
 import { ExerciseAnimation } from "./exercise-animation";
@@ -31,6 +31,7 @@ const sections = [
 type ExerciseDetailProps = {
   choice: ExerciseChoice; close: () => void; select: (choice: ExerciseChoice) => void; profiles: ExerciseProfile[]; names: string[];
   logs: TrainingEntry[]; owner: string; save: (profile: ExerciseProfile) => Promise<void>; addToPlan?: (choice: ExerciseChoice, row?: CatalogEntry) => void;
+  maxFormula?: MaxFormula;
 };
 
 export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
@@ -63,7 +64,7 @@ export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
   </Dialog>;
 }
 
-function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data }: Omit<ExerciseDetailProps, "close"> & {
+function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data, maxFormula }: Omit<ExerciseDetailProps, "close"> & {
   item: CatalogEntry | undefined; data: ReturnType<typeof useCatalogue>["data"];
 }) {
   const { name, catalogueId } = choice;
@@ -97,7 +98,7 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
   const [addingVideo, setAddingVideo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const history = tab === "guide" || tab === "versions" ? [] : exerciseHistory(name, logs, owner, catalogueId);
+  const history = tab === "guide" || tab === "versions" ? [] : exerciseHistory(name, logs, owner, catalogueId, maxFormula);
   async function update(item: ExerciseProfile, complete?: () => void) {
     setBusy(true); setError("");
     try { await save(item); complete?.(); }

@@ -2,11 +2,6 @@
   --stats-accent: #226544;
   --stats-muted: #59675e;
   --stats-surface: #f5f8f2;
-  --heat-1: #d9ebd8;
-  --heat-2: #aed7ad;
-  --heat-3: #76b884;
-  --heat-4: #479464;
-  --heat-5: #216348;
   max-width: 950px;
   margin-inline: auto;
 }
@@ -87,15 +82,59 @@
 .stats-chart { height: clamp(210px, 54vw, 290px); min-width: 0; }
 .stats-empty { padding: 16px 12px; background: var(--stats-surface); border-radius: 12px; color: var(--stats-muted); font-size: .88rem; }
 
-.stats-activity-layout { display: flex; gap: 8px; min-width: 0; }
-.stats-activity-days { display: grid; grid-template-rows: repeat(7, 12px); gap: 3px; padding-top: 2px; color: var(--stats-muted); font-size: .68rem; line-height: 12px; }
-.stats-activity-days span:nth-child(2) { grid-row: 3; }
-.stats-activity-days span:nth-child(3) { grid-row: 5; }
-.stats-activity-days span:nth-child(4) { grid-row: 7; }
-.stats-activity { display: grid; grid-template-rows: repeat(7, 12px); grid-auto-flow: column; gap: 3px; width: 100%; min-width: 0; overflow-x: auto; padding: 2px 2px 6px; }
-.stats-activity i { width: 12px; height: 12px; background: #e2e9e0; border-radius: 3px; }
-.stats-activity .stats-activity-blank { visibility: hidden; }
-.stats-activity .stats-activity-active { outline: 1px solid #235444; outline-offset: 1px; }
+.stats-activity-panel {
+  --activity-zero: #e7ede5;
+  --activity-one: #c5e4c2;
+  --activity-two: #8bc791;
+  --activity-three: #54a373;
+  --activity-four: #26724b;
+  --activity-outline: #20503b;
+}
+.stats-activity-total { font-size: .86rem; color: var(--stats-muted); font-weight: 600; }
+.stats-activity-card { border: 1px solid var(--stroke); border-radius: 12px; padding: 10px 11px; min-width: 0; }
+.stats-activity-layout { --activity-cell: 12px; --activity-gap: 3px; display: flex; gap: 8px; min-width: 0; }
+.stats-activity-days {
+  display: grid; grid-template-rows: repeat(7, var(--activity-cell)); gap: var(--activity-gap); flex: none;
+  padding-top: 22px; color: var(--stats-muted); font-size: .72rem; line-height: var(--activity-cell);
+}
+.stats-activity-days span:nth-child(1) { grid-row: 2; }
+.stats-activity-days span:nth-child(2) { grid-row: 4; }
+.stats-activity-days span:nth-child(3) { grid-row: 6; }
+.stats-activity-scroll { min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding: 2px 2px 5px; }
+.stats-activity-matrix { display: grid; row-gap: 4px; width: max-content; }
+.stats-activity-months, .stats-activity {
+  display: grid; grid-template-columns: repeat(var(--activity-weeks), var(--activity-cell)); column-gap: var(--activity-gap);
+}
+.stats-activity-months { font-size: .72rem; line-height: 16px; color: var(--stats-muted); white-space: nowrap; }
+.stats-activity { grid-template-rows: repeat(7, var(--activity-cell)); grid-auto-flow: column; row-gap: var(--activity-gap); }
+.stats-activity button, .stats-activity-legend i {
+  width: var(--activity-cell, 12px); height: var(--activity-cell, 12px); padding: 0; border: 1px solid #1b312314;
+  border-radius: 2px; background: var(--activity-zero);
+}
+.stats-activity-panel [data-level="1"] { background: var(--activity-one); }
+.stats-activity-panel [data-level="2"] { background: var(--activity-two); }
+.stats-activity-panel [data-level="3"] { background: var(--activity-three); }
+.stats-activity-panel [data-level="4"] { background: var(--activity-four); }
+.stats-activity button:is(:hover, [aria-pressed=true]) { outline: 1px solid var(--activity-outline); outline-offset: 0; }
+.stats-activity button:focus-visible { outline: 2px solid var(--activity-outline); outline-offset: 0; z-index: 1; }
+.stats-activity-footer, .stats-activity-legend {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px; color: var(--stats-muted); font-size: .73rem;
+}
+.stats-activity-footer { justify-content: space-between; gap: 6px 12px; margin-top: 4px; }
+@media (pointer: coarse) { .stats-activity-layout { --activity-cell: 14px; } }
+:root[data-spotter-theme="dark"] .stats-activity-panel {
+  --stats-muted: var(--muted);
+  --activity-zero: var(--stroke);
+  --activity-one: #235438;
+  --activity-two: #30794c;
+  --activity-three: #499c61;
+  --activity-four: #6ac77f;
+  --activity-outline: var(--text);
+  border-color: var(--stroke);
+}
+:root[data-spotter-theme="dark"] .stats-activity-panel :is(.stats-activity-card, input[type="date"]) {
+  background: var(--canvas);
+}
 
 .stats-heat-legend { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; justify-content: center; font-size: .8rem; color: var(--stats-muted); }
 .stats-heat-legend i { width: 16px; height: 10px; border-radius: 3px; }

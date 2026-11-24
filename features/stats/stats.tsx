@@ -8,7 +8,8 @@ import { muscleBlues, neutralMuscle } from "@/features/exercises/muscle-colors";
 import { type ExerciseChoice, useCatalogue } from "@/features/exercises/open-gym";
 import type { TrainingEntry } from "@/shared/state";
 import { displayNumber } from "@/shared/ui";
-import { offsetDate, weekdayIndex } from "@/shared/dates";
+import { offsetDate } from "@/shared/dates";
+import { ActivityCalendar } from "./activity-calendar";
 import {
   cumulative, metrics, muscleGroups, periodLabel, periodRange, previousRange, rangeDays, summarize,
   type Metric, type Period, type Range, type StatsSummary,
@@ -48,42 +49,14 @@ function Trend({ selected, set, current, comparison, range, compare }: {
           <stop offset="0%" stopColor="#74b587" stopOpacity={0.45} />
           <stop offset="100%" stopColor="#74b587" stopOpacity={0.05} />
         </linearGradient></defs>
-        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#dce7d8" />
-        <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={24} tick={{ fontSize: 11, fill: "#59675e" }} />
-        <YAxis tickLine={false} axisLine={false} width={36} tick={{ fontSize: 11, fill: "#59675e" }} tickFormatter={(n: number) => new Intl.NumberFormat("zh-CN", { notation: "compact" }).format(n)} />
+        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--stroke)" />
+        <XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={24} tick={{ fontSize: 11, fill: "var(--stats-muted)" }} />
+        <YAxis tickLine={false} axisLine={false} width={36} tick={{ fontSize: 11, fill: "var(--stats-muted)" }} tickFormatter={(n: number) => new Intl.NumberFormat("zh-CN", { notation: "compact" }).format(n)} />
         <Tooltip labelFormatter={(day) => "本期 " + day} formatter={(value, name) => [displayNumber(Number(value)) + " " + unit, name === "value" ? "本期" : "对比期同进度"]} />
-        {other && <Area type="stepAfter" dataKey="previous" stroke="#6f7e6a" fill="none" strokeDasharray="5 4" isAnimationActive={false} />}
-        <Area type="stepAfter" dataKey="value" stroke="#226544" fill={"url(#" + gradient + ")"} strokeWidth={2.5} isAnimationActive={false} />
+        {other && <Area type="stepAfter" dataKey="previous" stroke="var(--stats-muted)" fill="none" strokeDasharray="5 4" isAnimationActive={false} />}
+        <Area type="stepAfter" dataKey="value" stroke="var(--stats-accent)" fill={"url(#" + gradient + ")"} strokeWidth={2.5} isAnimationActive={false} />
       </AreaChart></ResponsiveContainer>
     </div> : <p className="stats-empty">这个周期打卡后，这里会显示累计曲线。</p>}
-  </section>;
-}
-
-function ActivityCalendar({ current, range, today }: { current: StatsSummary; range: Range; today: string }) {
-  const to = range.to < today ? range.to : today;
-  const cutoff = offsetDate(to, -365);
-  const from = range.from > cutoff ? range.from : cutoff;
-  const [day, setDay] = useState<string>();
-  const active = day && day >= from && day <= to ? day : to;
-  const activeCount = current.daily.get(active)?.sessions ?? 0;
-  const dates = Array.from({ length: Math.max(0, rangeDays({ from, to })) }, (_, i) => offsetDate(from, i));
-  const blanks = weekdayIndex(from);
-  const weeks = Math.max(1, Math.ceil((dates.length + blanks) / 7));
-  return <section className="card padded stats-panel">
-    <div className="stats-section-heading"><h2>训练活跃日历</h2><span className="muted">{from} — {to}</span></div>
-    <div className="stats-activity-layout">
-      <div className="stats-activity-days" aria-hidden="true"><span>一</span><span>三</span><span>五</span><span>日</span></div>
-      <div className="stats-activity" style={{ gridTemplateColumns: "repeat(" + weeks + ", 12px)" }} aria-hidden="true">
-        {Array.from({ length: blanks }, (_, i) => <i key={i} className="stats-activity-blank" />)}
-        {dates.map((date) => {
-          const count = current.daily.get(date)?.sessions ?? 0;
-          return <i key={date} className={date === active ? "stats-activity-active" : undefined}
-            title={date + " · " + count + " 次"} style={{ background: count ? "var(--heat-" + Math.min(5, count + 1) + ")" : undefined }} />;
-        })}
-      </div>
-    </div>
-    <label className="stats-compare-select">查看单日<input type="date" min={from} max={to} value={active} onChange={(e) => setDay(e.target.value)} />
-      <span aria-live="polite">{activeCount} 次打卡 · {current.daily.get(active)?.sets ?? 0} 组</span></label>
   </section>;
 }
 
@@ -158,9 +131,10 @@ function Performance({ current, comparison, onExercise, pinned = defaultPins, sa
   </section>;
 }
 
-export function Stats({ today, logs, self, partner, onExercise, pinned, savePins }: {
+export function Stats({ today, logs, self, partner, onExercise, pinned, savePins, maxFormula }: {
   today: string; logs: TrainingEntry[]; self: string; partner: { id: string; name: string } | null;
   onExercise: (choice: ExerciseChoice) => void; pinned?: string[]; savePins?: (ids: string[]) => Promise<void>;
+  maxFormula?: import("@/features/exercises/history").MaxFormula;
 }) {
   const [period, setPeriod] = useState<Period>("week");
   const [stepping, setStepping] = useState(0);
@@ -173,6 +147,7 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
   const [trend, setTrend] = useState<Metric>("volume");
   const { data, error } = useCatalogue();
   const range = periodRange(period, today, stepping, recent, custom);
+  const activityEnd = range.to < today ? range.to : today;
   const customValid = range.from <= range.to && rangeDays(range) <= 3660 && range.from >= "1900-01-01";
   const compare = comparison === "year"
     ? { from: lastYear(range.from), to: lastYear(range.to) }
@@ -180,9 +155,9 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
   const { current, former } = useMemo(() => {
     const owned = logs.filter((log) => log.kind === "log" && log.owner === subject);
     const slice = (span: Range) => owned.filter((log) => log.data.date >= span.from && log.data.date <= span.to);
-    return { current: summarize(customValid ? slice(range) : [], data?.rows ?? [], "all"),
-      former: comparison === "none" || !customValid ? undefined : summarize(slice(compare), data?.rows ?? [], "all") };
-  }, [logs, subject, range.from, range.to, compare.from, compare.to, data, comparison, customValid]);
+    return { current: summarize(customValid ? slice(range) : [], data?.rows ?? [], "all", maxFormula),
+      former: comparison === "none" || !customValid ? undefined : summarize(slice(compare), data?.rows ?? [], "all", maxFormula) };
+  }, [logs, subject, range.from, range.to, compare.from, compare.to, data, comparison, customValid, maxFormula]);
   const focus = metric === "volume" ? current.total.volume / (customValid ? rangeDays(range) : 1) : current.total[metric];
   const formerFocus = former && (metric === "volume" ? former.total.volume / rangeDays(compare) : former.total[metric]);
   const max = Math.max(1, focus, formerFocus ?? 0);
@@ -241,7 +216,7 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
           </div>)}</div>
       </section>
       <Trend selected={trend} set={setTrend} current={current} comparison={former} range={range} compare={compare} />
-      <ActivityCalendar current={current} range={range} today={today} />
+      <ActivityCalendar key={subject + "/" + activityEnd} logs={logs} owner={subject} end={activityEnd} />
       <MusclePanel current={current} loading={!data && !error} error={error} />
       <Performance key={subject} current={current} comparison={former} onExercise={onExercise} pinned={subject === self ? pinned : undefined} savePins={subject === self ? savePins : undefined} />
     </>}

@@ -33,9 +33,9 @@ export function validNumberText(field: NumberField, text: string) {
     (text === "." || Number(text) <= limits[field]);
 }
 
-export function changeNumber(session: Session, target: SetTarget, text: string) {
+export function changeNumber(session: Session, target: SetTarget, text: string, effortScale: "rpe" | "rir" = "rpe") {
   if (!validNumberText(target.field, text) || text === ".") return session;
-  const number = Number(text);
+  const number = target.field === "rpe" && effortScale === "rir" ? 10 - Number(text) : Number(text);
   if (target.field === "rpe" && text && (number < 1 || !Number.isInteger(number * 2))) return session;
   return changeSet(session, target.move, target.row, (line) => setNumber(line, target.field, text ? number : undefined));
 }

@@ -162,7 +162,7 @@
     min-height: 0;
     overflow: clip;
   }
-  .app:has(.training-sections > .catalogue-browser) .mobile-nav { position: static; }
+  .app:has(.training-sections > .catalogue-browser) .primary-nav { position: static; }
   .app:has(.training-sections > .catalogue-browser) .stage,
   .app:has(.training-sections > .catalogue-browser) .content,
   .training-sections:has(> .catalogue-browser),

@@ -1,10 +1,13 @@
 .app.app-history {
+  display: grid;
   height: 100dvh;
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   overflow: clip;
 }
-.app-history .stage { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.app-history .stage { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.app-history .primary-nav { position: static; }
 .app-history .content {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -117,27 +120,17 @@
 .history-key i { flex: none; width: 12px; height: 7px; border-radius: 10px; background: var(--history-tone); }
 
 @media (max-width: 840px) {
-  .app.app-history {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
-  }
-  .app-history .stage { grid-template-rows: minmax(0, 1fr); }
-  .app-history .mobile-nav { position: static; }
   .app-history .content { padding-block: 8px; }
 }
 @media (max-height: 660px) {
   .app-history .content { padding-block: 5px; }
-  .app-history .topbar { min-height: 45px; }
   .app-history .stats-page-tabs > button { min-height: 36px; }
+  .app-history .primary-nav { padding-block: 3px calc(3px + env(safe-area-inset-bottom)); }
+  .app-history .primary-nav button { min-height: 44px; }
   .history-month-card { gap: 3px; padding-block: 7px; }
   .history-month-bar .icon-button { width: 36px; height: 36px; }
   .history-calendar-record > span { -webkit-line-clamp: 1; }
   .history-date { font-size: .76rem; }
-}
-@media (max-width: 840px) and (max-height: 660px) {
-  .app-history .mobile-nav { padding-block: 3px calc(3px + env(safe-area-inset-bottom)); }
-  .app-history .mobile-nav button { min-height: 44px; }
 }
 
 .history-day-list { display: grid; gap: 8px; min-width: 0; }

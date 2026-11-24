@@ -10,9 +10,9 @@ export const fieldLabels: Record<NumberField, string> = {
 };
 export const kindLabels = { warmup: "热身", drop: "递减" };
 
-export function SetRow({ move, line, index, selected, edit, toggle }: {
+export function SetRow({ move, line, index, selected, edit, toggle, showEffort = true, effortScale = "rpe" }: {
   move: Move; line: SetLine; index: number; selected?: NumberField;
-  edit: (field: NumberField) => void; toggle: () => void;
+  edit: (field: NumberField) => void; toggle: () => void; showEffort?: boolean; effortScale?: "rpe" | "rir";
 }) {
   const rowLabel = move.name + " 第 " + (index + 1) + " 组";
   const timed = move.seconds > 0;
@@ -30,7 +30,9 @@ export function SetRow({ move, line, index, selected, edit, toggle }: {
         {field(timed ? "seconds" : "reps", timed ? "秒" : line.right ? "左 次" : "次", timed ? "秒数" : line.right ? "左侧次数" : "次数")}
       </div>
       {line.right && <div className="set-field-line">{field("rightWeight", "右 " + move.unit)}{field("rightReps", "右 次")}</div>}
-      {line.rpe !== undefined && <button type="button" className="set-rpe" aria-label={rowLabel + "RPE"} onClick={() => edit("rpe")}>RPE {line.rpe}</button>}
+      {showEffort && line.rpe !== undefined && <button type="button" className="set-rpe" aria-label={rowLabel + effortScale.toUpperCase()} onClick={() => edit("rpe")}>
+        {effortScale.toUpperCase()} {effortScale === "rir" ? 10 - line.rpe : line.rpe}
+      </button>}
     </div>
     <button className="check-button" type="button" aria-pressed={line.done} aria-label={rowLabel + "完成"} onClick={toggle}><Check size={20} /></button>
   </div>;

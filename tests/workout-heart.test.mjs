@@ -335,6 +335,36 @@ test("period statistics keep unit conversions, hot spots, and previous periods c
   assert.equal(summarize([log], catalogue, "bodyweight").total.sessions, 0);
 });
 
+test("the yearly activity grid keeps complete chronological weeks and only includes the selected person's check-ins", async () => {
+  const { activityLevel, buildActivityCalendar } = await import("../features/stats/activity-model.ts");
+  const end = "2024-03-02";
+  const move = { name: "杠铃卧推", sets: 2, reps: 6, weight: 45, unit: "lb", seconds: 0 };
+  const plan = { title: "力量", date: end, category: "力量训练", minutes: 40, video: "", shared: false, exercises: [move] };
+  const session = training.startSession(plan, "plan", end);
+  session.rows[0][0].done = true;
+  const log = (id, date, owner = "self", kind = "log") => ({ id, kind, owner, updated: "", data: { ...session, date } });
+  const records = [
+    log("leap", "2024-02-29"), log("same-day", "2024-02-29"), log("start", "2023-03-04"),
+    log("earlier", "2023-03-03"), log("future", "2024-03-03"),
+    log("draft", end, "self", "draft"), log("partner", end, "partner"),
+  ];
+  const self = buildActivityCalendar(records, "self", end);
+  assert.equal(self.from, "2023-03-04");
+  assert.equal(self.blankDays, 6);
+  assert.equal(self.weeks, 53);
+  assert.equal(self.dates.length, 365);
+  assert.equal(self.dates.at(-1).date, end);
+  assert.equal(self.total, 3);
+  assert.deepEqual(self.dates.find(({ date }) => date === "2024-02-29"), { date: "2024-02-29", sessions: 2, sets: 2 });
+  assert.equal(self.dates.at(-1).sessions, 0);
+  assert.ok(self.months.some(({ id }) => id === "2024-03"));
+  assert.equal(new Set(self.months.map(({ position }) => position)).size, self.months.length);
+  const partner = buildActivityCalendar(records, "partner", end);
+  assert.equal(partner.total, 1);
+  assert.equal(partner.daily.get(end).sessions, 1);
+  assert.equal(activityLevel(9), 4);
+});
+
 test("backup scopes keep body measurements distinct from nutrition", async () => {
   const { backupSchema, emptyBackup, scopeBackup } = await import("../features/data/model.ts");
   const row = { kind: "nutrition", date: "2026-11-23", id: "a0014d9d-483e-4755-99f9-7fb75d53fa31" };

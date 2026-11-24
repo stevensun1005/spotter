@@ -194,7 +194,9 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
         <span className="catalogue-thumb" aria-hidden="true">{cover
           ? <img src={cover} loading="lazy" alt="" />
           : <span className="catalogue-name-cover">{[...name].slice(0, 2).join("")}</span>}</span>
-        <span className="catalogue-exercise-text"><strong>{pinned && <Star size={13} fill="currentColor" aria-label="已置顶" />} {caption}</strong>
+        <span className="catalogue-exercise-text"><strong>{pinned && <Star size={13} fill="currentColor" aria-label="已置顶" />} {row?.en ? <>
+          <span className="catalogue-local-name">{caption}</span><span className="catalogue-english-name" lang="en">{row.en}</span>
+        </> : caption}</strong>
           <small>{row ? [match ?? label(row.target), label(row.equipment), family && family.variants.length + " 个变式"].filter(Boolean).join(" · ") : ownCaption}</small></span>
       </button>
       {quick && <button type="button" className="icon-button catalogue-add"

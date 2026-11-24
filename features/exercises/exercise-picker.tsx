@@ -6,6 +6,7 @@ import { ChevronLeft, Plus } from "lucide-react";
 import { Dialog } from "@/shared/ui";
 import type { Move } from "@/features/plans/model";
 import { type ExerciseProfile } from "@/features/library/model";
+import { readGymEquipment } from "@/features/settings/equipment-settings";
 import { blockTitle } from "@/features/training/sequence";
 import { catalogueCover, catalogueDemo } from "./catalogue-demo";
 import { parsePlanMove } from "./move-name";
@@ -20,7 +21,7 @@ export { defaultCatalogMove } from "./replacements";
 
 const defaultOptions: ReplacementOptions = { sameStationOnly: true, available: [], avoidKneeling: false, avoidJumping: false };
 
-export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlank = true, replacementContext, identityOnly }: {
+export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlank = true, replacementContext, identityOnly, newMoveDefaults }: {
   onUse: (move: Move) => void;
   close: () => void;
   prior?: Move;
@@ -29,11 +30,12 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
   allowBlank?: boolean;
   replacementContext?: ReplacementContext;
   identityOnly?: boolean;
+  newMoveDefaults?: Pick<Move, "sets" | "reps" | "unit">;
 }) {
   const catalogue = useCatalogue();
   const [config, setConfig] = useState<{ move: Move; item?: CatalogEntry; station?: "same" | "changed" | "unknown" }>();
   const [mode, setMode] = useState<"suggested" | "catalogue">("suggested");
-  const [options, setOptions] = useState(defaultOptions);
+  const [options, setOptions] = useState(() => prior ? { ...defaultOptions, available: readGymEquipment() } : defaultOptions);
   const suggestions = useMemo(() => prior && catalogue.data && mode === "suggested"
     ? recommendReplacements(catalogue.data, prior, options, names) : [], [catalogue.data, mode, names, options, prior]);
   const previous = replacementReference(catalogue.data, prior);
@@ -41,8 +43,13 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
     previous?.equipment === "barbell" ? [...commonReplacementGear, ...barbellReplacementGear] : commonReplacementGear;
   const preview = replacementContext && config ? replacementPlan(replacementContext, config.move) : undefined;
 
-  function configure(choice: ExerciseChoice, item?: CatalogEntry) {
+  function pickedMove(choice: ExerciseChoice, item?: CatalogEntry) {
     const move = defaultCatalogMove(choice, item, prior);
+    return !prior && newMoveDefaults ? { ...move, ...newMoveDefaults, reps: move.reps <= 1 ? move.reps : newMoveDefaults.reps } : move;
+  }
+
+  function configure(choice: ExerciseChoice, item?: CatalogEntry) {
+    const move = pickedMove(choice, item);
     const station = !prior ? undefined : !item ? "unknown" : sameReplacementStation(previous, item, prior.station) ? "same" : "changed";
     if (station === "changed" && prior && (prior.station || prior.block) && item) {
       const gear = replacementEquipment(item).map(replacementGearLabel);
@@ -53,7 +60,7 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
   }
   const use = (choice: ExerciseChoice, item?: CatalogEntry) => {
     if (prior || (!choice.name && !allowBlank)) { configure(choice, item); return; }
-    onUse(defaultCatalogMove(choice, item, prior));
+    onUse(pickedMove(choice, item));
   };
   function confirm(event: FormEvent) {
     event.preventDefault();

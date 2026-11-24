@@ -13,8 +13,8 @@ registerHooks({ resolve(specifier, context, next) {
   if (specifier === "cloudflare:workers") {
     return mocked('export const env = globalThis[Symbol.for("spotter-offline-checkin-test")].env;');
   }
-  if (specifier === "../../chatgpt-auth" && context.parentURL?.endsWith("/app/api/workout/route.ts")) {
-    return mocked('export async function getChatGPTUser() { return { userId: globalThis[Symbol.for("spotter-offline-checkin-test")].owner, email: "offline-example@example.com" }; }');
+  if ((specifier === "../../chatgpt-auth" && context.parentURL?.endsWith("/app/api/workout/route.ts")) || specifier === "@/app/chatgpt-auth") {
+    return mocked('export async function getChatGPTUser() { const userId = globalThis[Symbol.for("spotter-offline-checkin-test")].owner; return userId ? { userId, email: "offline-example@example.com" } : null; }');
   }
   if (specifier.startsWith("@/")) return next(new URL(specifier.slice(2) + ".ts", root).href, context);
   if (specifier.startsWith(".") && context.parentURL?.endsWith(".ts")) {
@@ -70,6 +70,7 @@ function database(t) {
       return {
         bind(...args) { values = args; return this; },
         async first() { return statement.get(...values) ?? null; },
+        async all() { return { results: statement.all(...values) }; },
         async run() { return { meta: { changes: statement.run(...values).changes } }; },
       };
     },
@@ -205,4 +206,67 @@ test("a rest reminder crosses only its active deadline once", () => {
   assert.equal(crossedRestDeadline(after, after), false);
   assert.equal(crossedRestDeadline(before, { until: undefined, elapsed: 5000 }), false);
   assert.equal(crossedRestDeadline(before, { until: 5010, elapsed: 5010 }), false);
+});
+
+test("CSV export is account-scoped, date-filtered and safe for spreadsheets", async (t) => {
+  const { GET } = await import("../app/api/data/route.ts");
+  const sql = database(t);
+  sql.exec("CREATE TABLE personal_library (owner TEXT, id TEXT, kind TEXT, day TEXT, payload TEXT)");
+  const addTraining = sql.prepare("INSERT INTO entries (owner,id,kind,payload) VALUES (?,?,?,?)");
+  const date = "2026-11-24";
+  const started = Date.parse("2026-11-24T19:00:00Z");
+  const strength = workout();
+  strength.date = date;
+  strength.started = started;
+  strength.ended = started + 1_200_000;
+  strength.minutes = 20;
+  strength.plan = { ...plan, title: "\u200b ＝SUM(\"1,2\")", exercises: [{ ...plan.exercises[0], sets: 3, block: "A", sourceSlot: "A1" }] };
+  strength.rows = [[{ ...strength.rows[0][0], kind: "warmup", seconds: 25, rpe: 7, right: { weight: 21, reps: 9 } },
+    { weight: 20, reps: 99, seconds: 0, done: false }, { weight: 10, reps: 5, seconds: 0, kind: "drop", done: true }]];
+  addTraining.run(owner, "STRENGTH", "log", JSON.stringify(strength));
+  addTraining.run(owner, "DRAFT", "draft", JSON.stringify(strength));
+  addTraining.run(another, "OTHER_ACCOUNT", "log", JSON.stringify(strength));
+  addTraining.run(owner, "OLDER", "log", JSON.stringify({ ...strength, date: "2026-11-23" }));
+  const cardio = { ...startFreeSession(date, "incline"), started: started + 3_600_000, minutes: 4,
+    cardio: { activity: "incline-walk", durationSeconds: 245, distanceKm: 0.4, speedKmh: 5.8, incline: { kind: "percent", value: -5 } } };
+  addTraining.run(owner, "CARDIO", "log", JSON.stringify(cardio));
+  const video = { ...startFreeSession(date), started: started + 7_200_000, finishedVideo: true,
+    plan: { ...plan, category: "跟练视频", title: "已完成跟练", video: "https://youtu.be/example", exercises: [] } };
+  addTraining.run(owner, "VIDEO", "log", JSON.stringify(video));
+  const addBody = sql.prepare("INSERT INTO personal_library VALUES (?,?,'nutrition',?,?)");
+  const body = (person, id, day, entry) => addBody.run(person, id, day, JSON.stringify({ kind: "nutrition", id, date: day, entry }));
+  body(owner, "WEIGHT", date, { type: "weight", kg: 73.4 });
+  body(owner, "WAIST", date, { type: "measurement", metric: "waist", value: 82.5 });
+  body(another, "OTHER_BODY", date, { type: "weight", kg: 60 });
+  body(owner, "OLDER_BODY", "2026-11-23", { type: "weight", kg: 65 });
+  body(owner, "WATER", date, { type: "water", ml: 250 });
+  const download = (scope, format = "csv") =>
+    GET(new Request("https://spotter.example/api/data?format=" + format + "&scope=" + scope + "&from=" + date + "&to=" + date));
+  worker.owner = undefined;
+  assert.equal((await download("training")).status, 401);
+  worker.owner = owner;
+  const response = await download("training");
+  assert.equal(response.headers.get("content-type"), "text/csv; charset=utf-8");
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.match(response.headers.get("content-disposition"), /attachment; filename=spotter-training-.+\.csv$/);
+  const csv = Buffer.from(await response.arrayBuffer()).toString("utf8");
+  assert.ok(csv.startsWith("\uFEFF\"日期\""));
+  const [header, warmup, drop, aerobic, followed] = csv.trimEnd().split("\r\n");
+  assert.match(header, /"重量单位".*"RPE".*"循环组别"/);
+  assert.ok(warmup.includes("\"'\u200b ＝SUM(\"\"1,2\"\")\""));
+  assert.match(warmup, /"2026-11-24T19:00:00.000Z".*1,"热身",20,"kg",10,21,9,7,25,"A","A1"/);
+  assert.match(drop, /"STRENGTH".*3,"递减",10,"kg",5/);
+  assert.match(aerobic, /"CARDIO".*"爬坡走",245,0\.4,5\.8,-5,"%","有氧记录"/);
+  assert.match(followed, /"VIDEO".*"是".*"视频跟练"/);
+  assert.equal(csv.trimEnd().split("\r\n").length, 5);
+  assert.doesNotMatch(csv, /OTHER_ACCOUNT|DRAFT|OLDER|,99,/);
+
+  const measurements = await (await download("body")).text();
+  assert.match(measurements, /"WEIGHT","体重",73\.4,"kg"/);
+  assert.match(measurements, /"WAIST","腰围",82\.5,"cm"/);
+  assert.doesNotMatch(measurements, /OTHER_BODY|OLDER_BODY|WATER|STRENGTH/);
+  assert.equal((await download("nutrition")).status, 400);
+  const json = await download("body", "json");
+  assert.equal(json.headers.get("content-type"), "application/json; charset=utf-8");
+  assert.equal((await json.json()).library.length, 2);
 });

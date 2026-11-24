@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cloud,
-  Bookmark, CalendarClock, Copy, Dumbbell, GraduationCap, House, LogIn, Menu, Play, Plus, Settings2, Sparkles, Trash2, Utensils, Users,
+  Bookmark, CalendarClock, Copy, Dumbbell, GraduationCap, House, LogIn, Play, Plus, Settings, Sparkles, Trash2, Utensils, Users,
 } from "lucide-react";
 import {
   asDate, examples, offsetDate, planBlank, sessionTotals, startFreeSession, startSession,
@@ -49,9 +49,13 @@ import { BodyView } from "@/features/body/body-view";
 import { DataView } from "@/features/data/data-view";
 import { ProgramView } from "@/features/programs/program-view";
 import { CoachingView } from "@/features/coaching/coaching-view";
-import { HardDriveDownload, Ruler } from "lucide-react";
+import { AgentPack } from "@/features/agent/agent-pack";
+import { useDisplayPreferences } from "@/features/settings/display-preferences";
+import { SettingsHub, type SettingsPage } from "@/features/settings/settings-hub";
+import { SettingsContent } from "@/features/settings/settings-content";
+import { useWorkoutReminder } from "@/features/settings/reminders";
 
-type View = "today" | "plans" | "programs" | "assistant" | "coaching" | "stats" | "friends" | "nutrition" | "body" | "data" | "settings" | "more";
+type View = "today" | "plans" | "programs" | "assistant" | "coaching" | "stats" | "friends" | "nutrition" | "body" | "data" | "settings";
 type KeyedPlan = { id: string; data: Plan; revision?: string };
 type Overlay = { kind: "pair" | "launch" | "friend-sharing" } |
   { kind: "schedule"; restDay?: string; settings: Schedule; revision: string | null } |
@@ -60,20 +64,17 @@ type Overlay = { kind: "pair" | "launch" | "friend-sharing" } |
   { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } |
   { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
-const navigation = [
-  { id: "today", title: "今日训练", mobile: "今日", icon: House },
-  { id: "plans", title: "训练", mobile: "训练", icon: Dumbbell },
-  { id: "programs", title: "训练周期", mobile: "", icon: CalendarClock },
-  { id: "assistant", title: "添加计划", mobile: "", icon: Sparkles },
-  { id: "nutrition", title: "饮食记录", mobile: "饮食", icon: Utensils },
-  { id: "stats", title: "统计", mobile: "统计", icon: BarChart3 },
-  { id: "friends", title: "好友", mobile: "好友", icon: Users },
-  { id: "coaching", title: "教练与学员", mobile: "", icon: GraduationCap },
-  { id: "body", title: "身体数据", mobile: "", icon: Ruler },
-  { id: "data", title: "数据导出与导入", mobile: "", icon: HardDriveDownload },
-  { id: "settings", title: "设置", mobile: "", icon: Settings2 },
-  { id: "more", title: "更多功能", mobile: "更多", icon: Menu },
+const primaryTabs = [
+  { id: "today", label: "今日", icon: House },
+  { id: "plans", label: "训练", icon: Dumbbell },
+  { id: "nutrition", label: "饮食", icon: Utensils },
+  { id: "stats", label: "统计", icon: BarChart3 },
+  { id: "friends", label: "好友", icon: Users },
 ] as const;
+const pageTitles: Partial<Record<View, string>> = {
+  programs: "训练周期", assistant: "添加计划", friends: "好友",
+  coaching: "教练与学员", body: "身体数据", data: "数据导出与导入", settings: "设置",
+};
 const demoUser = { id: "demo", name: "我" };
 const demoPartner = { id: "demo-partner", name: "搭子" };
 
@@ -121,6 +122,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
   const [view, setView] = useState<View>(heartReturn ? "stats" : "today");
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>();
+  const { display, changeDisplay } = useDisplayPreferences();
   const [assistantMode, setAssistantMode] = useState<"import" | "ai">("import");
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
@@ -301,10 +304,18 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const canManageToday = current?.owner === me.id;
   const sentCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === me.id && entry.data.date === today);
   const receivedCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === partner?.id && asDate(Date.parse(entry.updated)) === today);
-  const weekStart = offsetDate(selected, -weekdayIndex(selected));
+  const sundayFirst = display.firstWeekday === "sunday";
+  const weekStart = offsetDate(selected, -((weekdayIndex(selected) + Number(sundayFirst)) % 7));
+  const weekDays = sundayFirst ? [weekdays[6], ...weekdays.slice(0, 6)] : weekdays;
+  const weekEnd = offsetDate(weekStart, 6);
+  const weeklyCheckins = logs.filter((item) => item.owner === me.id && item.data.date >= weekStart && item.data.date <= weekEnd).length;
+  useWorkoutReminder({ owner: viewer?.id ?? "", today,
+    scheduled: !trainingNav.id && !overlay && pendingPlans.some((item) => item.owner === me.id && item.data.date === today), notify: setToast });
+  const latestOwnWorkout = logs.find((item) => item.owner === me.id && item.data.date <= today);
 
   const go = (next: View) => {
-    setView(next);
+    setView(next === "data" ? "settings" : next);
+    if (next === "settings" || next === "data") setSettingsPage(next === "data" ? "data" : undefined);
     setPlanTab(undefined);
     if (next === "plans" && view !== "plans") setPlanStatus("pending");
     setWarning("");
@@ -312,6 +323,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     if (next === "stats" && view !== "stats") setStatsTab("overview");
     window.scrollTo({ top: 0 });
   };
+  function openSetting(page?: SettingsPage) {
+    setSettingsPage(page);
+    window.scrollTo({ top: 0 });
+  }
   function openPlanAssistant(mode: "import" | "ai") {
     setAssistantMode(mode);
     go("assistant");
@@ -567,7 +582,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     </div>;
   }
 
-  const exerciseDialog = exercise && <ExerciseDetail key={exercise.catalogueId ?? exercise.name} choice={exercise} close={() => setExercise(undefined)}
+  const exerciseDialog = exercise && <ExerciseDetail key={exercise.catalogueId ?? exercise.name} choice={exercise} close={() => setExercise(undefined)} maxFormula={display.maxFormula}
     select={setExercise} profiles={profiles} names={exerciseNames} logs={logs} owner={me.id}
     save={(item) => library.save({ kind: "exercise", item })} addToPlan={trainingNav.id ? undefined : planExercise} />;
 
@@ -585,24 +600,23 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       }} />;
   }
 
-  const showPageHeading = view !== "plans" && view !== "stats" && view !== "nutrition";
-  const heading = navigation.find((item) => item.id === view)?.title;
+  const showPageHeading = view !== "plans" && view !== "stats" && view !== "nutrition" && view !== "settings";
+  const heading = pageTitles[view];
+  const activeTab = view === "programs" || view === "assistant" ? "plans"
+    : view === "coaching" ? "friends" : view === "body" ? "stats" : view;
   const calendarOpen = view === "stats" && statsTab === "history";
   return <div className={calendarOpen ? "app app-history" : "app"}>
-    <aside className="sidebar">
-      <button className="brand" onClick={() => go("today")}><span className="brand-mark"><Dumbbell size={23} strokeWidth={2.5} /></span><span>训练搭子<small>SPOTTER CLUB</small></span></button>
-      <nav aria-label="主导航" className="desktop-nav">
-        {navigation.filter((item) => item.id !== "more").map(({ id, icon: Icon, title }) => <button className={id === view ? "active" : ""} aria-current={id === view ? "page" : undefined} key={id} onClick={() => go(id)}><Icon size={19} /><span>{title}</span>{id === view && <i />}</button>)}
-      </nav>
-      <button className="sidebar-pair" onClick={() => open({ kind: "pair" })}><span className="tile lilac"><Users size={19} /></span><span><strong>搭子空间</strong><small>{partner ? "查看搭子" : "邀请训练搭子"}</small></span><ChevronRight size={16} /></button>
-      <div className="sidebar-footer"><span className="avatar lime">{avatar(me.name)}</span><div><strong>{me.name}</strong><small>{demo ? "演示账号" : "个人账号"}</small></div></div>
-    </aside>
     <div className="stage">
-      <header className={view === "today" ? "topbar" : "topbar topbar-secondary"}>
-        <div className="crumb"><span className="mini-mark"><Dumbbell size={18} /></span><span>训练搭子</span><span className="crumb-slash">/</span><strong>{navigation.find((item) => item.id === view)?.title}</strong></div>
-        <div className="top-actions"><span className="cloud-status"><Cloud size={17} />{cloud}</span><button className="top-profile" onClick={() => open({ kind: "pair" })} aria-label="账号与搭子空间"><span className="avatar lime">{avatar(me.name)}</span><ChevronDown size={15} /></button></div>
-      </header>
-      <main className="content">
+      {view === "today" && <header className="topbar">
+        <div className="topbar-inner">
+          <div className="app-wordmark"><span className="mini-mark"><Dumbbell size={18} aria-hidden="true" /></span><span>训练搭子</span></div>
+          <div className="top-actions">
+            {display.cloud && <span className="cloud-status"><Cloud size={17} aria-hidden="true" />{cloud}</span>}
+            <button className="icon-button home-settings" type="button" onClick={() => go("settings")} aria-label="设置" title="设置"><Settings size={21} aria-hidden="true" /></button>
+          </div>
+        </div>
+      </header>}
+      <main className={view === "today" ? "content content-today" : "content"}>
         {showPageHeading && <div className={view === "today" ? "page-heading today-heading" : "page-heading"}>
           <div>{view === "today"
             ? <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>
@@ -616,7 +630,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         </div>}
 
         {view === "today" && <div className="today-grid">
-          <div className="home-pair">
+          {display.social && <div className="home-pair">
             <PairToday me={me} partner={partner} myToday={myToday} partnerToday={partnerToday} latestPartner={latestPartner} today={today} partnerLastDay={partnerLastDay}
               signedIn={!demo} loading={buddyStatus === "loading"} unavailable={buddyStatus === "offline"} busy={busy}
               sentCheer={sentCheer} receivedCheer={receivedCheer} onShowLog={(log) => open({ kind: "log", log })}
@@ -628,16 +642,20 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
                 void act(async () => { await post({ action: "cheer", ...target, timeZone }); setToday(asDate()); await refresh(); setToast("已给搭子加油"); });
               }} />
-          </div>
+          </div>}
           <div className="main-column">
             <section className="card week-card" aria-label="本周训练日期">
               <div className="section-head"><h2>训练日程</h2><div className="steppers"><button className="icon-button" onClick={() => setSelected(offsetDate(selected, -7))} aria-label="上一周"><ChevronLeft size={18} /></button><button className="icon-button" onClick={() => setSelected(offsetDate(selected, 7))} aria-label="下一周"><ChevronRight size={18} /></button></div></div>
               <div className="week-days">
-                {weekdays.map((day, i) => {
+                {weekDays.map((day, i) => {
                   const date = offsetDate(weekStart, i);
                   return <button key={day} aria-pressed={selected === date} aria-label={date + (blocked(schedule, date) ? "，休息" : "")} onClick={() => setSelected(date)}><span>周{day}</span><strong>{Number(date.slice(8))}</strong><span className="week-dot">{blocked(schedule, date) ? <small>休</small> : (plans.some((item) => item.data.date === date) || logs.some((log) => log.data.date === date)) && <i />}</span></button>;
                 })}
               </div>
+              {display.weeklyGoal > 0 && <div className="weekly-goal">
+                <label htmlFor="weekly-workout-goal">本周打卡 {weeklyCheckins} / {display.weeklyGoal} 次</label>
+                <progress id="weekly-workout-goal" max={display.weeklyGoal} value={Math.min(weeklyCheckins, display.weeklyGoal)} />
+              </div>}
             </section>
 
             {blocked(schedule, selected) && <p className="muted">这天设为不安排训练。已有计划可移动到其他日期。</p>}
@@ -670,8 +688,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           </div>
 
           <aside className="right-column">
-            <WeekCheckins today={today} me={me} partner={partner} partnerCheckins={room?.partnerCheckins} logs={logs} status={buddyStatus} showStats={() => go("stats")} />
-            <button className="import-callout" onClick={() => openPlanAssistant("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>添加计划</strong><small>训练文本、视频或自己的 AI</small></span><ChevronRight size={18} /></button>
+            {display.weeklyCheckins && <WeekCheckins today={today} me={me} partner={display.social ? partner : undefined}
+              partnerCheckins={display.social ? room?.partnerCheckins : undefined} logs={logs} status={buddyStatus} showStats={() => go("stats")} />}
+            {display.planShortcuts && <button className="import-callout" onClick={() => openPlanAssistant("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>添加计划</strong><small>训练文本、视频或自己的 AI</small></span><ChevronRight size={18} /></button>}
             {warning && !overlay && <p className="inline-error" role="alert">{warning}</p>}
           </aside>
         </div>}
@@ -698,33 +717,26 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
-        {view === "data" && <DataView enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} importPlans={() => openPlanAssistant("import")} planAssistant={() => openPlanAssistant("ai")} />}
         <div hidden={view !== "programs"}><ProgramView active={view === "programs"} enabled={Boolean(viewer)} today={today} templates={templates.map((item) => ({ id: item.id, plan: item.plan }))} saved={() => { void refresh(); void library.load(); }} /></div>
         <div hidden={view !== "coaching"}><CoachingView active={view === "coaching"} enabled={Boolean(viewer)} today={today}
           templates={templates.map(({ id, plan }) => ({ id, plan }))}
           plans={pendingPlans.filter((item) => item.owner === me.id).map(({ id, data }) => ({ id, plan: data }))}
           saved={() => { void refresh(); void library.load(); }} /></div>
-        {view === "settings" && <div className="feature-stack">
-          <section className="card padded feature-stack">
-            <h2>训练偏好</h2>
-            <ProteinCheck label="显示蛋白粉打卡" checked={trackProtein} disabled={!viewer || library.loading || Boolean(library.error)}
-              save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
-            <p className="muted">{viewer ? "开启后，训练结束时可以勾选是否已喝蛋白粉。" : "登录后可以保存训练偏好。"}</p>
-            {viewer && <button className="list-line" type="button" aria-haspopup="dialog" disabled={library.loading || Boolean(library.error)}
-              onClick={() => openScheduleSettings()}><span className="tile mint"><Settings2 size={18} /></span><strong>个人计划设置</strong><ChevronRight size={16} /></button>}
-            {library.error && <button className="button outline small" type="button" onClick={() => void library.load()}>{library.error}</button>}
-          </section>
-          {viewer && <section className="card padded">
-            <button className="list-line" type="button" aria-haspopup="dialog" onClick={() => open({ kind: "friend-sharing" })}>
-              <span className="tile lilac"><Users size={18} /></span><strong>好友分享设置</strong><ChevronRight size={16} />
-            </button>
-          </section>}
-        </div>}
-        {view === "more" && <section className="card padded feature-stack">
-          {navigation.filter((item) => !item.mobile).map(({ id, icon: Icon, title }) =>
-            <button key={id} className="list-line" type="button" onClick={() => go(id)}><span className="tile mint"><Icon size={18} /></span><strong>{title}</strong><ChevronRight size={16} /></button>)}
-          <button className="list-line" type="button" onClick={() => open({ kind: "pair" })}><span className="tile mint"><Users size={18} /></span><strong>账号与搭子空间</strong><ChevronRight size={16} /></button>
-        </section>}
+        {view === "settings" && <SettingsHub page={settingsPage} open={openSetting} close={() => go("today")} name={me.name} cloud={cloud} account={Boolean(viewer)}>
+          <SettingsContent page={settingsPage} open={openSetting} owner={viewer?.id ?? ""} cloud={cloud}
+            sync={() => { void refresh(); void library.load(); }} pair={() => open({ kind: "pair" })}
+            sharing={viewer ? () => open({ kind: "friend-sharing" }) : undefined}
+            coaching={() => go("coaching")} body={() => go("body")} schedule={() => openScheduleSettings()}
+            programs={() => go("programs")} plans={() => go("plans")} importPlans={() => openPlanAssistant("import")}
+            latestWorkout={viewer && latestOwnWorkout ? () => open({ kind: "log", log: latestOwnWorkout }) : undefined}
+            display={display} changeDisplay={changeDisplay}
+            protein={<section className="card padded feature-stack"><ProteinCheck label="显示蛋白粉打卡" checked={trackProtein}
+              disabled={!viewer || library.loading || Boolean(library.error)} save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
+              <p className="muted">开启后可在结束训练时记录蛋白粉。</p></section>}
+            data={<DataView enabled={Boolean(viewer)} saved={() => { void refresh(); void library.load(); }} importPlans={() => openPlanAssistant("import")} />}
+            agent={<div className="feature-stack"><button className="button outline" type="button" onClick={() => openPlanAssistant("ai")}><Sparkles size={17} /> 管理 Agent 连接和训练草稿</button>
+              <AgentPack profileRef={profileRef} /></div>} />
+        </SettingsHub>}
 
         {view === "stats" && <div className={calendarOpen ? "feature-stack history-layout" : "feature-stack"}>
           <div className="segmented stats-page-tabs" role="group" aria-label="统计页面">
@@ -735,7 +747,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             orderByDay={new Map(library.rows.flatMap((item) => item.kind === "history-order" ? [[item.id, item.entries] as const] : []))}
             saveOrder={viewer ? (date, entries) => library.save({ kind: "history-order", id: date, entries }) : undefined}
             show={(log) => open({ kind: "log", log })} /> :
-            <Stats today={today} self={me.id} partner={partnerWithDetails ?? null} logs={logs} onExercise={setExercise}
+            <Stats today={today} self={me.id} partner={partnerWithDetails ?? null} logs={logs} onExercise={setExercise} maxFormula={display.maxFormula}
               pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
               savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
         </div>}
@@ -751,7 +763,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           saved={() => { void refresh(); void library.load(); go("plans"); }} /></div>
       </main>
     </div>
-    <nav aria-label="底部导航" className="mobile-nav">{navigation.filter((item) => item.mobile).map(({ id, icon: Icon, mobile }) => <button key={id} className={view === id ? "active" : ""} aria-current={id === view ? "page" : undefined} onClick={() => go(id)}><Icon size={21} /><span>{mobile}</span></button>)}</nav>
+    <nav aria-label="主导航" className="primary-nav">{primaryTabs
+      .filter(({ id }) => (id !== "nutrition" || display.nutrition) && (id !== "friends" || display.social))
+      .map(({ id, icon: Icon, label }) =>
+      <button className={activeTab === id ? "active" : ""} aria-current={id === view ? "page" : id === activeTab ? "location" : undefined}
+        key={id} type="button" onClick={() => go(id)}><Icon size={21} aria-hidden="true" /><span>{label}</span></button>)}</nav>
     {overlay?.kind === "editor" && <Dialog title={plans.some((plan) => plan.id === overlay.plan.id && plan.owner === me.id) ? "编辑计划" : "新建计划"} onClose={close}>
       <form onSubmit={(e) => { e.preventDefault(); const item = overlay.plan; void act(async () => { await savePlans([item]); setSelected(item.data.date); setOverlay(null); }); }}>
         <div className="dialog-body"><PlanFields value={overlay.plan.data} templates={templates} change={(data) => setOverlay({ kind: "editor", plan: { ...overlay.plan, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
@@ -819,7 +835,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       onTemplate={viewer && overlay.log.owner === me.id && !pendingLog ? () => openTemplate(overlay.log.data.plan) : undefined} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
-        {viewer && !partner && <p className="muted">配对期间双方会互相看到历史和今后的训练打卡及详情。饮食记录默认共享，可在「设置 → 好友分享设置」里调整。</p>}
+        {viewer && !partner && <p className="muted">配对期间双方会互相看到历史和今后的训练打卡及详情。饮食记录默认共享，可在「设置 → 账号 → 好友分享设置」里调整。</p>}
         {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :
           partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partner.name}</strong><small>可以查看彼此的打卡和训练详情。</small></div><span className="state-tag checked">已连接</span></div> :
           room?.invite ? <><p className="muted">把邀请码发给搭子。对方需要先有网站访问权限，再登录并输入邀请码。</p><input aria-label="搭子邀请码" value={room.invite} readOnly onFocus={(e) => e.target.select()} /><button className="button primary" onClick={() => void copy(room.invite!, "已复制邀请码")}><Copy size={17} /> 复制邀请码</button></> :
@@ -836,7 +852,6 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             await refresh();
           })} />}
         {warning && <p className="inline-error" role="alert">{warning}</p>}
-        {viewer && <a className="text-button sign-out" href="/signout-with-chatgpt?return_to=%2F" target="_top">退出 {me.name} 的账号</a>}
       </div>
     </Dialog>}
     {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}

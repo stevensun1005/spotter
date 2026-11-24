@@ -1,6 +1,6 @@
 import { offsetDate, weekdayIndex } from "@/shared/dates";
 import type { TrainingEntry } from "@/shared/state";
-import { estimatedMax } from "@/features/exercises/history";
+import { estimatedMax, type MaxFormula } from "@/features/exercises/history";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import type { CatalogEntry } from "@/features/exercises/open-gym";
 import { expandAnatomyWeights } from "@/features/exercises/labels";
@@ -76,7 +76,7 @@ const muscleBucket = new Map<string, string>(muscleGroups.flatMap((group) => gro
 const pick = (previous: Best | undefined, candidate: Best) =>
   !previous || candidate.value > previous.value || candidate.value === previous.value && candidate.date > previous.date ? candidate : previous;
 
-export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], mode: TrainingMode) {
+export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], mode: TrainingMode, formula?: MaxFormula) {
   const byId = new Map(catalogue.map((item) => [item.id, item]));
   const byName = new Map<string, CatalogEntry | null>();
   catalogue.forEach((item) => {
@@ -146,7 +146,7 @@ export function summarize(records: TrainingEntry[], catalogue: CatalogEntry[], m
           const weight = toKg(side.weight, move.unit);
           const result = { weight, reps: side.reps, date: data.date };
           performance.weight = pick(performance.weight, { ...result, value: weight });
-          const max = estimatedMax(weight, side.reps);
+          const max = estimatedMax(weight, side.reps, formula);
           if (max !== null) performance.max = pick(performance.max, { ...result, value: max });
         }
       });
