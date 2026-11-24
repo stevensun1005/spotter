@@ -92,7 +92,21 @@ export function CoachingView({ enabled, active = true, today, saved }: Props) {
       <div className="coach-toolbar"><button className="button primary" type="button" disabled={busy} onClick={() => setConnect("invite")}><UserRoundPlus size={17} />邀请学员</button><button className="button outline" type="button" disabled={busy} onClick={() => setConnect("join")}><GraduationCap size={17} />连接教练</button></div>
       <p className="coach-privacy"><ShieldCheck size={17} /> 关系单独确认，不会自动添加好友或搭子。教练只查看自己下发训练的授权反馈。</p>
     </section>
-    <div className="coach-role-heading"><div className="coach-tabs" role="group" aria-label="教练空间视角"><button type="button" aria-pressed={role === "coach"} onClick={() => setRole("coach")}><UsersRound size={17} />我的学员 <span>{learners.length}</span></button><button type="button" aria-pressed={role === "student"} onClick={() => setRole("student")}><GraduationCap size={17} />我的教练{pending > 0 ? <span className="coach-unread">{pending} 份待接收</span> : <span>{coaches.length}</span>}</button></div><button className="button subtle small" type="button" disabled={busy || loading} onClick={() => void load()}><RefreshCw size={16} />刷新</button></div>
+    <div className="coach-role-heading">
+      <div className="coach-tabs" role="group" aria-label="教练空间视角">
+        <button type="button" aria-pressed={role === "coach"} onClick={() => setRole("coach")}>
+          <UsersRound size={17} />我的学员 <span>{learners.length}</span>
+        </button>
+        <button type="button" aria-pressed={role === "student"} onClick={() => setRole("student")}
+          aria-label={pending > 0 ? `我的教练，${pending} 份待接收` : undefined}>
+          <GraduationCap size={17} />我的教练
+          {pending > 0 ? <span className="coach-unread">{pending}<span> 份待接收</span></span> : <span>{coaches.length}</span>}
+        </button>
+      </div>
+      <button className="button subtle small coach-refresh" type="button" aria-label="刷新" disabled={busy || loading} onClick={() => void load()}>
+        <RefreshCw size={16} /><span>刷新</span>
+      </button>
+    </div>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {notice && <p className="coach-notice" role="status"><Check size={17} />{notice}</p>}
     {loading && !home && <p className="muted" role="status">正在读取教练空间…</p>}

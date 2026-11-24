@@ -16,6 +16,8 @@
 .coach-tabs button[aria-pressed=true] { background: var(--lime); color: #2d471f; border-color: #b5d589; }
 .coach-tabs button > span { font-size: .875rem; padding: 2px 6px; border-radius: 6px; background: #edf2e6; }
 .coach-tabs button > .coach-unread { background: #dbecc1; }
+.coach-role-heading .coach-tabs button { white-space: nowrap; }
+.coach-role-heading .coach-tabs button > svg { flex: none; }
 .coach-person-list, .coach-assignment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; min-width: 0; }
 .coach-person-card, .coach-assignment-card { display: grid; align-content: start; gap: 15px; padding: 18px; min-width: 0; }
 .coach-person-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -117,9 +119,12 @@
   .coach-intro-copy { grid-template-columns: minmax(0, 1fr); gap: 11px; }
   .coach-intro-copy .tile { width: 44px; height: 44px; }
   .coach-person-card, .coach-assignment-card { padding: 15px; }
-  .coach-role-heading { align-items: start; }
-  .coach-role-heading > .coach-tabs { flex: 1; }
+  .coach-role-heading > .coach-tabs { flex: 1 0 auto; max-width: 100%; }
   .coach-tabs button { flex: 1; justify-content: center; }
+  .coach-role-heading .coach-tabs button { flex: 1 0 auto; gap: 5px; padding-inline: 9px; }
+  .coach-role-heading > .coach-refresh { width: 44px; min-height: 44px; justify-content: center; padding: 0; margin-left: auto; }
+  .coach-refresh > span { display: none; }
+  .coach-unread > span { display: none; }
   .coach-connect-dialog .coach-tabs { display: grid; grid-template-columns: minmax(0, 1fr); }
   .coach-preview-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .coach-preview-list > li { grid-template-columns: minmax(0, 1fr); }
@@ -134,8 +139,6 @@
 }
 @media (max-width: 390px) {
   .coach-tabs button { padding-inline: 9px; }
-  .coach-role-heading { flex-direction: column; align-items: stretch; }
-  .coach-role-heading > .button { align-self: end; }
   .coach-progress-summary { grid-template-columns: minmax(0, 1fr); gap: 7px; }
   .coach-intro .coach-toolbar > .button { flex: 1; }
   .coach-card-heading { gap: 8px; }
