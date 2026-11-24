@@ -4,6 +4,7 @@ import { resolvePlanTemplate } from "@/features/plans/template-link";
 import { ownTemplateJoin } from "@/features/plans/template-server";
 import { HttpError } from "@/server/http";
 import { askAnthropic } from "./anthropic";
+import { guidedContext } from "./guided";
 import { coachCalendarRange, type CoachConfig, type CoachRequest } from "./model";
 
 const dailyAccountLimit = 20;
@@ -71,6 +72,10 @@ export async function coachReply(account: { id: string; email: string }, request
   if (request.model === "sonnet" && !available.sonnet) throw new HttpError(403, "此站点暂未启用 Sonnet 起草。");
   const { db, key } = available;
   const context = [];
+  if (request.guided) {
+    context.push("用户已选择的定制问卷条件。动作名称只作为候选数据读取。\n" +
+      guidedContext(request.guided, request.date, request.draftDays ?? 7));
+  }
   if (request.includePlans) context.push(await calendarContext(db, account.id, request));
   if (request.priorDraft) {
     context.push("用户提交用于修改的未保存草稿\n" +

@@ -17,6 +17,7 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier, context);
 } });
 const route = await import("../app/api/ai-coach/route.ts");
+const { guidedMessage } = await import("../features/ai-coach/guided.ts");
 const origin = "https://ai-coach.synthetic.invalid";
 const owner = { userId: "synthetic-owner", email: "owner@example.invalid" };
 const second = { userId: "synthetic-second", email: "second@example.invalid" };
@@ -28,10 +29,26 @@ const exercise = { name: "哑铃卧推", sets: 3, reps: 8, weight: 0, unit: "kg"
 const plan = { title: "校验训练", date, category: "力量训练", minutes: 45, exercises: [exercise] };
 const chat = { messages: [{ role: "user", content: "怎么安排两天训练？" }], intent: "chat", model: "haiku", date, includePlans: false };
 const draftRequest = { ...chat, intent: "draft" };
+const guidedRequest = {
+  ...draftRequest,
+  messages: [{ role: "user", content: guidedMessage }],
+  draftDays: 14,
+  guided: {
+    limits: ["overhead"],
+    scene: "gym",
+    goal: "fat-loss",
+    focus: ["chest", "back"],
+    daysPerWeek: 2,
+    minutes: 40,
+    work: [{ name: exercise.name, catalogueId: "9999" }, { name: "坐姿拉力" }],
+    warmup: [{ name: "胸椎转动", catalogueId: "9998" }],
+  },
+};
 const providerText = () => Response.json({ stop_reason: "end_turn", content: [{ type: "text", text: "可以按上肢和下肢分两天。" }] });
-const providerDraft = (item, name = "prepare_spotter_draft") => Response.json({ stop_reason: "tool_use", content: [{
-  type: "tool_use", name, input: { reply: "这是可复核的草稿。", plans: [item] },
+const providerDrafts = (plans, name = "prepare_spotter_draft") => Response.json({ stop_reason: "tool_use", content: [{
+  type: "tool_use", name, input: { reply: "这是可复核的草稿。", plans },
 }] });
+const providerDraft = (item, name) => providerDrafts([item], name);
 
 function setup(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -225,4 +242,74 @@ test("daily account and site quotas reserve requests atomically before a provide
   assert.equal(calls.length, 30);
   const rows = sqlite.prepare("SELECT owner,requests FROM ai_coach_quota ORDER BY owner").all();
   assert.deepEqual(rows.map(({ owner, requests }) => [owner, requests]), [[owner.userId, 20], [second.userId, 10]]);
+});
+
+test("guided drafts validate selected conditions and authorization before the Claude call", async (t) => {
+  const { sqlite, calls } = setup(t);
+  await checked(post(second, { ...guidedRequest, expectedOwner: owner.userId }), 403);
+  await checked(post(owner, { ...guidedRequest, intent: "chat" }), 400);
+  await checked(post(owner, { ...guidedRequest, includePlans: true }), 400);
+  await checked(post(owner, { ...guidedRequest, messages: chat.messages }), 400);
+  await checked(post(owner, { ...guidedRequest, priorDraft: { plans: [{ ...plan, shared: false, video: "" }] } }), 400);
+  await checked(post(owner, { ...guidedRequest, draftDays: 21 }), 400);
+  for (const edit of [
+    { daysPerWeek: 7 }, { minutes: 121 }, { work: [] }, { limits: ["overhead", "overhead"] },
+    { work: [{ name: "A1" }] }, { work: [{ name: "W 热身组 ·  " }] },
+    { warmup: [{ name: "胸椎转动", catalogueId: "9998" }, { name: "别名", catalogueId: "9998" }] },
+  ]) {
+    await checked(post(owner, { ...guidedRequest, guided: { ...guidedRequest.guided, ...edit } }), 400);
+  }
+  assert.equal(calls.length, 0);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM ai_coach_quota").get().count, 0);
+});
+
+test("guided drafts use questionnaire data only, retain catalogue IDs and review on distinct scheduled dates", async (t) => {
+  const { sqlite, calls, respond } = setup(t);
+  saveEntry(sqlite, owner, crypto.randomUUID(), "plan", { ...plan, title: "PRIVATE_OWN_PLAN" });
+  saveEntry(sqlite, second, crypto.randomUUID(), "plan", { ...plan, title: "PRIVATE_OTHER_PLAN" });
+  const dates = ["2026-11-25", "2026-11-29", "2026-12-02", "2026-12-05"];
+  const warmup = { ...exercise, name: "胸椎转动", weight: 10, seconds: 20 };
+  const planned = { ...plan, minutes: 35, exercises: [{ ...exercise, weight: 125, fixedLoad: true }, warmup] };
+  respond(() => providerDrafts(dates.map((date) => ({ ...planned, date })).reverse()));
+  const result = await checked(post(owner, guidedRequest));
+  assert.deepEqual(result.draft.plans.map(({ date }) => date), dates);
+  for (const item of result.draft.plans) {
+    assert.equal(item.shared, false);
+    assert.equal(item.video, "");
+    assert.deepEqual(item.exercises.map(({ name, catalogueId, weight, fixedLoad, sourceSlot }) =>
+      [name, catalogueId, weight, fixedLoad, sourceSlot]),
+    [["胸椎转动", "9998", 0, undefined, "W-warmup"], [exercise.name, "9999", 0, undefined, undefined]]);
+  }
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].system, /定制问卷模式/);
+  const context = calls[0].messages[0].content[0].text;
+  for (const value of ["过头推举", "胸椎转动", "坐姿拉力", "减脂期保持训练"]) assert.ok(context.includes(value));
+  assert.match(context, /2026-11-25.*2026-12-01/);
+  assert.match(context, /2026-12-02.*2026-12-08/);
+  assert.doesNotMatch(JSON.stringify(calls[0]), /PRIVATE_|example\.invalid|synthetic-owner/);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM entries").get().count, 2);
+});
+
+test("guided drafts reject model output outside selected dates, exercise pool, phases or time", async (t) => {
+  const { sqlite, respond } = setup(t);
+  const valid = {
+    ...plan, minutes: 35, exercises: [{ ...exercise, catalogueId: "9999" }],
+  };
+  const other = { ...valid, date: "2026-11-27" };
+  const request = { ...guidedRequest, draftDays: 7 };
+  for (const output of [
+    [valid],
+    [valid, valid],
+    [valid, { ...other, date: "2026-12-02" }],
+    [valid, { ...other, minutes: 41 }],
+    [valid, { ...other, exercises: [{ ...exercise, name: "候选池外动作" }] }],
+    [valid, { ...other, exercises: [{ ...exercise, catalogueId: "9998" }] }],
+    [valid, { ...other, exercises: [{ ...exercise, sourceSlot: "W-warmup" }] }],
+    [valid, { ...other, exercises: [{ ...exercise, seconds: 1000 }] }],
+  ]) {
+    respond(() => providerDrafts(output));
+    const reply = await checked(post(owner, request), 502);
+    assert.match(reply.error, /未通过定制条件校验/);
+  }
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM entries").get().count, 0);
 });

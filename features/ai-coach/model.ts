@@ -1,9 +1,12 @@
 import { z } from "zod";
-import { cleanPlan, planSchema, type Plan } from "@/features/plans/model";
+import { cleanPlan, planSchema, type Move, type Plan } from "@/features/plans/model";
+import { phaseOf } from "@/features/plans/move-phase";
 import { dateSchema, offsetDate, weekdayIndex } from "@/shared/dates";
+import { guidedDateRanges, guidedMessage, guidedMoveNameKey, guidedSchema, guidedWeeks, maxGuidedSessions,
+  type GuidedDraft, type GuidedMove } from "./guided";
 
 export const coachModels = ["haiku", "sonnet"] as const;
-export const maxDraftPlans = 12;
+export const maxDraftPlans = maxGuidedSessions;
 export const maxDraftMoves = 12;
 export const maxCoachMessages = 9;
 export const maxCoachMessageLength = 4_000;
@@ -32,7 +35,12 @@ export const coachRequestSchema = z.object({
   contextRange: z.enum(["day", "week"]).optional(),
   draftDays: z.number().int().min(1).max(28).optional(),
   priorDraft: priorDraftSchema.optional(),
-}).strict().refine(({ intent, model, priorDraft }) => intent === "draft" || (model === "haiku" && !priorDraft));
+  guided: guidedSchema.optional(),
+}).strict().refine(({ intent, model, priorDraft, guided, draftDays = 7, messages, includePlans }) => {
+  if (!guided) return intent === "draft" || (model === "haiku" && !priorDraft);
+  return intent === "draft" && !includePlans && !priorDraft && messages.length === 1 && messages[0].content === guidedMessage &&
+    guidedWeeks.some((weeks) => draftDays === weeks * 7 && guided.daysPerWeek * weeks <= maxGuidedSessions);
+});
 
 export type CoachModel = typeof coachModels[number];
 export type CoachRequest = z.infer<typeof coachRequestSchema>;
@@ -59,10 +67,53 @@ const draftResultSchema = z.object({
   plans: z.array(draftedPlan).min(1).max(maxDraftPlans),
 }).strict();
 
+function matchesSelectedMove(move: Move, pool: GuidedMove[]) {
+  const name = guidedMoveNameKey(move.name);
+  return pool.filter((candidate) => guidedMoveNameKey(candidate.name) === name &&
+    (!move.catalogueId || move.catalogueId === candidate.catalogueId));
+}
+
+function normalizeGuidedPlan(item: z.infer<typeof draftedPlan>, guided: GuidedDraft) {
+  if (item.video || item.minutes < 1 || item.minutes > guided.minutes) return null;
+  const work: Move[] = [];
+  const warmup: Move[] = [];
+  for (const move of item.exercises) {
+    if (move.loadPercent) return null;
+    const workMatches = phaseOf(move) === "work" ? matchesSelectedMove(move, guided.work) : [];
+    const isWarmup = workMatches.length === 0;
+    const matches = isWarmup ? matchesSelectedMove(move, guided.warmup) : workMatches;
+    // If variants share a name, the provider must preserve the selected catalogue ID.
+    if (matches.length !== 1) return null;
+    const { name, catalogueId } = matches[0];
+    const selected = { ...move, name, catalogueId, weight: 0, fixedLoad: undefined };
+    if (isWarmup) warmup.push({ ...selected, sourceSlot: "W-warmup" });
+    else work.push(selected);
+  }
+  if (!work.length || item.exercises.reduce((seconds, move) => seconds + move.sets * move.seconds, 0) > item.minutes * 60) return null;
+  return cleanPlan({ ...item, exercises: [...warmup, ...work], shared: false });
+}
+
 export function normalizeCoachDraft(value: unknown, request: CoachRequest): CoachResponse | null {
   const draft = draftResultSchema.safeParse(value);
   if (!draft.success) return null;
   const to = coachDraftEnd(request);
+  const guided = request.guided;
+  if (guided) {
+    const { plans } = draft.data;
+    const ranges = guidedDateRanges(request.date, request.draftDays ?? 7);
+    const countsMatch = ranges.every(({ from, to }) =>
+      plans.filter(({ date }) => date >= from && date <= to).length === guided.daysPerWeek);
+    if (!countsMatch || new Set(plans.map(({ date }) => date)).size !== plans.length) return null;
+    const normalized: Plan[] = [];
+    for (const item of plans) {
+      if (item.date < request.date || item.date > to) return null;
+      const plan = normalizeGuidedPlan(item, guided);
+      if (!plan?.success) return null;
+      normalized.push(plan.data);
+    }
+    normalized.sort((left, right) => left.date.localeCompare(right.date));
+    return { reply: draft.data.reply, draft: { plans: normalized }, model: request.model };
+  }
   const priorPlans = request.priorDraft?.plans ?? [];
   const priorMoves = priorPlans.flatMap(({ exercises }) => exercises);
   const messageLinks = request.messages.filter(({ role }) => role === "user")
