@@ -11,6 +11,7 @@ import { ChatTrainingDraft } from "./chat-draft";
 import { asksForTrainingPlan } from "./chat-intent";
 import { asksToReviseDraft, draftWindowFor, type DraftWindow } from "./plan-conversation";
 import { weightDialogue, type PendingWeight } from "./weight-dialogue";
+import { useAnthropicSharing } from "./sharing-consent";
 import { coachModel, maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
   type CoachConfig, type CoachRequest, type CoachResponse } from "./model";
 
@@ -40,6 +41,7 @@ type Turn = {
   error?: string;
 };
 type Availability = CoachConfig | { error: string };
+type BeginCoachRequest = () => { receive: (result: CoachResponse) => void; showError: (message: string) => void };
 
 const endpoint = "/api/ai-coach";
 const planRequest = "帮我制定训练计划";
@@ -117,6 +119,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   const photoPosition = useRef<HTMLLIElement>(null);
   const transcriptEnd = useRef<HTMLLIElement>(null);
   const nextTurn = useRef(0);
+  const { withConsent, prompt: sharingPrompt } = useAnthropicSharing(active ? owner : undefined);
 
   const latestModelTurn = turns.findLast((turn) => turn.kind !== "local" && turn.response);
   const latestDraft = turns.findLast((turn) => turn.items && turn.window && !turn.superseded);
@@ -181,8 +184,14 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     setIncludePlans(false);
   }
 
-  async function askCoach(payload: CoachRequest, receive: (result: CoachResponse) => void, showError: (message: string) => void) {
+  function askCoach(payload: CoachRequest, start: BeginCoachRequest) {
     if (!available || request.current) return;
+    withConsent(() => { void sendToCoach(payload, start); });
+  }
+
+  async function sendToCoach(payload: CoachRequest, start: BeginCoachRequest) {
+    if (request.current || writing.current) return;
+    const { receive, showError } = start();
     const controller = new AbortController();
     request.current = controller;
     setWaiting(true);
@@ -338,23 +347,28 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       ? draftWindowFor(question, localDate, target?.window ?? pending, priorDraft?.plans) : undefined;
     const date = draftWindow?.date ?? (fromSuggestion ? selectedDate : chatDate);
     if (!date) { setError("请选择要附上的训练日期。"); return; }
-    const id = addTurn(priorDraft ? "revision" : draftWindow ? "plan" : "chat", question);
-    if (draftWindow) onExpand?.();
-    clearInput();
-    void askCoach({
+    askCoach({
       expectedOwner: owner, messages: recentMessages(turns, question), model: coachModel,
       ...(draftWindow ? { ...draftWindow, intent: "draft" as const, priorDraft, includePlans: !priorDraft && includePlans, contextRange }
         : { intent: "chat" as const, date, includePlans: !fromSuggestion && includePlans, contextRange }),
-    }, (response) => {
-      const items = response.draft?.plans.map((data) => ({ id: crypto.randomUUID(), todayId: crypto.randomUUID(), data }));
-      updateTurn(id, { response, window: draftWindow, items });
-      if (items) {
-        if (target && !target.saved && !target.addedToday?.size) updateTurn(target.id, { superseded: true, saveError: undefined });
-        setRevisionTarget(undefined);
-      }
-    }, (message) => {
-      updateTurn(id, { error: message });
-      setInput((draft) => draft || question);
+    }, () => {
+      const id = addTurn(priorDraft ? "revision" : draftWindow ? "plan" : "chat", question);
+      if (draftWindow) onExpand?.();
+      clearInput();
+      return {
+        receive(response) {
+          const items = response.draft?.plans.map((data) => ({ id: crypto.randomUUID(), todayId: crypto.randomUUID(), data }));
+          updateTurn(id, { response, window: draftWindow, items });
+          if (items) {
+            if (target && !target.saved && !target.addedToday?.size) updateTurn(target.id, { superseded: true, saveError: undefined });
+            setRevisionTarget(undefined);
+          }
+        },
+        showError(message) {
+          updateTurn(id, { error: message });
+          setInput((draft) => draft || question);
+        },
+      };
     });
   }
 
@@ -441,5 +455,6 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
         {canRetry && <button className="text-button" type="button" onClick={() => { setAvailability(undefined); setCheck((value) => value + 1); }}>重试</button>}
       </div>
     </div>
+    {sharingPrompt}
   </section>;
 }

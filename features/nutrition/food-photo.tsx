@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Camera, ImageUp, WandSparkles } from "lucide-react";
+import { useAnthropicSharing } from "@/features/ai-coach/sharing-consent";
 import { errorText } from "@/shared/client";
 import { foodPhotoDraftSchema, mealPhotoDraftSchema, photoNeedsSchema, type FoodPhotoDraft, type MealPhotoDraft } from "./food-photo-model";
 import { maxPhotoBase64Length, maxPhotoNoteLength } from "./food-photo-request";
@@ -48,6 +49,7 @@ export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
   const [retry, setRetry] = useState(0);
   const preview = useRef<HTMLImageElement>(null);
   const active = useRef<AbortController | undefined>(undefined);
+  const { withConsent, prompt: sharingPrompt } = useAnthropicSharing(owner);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -84,8 +86,13 @@ export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
     setPhoto(URL.createObjectURL(file));
   }
 
-  async function recognize() {
-    if (!configuration?.enabled || !preview.current || !ready || active.current) return;
+  function recognize() {
+    const picture = preview.current;
+    if (!configuration?.enabled || !picture || !ready || active.current) return;
+    withConsent(() => { if (preview.current === picture) void sendPhoto(picture); });
+  }
+
+  async function sendPhoto(picture: HTMLImageElement) {
     const controller = new AbortController();
     active.current = controller;
     setBusy(true);
@@ -94,7 +101,7 @@ export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
     try {
       const response = await fetch(photoEndpoint, {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
-        body: JSON.stringify({ expectedOwner: owner, mode: onMeal ? "meal" : "label", image: encodePhoto(preview.current), notes: notes.trim() }),
+        body: JSON.stringify({ expectedOwner: owner, mode: onMeal ? "meal" : "label", image: encodePhoto(picture), notes: notes.trim() }),
       });
       const result = await response.json().catch(() => null) as { draft?: unknown; needs?: string[]; error?: string } | null;
       if (controller.signal.aborted) return;
@@ -156,7 +163,7 @@ export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
       {error && <p className="inline-error" role="alert">{error}</p>}
       <p className="muted">点击识别后，AI 教练使用的 Claude 服务只会收到这张照片和你填写的备注。</p>
       <div className="food-alternatives">
-        <button className="button primary" type="button" disabled={!ready || busy} onClick={() => void recognize()}>
+        <button className="button primary" type="button" disabled={!ready || busy} onClick={recognize}>
           <WandSparkles size={17} aria-hidden="true" /> {busy ? "正在识别…" : needs.length ? "重新识别" : "识别照片"}
         </button>
         {busy ? <button className="text-button" type="button" onClick={cancelRecognition}>取消识别</button>
@@ -169,5 +176,6 @@ export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
         <button className="text-button" type="button" onClick={onManual}>手动填写</button>
       </div>
     </>}
+    {sharingPrompt}
   </div>;
 }
