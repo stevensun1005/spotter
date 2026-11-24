@@ -6,7 +6,7 @@ import { acceptsHeart, heartSchema, workoutWindow, type HeartData } from "./mode
 
 export const workoutId = z.string().uuid();
 export const heartMutation = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("save"), id: workoutId, data: heartSchema }),
+  z.object({ action: z.literal("save"), id: workoutId, data: heartSchema, expectedOwner: z.string().min(1).max(300).optional() }),
   z.object({ action: z.literal("remove"), id: workoutId }),
 ]);
 

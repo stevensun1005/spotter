@@ -15,7 +15,9 @@ export const GET = api(async (request) => {
 export const POST = api(async (request) => {
   const { id: owner } = await requireAccount();
   const item = await readJson(request, heartMutation, 48_000);
-  if (item.action === "save") await saveHeart(owner, item.id, item.data);
-  else await removeHeart(owner, item.id);
+  if (item.action === "save") {
+    if (item.expectedOwner && item.expectedOwner !== owner) throw new HttpError(403, "登录账号已切换，请重新打开训练。");
+    await saveHeart(owner, item.id, item.data);
+  } else await removeHeart(owner, item.id);
   return json({ ok: true });
 });
