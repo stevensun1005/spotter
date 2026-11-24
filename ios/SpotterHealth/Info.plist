@@ -19,13 +19,13 @@
         <key>origin</key>
         <string>https://spotter-duo.stezero.chatgpt.site</string>
         <key>version</key>
-        <integer>70</integer>
+        <integer>78</integer>
         <key>sourceCommit</key>
-        <string>d735bb3a781bffa1049f3a03fbb301999583e326</string>
+        <string>056647b6c9b1c3e5dbf456e19ceb6c8a699f1407</string>
         <key>exportRef</key>
-        <string>origin/sites/source-2026-11-24</string>
+        <string>origin/sites/source-2026-11-24-v78</string>
         <key>exportCommit</key>
-        <string>2455ab8d9fd4b433367aca8fc0cf4c04fe8b5086</string>
+        <string>f700b279160af034ef0bc79acb10b05ca8b6a47f</string>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>

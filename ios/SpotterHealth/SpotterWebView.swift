@@ -37,6 +37,12 @@ final class SpotterWebModel: NSObject, ObservableObject {
         settings.defaultWebpagePreferences.preferredContentMode = .mobile
         settings.applicationNameForUserAgent = "Spotter/1.0"
         settings.allowsInlineMediaPlayback = true
+        settings.userContentController.addUserScript(WKUserScript(
+            source: SpotterWebAppearance.liquidGlassScript(trustedOrigin: AppConfiguration.defaultOrigin),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true,
+            in: .world(name: "SpotterAppearance")
+        ))
         let view = WKWebView(frame: .zero, configuration: settings)
         view.navigationDelegate = self
         view.uiDelegate = self
