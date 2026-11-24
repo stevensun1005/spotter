@@ -67,6 +67,15 @@ const planItem = {
           sourceName: text(100),
           restSeconds: integer(0, 600),
           repsMax: integer(1, 999),
+          targetRpe: { type: "number", minimum: 1, maximum: 10, multipleOf: 0.5, description: "计划目标 RPE，不是实际组记录。" },
+          loadPercent: {
+            type: "object", additionalProperties: false, required: ["percent", "reference", "unit"],
+            properties: {
+              percent: { type: "number", minimum: 1, maximum: 150 },
+              reference: { type: "number", exclusiveMinimum: 0, maximum: 2000, description: "用户手动确认的 1RM，不能将历史 e1RM 自动当作真实 1RM。" },
+              unit: { type: "string", enum: ["kg", "lb"] },
+            },
+          },
         },
       },
     },

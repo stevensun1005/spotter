@@ -1,10 +1,13 @@
 import { z } from "zod";
+import { env } from "cloudflare:workers";
 import { requireAccount } from "@/server/account";
 import { HttpError, json, readJsonBody } from "@/server/http";
 import { backupSchema, dateBounds, scopeBackup, scopeNames, scopeSchema } from "@/features/data/model";
 import { exportBackup, importBackup } from "@/features/data/server";
 import { agentProfileRef, profileRefSchema } from "@/features/agent/profile";
 import { agentWriteTools, isAgentWriteTool, writeAgentData } from "@/features/agent/writes";
+import { agentScopes } from "@/features/agent-access/model";
+import { planningTools, isPlanningTool, callPlanningTool } from "@/features/agent-access/tools";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +21,7 @@ const tools = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   ...agentWriteTools,
+  ...planningTools,
   {
     name: "read_spotter_records",
     title: "读取训练搭子记录",
@@ -69,6 +73,10 @@ async function verifyProfile(owner: string, expected?: string) {
 async function call(name: string | undefined, args: unknown) {
   const account = await requireAccount();
   if (name === "get_spotter_agent_profile") return textResult({ profileRef: await agentProfileRef(account.id) });
+  if (isPlanningTool(name)) {
+    if (!env.DB) throw new HttpError(503, "云端数据库暂不可用。");
+    return textResult(await callPlanningTool(env.DB, { owner: account.id, scopes: agentScopes }, name, args));
+  }
   if (isAgentWriteTool(name)) {
     await verifyProfile(account.id, directProfile.parse(args).profileRef);
     return textResult(await writeAgentData(account.id, name, args));
@@ -101,12 +109,16 @@ export async function POST(request: Request) {
   let rpc: z.infer<typeof requestSchema>;
   try {
     if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") throw new HttpError(415, "需要 JSON 格式。");
-    rpc = await readJsonBody(request, requestSchema, 500_000);
+    rpc = await readJsonBody(request, requestSchema, 1_500_000);
   } catch {
     return json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid request" } }, 400);
   }
   const envelope = { jsonrpc: "2.0", id: rpc.id ?? null };
-  const discover = { supportedVersions: ["2026-07-28"], capabilities: { tools: {} }, serverInfo: { name: "spotter", version: "1.0.0" } };
+  const discover = { supportedVersions: ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"], capabilities: { tools: {} }, serverInfo: { name: "spotter", version: "1.1.0" } };
+  if (rpc.id === undefined && rpc.method.startsWith("notifications/")) return new Response(null, { status: 202 });
+  if (rpc.id === undefined) return json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Requests require an id" } }, 400);
+  if (rpc.method === "initialize") return json({ ...envelope, result: { protocolVersion: ["2025-11-25", "2025-06-18", "2025-03-26"].includes(String(rpc.params?.protocolVersion)) ? rpc.params?.protocolVersion : "2025-11-25", capabilities: discover.capabilities, serverInfo: discover.serverInfo } });
+  if (rpc.method === "ping") return json({ ...envelope, result: {} });
   if (rpc.method === "server/discover") return json({ ...envelope, result: discover });
   if (rpc.method === "tools/list") return json({ ...envelope, result: { tools } });
   if (rpc.method === "tools/call") {
