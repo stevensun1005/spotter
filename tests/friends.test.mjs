@@ -73,6 +73,33 @@ function seedRecords(db, owner) {
     .run(owner, "private-weight", date, JSON.stringify({ entry: { type: "weight", kg: 80 } }), date);
 }
 
+test("a completed workout can be renamed without changing its logged data", async (t) => {
+  const db = fixture(t);
+  const { updateLog } = await import("../features/history/update-log.ts");
+  const { sessionSchema, startSession } = await import("../features/training/model.ts");
+  const plan = {
+    title: "原计划", date, minutes: 45, category: "力量训练", shared: false, video: "",
+    exercises: [{ name: "哑铃卧推", catalogueId: "1234", cue: "保持肩胛稳定", sets: 1, reps: 10, weight: 20, unit: "kg", seconds: 0 }],
+  };
+  const original = startSession(plan, "example", date);
+  original.rows[0][0].done = true;
+  original.minutes = 28;
+  original.note = "完成训练";
+  original.proteinShake = true;
+  const id = crypto.randomUUID();
+  db.sqlite.prepare("INSERT INTO entries (owner, id, kind, payload, updated) VALUES (?, ?, 'log', ?, ?)")
+    .run(alex.id, id, JSON.stringify(original), date);
+
+  const next = sessionSchema.parse({ ...original, plan: { ...plan, title: "  上半身 · 胸、背、三头  " } });
+  const updated = date + "T12:00:00Z";
+  const expected = { ...original, plan: { ...plan, title: "上半身 · 胸、背、三头" } };
+  assert.deepEqual(await updateLog(db, alex.id, id, date, next, updated), { data: expected, updated });
+  const saved = db.sqlite.prepare("SELECT payload FROM entries WHERE owner = ? AND id = ?").get(alex.id, id);
+  assert.deepEqual(JSON.parse(saved.payload), expected);
+  await assert.rejects(updateLog(db, alex.id, id, date, next, updated), { status: 409 });
+  await assert.rejects(updateLog(db, sam.id, id, updated, next, updated), { status: 409 });
+});
+
 test("a one-use friend invite shares work and diet status, with food details opt-in", async (t) => {
   const db = fixture(t);
   seedRecords(db, sam.id);

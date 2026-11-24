@@ -38,7 +38,7 @@ export function EditLog({ original, today, cancel, save }: {
     setError("");
     const valid = sessionSchema.safeParse(data);
     if (!valid.success || !data.finishedVideo && sessionTotals(data).sets === 0) {
-      setError("请检查日期、动作名称、重量和次数，并至少保留一组完成记录。");
+      setError("请检查训练名称、日期、动作名称、重量和次数，并至少保留一组完成记录。");
       return;
     }
     setPending(true);
@@ -49,6 +49,8 @@ export function EditLog({ original, today, cancel, save }: {
 
   return <form className="dialog-body form-fields" onSubmit={submit}>
     <fieldset disabled={pending} className="form-fields">
+      <label>训练名称<input required maxLength={100} value={data.plan.title}
+        onChange={(event) => setData({ ...data, plan: { ...data.plan, title: event.target.value } })} /></label>
       <div className="field-grid">
         <label>打卡日期<input type="date" max={today} required value={data.date} onChange={(e) => setData({ ...data, date: e.target.value })} /></label>
         <label>时长（分钟）<input type="number" min={0} max={720} required value={data.minutes} onChange={(e) => setData({ ...data, minutes: Number(e.target.value) })} /></label>

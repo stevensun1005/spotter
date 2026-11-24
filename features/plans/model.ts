@@ -33,6 +33,9 @@ export const videoUrl = z.string().max(1200).refine((value) => {
 export const planSchema = z.object({
   title: text(100),
   date: dateSchema,
+  templateId: z.string().uuid().optional(),
+  week: z.number().int().min(1).max(104).optional(),
+  day: z.number().int().min(1).max(7).optional(),
   category: z.enum(categories),
   minutes: z.number().int().min(0).max(720),
   durationNote: z.string().trim().max(380).optional(),

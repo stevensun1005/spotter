@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { HttpError } from "@/server/http";
 import { acceptsHeart, workoutWindow } from "@/features/heart/model";
+import { resolvePlanTemplate, withoutTemplateLink } from "@/features/plans/template-link";
 import { dateBounds, emptyBackup, libraryKey, scopeBackup, type Backup, type DataScope, type DateBounds } from "./model";
 
 function database() {
@@ -26,8 +27,14 @@ export async function exportBackup(owner: string, scope: DataScope, bounds: Date
     ).bind(owner, from, to).all<Doc>() : undefined,
   ]);
   const file = emptyBackup();
-  file.training = rows?.results.map(({ id, kind, payload }) => ({ id, kind, data: JSON.parse(payload) })) as Backup["training"] ?? [];
   file.library = personal.results.map(({ payload }) => JSON.parse(payload));
+  const templates = new Map(file.library.flatMap((item) => item.kind === "template" ? [[item.id, item.plan] as const] : []));
+  file.training = rows?.results.map(({ id, kind, payload }) => {
+    const row = { id, kind, data: JSON.parse(payload) } as Backup["training"][number];
+    return row.kind === "plan" && row.data.templateId
+      ? { ...row, data: resolvePlanTemplate(row.data, templates.get(row.data.templateId)) }
+      : row;
+  }) ?? [];
   file.heart = heart?.results.map(({ id, payload }) => ({ id, data: JSON.parse(payload) })) ?? [];
   return scopeBackup(file, scope);
 }
@@ -57,7 +64,10 @@ export async function importBackup(owner: string, file: Backup) {
   const db = database();
   const now = new Date().toISOString();
   const workouts = new Map(file.training.flatMap((row) => row.kind === "log" ? [[row.id, row.data] as const] : []));
-  const library = file.library.map((item) => ({ id: libraryKey(item), kind: item.kind, day: item.kind === "nutrition" ? item.date : null, item }));
+  const library = file.library.map((item) => ({
+    id: libraryKey(item), kind: item.kind, day: item.kind === "nutrition" ? item.date : null,
+    item: item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item,
+  }));
   const heart = file.heart.flatMap((row) => {
     const log = workouts.get(row.id);
     return log && acceptsHeart(workoutWindow(log), row.data) ? [{ ...row, started: log.started, date: log.date }] : [];

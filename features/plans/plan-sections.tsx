@@ -25,7 +25,7 @@ export function PlanSections({ children, templates, date, schedule, edit, newTem
         <p className="template-moves">{row.plan.exercises.slice(0, 4).map((item) => item.name).join("、") || "视频跟练"}</p>
         <div>
           <button className="button outline small" onClick={() => edit(row)}>编辑</button>
-          <button className="button primary small" onClick={() => schedule({ ...row.plan, date, shared: false })}><CalendarPlus size={16} /> 安排训练</button>
+          <button className="button primary small" onClick={() => schedule({ ...row.plan, date, shared: false, templateId: row.id, week: undefined, day: undefined })}><CalendarPlus size={16} /> 安排训练</button>
         </div>
       </article>)}</div>}
     </>}

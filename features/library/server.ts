@@ -3,6 +3,8 @@ import { HttpError } from "@/server/http";
 import type { LibraryItem, LibraryRow } from "./model";
 import { libraryKey } from "@/features/data/model";
 import { openSchedule, scheduleSchema } from "@/features/plans/schedule";
+import { withoutTemplateLink } from "@/features/plans/template-link";
+import { freezeTemplatePlans } from "@/features/plans/template-server";
 
 function database() {
   if (!env.DB) throw new HttpError(503, "云端数据库暂不可用。");
@@ -23,14 +25,19 @@ export async function readLibrary(owner: string, day?: string, body = false): Pr
 export async function saveLibrary(owner: string, item: LibraryItem) {
   const id = libraryKey(item);
   const day = item.kind === "nutrition" ? item.date : null;
+  const payload = item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item;
   await database().prepare(
     "INSERT INTO personal_library (owner, kind, id, day, payload, updated) VALUES (?, ?, ?, ?, ?, ?) " +
     "ON CONFLICT (owner, kind, id) DO UPDATE SET day = excluded.day, payload = excluded.payload, updated = excluded.updated"
-  ).bind(owner, item.kind, id, day, JSON.stringify(item), new Date().toISOString()).run();
+  ).bind(owner, item.kind, id, day, JSON.stringify(payload), new Date().toISOString()).run();
 }
 
 export async function removeLibrary(owner: string, kind: "template" | "nutrition", id: string) {
-  await database().prepare("DELETE FROM personal_library WHERE owner = ? AND kind = ? AND id = ?").bind(owner, kind, id).run();
+  const db = database();
+  const remove = db.prepare("DELETE FROM personal_library WHERE owner = ? AND kind = ? AND id = ?").bind(owner, kind, id);
+  if (kind === "template") {
+    await db.batch([freezeTemplatePlans(db, owner, id, new Date().toISOString()), remove]);
+  } else await remove.run();
 }
 
 export async function readSchedule(owner: string) {

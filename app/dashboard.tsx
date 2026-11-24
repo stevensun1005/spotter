@@ -31,6 +31,8 @@ import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym
 import { NutritionView } from "@/features/nutrition/nutrition-view";
 import { FriendsView } from "@/features/friends/friends-view";
 import { PlanSections } from "@/features/plans/plan-sections";
+import { planDisplayTitle, planWeekDay } from "@/features/plans/scheduled-title";
+import { withoutTemplateLink } from "@/features/plans/template-link";
 
 import { useLibrary } from "@/features/library/use-library";
 import { PlanActions } from "@/features/plans/plan-actions";
@@ -335,7 +337,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   function openTemplate(plan = planBlank(selected), id = crypto.randomUUID(), editing = false) {
     setConfirmRemoveTemplate(false);
-    open({ kind: "template", item: { id, data: { ...plan, shared: false } }, editing });
+    open({ kind: "template", item: { id, data: { ...withoutTemplateLink(plan), title: planDisplayTitle(plan), shared: false } }, editing });
   }
 
   function planExercise(choice: ExerciseChoice, row?: CatalogEntry) {
@@ -348,7 +350,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     const move = defaultCatalogMove(planPick.choice, planPick.row);
     const plan = plans.find((item) => item.owner === me.id && item.id === targetPlan && item.data.exercises.length < 30);
     if (targetPlan && !plan) { setWarning("这个计划已更新，请重新选一个。"); return; }
-    const next = plan ? { ...plan.data, exercises: [...plan.data.exercises, move] } : { ...planBlank(selected), title: move.name, exercises: [move] };
+    const next = plan ? { ...plan.data, templateId: undefined, exercises: [...plan.data.exercises, move] }
+      : { ...planBlank(selected), title: move.name, exercises: [move] };
     setPlanPick(undefined);
     go("plans");
     if (plan) open({ kind: "editor", plan: { id: plan.id, data: next } });
@@ -388,7 +391,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     const existing = item && drafts.find(([, data]) => data.planId === item.id && data.date === today);
     const id = existing?.[0] ?? crypto.randomUUID();
     const data = item
-      ? (existing ? resumeClock(refreshDraftPlan(existing[1], item.data)) : startSession(item.data, item.id, today))
+      ? (existing ? resumeClock(refreshDraftPlan(existing[1], item.data)) : startSession({ ...item.data, title: planDisplayTitle(item.data) }, item.id, today))
       : startFreeSession(today, kind);
     if (!existing || data !== existing[1]) upsertLocalDraft(id, data);
     else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
@@ -472,9 +475,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   function renderPlan(item: KeyedPlan, i: number) {
     const own = plans.some((plan) => plan.id === item.id && plan.owner === me.id);
+    const weekDay = planWeekDay(item.data);
+    const fromTemplate = own && templates.some((row) => row.id === item.data.templateId);
     return <div className="plan-line" key={item.id}>
       <span className={"tile " + (i % 2 ? "lilac" : "mint")}>{item.data.video ? <Play size={20} /> : <Dumbbell size={20} />}</span>
-      <div><strong>{item.data.title}</strong><small>{shortDate(item.data.date)} · {item.data.category}{item.data.minutes ? " · " + item.data.minutes + " 分钟" : ""}{item.data.shared ? " · 共享" : ""}</small></div>
+      <div><strong>{planDisplayTitle(item.data)}</strong><small>{[shortDate(item.data.date), weekDay, item.data.category,
+        item.data.minutes > 0 && item.data.minutes + " 分钟", fromTemplate && "模板", item.data.shared && "共享"].filter(Boolean).join(" · ")}</small></div>
       <div className="plan-actions">{own && planActions(item)}<button className="button outline small" onClick={() => begin(item)}>开始</button></div>
     </div>;
   }
@@ -555,8 +561,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 <div className="hero">
                   <div className="hero-content">
                     <span className="hero-tag"><span />{!canManageToday ? "搭子共享 · " + current.data.category : current.data.category}</span>
-                    <h2>{current.data.title}</h2>
-                    <div className="hero-meta">{current.data.minutes > 0 && <span><Clock3 size={16} /> {current.data.minutes} 分钟</span>}{current.data.exercises.length > 0 && <span><Dumbbell size={16} /> {current.data.exercises.length} 个动作</span>}{current.data.video && <span><Play size={16} /> 跟练视频</span>}</div>
+                    <h2>{planDisplayTitle(current.data)}</h2>
+                    <div className="hero-meta">{planWeekDay(current.data) && <span><CalendarDays size={16} /> {planWeekDay(current.data)}</span>}{current.data.minutes > 0 && <span><Clock3 size={16} /> {current.data.minutes} 分钟</span>}{current.data.exercises.length > 0 && <span><Dumbbell size={16} /> {current.data.exercises.length} 个动作</span>}{current.data.video && <span><Play size={16} /> 跟练视频</span>}</div>
                     <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> 开始计划训练</button>
                   </div>
                 </div>
@@ -639,7 +645,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     <nav aria-label="底部导航" className="mobile-nav">{navigation.filter((item) => item.mobile).map(({ id, icon: Icon, mobile }) => <button key={id} className={view === id ? "active" : ""} aria-current={id === view ? "page" : undefined} onClick={() => go(id)}><Icon size={21} /><span>{mobile}</span></button>)}</nav>
     {overlay?.kind === "editor" && <Dialog title={plans.some((plan) => plan.id === overlay.plan.id && plan.owner === me.id) ? "编辑计划" : "新建计划"} onClose={close}>
       <form onSubmit={(e) => { e.preventDefault(); const item = overlay.plan; void act(async () => { await savePlans([item]); setSelected(item.data.date); setOverlay(null); }); }}>
-        <div className="dialog-body"><PlanFields value={overlay.plan.data} change={(data) => setOverlay({ kind: "editor", plan: { ...overlay.plan, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
+        <div className="dialog-body"><PlanFields value={overlay.plan.data} templates={templates} change={(data) => setOverlay({ kind: "editor", plan: { ...overlay.plan, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
         <div className="dialog-footer"><button type="button" className="button outline" onClick={close} disabled={busy}>取消</button><button className="button primary" disabled={busy}><Check size={18} /> 保存计划</button></div>
       </form>
     </Dialog>}
@@ -666,13 +672,14 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       <form onSubmit={(event) => { event.preventDefault(); const { id, data } = overlay.item; void act(async () => {
         const parsed = cleanPlan(data);
         if (!parsed.success) throw new Error("请检查模板名称、日期、动作或视频。");
-        await library.save({ kind: "template", id, plan: { ...parsed.data, shared: false } });
+        await library.save({ kind: "template", id, plan: { ...withoutTemplateLink(parsed.data), shared: false } });
+        await refresh();
         setOverlay(null); go("plans"); setPlanTab("个人模板"); setToast("模板已保存");
       }); }}>
         <div className="dialog-body"><PlanFields template value={overlay.item.data} change={(data) => setOverlay({ ...overlay, item: { ...overlay.item, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
         <div className="dialog-footer">{overlay.editing && <button type="button" className="button outline" disabled={busy} onClick={() => {
           if (!confirmRemoveTemplate) { setConfirmRemoveTemplate(true); return; }
-          void act(async () => { await library.remove("template", overlay.item.id); setOverlay(null); setToast("模板已删除"); });
+          void act(async () => { await library.remove("template", overlay.item.id); await refresh(); setOverlay(null); setToast("模板已删除"); });
         }}>{confirmRemoveTemplate ? "确认删除" : "删除模板"}</button>}
           <button className="button primary" disabled={busy}><Check size={18} /> 保存模板</button></div>
       </form>
@@ -687,6 +694,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             .sort((a, b) => a.data.date.localeCompare(b.data.date))
             .map((item) => <option value={item.id} key={item.id}>{item.data.date} · {item.data.title}</option>)}
         </select></label>
+        {plans.some((item) => item.owner === me.id && item.id === targetPlan && item.data.templateId) &&
+          <p className="muted">保存这次的动作改动后，这一节会成为独立计划。</p>}
         {warning && <p className="inline-error" role="alert">{warning}</p>}
         <button className="button primary"><Plus size={17} /> 加入并编辑</button>
       </form>

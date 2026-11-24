@@ -6,6 +6,8 @@ import { asDate, draftSessionSchema, planSchema, sessionSchema, sessionTotals, t
 import { api } from "@/server/http";
 import { dateSchema } from "@/shared/dates";
 import { checkPlanDates, reschedule } from "@/features/plans/schedule-server";
+import { resolvePlanTemplate } from "@/features/plans/template-link";
+import { ownTemplateJoin } from "@/features/plans/template-server";
 import { updateLog } from "@/features/history/update-log";
 import { withoutProteinShake } from "@/features/training/protein";
 import { buddyCheckins, shareAccess } from "@/features/friends/server";
@@ -26,7 +28,7 @@ const mutation = z.discriminatedUnion("action", [
 ]);
 
 type Member = { invite: string; creator: string; partnerId: string | null; partnerName: string | null };
-type Row = Omit<Entry, "data"> & { payload: string };
+type Row = Omit<Entry, "data"> & { payload: string; templatePlan: string | null };
 
 const reply = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -48,20 +50,28 @@ export async function GET() {
   const partner = member?.partnerId;
   const training = partner ? shareAccess(me.id, partner, "training") : null;
   const partnerFilter = training ?
-    " OR (owner = ? AND (kind IN ('plan', 'cheer') OR (kind = 'log' AND " + training.condition + ")))" : "";
+    " OR (e.owner = ? AND (e.kind IN ('plan', 'cheer') OR (e.kind = 'log' AND " + training.condition + ")))" : "";
   const [rows, partnerCheckins, share] = await Promise.all([
-    env.DB.prepare("SELECT id, owner, kind, payload, updated FROM entries " +
-      "WHERE (owner = ? AND kind IN ('plan', 'draft', 'log', 'cheer'))" + partnerFilter + " ORDER BY updated DESC")
-      .bind(me.id, ...(partner && training ? [partner, ...training.identifiers] : [])).all<Row>(),
+    env.DB.prepare("SELECT e.id, e.owner, e.kind, e.payload, e.updated, json_extract(t.payload, '$.plan') AS templatePlan FROM entries e" + ownTemplateJoin +
+      "WHERE (e.owner = ? AND e.kind IN ('plan', 'draft', 'log', 'cheer'))" + partnerFilter + " ORDER BY e.updated DESC")
+      .bind(me.id, me.id, ...(partner && training ? [partner, ...training.identifiers] : [])).all<Row>(),
     partner ? buddyCheckins(env.DB, partner) : undefined,
     training ? env.DB.prepare("SELECT " + training.condition + " AS allowed").bind(...training.identifiers).first<{ allowed: number }>() : undefined,
   ]);
-  const entries: Entry[] = rows.results.map(({ payload, ...row }) => {
+  const entries: Entry[] = rows.results.map(({ payload, templatePlan, ...row }) => {
     const entry = { ...row, data: JSON.parse(payload) } as Entry;
+    if (entry.kind === "plan") {
+      if (entry.owner !== me.id) {
+        const { templateId: _privateTemplateId, ...data } = entry.data;
+        return { ...entry, data };
+      }
+      return templatePlan ? { ...entry, data: resolvePlanTemplate(entry.data, JSON.parse(templatePlan)) } : entry;
+    }
     if (entry.kind !== "log" || entry.owner === me.id) return entry;
     const data = withoutProteinShake(entry.data);
-    return { ...entry, data: { ...data, note: "", plan: { ...data.plan, durationNote: undefined,
-      exercises: data.plan.exercises.map(({ cue: _privateCue, ...exercise }) => exercise),
+    const { templateId: _privateTemplateId, ...plan } = data.plan;
+    return { ...entry, data: { ...data, note: "", plan: { ...plan, durationNote: undefined,
+      exercises: plan.exercises.map(({ cue: _privateCue, ...exercise }) => exercise),
     } } };
   }).filter((entry) => entry.kind !== "plan" || entry.owner === me.id || entry.data.shared);
   const state: State = {
