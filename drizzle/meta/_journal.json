@@ -43,6 +43,13 @@
       "when": 1795497205967,
       "tag": "0005_agent_programs",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795498291275,
+      "tag": "0006_coaching",
+      "breakpoints": true
     }
   ]
 }

@@ -112,9 +112,8 @@ function previewItems(program: ProgramRecord, current: ProgramState): ProgramPre
 function entrySnapshot(current: ProgramState) {
   return current.entries.map(({ id, kind, updated, payload }) => ({ id, kind, updated, payload: kind === "plan" ? payload : null }));
 }
-async function previewWithState(owner: string, id: string, revision: string, db: D1Database) {
-  const program = await readProgram(owner, id, db);
-  if (program.revision !== revision) throw changed();
+async function previewRecordWithState(owner: string, program: ProgramRecord, db: D1Database) {
+  const { id, revision } = program;
   const current = await state(owner, program, db);
   const items = previewItems(program, current);
   const serialized = JSON.stringify([program.id, revision, entrySnapshot(current), current.links, current.schedulePayload]);
@@ -123,16 +122,47 @@ async function previewWithState(owner: string, id: string, revision: string, db:
   const counts = Object.fromEntries(programStatuses.map((status) => [status, items.filter((item) => item.status === status).length])) as ProgramPreview["counts"];
   return { program, current, preview: { programId: id, revision, token, items, counts } satisfies ProgramPreview };
 }
+async function previewWithState(owner: string, id: string, revision: string, db: D1Database) {
+  const program = await readProgram(owner, id, db);
+  if (program.revision !== revision) throw changed();
+  return previewRecordWithState(owner, program, db);
+}
 export async function previewProgram(owner: string, id: string, revision: string, provided?: D1Database): Promise<ProgramPreview> {
   return (await previewWithState(owner, id, revision, database(provided))).preview;
 }
 
-export async function commitProgram(owner: string, id: string, revision: string, previewToken: string, confirmed: true, provided?: D1Database): Promise<ProgramCommitResult> {
-  if (confirmed !== true) throw new HttpError(400, "请先预览并确认本次日历变更。");
+// The immutable received snapshot can be previewed without writing a learner's
+// program or calendar. Importing it later uses the same preview and history guards.
+export async function previewProgramImport(owner: string, value: Program, revision: string, provided?: D1Database): Promise<ProgramPreview> {
   const db = database(provided);
+  const program = programSchema.parse(value);
+  const existing = await db.prepare("SELECT 1 AS found FROM training_programs WHERE owner = ? AND id = ?").bind(owner, program.id).first();
+  if (existing) throw changed();
+  return (await previewRecordWithState(owner, { ...program, revision, updatedAt: "", scheduledAt: null }, db)).preview;
+}
+
+export type ProgramImportBoundary = {
+  sql: string; values: (string | number | null)[];
+  committed: (nonce: string, result: ProgramCommitResult, now: string) => D1PreparedStatement[];
+};
+
+export async function commitProgramImport(owner: string, value: Program, revision: string, previewToken: string, confirmed: true,
+  provided: D1Database, boundary: ProgramImportBoundary): Promise<ProgramCommitResult> {
+  return commitProgramState(owner, value.id, revision, previewToken, confirmed, provided, { program: programSchema.parse(value), boundary });
+}
+
+export async function commitProgram(owner: string, id: string, revision: string, previewToken: string, confirmed: true, provided?: D1Database): Promise<ProgramCommitResult> {
+  return commitProgramState(owner, id, revision, previewToken, confirmed, database(provided));
+}
+
+async function commitProgramState(owner: string, id: string, revision: string, previewToken: string, confirmed: true, db: D1Database,
+  received?: { program: Program; boundary: ProgramImportBoundary }): Promise<ProgramCommitResult> {
+  if (confirmed !== true) throw new HttpError(400, "请先预览并确认本次日历变更。");
   const prior = await db.prepare("SELECT payload FROM program_commits WHERE owner = ? AND program_id = ? AND revision = ? AND preview_token = ?").bind(owner, id, revision, previewToken).first<{ payload: string }>();
   if (prior) return { ...JSON.parse(prior.payload), replayed: true };
-  const { program, current, preview } = await previewWithState(owner, id, revision, db);
+  const { program, current, preview } = received
+    ? await previewRecordWithState(owner, { ...received.program, revision, updatedAt: "", scheduledAt: null }, db)
+    : await previewWithState(owner, id, revision, db);
   if (preview.token !== previewToken) throw changed();
   const allowed = new Set(preview.items.filter(({ status }) => status === "new" || status === "update").map(({ id }) => id));
   const items = program.sessions.filter(({ id }) => allowed.has(id)).map((session) => ({ id: session.id, payload: JSON.stringify(desiredPlan(program, session)) }));
@@ -140,16 +170,20 @@ export async function commitProgram(owner: string, id: string, revision: string,
   const nonce = crypto.randomUUID();
   const snapshots = JSON.stringify(entrySnapshot(current));
   const links = JSON.stringify(current.links);
-  const lease = db.prepare(
-    "UPDATE training_programs SET last_commit = ? WHERE owner = ? AND id = ? AND revision = ? " +
+  const snapshotCondition =
     "AND (SELECT COUNT(*) FROM entries e WHERE " + related + ") = json_array_length(?) " +
     "AND NOT EXISTS (SELECT 1 FROM json_each(?) s LEFT JOIN entries e ON e.owner = ? AND e.id = json_extract(s.value, '$.id') " +
     "WHERE e.id IS NULL OR e.kind != json_extract(s.value, '$.kind') OR e.updated != json_extract(s.value, '$.updated') OR (e.kind = 'plan' AND e.payload != json_extract(s.value, '$.payload'))) " +
     "AND (SELECT COUNT(*) FROM program_plan_links WHERE owner = ? AND program_id = ? AND session_id IN (SELECT value FROM json_each(?))) = json_array_length(?) " +
     "AND NOT EXISTS (SELECT 1 FROM json_each(?) s LEFT JOIN program_plan_links l ON l.owner = ? AND l.program_id = ? AND l.session_id = json_extract(s.value, '$.session_id') WHERE l.session_id IS NULL OR l.payload != json_extract(s.value, '$.payload')) " +
-    "AND ((SELECT payload FROM personal_library WHERE owner = ? AND kind = 'schedule' AND id = 'schedule') IS ?)"
-  ).bind(nonce, owner, id, revision, owner, current.ids, current.ids, snapshots, snapshots, owner,
-    owner, id, current.ids, links, links, owner, id, owner, current.schedulePayload);
+    "AND ((SELECT payload FROM personal_library WHERE owner = ? AND kind = 'schedule' AND id = 'schedule') IS ?)";
+  const snapshotValues = [owner, current.ids, current.ids, snapshots, snapshots, owner,
+    owner, id, current.ids, links, links, owner, id, owner, current.schedulePayload];
+  const lease = received
+    ? db.prepare("INSERT INTO training_programs (owner,id,payload,revision,updated_at,last_commit) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM training_programs WHERE owner = ? AND id = ?) " + snapshotCondition + " AND (" + received.boundary.sql + ")")
+      .bind(owner, id, JSON.stringify(received.program), revision, now, nonce, owner, id, ...snapshotValues, ...received.boundary.values)
+    : db.prepare("UPDATE training_programs SET last_commit = ? WHERE owner = ? AND id = ? AND revision = ? " + snapshotCondition)
+      .bind(nonce, owner, id, revision, ...snapshotValues);
   const gate = "EXISTS (SELECT 1 FROM training_programs WHERE owner = ? AND id = ? AND last_commit = ?)";
   const payload = JSON.stringify(items);
   const dates = program.sessions.map(({ plan }) => plan.date).sort();
@@ -169,6 +203,7 @@ export async function commitProgram(owner: string, id: string, revision: string,
       .bind(items.length, now, owner, id, nonce),
     db.prepare("INSERT OR IGNORE INTO program_commits (owner, program_id, revision, preview_token, payload) SELECT ?, ?, ?, ?, ? WHERE " + gate)
       .bind(owner, id, revision, previewToken, JSON.stringify(result), owner, id, nonce),
+    ...(received?.boundary.committed(nonce, result, now) ?? []),
   ]);
   if (!results[0].meta.changes) {
     const replay = await db.prepare("SELECT payload FROM program_commits WHERE owner = ? AND program_id = ? AND revision = ? AND preview_token = ?").bind(owner, id, revision, previewToken).first<{ payload: string }>();

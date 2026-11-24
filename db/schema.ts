@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, foreignKey, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, foreignKey, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const rooms = sqliteTable("rooms", {
   id: text().primaryKey(),
@@ -147,4 +147,52 @@ export const programCommits = sqliteTable("program_commits", {
 }, (table) => [
   primaryKey({ columns: [table.owner, table.programId, table.revision, table.previewToken] }),
   foreignKey({ columns: [table.owner, table.programId], foreignColumns: [trainingPrograms.owner, trainingPrograms.id] }).onDelete("cascade"),
+]);
+
+export const coachingInvites = sqliteTable("coaching_invites", {
+  coachId: text("coach_id").primaryKey().notNull(),
+  coachName: text("coach_name").notNull(),
+  codeHash: text("code_hash").notNull().unique(),
+  expiresAt: text("expires_at").notNull(),
+  claimedBy: text("claimed_by"),
+  claimedAt: text("claimed_at"),
+  claimNonce: text("claim_nonce"),
+});
+
+export const coachingLinks = sqliteTable("coaching_links", {
+  id: text().primaryKey().notNull(),
+  coachId: text("coach_id").notNull(),
+  coachName: text("coach_name").notNull(),
+  studentId: text("student_id").notNull(),
+  studentName: text("student_name").notNull(),
+  shareDetails: integer("share_details").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+  endedAt: text("ended_at"),
+}, (table) => [
+  uniqueIndex("coaching_links_active_pair").on(table.coachId, table.studentId).where(sql`${table.endedAt} IS NULL`),
+  index("coaching_links_student").on(table.studentId, table.createdAt),
+]);
+
+export const coachingAssignments = sqliteTable("coaching_assignments", {
+  id: text().primaryKey().notNull(),
+  linkId: text("link_id").notNull().references(() => coachingLinks.id),
+  coachId: text("coach_id").notNull(),
+  studentId: text("student_id").notNull(),
+  requestHash: text("request_hash").notNull(),
+  kind: text().notNull(),
+  payload: text().notNull(),
+  revision: text().notNull(),
+  programId: text("program_id").notNull().unique(),
+  note: text().notNull().default(""),
+  status: text().notNull().default("pending"),
+  createdAt: text("created_at").notNull(),
+  acceptedAt: text("accepted_at"),
+  result: text(),
+  feedback: text(),
+  feedbackAt: text("feedback_at"),
+}, (table) => [
+  index("coaching_assignments_coach").on(table.coachId, table.createdAt),
+  index("coaching_assignments_student").on(table.studentId, table.createdAt),
+  check("coaching_assignment_kind", sql`${table.kind} IN ('plan', 'program')`),
+  check("coaching_assignment_status", sql`${table.status} IN ('pending', 'accepted', 'declined', 'cancelled')`),
 ]);
