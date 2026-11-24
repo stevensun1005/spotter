@@ -29,6 +29,12 @@ test("a workout without a plan can be synced and backed up as an empty draft", a
   assert.equal(draft.clock.runningSince, draft.started);
   assert.deepEqual(draft.plan.exercises, []);
   assert.deepEqual(draft.rows, []);
+  const cardio = training.startFreeSession(draft.date, "cardio");
+  const hiit = training.startFreeSession(draft.date, "hiit");
+  assert.equal(cardio.plan.category, "有氧训练");
+  assert.equal(hiit.plan.title, "HIIT 训练");
+  assert.equal(hiit.plan.category, "有氧训练");
+  assert.deepEqual(training.draftSessionSchema.parse(hiit), hiit);
   assert.deepEqual(training.draftSessionSchema.parse(draft), draft);
   assert.equal(training.draftSessionSchema.safeParse({ ...draft, planId: "existing-plan" }).success, false);
   assert.equal(training.draftSessionSchema.safeParse({ ...draft, finishedVideo: true }).success, false);

@@ -8,10 +8,11 @@ import { offsetDate, weekdays } from "@/shared/dates";
 import type { PlannedWorkout } from "./model";
 import { blocked, type Schedule } from "./schedule";
 
-export function ScheduleSettings({ settings, close, save }: {
-  settings: Schedule; close: () => void; save: (settings: Schedule) => Promise<void>;
+export function ScheduleSettings({ settings, restDay, close, save }: {
+  settings: Schedule; restDay?: string; close: () => void; save: (settings: Schedule) => Promise<void>;
 }) {
-  const [value, setValue] = useState(settings);
+  const [value, setValue] = useState(() => restDay && !blocked(settings, restDay) && settings.dates.length < 180
+    ? { ...settings, dates: [...settings.dates, restDay].sort() } : settings);
   const [day, setDay] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -22,7 +23,7 @@ export function ScheduleSettings({ settings, close, save }: {
     catch (reason) { setError(errorText(reason)); }
     finally { setBusy(false); }
   }
-  return <Dialog title="个人计划设置" onClose={() => { if (!busy) close(); }}>
+  return <Dialog title={restDay ? "安排休息" : "个人计划设置"} onClose={() => { if (!busy) close(); }}>
     <form onSubmit={submit} className="dialog-body feature-stack">
       <h3>每周不安排训练的日子</h3>
       <div className="weekday-settings">{weekdays.map((label, index) => <button type="button" key={label} className="button outline small" aria-pressed={value.weekdays.includes(index)}

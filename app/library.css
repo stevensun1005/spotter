@@ -2,9 +2,6 @@
 .feature-stack h2, .feature-stack h3 { margin: 0; }
 .feature-stack h3 { font-size: 1.06rem; font-weight: 780; }
 .feature-form-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; }
-.exercise-search { position: relative; display: block; min-width: 0; }
-.exercise-search svg { position: absolute; inset: 13px auto auto 10px; color: var(--muted); pointer-events: none; }
-.exercise-search input { padding-inline-start: 34px; width: 100%; }
 .exercise-results { display: grid; gap: 1px; }
 .exercise-results button { width: 100%; }
 .exercise-results button > span:nth-child(2) { text-align: start; }

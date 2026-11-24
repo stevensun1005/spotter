@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Pause, Play, ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, Clock3, Dumbbell, Keyboard, PencilLine, Plus } from "lucide-react";
-import { Dialog, VideoLink } from "@/shared/ui";
+import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Dumbbell, Keyboard, Minimize2, MoreHorizontal, NotebookPen, Pause, PencilLine, Play, Plus } from "lucide-react";
+import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { freeWorkoutTitle, sessionTotals, type Session } from "./model";
 import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldValue, flipWeightUnit, validNumberText, type NumberField, type SetTarget } from "./set-editor";
 import { fieldLabels, SetRow } from "./set-row";
@@ -28,7 +28,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const [openedMove, setOpenedMove] = useState(() => nextSet(data.plan, data.rows)?.move ?? 0);
   const [focusSet, setFocusSet] = useState<SetPosition>();
   const movedFocus = useRef<SetPosition>(undefined);
-  const [restSetting, setRestSetting] = useState(false);
+  const [panel, setPanel] = useState<"settings" | "note">();
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [picker, setPicker] = useState<number>();
   useEffect(() => {
@@ -61,10 +61,11 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const timer = showTime(Math.floor(elapsed / 1000));
   const rest = data.rest ? Math.max(0, Math.ceil((data.rest.until - elapsed) / 1000)) : 0;
   const restSeconds = data.defaultRestOverride ?? defaultRest(plan);
-  const done = sessionTotals(data).sets;
+  const { sets: done, volume } = sessionTotals(data);
   const total = data.rows.flat().length;
   const showFinish = trackProtein && confirmFinish;
-  const emptyWorkout = !total && !plan.video;
+  const progressTotal = total + Number(Boolean(plan.video));
+  const defaultTitle = plan.category === "有氧训练" ? "有氧训练" : freeWorkoutTitle;
 
   function activate(target: SetTarget, session = data) {
     const value = fieldValue(session.rows[target.move][target.row], target.field);
@@ -167,41 +168,46 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   }
 
   return <main className="training-page" aria-label="正在训练">
-    <div className="training-shell">
-      <header className="training-header">
-        <button className="button subtle" disabled={pending} onClick={close}><ChevronLeft size={18} /> 返回</button>
-        <h1>正在训练</h1>
-        <div className="workout-timer" aria-label="训练用时"><Clock3 size={17} />{timer}</div>
+    <div className="training-shell workout-shell">
+      <header className="workout-header">
+        <h1 className="sr-only">正在训练</h1>
+        <div className="workout-header-row">
+          <div className="workout-clock">
+            <span className="workout-timer" role="timer" aria-label="训练用时">{timer}</span>
+            <button type="button" className="workout-clock-toggle" aria-label={running ? "暂停计时" : "继续计时"} disabled={pending}
+              onClick={() => {
+                const stamp = Date.now();
+                setNow(stamp);
+                update(running ? pauseClock(data, stamp) : resumeClock(data, stamp));
+              }}>
+              {running ? <Pause size={19} fill="currentColor" /> : <Play size={19} fill="currentColor" />}
+            </button>
+          </div>
+          <button type="button" className="button primary workout-finish" aria-label={pending ? "正在保存" : "完成打卡"}
+            disabled={pending || Boolean(edit) || (!done && !data.finishedVideo)}
+            onClick={() => { if (trackProtein) setConfirmFinish(true); else finish(); }}>{pending ? "正在保存" : "完成"}</button>
+        </div>
+        <div className="workout-header-row">
+          {data.planId === "" ? <label className="workout-title-field">
+            <PencilLine size={18} aria-hidden="true" />
+            <input aria-label="训练标题" placeholder="输入训练标题" defaultValue={plan.title === freeWorkoutTitle ? "" : plan.title}
+              maxLength={100} disabled={pending}
+              onChange={(event) => update({ ...data, plan: { ...plan, title: event.target.value.trim() || defaultTitle } })} />
+          </label> : <div className="workout-title"><p className="muted">{plan.category}</p><h2>{plan.title}</h2></div>}
+          <div className="workout-summary">
+            <strong>{done}/{total} 组</strong><small>{displayNumber(volume)} kg 容量</small>
+          </div>
+        </div>
+        <p className="workout-sync">{sync}</p>
+        {data.rest && <div className="rest-counter workout-rest-counter" aria-label="休息计时">
+          <span>{rest ? data.rest.kind + " " + showTime(rest) : "休息结束"}</span>
+          <button className="button subtle small" type="button" disabled={pending}
+            onClick={() => update({ ...data, rest: undefined })}>{rest ? "跳过" : "关闭"}</button>
+        </div>}
       </header>
-    <div className="workout-clock-line">
-      <button type="button" className="button outline small" disabled={pending} onClick={() => update(running ? pauseClock(data) : resumeClock(data))}>
-        {running ? <Pause size={15} /> : <Play size={15} />} {running ? "暂停计时" : "继续计时"}
-      </button>
-      {data.rest && <div className="rest-counter" aria-label="休息计时">
-        <span>{rest ? data.rest.kind + " " + showTime(rest) : "休息结束"}</span>
-        <button className="button subtle small" type="button" onClick={() => update({ ...data, rest: undefined })}>{rest ? "跳过" : "关闭"}</button></div>}
-      <button type="button" className="button subtle small" aria-expanded={restSetting} onClick={() => setRestSetting(!restSetting)}>休息设置</button>
-    </div>
-    {restSetting && <form className="workout-rest-setting" onSubmit={(event) => {
-      event.preventDefault();
-      const value = new FormData(event.currentTarget).get("rest");
-      if (value !== null && value !== "") update({ ...data, defaultRestOverride: Number(value) });
-      setRestSetting(false);
-    }}>
-      <label>本次默认休息（秒）<input type="number" name="rest" min={0} max={600} defaultValue={restSeconds} required /></label>
-      <button type="submit" className="button outline small">设定</button>
-    </form>}
     <div className="dialog-body workout-body">
-      <div className="workout-top">
-        {data.planId === "" ? <label className="workout-title-field">
-          <PencilLine size={18} aria-hidden="true" />
-          <input aria-label="训练标题" placeholder={freeWorkoutTitle} defaultValue={plan.title} maxLength={100} disabled={pending}
-            onChange={(event) => update({ ...data, plan: { ...plan, title: event.target.value.trim() || freeWorkoutTitle } })} />
-        </label> : <div><p className="muted">{plan.category}</p><h2>{plan.title}</h2></div>}
-      </div>
-      {data.plan.durationNote && <p className="muted">{data.plan.durationNote}</p>}
-      <div className="workout-progress">{!emptyWorkout && <span>{done} / {total} 组完成</span>}<span>{sync}</span></div>
-      {!emptyWorkout && <progress value={done + Number(data.finishedVideo)} max={total + Number(Boolean(plan.video))} />}
+      {plan.durationNote && <p className="muted">{plan.durationNote}</p>}
+      {progressTotal > 0 && <progress value={done + Number(data.finishedVideo)} max={progressTotal} aria-label="训练进度" />}
       <fieldset disabled={pending} className="session-fields">
         {data.plan.video && <div className="video-panel"><VideoLink url={data.plan.video} /><label className="toggle-label"><input type="checkbox" checked={data.finishedVideo} onChange={(e) => update({ ...data, finishedVideo: e.target.checked })} /> 已完成跟练</label></div>}
         {pendingSet && <div className="workout-next" role="status">
@@ -235,20 +241,41 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
             </details>;
           })}
         </section>)}
-        <button type="button" className={"button workout-add-exercise " + (emptyWorkout ? "primary" : "outline")} disabled={data.plan.exercises.length >= 30} onClick={() => setPicker(-1)}><Plus size={17} /> 添加动作</button>
-        <div className="form-fields">
-          <label>训练心得<textarea value={data.note} maxLength={1500} onFocus={() => setEdit(null)} onChange={(e) => update({ ...data, note: e.target.value })} placeholder="今天练得怎么样？" rows={3} /></label>
-          <label>实际时长（分钟）<input type="number" min={0} max={720} value={data.minutes || ""} onFocus={() => setEdit(null)} placeholder="留空时使用计时" onChange={(e) => update({ ...data, minutes: Math.max(0, Math.min(720, Math.trunc(Number(e.target.value)))) })} /></label>
-        </div>
       </fieldset>
       {error && !showFinish && <p className="inline-error" role="alert">{error}</p>}
     </div>
-    {edit ? renderPad() : <div className="training-footer">
-      {total > 0 && <button className="button outline" onClick={openKeypad} disabled={pending}><Keyboard size={18} /> 数字键盘</button>}
-      <button className="button primary" disabled={pending || (!done && !data.finishedVideo)}
-        onClick={() => { if (trackProtein) setConfirmFinish(true); else finish(); }}><Check size={18} /> {pending ? "正在保存" : "完成打卡"}</button>
+    {edit ? renderPad() : <div className="workout-actions" role="group" aria-label="训练操作">
+      <button type="button" disabled={pending} onClick={close}><Minimize2 size={22} /> 最小化</button>
+      <button type="button" disabled={pending} onClick={() => setPanel("settings")}><MoreHorizontal size={22} /> 更多</button>
+      <button type="button" className="workout-add-action" aria-label="添加动作" disabled={pending || plan.exercises.length >= 30}
+        onClick={() => setPicker(-1)}><span><Plus size={23} /></span>加动作</button>
+      <button type="button" disabled={pending} onClick={() => setPanel("note")}><NotebookPen size={22} /> 写心得</button>
+      <button type="button" disabled={pending || !total} onClick={openKeypad}><Keyboard size={22} /> 数字键盘</button>
     </div>}
     </div>
+    {panel === "settings" && <Dialog title="训练设置" onClose={() => setPanel(undefined)}>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        const restOverride = Number(fields.get("rest"));
+        const minutes = Number(fields.get("minutes"));
+        update({ ...data, defaultRestOverride: restOverride === restSeconds ? data.defaultRestOverride : restOverride, minutes });
+        setPanel(undefined);
+      }}>
+        <div className="dialog-body form-fields">
+          <label>本次默认休息（秒）<input type="number" name="rest" min={0} max={600} defaultValue={restSeconds} required /></label>
+          <label>实际时长（分钟）<input type="number" name="minutes" min={0} max={720} defaultValue={data.minutes || ""} placeholder="留空时使用计时" /></label>
+        </div>
+        <div className="dialog-footer"><button type="submit" className="button primary">保存设置</button></div>
+      </form>
+    </Dialog>}
+    {panel === "note" && <Dialog title="训练心得" onClose={() => setPanel(undefined)}>
+      <div className="dialog-body">
+        <textarea aria-label="训练心得" value={data.note} maxLength={1500} placeholder="今天练得怎么样？" rows={4}
+          onChange={(event) => update({ ...data, note: event.target.value })} />
+      </div>
+      <div className="dialog-footer"><button type="button" className="button primary" onClick={() => setPanel(undefined)}>完成</button></div>
+    </Dialog>}
     {showFinish && <Dialog title="完成训练" onClose={() => { if (!pending) setConfirmFinish(false); }}>
       <div className="dialog-body">
         <ProteinCheck checked={data.proteinShake === true} disabled={pending} save={(proteinShake) => update({ ...data, proteinShake })} />

@@ -58,8 +58,16 @@ export function startSession(plan: Plan, planId: string, date: string): Session 
 
 export const freeWorkoutTitle = "自由训练";
 
-export function startFreeSession(date: string): Session {
-  return startSession({ ...planBlank(date), title: freeWorkoutTitle, exercises: [] }, "", date);
+const freeWorkoutPresets = {
+  strength: { title: freeWorkoutTitle, category: "力量训练" },
+  cardio: { title: "有氧训练", category: "有氧训练" },
+  hiit: { title: "HIIT 训练", category: "有氧训练" },
+} satisfies Record<string, Pick<Plan, "title" | "category">>;
+
+export type FreeWorkoutKind = keyof typeof freeWorkoutPresets;
+
+export function startFreeSession(date: string, kind: FreeWorkoutKind = "strength"): Session {
+  return startSession({ ...planBlank(date), ...freeWorkoutPresets[kind], exercises: [] }, "", date);
 }
 
 export function sessionTotals(session: Session) {

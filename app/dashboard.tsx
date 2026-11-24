@@ -16,6 +16,8 @@ import {
 import { useTrainingNavigation } from "@/features/training/navigation";
 import { TrainingNotice } from "@/features/training/training-notice";
 import { Workout } from "@/features/training/workout";
+import { TrainingLaunch } from "@/features/training/training-launch";
+import type { FreeWorkoutKind } from "@/features/training/model";
 import { ProteinCheck } from "@/features/training/protein-check";
 import { PairToday } from "@/features/pair/pair-today";
 import { WeekCheckins } from "@/features/pair/week-checkins";
@@ -44,7 +46,7 @@ import { HardDriveDownload, Ruler } from "lucide-react";
 
 type View = "today" | "plans" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "settings" | "more";
 type KeyedPlan = { id: string; data: Plan };
-type Overlay = { kind: "pair" | "schedule" } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
+type Overlay = { kind: "pair" | "launch" } | { kind: "schedule"; restDay?: string } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
 const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
@@ -384,12 +386,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     saveTimer.current = setTimeout(() => flushDraft(id, data), 420);
   }
 
-  function begin(item?: KeyedPlan) {
+  function begin(item?: KeyedPlan, kind?: FreeWorkoutKind) {
     const existing = item && drafts.find(([, data]) => data.planId === item.id && data.date === today);
     const id = existing?.[0] ?? crypto.randomUUID();
     const data = item
       ? (existing ? resumeClock(refreshDraftPlan(existing[1], item.data)) : startSession(item.data, item.id, today))
-      : startFreeSession(today);
+      : startFreeSession(today, kind);
     if (!existing || data !== existing[1]) upsertLocalDraft(id, data);
     else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
     open({ kind: "session", id, data });
@@ -522,7 +524,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           {(view === "today" || view === "plans") && <div className="plan-heading-actions">
             {view === "plans" && viewer && <button className="button outline page-action" disabled={library.loading || Boolean(library.error)} onClick={() => open({ kind: "schedule" })}><Settings2 size={18} /> 个人计划设置</button>}
             {view === "today"
-              ? <button className="button primary page-action" onClick={() => begin()}><Play size={19} fill="currentColor" /> 开始训练</button>
+              ? <button className="button primary page-action" onClick={() => open({ kind: "launch" })}><Play size={19} fill="currentColor" /> 开始训练</button>
               : <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>}
           </div>}
         </div>}
@@ -629,7 +631,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         <div className="dialog-footer"><button type="button" className="button outline" onClick={close} disabled={busy}>取消</button><button className="button primary" disabled={busy}><Check size={18} /> 保存计划</button></div>
       </form>
     </Dialog>}
-    {overlay?.kind === "schedule" && <ScheduleSettings settings={schedule} close={close} save={async (values) => {
+    {overlay?.kind === "launch" && <TrainingLaunch close={close} start={(kind) => begin(undefined, kind)}
+      rest={viewer && !library.loading && !library.error ? () => open({ kind: "schedule", restDay: today }) : undefined}
+      body={() => { close(); go("body"); }} />}
+    {overlay?.kind === "schedule" && <ScheduleSettings
+      settings={schedule} restDay={overlay.restDay} close={close} save={async (values) => {
       await library.save({ kind: "schedule", values }); setToast("计划设置已保存");
     }} />}
     {overlay?.kind === "move" && <MovePlan item={overlay.item} settings={schedule} close={close} save={async (date, shift) => {
