@@ -2,6 +2,8 @@
 
 iPhone App 默认打开与 Cloudflare 网页相同的 HTTPS 站点。两端使用这个 Worker 的会话服务和 D1。Apple、Google 或已有访问码登录后，训练、饮食、仓库、计划和关系以同一个 Spotter 账号 ID 保存。独立 Node 服务与私密 Sites 各自管理自己的账号和数据。
 
+iPhone 正式版的训练页面要求登录。使用者用自己的 Apple 或 Google 账号登录。发布者使用 Apple Developer 和 App Store Connect 管理签名和上架。Google Auth Platform 的 OAuth 客户端由项目管理员配置一次。
+
 已有 Cloudflare 记录时，先使用原邮箱和访问码登录，在「设置 → 账号」绑定 Apple 和 Google。新账号可先用任一已配置的平台登录，再绑定另一个。绑定要求在同一 Spotter 会话中通过平台授权。若已经建立两个各自含有记录的 Spotter 账号，请分别登录核对账号，绑定流程会拒绝占用另一个账号的登录身份。
 
 ## 部署与启用

@@ -14,8 +14,12 @@ struct AppShell: View {
     @State private var presentingShare = false
 
     init() {
-        let saved = UserDefaults.standard.string(forKey: "spotter.web.origin")
-        guard let configuration = (try? AppConfiguration(origin: saved ?? AppConfiguration.defaultOrigin)) ??
+        #if DEBUG
+        let origin = UserDefaults.standard.string(forKey: "spotter.web.origin") ?? AppConfiguration.defaultOrigin
+        #else
+        let origin = AppConfiguration.defaultOrigin
+        #endif
+        guard let configuration = (try? AppConfiguration(origin: origin)) ??
             (try? AppConfiguration(origin: AppConfiguration.defaultOrigin)) else {
             preconditionFailure("The bundled Spotter origin must be valid.")
         }
@@ -40,7 +44,9 @@ struct AppShell: View {
                         Text("暂时无法打开训练搭子").font(.headline)
                         Text(error).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         Button("重新加载") { model.reload() }.buttonStyle(.borderedProminent)
+                        #if DEBUG
                         Button("检查站点网址") { sheet = .settings }
+                        #endif
                     }
                     .padding(28)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -57,14 +63,20 @@ struct AppShell: View {
                     }
                 }
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button {
-                        model.refreshIdentity()
-                        sheet = .health
-                    } label: { Image(systemName: "heart.text.square") }
-                        .accessibilityLabel("Apple 健康")
+                    if model.accountId != nil {
+                        Button {
+                            model.refreshIdentity()
+                            sheet = .health
+                        } label: { Image(systemName: "heart.text.square") }
+                            .accessibilityLabel("Apple 健康")
+                    }
                     Menu {
                         Button { model.reload() } label: { Label("刷新", systemImage: "arrow.clockwise") }
+                        #if DEBUG
                         Button { sheet = .settings } label: { Label("站点设置", systemImage: "gearshape") }
+                        #else
+                        Button { sheet = .settings } label: { Label("关于训练搭子", systemImage: "info.circle") }
+                        #endif
                     } label: { Image(systemName: "ellipsis.circle") }
                     .accessibilityLabel("更多选项")
                 }
@@ -74,11 +86,15 @@ struct AppShell: View {
                 case .health:
                     HealthConnectionView(coordinator: health)
                 case .settings:
+                    #if DEBUG
                     AppSettings(configuration: model.configuration) { configuration in
                         UserDefaults.standard.set(configuration.origin, forKey: "spotter.web.origin")
                         if model.configuration == configuration { model.reload() }
                         else { model.load(configuration: configuration) }
                     }
+                    #else
+                    AppSettings(configuration: model.configuration)
+                    #endif
                 case .share:
                     if let url = model.pendingShareURL {
                         AppShareSheet(url: url).onAppear { presentingShare = true }
@@ -118,9 +134,10 @@ struct AppShell: View {
 
 private struct AppSettings: View {
     @Environment(\.dismiss) private var dismiss
+    let configuration: AppConfiguration
+    #if DEBUG
     @State private var origin: String
     @State private var error: String?
-    private let configuration: AppConfiguration
     let save: (AppConfiguration) -> Void
 
     init(configuration: AppConfiguration, save: @escaping (AppConfiguration) -> Void) {
@@ -128,10 +145,12 @@ private struct AppSettings: View {
         self.configuration = configuration
         self.save = save
     }
+    #endif
 
     var body: some View {
         NavigationStack {
             Form {
+                #if DEBUG
                 Section {
                     TextField("https://", text: $origin)
                         .keyboardType(.URL)
@@ -147,6 +166,7 @@ private struct AppSettings: View {
                 } footer: {
                     Text("训练、计划和记录使用所选站点的账号。切换前请先保存当前训练。")
                 }
+                #endif
                 Section {
                     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
                     let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
@@ -156,7 +176,11 @@ private struct AppSettings: View {
                     }
                 }
             }
+            #if DEBUG
             .navigationTitle("设置")
+            #else
+            .navigationTitle("关于训练搭子")
+            #endif
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
         }

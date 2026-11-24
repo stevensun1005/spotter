@@ -1,6 +1,6 @@
 # 训练搭子 iPhone App 开发版
 
-本轮 App 为 1.0（构建 8），默认连接 [Cloudflare 独立试用版](https://spotter-free.couple-ledger-service.workers.dev)。站点设置显示原生构建号和打包时核对的网页版本，构建清单记录两边的源码。
+本轮 App 为 1.0（构建 9），连接 [Cloudflare 独立试用版](https://spotter-free.couple-ledger-service.workers.dev)。App 内显示原生构建号和打包时核对的网页版本，构建清单记录两边的源码。
 
 ## 网页版本核对
 
@@ -16,8 +16,8 @@
 
 - 现有 `ios/SpotterHealth.xcodeproj` 增加 **Spotter** scheme，产品为 **Spotter.app**，显示名称为「训练搭子」。旧 SpotterHealth scheme 继续可构建同一产品。
 - 训练、计划、逐组记录、历史、统计和搭子功能复用所选站点的网页代码，由 WKWebView 加载；没有复制一份冻结的 React 页面。这是混合 App，仍需要服务端，不能称为全部离线或纯 Swift 原生重写。
-- 默认打开 Cloudflare 试用站。之前的私密 Sites 可在站点设置选择，两站使用各自的登录会话和数据。
-- 网站可在 App 的设置中改为其他 HTTPS origin。地址不接受 HTTP、路径、账号或查询参数。网页 Cookie/草稿使用持久 WebKit 数据存储；设备健康令牌继续在 Keychain，两者不混用。
+- 正式构建固定连接 Cloudflare，训练首页和训练详情均须登录。会话失效时回到登录页，检测到账号切换时重新载入新账号。
+- Debug 构建支持在站点设置选择其他 HTTPS origin，包括私密 Sites 测试站。各站点使用各自的会话和数据。网页 Cookie 和草稿使用持久 WebKit 数据存储，设备健康令牌保存在 Keychain。
 - 原生顶部提供健康入口、刷新和设置；站内导航保留在 App，普通视频外链交给系统浏览器。同源导出文件通过系统分享面板交付，临时文件在分享结束后清理。
 - 加载失败有重试入口。训练页的草稿沿用原有网页规则；没有承诺首次离线启动、离线查看全部历史或脱网云端打卡。
 - 进行中的训练在切到后台、锁屏或最小化后继续计时，回来时按实际经过的时间更新。全新打开页面会从上次保存的进度恢复为暂停状态，继续同一标签页时恢复实时计时。
