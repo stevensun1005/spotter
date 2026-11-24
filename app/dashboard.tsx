@@ -21,7 +21,7 @@ import type { FreeWorkoutKind } from "@/features/training/model";
 import { ProteinCheck } from "@/features/training/protein-check";
 import { PairToday } from "@/features/pair/pair-today";
 import { WeekCheckins } from "@/features/pair/week-checkins";
-import { ImportView } from "@/features/import/import-view";
+import { PlanAssistant } from "@/features/import/plan-assistant";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
 import { OpenGymCatalogue } from "@/features/exercises/open-gym-catalogue";
@@ -45,11 +45,10 @@ import { PlanSequence } from "@/features/training/plan-sequence";
 import { BodyView } from "@/features/body/body-view";
 import { DataView } from "@/features/data/data-view";
 import { ProgramView } from "@/features/programs/program-view";
-import { AgentAccessPanel } from "@/features/agent-access/access-panel";
 import { CoachingView } from "@/features/coaching/coaching-view";
 import { HardDriveDownload, Ruler } from "lucide-react";
 
-type View = "today" | "plans" | "programs" | "agents" | "coaching" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "settings" | "more";
+type View = "today" | "plans" | "programs" | "assistant" | "coaching" | "stats" | "friends" | "nutrition" | "body" | "data" | "settings" | "more";
 type KeyedPlan = { id: string; data: Plan };
 type Overlay = { kind: "pair" | "launch" | "friend-sharing" } | { kind: "schedule"; restDay?: string } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
@@ -57,14 +56,13 @@ const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
   { id: "plans", title: "训练", mobile: "训练", icon: Dumbbell },
   { id: "programs", title: "训练周期", mobile: "", icon: CalendarClock },
-  { id: "agents", title: "AI 连接", mobile: "", icon: Sparkles },
+  { id: "assistant", title: "添加计划", mobile: "", icon: Sparkles },
   { id: "nutrition", title: "饮食记录", mobile: "饮食", icon: Utensils },
   { id: "stats", title: "统计", mobile: "统计", icon: BarChart3 },
   { id: "friends", title: "好友", mobile: "好友", icon: Users },
   { id: "coaching", title: "教练与学员", mobile: "", icon: GraduationCap },
   { id: "body", title: "身体数据", mobile: "", icon: Ruler },
   { id: "data", title: "数据导出与导入", mobile: "", icon: HardDriveDownload },
-  { id: "import", title: "导入计划", mobile: "", icon: Sparkles },
   { id: "settings", title: "设置", mobile: "", icon: Settings2 },
   { id: "more", title: "更多功能", mobile: "更多", icon: Menu },
 ] as const;
@@ -110,6 +108,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
   const [view, setView] = useState<View>(heartReturn ? "stats" : "today");
+  const [assistantMode, setAssistantMode] = useState<"import" | "ai">("import");
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
   const [exercise, setExercise] = useState<ExerciseChoice>();
@@ -274,6 +273,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     if (next === "stats" && view !== "stats") setStatsTab("overview");
     window.scrollTo({ top: 0 });
   };
+  function openPlanAssistant(mode: "import" | "ai") {
+    setAssistantMode(mode);
+    go("assistant");
+  }
   function showBuddy(date = partnerLastDay || today) {
     if (!partner) return;
     go("friends");
@@ -551,7 +554,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             ? <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>
             : <h1>{heading}</h1>}
             {view === "today" && demo && <p>正在查看示例数据。登录后可同步你们的记录。</p>}
-            {view === "import" && <p>把聊天里的训练安排或视频链接变成可打卡的计划。</p>}
+            {view === "assistant" && <p>粘贴已有内容，或用自己的 AI 起草；核对后再排入训练。</p>}
           </div>
           {view === "today" && <div className="plan-heading-actions">
             <button className="button primary page-action" onClick={() => open({ kind: "launch" })}><Play size={19} fill="currentColor" /> 开始训练</button>
@@ -609,7 +612,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
           <aside className="right-column">
             <WeekCheckins today={today} me={me} partner={partner} partnerCheckins={room?.partnerCheckins} logs={logs} status={buddyStatus} showStats={() => go("stats")} />
-            <button className="import-callout" onClick={() => go("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>从聊天导入</strong><small>GPT、Claude 或跟练视频</small></span><ChevronRight size={18} /></button>
+            <button className="import-callout" onClick={() => openPlanAssistant("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>添加计划</strong><small>训练文本、视频或自己的 AI</small></span><ChevronRight size={18} /></button>
             {warning && !overlay && <p className="inline-error" role="alert">{warning}</p>}
           </aside>
         </div>}
@@ -621,7 +624,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             <h2>全部计划</h2>
             <div className="plans-list-actions">
               <button className="button outline small" type="button" onClick={() => go("programs")}><CalendarClock size={17} /> 训练周期</button>
-              <button className="button subtle small" type="button" onClick={() => go("import")}><Sparkles size={17} /> 导入计划</button>
+              <button className="button subtle small" type="button" onClick={() => openPlanAssistant("import")}><Sparkles size={17} /> 添加计划</button>
               <button className="button primary small" type="button" onClick={() => newPlan()}><Plus size={17} /> 新建计划</button>
             </div>
           </div>
@@ -635,9 +638,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
-        {view === "data" && <DataView enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
+        {view === "data" && <DataView enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} importPlans={() => openPlanAssistant("import")} planAssistant={() => openPlanAssistant("ai")} />}
         <div hidden={view !== "programs"}><ProgramView active={view === "programs"} enabled={Boolean(viewer)} today={today} templates={templates.map((item) => ({ id: item.id, plan: item.plan }))} saved={() => { void refresh(); void library.load(); }} /></div>
-        {view === "agents" && <AgentAccessPanel enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} />}
         <div hidden={view !== "coaching"}><CoachingView active={view === "coaching"} enabled={Boolean(viewer)} today={today}
           templates={templates.map(({ id, plan }) => ({ id, plan }))}
           plans={pendingPlans.filter((item) => item.owner === me.id).map(({ id, data }) => ({ id, plan: data }))}
@@ -681,7 +683,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} />
         </div>}
 
-        <div hidden={view !== "import"}><ImportView today={today} save={importPlans} canRevise={Boolean(viewer)} saved={() => go("plans")} notify={setToast} /></div>
+        <div hidden={view !== "assistant"}><PlanAssistant today={today} save={importPlans} enabled={Boolean(viewer)} profileRef={profileRef}
+          active={view === "assistant"} mode={assistantMode} onModeChange={setAssistantMode} notify={setToast}
+          onPrograms={() => go("programs")} onData={() => go("data")}
+          saved={() => { void refresh(); void library.load(); go("plans"); }} /></div>
       </main>
     </div>
     <nav aria-label="底部导航" className="mobile-nav">{navigation.filter((item) => item.mobile).map(({ id, icon: Icon, mobile }) => <button key={id} className={view === id ? "active" : ""} aria-current={id === view ? "page" : undefined} onClick={() => go(id)}><Icon size={21} /><span>{mobile}</span></button>)}</nav>

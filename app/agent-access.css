@@ -22,3 +22,15 @@
 .prescription-fields { margin-top: 10px; border-top: 1px solid var(--stroke); padding-top: 10px; }
 .prescription-fields > summary { cursor: pointer; font-size: .9rem; font-weight: 650; }
 .prescription-fields > .form-fields { margin-top: 12px; }
+.agent-settings > summary { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 700; list-style: none; }
+.agent-settings > summary::-webkit-details-marker { display: none; }
+.agent-settings > summary::after { content: "+"; margin-left: auto; font-size: 1.3rem; font-weight: 400; }
+.agent-settings[open] > summary::after { content: "−"; }
+.agent-settings > summary > svg { flex: none; }
+.agent-settings > summary span { display: grid; gap: 4px; }
+.agent-settings > summary small { color: var(--muted); font-size: .875rem; font-weight: 400; line-height: 1.5; }
+.agent-settings-body { border-top: 1px solid var(--stroke); padding-top: 16px; margin-top: 16px; }
+.agent-settings-body > label { display: grid; gap: 7px; }
+.agent-settings .section-head h2 { font-size: 1.1rem; }
+.agent-access > .card > .section-head { flex-wrap: wrap; gap: 12px; }
+.agent-access > .card > .section-head .exercise-toolbar { flex-wrap: wrap; }
