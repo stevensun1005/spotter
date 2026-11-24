@@ -74,7 +74,7 @@ struct AppShell: View {
                 case .health:
                     HealthConnectionView(coordinator: health)
                 case .settings:
-                    AppSettings(origin: model.configuration.origin) { configuration in
+                    AppSettings(configuration: model.configuration) { configuration in
                         UserDefaults.standard.set(configuration.origin, forKey: "spotter.web.origin")
                         if model.configuration == configuration { model.reload() }
                         else { model.load(configuration: configuration) }
@@ -112,10 +112,12 @@ private struct AppSettings: View {
     @Environment(\.dismiss) private var dismiss
     @State private var origin: String
     @State private var error: String?
+    private let configuration: AppConfiguration
     let save: (AppConfiguration) -> Void
 
-    init(origin: String, save: @escaping (AppConfiguration) -> Void) {
-        _origin = State(initialValue: origin)
+    init(configuration: AppConfiguration, save: @escaping (AppConfiguration) -> Void) {
+        _origin = State(initialValue: configuration.origin)
+        self.configuration = configuration
         self.save = save
     }
 
@@ -139,6 +141,9 @@ private struct AppSettings: View {
                 }
                 Section {
                     LabeledContent("版本", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
+                    if let version = configuration.verifiedWebVersion {
+                        LabeledContent("打包时核对的网页版", value: "第 \(version) 版")
+                    }
                 }
             }
             .navigationTitle("设置")

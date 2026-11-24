@@ -6,6 +6,7 @@ struct AppPolicySmoke {
         func expect(_ value: @autoclosure () -> Bool, _ description: String) { precondition(value(), description) }
         let app = try AppConfiguration(origin: " https://EXAMPLE.com:443/ ")
         expect(app.origin == "https://example.com", "Canonical HTTPS origin")
+        expect(app.verifiedWebVersion == nil, "Never apply the default Sites release to a custom origin")
         for raw in ["http://example.com", "https://user:secret@example.com", "https://example.com/training", "https://example.com?token=secret", "https://example.com#fragment", "https://example.com:99999"] {
             do { _ = try AppConfiguration(origin: raw); preconditionFailure("Reject unsafe origin") }
             catch AppConfigurationError.origin { }

@@ -1,6 +1,13 @@
 # 训练搭子 iPhone App 开发版
 
-本轮先用当前已取得的代码制作一份 App。原生基线为健康同步分支 `53ade19`；另一台电脑的工作尚未完成，按用户约定等完成通知后再核对、补入差异。本轮没有将其尚未提交或保存的修改标为已包含。
+本轮使用 iPhone App 开发分支的原生代码，连接私密 Sites 已发布的第 60 版。App 的站点设置显示打包时核对的网页版本，构建清单同时记录原生和网页的来源。
+
+## 第 60 版核对
+
+- Sites 第 60 版发布源码为 `d980ce49a8a8de600e2512e0ca2fbb97660f3398`。它通过 `6e851c1` 合入先前的 `58915b0`，包含多周计划、外部 Agent REST/MCP、统一的提示词与导入、教练学员关系和训练分配。
+- GitHub 快照 `origin/sites/source-2026-11-24` 的提交 `bf26c5e14758277dc0bcb0377758d7f2b880302d` 与该 Sites 源码逐一核对了 3,441 个路径，唯一差异是 `.openai/hosting.json` 的项目 ID。快照没有原生 iOS 源码。
+- 第 60 版还包含另一台电脑更新的动作库、训练排期和打卡、单次动作替换、历史重量建议、年度活动日历、营养目标、肌肉图，以及教练学员进度和课时记录。App 使用相同的已发布网页，因此这些网页功能随当前站点提供。
+- 站内 Claude 对话独立在网页开发分支。正式 Sites 仍提供原有计划助手和外部 Agent 能力。
 
 ## 这份 App 的组成
 
@@ -38,7 +45,7 @@ npm run ios:package
 
 打包工具在构建前后各拉取并核对 `origin/main`、`origin/codex/health-device-sync`、`origin/codex/spotter-iphone-app` 是否都已包含在当前 HEAD 中。存在未提交源码、远端遗漏或构建期间发生变化时拒绝打包；它不自动合并或覆盖源码。
 
-产物是被 Git 忽略的 `outputs/Spotter-Simulator-<commit>.zip` 和同名 JSON 记录，包含构建 commit、分支和核验的远端 SHA。**这是 iOS 模拟器开发包，不能直接安装到真实 iPhone；没有伪装成已签名 IPA。**
+产物是被 Git 忽略的 `outputs/Spotter-Simulator-<commit>.zip` 和同名 JSON 记录，包含构建 commit、分支和核验的远端 SHA。打包还核验 App 内的 `SpotterWebRelease` 和拉取到的 GitHub 网页快照。Sites 的发布状态由发布记录另行核对。网页加载实时站点，构建记录中的版本用于追溯。**这是 iOS 模拟器开发包，不能直接安装到真实 iPhone。**
 
 ## 已运行的验证
 
@@ -55,9 +62,9 @@ npm run ios:package
 
 本地 HTTPS 只用于隔离模拟器验证，临时证书只装入测试模拟器，没有修改 Mac 或 iPhone 的信任，也没有降低 App 的 HTTPS 校验。
 
-## 另一台电脑完成后的补齐步骤
+## 后续版本的补齐步骤
 
 1. 取得用户给出的完成通知，以及实际远端分支或 Sites 保存的源码版本。
 2. 重新拉取，核对训练业务、动作库、数据结构、账号权限和原生代码的差异；保留双边修改，解决冲突后重跑上述检查。
-3. 若网页改动仍未部署，不能仅靠 App 默认打开正式 Sites 就说它已包含新功能；需要按既定项目发布节奏接到经过验证的目标服务。
+3. 核对所选站点实际发布的网页版本和源码快照，再更新 `ios/SpotterHealth/Info.plist` 中的 `SpotterWebRelease`。App 使用站点实际发布的功能。
 4. 用新的源码 commit 重新生成 App 包和构建记录，再替换本轮开发包。正式 Sites 仍等动作库补齐核对后的统一更新指令。
