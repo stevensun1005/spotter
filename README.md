@@ -90,7 +90,7 @@ npm run plans:import -- --user your-login --dry-run plans.json
 
 ## iPhone 和健康设备
 
-- **iPhone App 开发版。** 在 Mac 的 Xcode 打开 `ios/SpotterHealth.xcodeproj`，选择 **Spotter** scheme，目标为 iOS 16 或更新版本。训练界面加载 Cloudflare 网页，原生模块负责 HealthKit 连接。真机安装需要签名。[iPhone App 构建与发布](docs/iphone-app.md)
+- **iPhone 原生 App。** 在 Mac 的 Xcode 打开 `ios/SpotterHealth.xcodeproj`，选择 **Spotter** scheme，目标为 iOS 16 或更新版本。SwiftUI 训练界面直接调用 Cloudflare API，并使用系统登录、相机、Charts 和 HealthKit。真机安装需要签名。[iPhone App 构建与发布](docs/iphone-app.md)
 - **健康同步。** 原生 HealthKit 配对与同步使用独立 Node 服务的设备接口。同步类型取决于用户授权，详见[健康设备同步](docs/health-device-sync.md)。
 - **从文件导入心率。** 在训练详情导入 Apple 健康 ZIP/XML、Garmin FIT/TCX、WHOOP CSV/ZIP，或包含 `time,bpm` 的通用 CSV。核对训练时段与样本后，将结果保存到本人账号。WHOOP 汇总同步也可单独配置。
 

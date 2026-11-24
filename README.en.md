@@ -90,7 +90,7 @@ Remove `--dry-run` once the preview looks right. Identical plans are skipped. Th
 
 ## iPhone and health devices
 
-- **iPhone development build.** Open `ios/SpotterHealth.xcodeproj` in Xcode on a Mac and select the **Spotter** scheme. It targets iOS 16 or later. The app loads the Cloudflare workout interface and has a native HealthKit module. Physical-device installation requires signing. [iPhone build and release guide](docs/iphone-app.md)
+- **Native iPhone app.** Open `ios/SpotterHealth.xcodeproj` in Xcode on a Mac and select the **Spotter** scheme. It targets iOS 16 or later. SwiftUI views connect to the Cloudflare API, with system sign-in, camera, Swift Charts, and HealthKit. Physical-device installation requires signing. [iPhone build and release guide](docs/iphone-app.md)
 - **Health sync.** Native HealthKit pairing and sync use the standalone Node service's device endpoints. The data types depend on the permissions the user grants. [Health-device sync](docs/health-device-sync.md)
 - **Heart-rate file import.** Import Apple Health ZIP/XML, Garmin FIT/TCX, WHOOP CSV/ZIP, or a generic CSV with `time,bpm` from a workout's detail page. Review the workout window and the matching samples before saving to your account. WHOOP summary sync is an optional integration.
 
