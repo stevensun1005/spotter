@@ -275,6 +275,7 @@ export const spotterOAuthIdentities = sqliteTable("spotter_oauth_identities", {
   subject: text().notNull(),
   accountId: text("account_id").notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
   appleCredential: text("apple_credential"),
+  appleAppCredential: text("apple_app_credential"),
 }, (table) => [
   primaryKey({ columns: [table.provider, table.subject] }),
   uniqueIndex("spotter_oauth_account_provider").on(table.accountId, table.provider),
@@ -286,7 +287,7 @@ export const spotterOAuthFlows = sqliteTable("spotter_oauth_flows", {
   provider: text().notNull(),
   accountId: text("account_id").references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
   sessionHash: text("session_hash"),
-  native: integer({ mode: "boolean" }).notNull(),
+  native: integer().$type<0 | 1 | 2>().notNull(),
   proof: text().notNull(),
   nonce: text().notNull(),
   pkce: text(),

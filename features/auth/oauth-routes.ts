@@ -2,17 +2,27 @@ import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { HttpError, json, publicOrigin, readJson } from "@/server/http";
 import { readCookie, readSession, sessionCookie, sessionCookieName, sessionTokenHash, startAccountSession } from "./server";
-import { authorizationUrl, exchangeAuthorizationCode, oauthProviders, opaqueToken, providerConfig, type OAuthProvider } from "./oauth-providers";
-import { beginOAuthFlow, consumeOAuthFlow, consumeOAuthGrant, inspectOAuthGrant, linkedProviders, linkOAuthAccount,
-  loginOAuthAccount, proofCookie, proofCookieName, storeOAuthGrant } from "./oauth-store";
+import { authorizationUrl, exchangeAuthorizationCode, nativeAppleProviderConfig, oauthProviders, opaqueToken, providerConfig,
+  type OAuthProvider } from "./oauth-providers";
+import { beginOAuthFlow, consumeAppleAppFlow, consumeOAuthFlow, consumeOAuthGrant, inspectOAuthGrant, linkedProviders, linkOAuthAccount,
+  loginOAuthAccount, proofCookie, proofCookieName, storeOAuthGrant, type OAuthIdentity } from "./oauth-store";
 
 const challenge = z.string().regex(opaqueToken).optional();
+const expectedOwner = z.string().trim().min(1).max(250);
 const startInput = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("login"), provider: z.enum(oauthProviders), challenge }).strict(),
-  z.object({ mode: z.literal("link"), provider: z.enum(oauthProviders), challenge,
-    expectedOwner: z.string().trim().min(1).max(250) }).strict(),
+  z.object({ mode: z.literal("link"), provider: z.enum(oauthProviders), challenge, expectedOwner }).strict(),
 ]);
 const completeInput = z.object({ code: z.string().regex(opaqueToken), verifier: z.string().regex(opaqueToken) }).strict();
+const appleAppStartInput = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("login"), challenge: challenge.unwrap() }).strict(),
+  z.object({ mode: z.literal("link"), challenge: challenge.unwrap(), expectedOwner }).strict(),
+]);
+const appleAppCompleteInput = z.object({
+  state: z.string().regex(opaqueToken),
+  code: z.string().regex(/^[\x21-\x7e]{1,4096}$/),
+  verifier: z.string().regex(opaqueToken),
+}).strict();
 type Failure = "oauth-cancelled" | "oauth-expired" | "oauth-error" | "use-access-code" |
   "link-cancelled" | "link-expired" | "link-error" | "link-conflict" | "link-already-bound";
 type Outcome = { status: "linked" | "signed-in"; token?: string; stateHash?: string } |
@@ -65,30 +75,51 @@ export const oauthStatus = protectedApi(async (request) => {
   const account = db && token ? await readSession(db, token) : null;
   const linked = db && account ? await linkedProviders(db, account.userId) : new Set<OAuthProvider>();
   const options = (provider: OAuthProvider) => ({ enabled: Boolean(db && providerConfig(env, origin, provider)), linked: linked.has(provider) });
-  return json({ signedIn: Boolean(account), providers: { apple: options("apple"), google: options("google") } });
+  return json({ signedIn: Boolean(account), nativeAppleEnabled: Boolean(db && nativeAppleProviderConfig(env, origin)),
+    providers: { apple: options("apple"), google: options("google") } });
 });
+
+async function oauthSession(db: D1Database, request: Request) {
+  const token = readCookie(request, sessionCookieName);
+  const account = token ? await readSession(db, token) : null;
+  const hash = account && await sessionTokenHash(token);
+  return { token, session: account && hash ? { owner: account.userId, hash } : undefined };
+}
+
+async function startSessionFor(db: D1Database, request: Request, provider: OAuthProvider,
+  input: { mode: "login" } | { mode: "link"; expectedOwner: string }) {
+  const { session } = await oauthSession(db, request);
+  if (input.mode === "link" && (!session || input.expectedOwner !== session.owner)) {
+    throw new HttpError(403, "当前登录已变更，请刷新设置后再绑定。");
+  }
+  if (input.mode === "link" && session && (await linkedProviders(db, session.owner)).has(provider)) {
+    throw new HttpError(409, errorMessages["link-already-bound"]);
+  }
+  if (input.mode === "login" && session) throw new HttpError(409, "请先退出当前账号。");
+  return session;
+}
 
 export const oauthStart = protectedApi(async (request) => {
   const input = await readJson(request, startInput, 2048);
   const db = env.DB;
   const provider = providerConfig(env, publicOrigin(request), input.provider);
   if (!db || !provider) throw new HttpError(503, "当前登录方式暂未配置。");
-  const token = readCookie(request, sessionCookieName);
-  const account = token ? await readSession(db, token) : null;
-  const hash = account && await sessionTokenHash(token);
-  if (input.mode === "link" && (!account || !hash || input.expectedOwner !== account.userId)) {
-    throw new HttpError(403, "当前登录已变更，请刷新设置后再绑定。");
-  }
-  if (input.mode === "link" && account && (await linkedProviders(db, account.userId)).has(input.provider)) {
-    throw new HttpError(409, errorMessages["link-already-bound"]);
-  }
-  if (input.mode === "login" && account) throw new HttpError(409, "请先退出当前账号。");
-  const flow = await beginOAuthFlow(db, input.provider, account && hash ? { owner: account.userId, hash } : undefined, input.challenge);
+  const session = await startSessionFor(db, request, input.provider, input);
+  const flow = await beginOAuthFlow(db, input.provider, session, input.challenge);
   const url = await authorizationUrl(provider, flow.state, flow.nonce, flow.pkce);
   const response = json({ authorizationUrl: url });
   response.headers.set("Referrer-Policy", "no-referrer");
   if (flow.browserProof) response.headers.set("Set-Cookie", proofCookie(flow.stateHash, flow.browserProof));
   return response;
+});
+
+export const oauthAppleAppStart = protectedApi(async (request) => {
+  const input = await readJson(request, appleAppStartInput, 2048);
+  const db = env.DB;
+  if (!db || !nativeAppleProviderConfig(env, publicOrigin(request))) throw new HttpError(503, "iPhone 的 Apple 登录尚未配置。");
+  const session = await startSessionFor(db, request, "apple", input);
+  const { state, nonce } = await beginOAuthFlow(db, "apple", session, input.challenge, "apple-app");
+  return json({ state, nonce });
 });
 
 async function callbackParams(request: Request, provider: OAuthProvider) {
@@ -155,21 +186,21 @@ async function complete(request: Request, code: string, nativeVerifier?: string)
   const expired = pending.account_id ? "link-expired" : "oauth-expired";
   const verifier = nativeVerifier ?? readCookie(request, proofCookieName(pending.state_hash));
   if (!verifier || !opaqueToken.test(verifier)) return { status: expired, stateHash };
-  const token = readCookie(request, sessionCookieName);
-  const current = token ? await readSession(db, token) : null;
-  const hash = await sessionTokenHash(token);
-  if (pending.account_id ? current?.userId !== pending.account_id || hash !== pending.session_hash : Boolean(current)) {
+  const { token, session } = await oauthSession(db, request);
+  if (pending.account_id ? session?.owner !== pending.account_id || session.hash !== pending.session_hash : Boolean(session)) {
     return { status: expired, stateHash };
   }
   const grant = await consumeOAuthGrant(db, pending.codeHash, verifier, native);
   if (!grant) return { status: expired, stateHash };
-  if (grant.account_id && hash) {
-    const status = await linkOAuthAccount(db, grant, grant.account_id, hash);
-    return { status, stateHash };
-  }
-  const login = await loginOAuthAccount(db, grant);
-  if (login.error) return { status: login.error, stateHash };
-  return { status: "signed-in", token: await startAccountSession(db, login.accountId, token), stateHash };
+  return { ...await completeAccount(db, grant, token, session), stateHash };
+}
+
+async function completeAccount(db: D1Database, identity: OAuthIdentity, token?: string,
+  session?: { owner: string; hash: string }, surface?: "apple-app"): Promise<Outcome> {
+  if (session) return { status: await linkOAuthAccount(db, identity, session.owner, session.hash, surface) };
+  const login = await loginOAuthAccount(db, identity, surface);
+  if (login.error) return { status: login.error };
+  return { status: "signed-in", token: await startAccountSession(db, login.accountId, token) };
 }
 
 export async function oauthWebComplete(request: Request) {
@@ -182,13 +213,35 @@ export async function oauthWebComplete(request: Request) {
   }
 }
 
-export const oauthNativeComplete = protectedApi(async (request) => {
-  const { code, verifier } = await readJson(request, completeInput, 1024);
-  const result = await complete(request, code, verifier);
+function appCompletionResult(result: Outcome) {
   if (result.status !== "signed-in" && result.status !== "linked") {
     return json({ error: errorMessages[result.status], code: result.status }, result.status === "link-conflict" ? 409 : 400);
   }
   const response = json({ status: result.status });
   if (result.token) response.headers.set("Set-Cookie", sessionCookie(result.token));
   return response;
+}
+
+export const oauthNativeComplete = protectedApi(async (request) => {
+  const { code, verifier } = await readJson(request, completeInput, 1024);
+  return appCompletionResult(await complete(request, code, verifier));
+});
+
+export const oauthAppleAppComplete = protectedApi(async (request) => {
+  const { state, code, verifier } = await readJson(request, appleAppCompleteInput, 8192);
+  const db = env.DB;
+  const config = nativeAppleProviderConfig(env, publicOrigin(request));
+  if (!db || !config) throw new HttpError(503, "iPhone 的 Apple 登录尚未配置。");
+  const { token, session } = await oauthSession(db, request);
+  const flow = await consumeAppleAppFlow(db, state, verifier, session);
+  if (!flow) return appCompletionResult({ status: session ? "link-expired" : "oauth-expired" });
+  try {
+    const identity = await exchangeAuthorizationCode(config, code, flow.nonce, undefined, env.SPOTTER_APPLE_TOKEN_KEY);
+    return appCompletionResult(await completeAccount(db, { provider: "apple", subject: identity.subject,
+      email: identity.email ?? null, display_name: identity.displayName ?? null, apple_credential: identity.appleCredential ?? null },
+    token, session, "apple-app"));
+  } catch {
+    console.error("Spotter native Apple sign-in failed");
+    return appCompletionResult({ status: flow.account_id ? "link-error" : "oauth-error" });
+  }
 });

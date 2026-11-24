@@ -3,12 +3,12 @@ import { z } from "zod";
 export const oauthProviders = ["apple", "google"] as const;
 export type OAuthProvider = typeof oauthProviders[number];
 type OAuthSettings = Pick<Cloudflare.Env, "SPOTTER_OAUTH_ORIGIN" | "GOOGLE_OAUTH_CLIENT_ID" | "GOOGLE_OAUTH_CLIENT_SECRET" |
-  "APPLE_OAUTH_CLIENT_ID" | "APPLE_OAUTH_TEAM_ID" | "APPLE_OAUTH_KEY_ID" | "APPLE_OAUTH_PRIVATE_KEY">;
+  "APPLE_OAUTH_CLIENT_ID" | "APPLE_OAUTH_NATIVE_CLIENT_ID" | "APPLE_OAUTH_TEAM_ID" | "APPLE_OAUTH_KEY_ID" | "APPLE_OAUTH_PRIVATE_KEY">;
 
 type CommonConfig = { clientId: string; origin: string };
 export type OAuthConfig = CommonConfig & (
   { provider: "google"; clientSecret: string } |
-  { provider: "apple"; teamId: string; keyId: string; privateKey: string }
+  { provider: "apple"; teamId: string; keyId: string; privateKey: string; nativeApp?: true }
 );
 export type ProviderIdentity = { subject: string; email?: string; displayName?: string; appleCredential?: string };
 
@@ -35,22 +35,30 @@ export async function oauthDigest(value: string) {
 }
 
 const clientIdPattern = /^[A-Za-z0-9._-]{1,255}$/;
+const nativeAppleBundle = "app.spotter.health";
+
+function appleConfig(env: OAuthSettings, origin: string, clientId: string | undefined) {
+  const teamId = env.APPLE_OAUTH_TEAM_ID?.trim();
+  const keyId = env.APPLE_OAUTH_KEY_ID?.trim();
+  const privateKey = env.APPLE_OAUTH_PRIVATE_KEY?.trim().replace(/\\n/g, "\n");
+  if (clientId && clientIdPattern.test(clientId) && /^[A-Z0-9]{10}$/.test(teamId ?? "") && teamId &&
+      /^[A-Z0-9]{10}$/.test(keyId ?? "") && keyId && privateKey?.startsWith("-----BEGIN PRIVATE KEY-----") &&
+      privateKey.endsWith("-----END PRIVATE KEY-----")) return { provider: "apple" as const, origin, clientId, teamId, keyId, privateKey };
+}
+
+export function nativeAppleProviderConfig(env: OAuthSettings, origin: string): OAuthConfig | undefined {
+  if (!origin.startsWith("https://") || env.SPOTTER_OAUTH_ORIGIN?.trim() !== origin ||
+      env.APPLE_OAUTH_NATIVE_CLIENT_ID?.trim() !== nativeAppleBundle) return;
+  const config = appleConfig(env, origin, nativeAppleBundle);
+  if (config) return { ...config, nativeApp: true };
+}
 
 export function providerConfig(env: OAuthSettings, origin: string, provider: OAuthProvider): OAuthConfig | undefined {
   if (!origin.startsWith("https://") || env.SPOTTER_OAUTH_ORIGIN?.trim() !== origin) return;
-  if (provider === "google") {
-    const clientId = env.GOOGLE_OAUTH_CLIENT_ID?.trim();
-    const clientSecret = env.GOOGLE_OAUTH_CLIENT_SECRET?.trim();
-    if (clientId && clientIdPattern.test(clientId) && clientSecret) return { provider, origin, clientId, clientSecret };
-  } else {
-    const clientId = env.APPLE_OAUTH_CLIENT_ID?.trim();
-    const teamId = env.APPLE_OAUTH_TEAM_ID?.trim();
-    const keyId = env.APPLE_OAUTH_KEY_ID?.trim();
-    const privateKey = env.APPLE_OAUTH_PRIVATE_KEY?.trim().replace(/\\n/g, "\n");
-    if (clientId && clientIdPattern.test(clientId) && /^[A-Z0-9]{10}$/.test(teamId ?? "") && teamId &&
-        /^[A-Z0-9]{10}$/.test(keyId ?? "") && keyId && privateKey?.startsWith("-----BEGIN PRIVATE KEY-----") &&
-        privateKey.endsWith("-----END PRIVATE KEY-----")) return { provider, origin, clientId, teamId, keyId, privateKey };
-  }
+  if (provider === "apple") return appleConfig(env, origin, env.APPLE_OAUTH_CLIENT_ID?.trim());
+  const clientId = env.GOOGLE_OAUTH_CLIENT_ID?.trim();
+  const clientSecret = env.GOOGLE_OAUTH_CLIENT_SECRET?.trim();
+  if (clientId && clientIdPattern.test(clientId) && clientSecret) return { provider, origin, clientId, clientSecret };
 }
 
 function callbackUrl(config: OAuthConfig) {
@@ -199,8 +207,9 @@ export async function exchangeAuthorizationCode(config: OAuthConfig, code: strin
   appleTokenKey?: string): Promise<ProviderIdentity> {
   const secret = config.provider === "apple" ? await appleClientSecret(config) : config.clientSecret;
   const params = new URLSearchParams({
-    grant_type: "authorization_code", code, client_id: config.clientId, client_secret: secret, redirect_uri: callbackUrl(config),
+    grant_type: "authorization_code", code, client_id: config.clientId, client_secret: secret,
   });
+  if (config.provider !== "apple" || !config.nativeApp) params.set("redirect_uri", callbackUrl(config));
   if (config.provider === "google") {
     if (!pkce) throw new Error("Missing Google PKCE verifier");
     params.set("code_verifier", pkce);

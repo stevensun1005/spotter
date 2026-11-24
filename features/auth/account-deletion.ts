@@ -1,14 +1,14 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { HttpError, json, publicOrigin, readJson } from "@/server/http";
-import { providerConfig, revokeAppleAuthorization } from "./oauth-providers";
+import { nativeAppleProviderConfig, providerConfig, revokeAppleAuthorization } from "./oauth-providers";
 import { readCookie, readSession, sessionCookie, sessionCookieName, sessionTokenHash } from "./server";
 
 const input = z.object({ expectedOwner: z.string().min(1).max(250), confirm: z.literal(true) }).strict();
 const authorized = "EXISTS (SELECT 1 FROM spotter_access_sessions WHERE account_id=? AND token_hash=? AND expires_at>?)";
 const coachingLinks = "SELECT id FROM coaching_links WHERE coach_id=? OR student_id=?";
 
-type AppleIdentity = { subject: string; apple_credential: string | null };
+type AppleIdentity = { subject: string; apple_credential: string | null; apple_app_credential: string | null };
 
 async function deleteAccount(db: D1Database, owner: string, sessionHash: string) {
   const session = [owner, sessionHash, Math.floor(Date.now() / 1000)];
@@ -16,7 +16,7 @@ async function deleteAccount(db: D1Database, owner: string, sessionHash: string)
   const owned = ["personal_library", "agent_connections", "agent_plan_drafts", "training_programs", "program_rules",
     "friend_profiles", "friend_invites", "ai_coach_quota", "ai_coach_budget"];
   const writes = [
-    scoped("SELECT subject, apple_credential FROM spotter_oauth_identities WHERE account_id=? AND provider='apple'", owner),
+    scoped("SELECT subject, apple_credential, apple_app_credential FROM spotter_oauth_identities WHERE account_id=? AND provider='apple'", owner),
     ...owned.map((table) => scoped(`DELETE FROM ${table} WHERE owner=?`, owner)),
     scoped("DELETE FROM entries WHERE (owner=? OR CASE WHEN kind='cheer' AND json_valid(payload) " +
       "THEN json_extract(payload,'$.recipient') END=?)", owner, owner),
@@ -39,6 +39,19 @@ async function deleteAccount(db: D1Database, owner: string, sessionHash: string)
   return apple.results[0];
 }
 
+async function revokeAppleIdentity(origin: string, apple?: AppleIdentity) {
+  if (!apple) return "not-required";
+  const credentialKey = env.SPOTTER_APPLE_TOKEN_KEY;
+  const attempts = [];
+  if (apple.apple_credential) {
+    attempts.push(revokeAppleAuthorization(providerConfig(env, origin, "apple"), credentialKey, apple.subject, apple.apple_credential));
+  }
+  if (apple.apple_app_credential) {
+    attempts.push(revokeAppleAuthorization(nativeAppleProviderConfig(env, origin), credentialKey, apple.subject, apple.apple_app_credential));
+  }
+  return attempts.length && (await Promise.all(attempts)).every(Boolean) ? "revoked" : "manual";
+}
+
 export async function deleteSpotterAccount(request: Request) {
   try {
     const { expectedOwner } = await readJson(request, input, 1024);
@@ -51,9 +64,7 @@ export async function deleteSpotterAccount(request: Request) {
     if (account.userId !== expectedOwner) throw new HttpError(403, "当前登录账号已切换，请重新打开设置。");
 
     const apple = await deleteAccount(db, account.userId, sessionHash);
-    const appleRevocation = !apple ? "not-required" :
-      await revokeAppleAuthorization(providerConfig(env, publicOrigin(request), "apple"), env.SPOTTER_APPLE_TOKEN_KEY,
-        apple.subject, apple.apple_credential) ? "revoked" : "manual";
+    const appleRevocation = await revokeAppleIdentity(publicOrigin(request), apple);
     const response = json({ deleted: true, appleRevocation });
     response.headers.set("Set-Cookie", sessionCookie());
     return response;

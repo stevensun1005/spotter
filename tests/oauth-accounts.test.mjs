@@ -21,11 +21,14 @@ registerHooks({ resolve(specifier, context, next) {
 
 const auth = await import("../features/auth/oauth-routes.ts");
 const { POST: deleteAccount } = await import("../app/api/auth/delete-account/route.ts");
+const { POST: appleAppStart } = await import("../app/api/auth/oauth/apple/app/start/route.ts");
+const { POST: appleAppComplete } = await import("../app/api/auth/oauth/apple/app/complete/route.ts");
 const { readSession, startAccountSession } = await import("../features/auth/server.ts");
 const origin = "https://oauth.synthetic.invalid";
 const sessionPrefix = "__Host-spotter_session=";
 const googleId = "synthetic.apps.googleusercontent.com";
 const appleId = "app.synthetic.web";
+const appleAppId = "app.spotter.health";
 const providerKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const clientKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 const urlHash = (value) => createHash("sha256").update(value).digest("base64url");
@@ -96,9 +99,9 @@ async function begin(input, cookie) {
   };
 }
 
-function mockProvider(t, provider, authorize, claims = {}, forgeSignature = false, tokens = {}) {
+function mockProvider(t, provider, authorize, claims = {}, forgeSignature = false, tokens = {}, nativeApple = false) {
   const apple = provider === "apple";
-  const clientId = apple ? appleId : googleId;
+  const clientId = nativeApple ? appleAppId : apple ? appleId : googleId;
   const issuer = apple ? "https://appleid.apple.com" : "https://accounts.google.com";
   const tokenUrl = apple ? issuer + "/auth/token" : "https://oauth2.googleapis.com/token";
   const keyUrl = apple ? issuer + "/auth/keys" : "https://www.googleapis.com/oauth2/v3/certs";
@@ -116,16 +119,16 @@ function mockProvider(t, provider, authorize, claims = {}, forgeSignature = fals
       const form = new URLSearchParams(init.body);
       assert.equal(form.get("grant_type"), "authorization_code");
       assert.equal(form.get("client_id"), clientId);
-      assert.equal(form.get("redirect_uri"), `${origin}/api/auth/oauth/${provider}/callback`);
+      assert.equal(form.get("redirect_uri"), nativeApple ? null : `${origin}/api/auth/oauth/${provider}/callback`);
       assert.equal(form.get("code"), "synthetic-code");
       if (apple) {
-        assert.equal(authorize.searchParams.get("response_mode"), "form_post");
+        if (!nativeApple) assert.equal(authorize.searchParams.get("response_mode"), "form_post");
         const [header, claims, signature] = form.get("client_secret").split(".");
         assert.deepEqual(JSON.parse(Buffer.from(header, "base64url")), { alg: "ES256", kid: "XYZAB12345" });
         const client = JSON.parse(Buffer.from(claims, "base64url"));
         assert.equal(client.iss, "ABCDE12345");
         assert.equal(client.aud, "https://appleid.apple.com");
-        assert.equal(client.sub, appleId);
+        assert.equal(client.sub, clientId);
         assert.ok(client.exp > client.iat);
         assert.ok(verify("sha256", Buffer.from(`${header}.${claims}`), { key: clientKey.publicKey, dsaEncoding: "ieee-p1363" },
           Buffer.from(signature, "base64url")));
@@ -154,7 +157,7 @@ function completeWeb(location, cookie) {
 test("OAuth options require complete provider configuration and an exact deployment origin", async (t) => {
   fixture(t);
   assert.deepEqual(await (await auth.oauthStatus(new Request(origin + "/api/auth/oauth"))).json(), {
-    signedIn: false, providers: { apple: { enabled: true, linked: false }, google: { enabled: true, linked: false } },
+    signedIn: false, nativeAppleEnabled: false, providers: { apple: { enabled: true, linked: false }, google: { enabled: true, linked: false } },
   });
   delete runtime.env.GOOGLE_OAUTH_CLIENT_SECRET;
   const result = await auth.oauthStatus(new Request(origin + "/api/auth/oauth"));
@@ -260,6 +263,95 @@ test("invalid provider issuer, audience, expiry, nonce and signature cannot issu
   assert.equal(db.prepare("SELECT count(*) AS total FROM spotter_oauth_identities").get().total, 0);
 });
 
+const appleAppStartPath = "/api/auth/oauth/apple/app/start";
+const appleAppCompletePath = "/api/auth/oauth/apple/app/complete";
+
+async function startAppleApp(input = { mode: "login" }, cookie) {
+  const verifier = randomBytes(32).toString("base64url");
+  const response = await appleAppStart(post(appleAppStartPath, { ...input, challenge: urlHash(verifier) }, cookie));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.getSetCookie().length, 0);
+  const { state, nonce } = await response.json();
+  const authorize = { searchParams: new URLSearchParams({ state, nonce }) };
+  assert.match(state, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(nonce, /^[A-Za-z0-9_-]{43}$/);
+  return { authorize, body: { state, code: "synthetic-code", verifier } };
+}
+
+test("AuthenticationServices exchanges the iPhone code without a web redirect and logs into the existing Apple identity", async (t) => {
+  const db = fixture(t);
+  const verifier = randomBytes(32).toString("base64url");
+  const startBody = { mode: "login", challenge: urlHash(verifier) };
+  assert.equal((await appleAppStart(post(appleAppStartPath, startBody))).status, 503);
+  runtime.env.APPLE_OAUTH_NATIVE_CLIENT_ID = "wrong.bundle";
+  assert.equal((await appleAppStart(post(appleAppStartPath, startBody))).status, 503);
+  runtime.env.APPLE_OAUTH_NATIVE_CLIENT_ID = appleAppId;
+  runtime.env.SPOTTER_APPLE_TOKEN_KEY = randomBytes(32).toString("base64url");
+  assert.equal((await (await auth.oauthStatus(new Request(origin + "/api/auth/oauth"))).json()).nativeAppleEnabled, true);
+  assert.equal((await appleAppStart(post(appleAppStartPath, startBody, undefined, "https://other.invalid"))).status, 403);
+  assert.equal((await appleAppStart(post(appleAppStartPath, { ...startBody, expectedOwner: "one" }))).status, 400);
+  db.prepare("INSERT INTO spotter_oauth_identities (provider,subject,account_id) VALUES ('apple','same-user','one')").run();
+  const { authorize, body } = await startAppleApp();
+  // A state from the Apple app is unrecognizable to both browser callback completion paths.
+  assert.equal((await callback("apple", authorize)).headers.get("Location"), "/sign-in?auth=oauth-expired");
+  const browser = await begin({ mode: "login", provider: "apple", challenge: startBody.challenge });
+  assert.equal((await appleAppComplete(post(appleAppCompletePath, { ...body,
+    state: browser.url.searchParams.get("state"), verifier }))).status, 400);
+  const mock = mockProvider(t, "apple", authorize, { sub: "same-user" }, false,
+    { refresh_token: "synthetic-native-refresh" }, true);
+  assert.equal((await appleAppComplete(post(appleAppCompletePath, { ...body, verifier }))).status, 400);
+  assert.equal((await appleAppComplete(post(appleAppCompletePath, body, undefined, "https://other.invalid"))).status, 403);
+  const other = sessionPrefix + await startAccountSession(runtime.env.DB, "two");
+  assert.equal((await appleAppComplete(post(appleAppCompletePath, body, other))).status, 400);
+  assert.equal(mock.mock.callCount(), 0);
+  const result = await appleAppComplete(post(appleAppCompletePath, body));
+  assert.deepEqual(await result.json(), { status: "signed-in" });
+  const token = result.headers.get("Set-Cookie").match(/^__Host-spotter_session=([a-f0-9]{64});/)[1];
+  assert.equal((await readSession(runtime.env.DB, token)).userId, "one");
+  assert.equal((await appleAppComplete(post(appleAppCompletePath, body))).status, 400);
+  assert.equal(mock.mock.callCount(), 2);
+  const saved = db.prepare("SELECT apple_credential, apple_app_credential FROM spotter_oauth_identities").get();
+  assert.equal(saved.apple_credential, null);
+  assert.match(saved.apple_app_credential, /^v1\.r\./);
+  assert.doesNotMatch(saved.apple_app_credential, /synthetic-native/);
+});
+
+test("iPhone Apple linking preserves the original login and verifies the exact session, nonce and Bundle ID", async (t) => {
+  const db = fixture(t);
+  runtime.env.APPLE_OAUTH_NATIVE_CLIENT_ID = appleAppId;
+  const token = await startAccountSession(runtime.env.DB, "one");
+  const cookie = sessionPrefix + token;
+  const sameOwnerDifferentSession = sessionPrefix + await startAccountSession(runtime.env.DB, "one");
+  const other = sessionPrefix + await startAccountSession(runtime.env.DB, "two");
+  const link = { mode: "link", expectedOwner: "one" };
+  db.prepare("INSERT INTO spotter_oauth_identities (provider,subject,account_id) VALUES ('google','google-current','one')").run();
+  const denied = await appleAppStart(post(appleAppStartPath, { ...link, challenge: urlHash(randomBytes(32).toString("base64url")) }, other));
+  assert.equal(denied.status, 403);
+  t.mock.method(console, "error", () => {});
+  for (const claims of [{ aud: appleId }, { nonce: "wrong-nonce" }]) {
+    const failed = await startAppleApp(link, cookie);
+    const mocked = mockProvider(t, "apple", failed.authorize, claims, false, {}, true);
+    const result = await appleAppComplete(post(appleAppCompletePath, failed.body, cookie));
+    assert.equal(result.status, 400);
+    assert.equal((await result.json()).code, "link-error");
+    assert.equal((await appleAppComplete(post(appleAppCompletePath, failed.body, cookie))).status, 400);
+    assert.equal(mocked.mock.callCount(), 2);
+    mocked.mock.restore();
+  }
+  const native = await startAppleApp(link, cookie);
+  const mock = mockProvider(t, "apple", native.authorize, { sub: "apple-current", email: "two@example.invalid" }, false, {}, true);
+  for (const wrongCookie of [undefined, sameOwnerDifferentSession, other]) {
+    assert.equal((await appleAppComplete(post(appleAppCompletePath, native.body, wrongCookie))).status, 400);
+  }
+  assert.equal(mock.mock.callCount(), 0);
+  const result = await appleAppComplete(post(appleAppCompletePath, native.body, cookie));
+  assert.deepEqual(await result.json(), { status: "linked" });
+  assert.equal(result.headers.getSetCookie().length, 0);
+  assert.equal((await readSession(runtime.env.DB, token)).userId, "one");
+  assert.deepEqual(db.prepare("SELECT provider,account_id FROM spotter_oauth_identities ORDER BY provider").all()
+    .map(({ provider, account_id }) => [provider, account_id]), [["apple", "one"], ["google", "one"]]);
+});
+
 const deletionPath = "/api/auth/delete-account";
 const confirmation = { expectedOwner: "one", confirm: true };
 
@@ -329,6 +421,15 @@ test("account deletion revokes the encrypted Apple token and clears the account 
   assert.equal(db.prepare("SELECT apple_credential FROM spotter_oauth_identities WHERE provider='apple'").get().apple_credential, grant);
   loginProvider.mock.restore();
 
+  runtime.env.APPLE_OAUTH_NATIVE_CLIENT_ID = appleAppId;
+  const appRefreshToken = "synthetic-app-refresh";
+  const native = await startAppleApp();
+  const nativeProvider = mockProvider(t, "apple", native.authorize, { sub: appleSubject }, false,
+    { refresh_token: appRefreshToken }, true);
+  assert.deepEqual(await (await appleAppComplete(post(appleAppCompletePath, native.body))).json(), { status: "signed-in" });
+  nativeProvider.mock.restore();
+  assert.equal(db.prepare("SELECT apple_credential FROM spotter_oauth_identities WHERE provider='apple'").get().apple_credential, grant);
+
   db.prepare("INSERT INTO spotter_oauth_identities (provider,subject,account_id) VALUES ('google','g1','one'),('google','g2','two')").run();
   await begin({ provider: "apple", mode: "link", expectedOwner: "two" }, sessionPrefix + other);
   const pending = await begin({ provider: "apple", mode: "login" });
@@ -337,11 +438,13 @@ test("account deletion revokes the encrypted Apple token and clears the account 
   pendingProvider.mock.restore();
   assert.equal(db.prepare("SELECT count(*) AS count FROM spotter_oauth_grants").get().count, 1);
 
+  const expectedTokens = new Map([[appleId, refreshToken], [appleAppId, appRefreshToken]]);
   const result = t.mock.method(globalThis, "fetch", async (url, options) => {
     assert.equal(url, "https://appleid.apple.com/auth/revoke");
     assert.equal(options.redirect, "manual");
-    assert.equal(options.body.get("client_id"), appleId);
-    assert.equal(options.body.get("token"), refreshToken);
+    const clientId = options.body.get("client_id");
+    assert.equal(options.body.get("token"), expectedTokens.get(clientId));
+    assert.equal(expectedTokens.delete(clientId), true);
     assert.equal(options.body.get("token_type_hint"), "refresh_token");
     assert.equal(db.prepare("SELECT count(*) AS count FROM spotter_access_accounts WHERE id='one'").get().count, 0);
     return new Response(null, { status: 200 });
@@ -356,7 +459,8 @@ test("account deletion revokes the encrypted Apple token and clears the account 
   assert.deepEqual(await deleted.json(), { deleted: true, appleRevocation: "revoked" });
   assert.match(deleted.headers.get("Set-Cookie"), /Max-Age=0; Path=\/; HttpOnly; Secure; SameSite=Lax/);
   assert.equal((await deleteAccount(post(deletionPath, confirmation, cookie))).status, 401);
-  assert.equal(result.mock.callCount(), 1);
+  assert.equal(result.mock.callCount(), 2);
+  assert.equal(expectedTokens.size, 0);
   assert.equal(await readSession(runtime.env.DB, access), null);
   assert.equal(await readSession(runtime.env.DB, secondDevice), null);
   assert.equal((await readSession(runtime.env.DB, other)).userId, "two");

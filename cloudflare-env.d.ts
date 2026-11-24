@@ -10,6 +10,7 @@ declare namespace Cloudflare {
     GOOGLE_OAUTH_CLIENT_ID?: string;
     GOOGLE_OAUTH_CLIENT_SECRET?: string;
     APPLE_OAUTH_CLIENT_ID?: string;
+    APPLE_OAUTH_NATIVE_CLIENT_ID?: string;
     APPLE_OAUTH_TEAM_ID?: string;
     APPLE_OAUTH_KEY_ID?: string;
     APPLE_OAUTH_PRIVATE_KEY?: string;
