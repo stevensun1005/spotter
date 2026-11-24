@@ -5,6 +5,8 @@
 @import "./library.css";
 @import "./open-gym.css";
 @import "./stats.css";
+@import "./history-calendar.css";
+@import "./log-detail.css";
 @import "./share.css";
 @import "./protein.css";
 @import "./pair.css";
@@ -102,7 +104,7 @@ small { font-size: .81rem; }
 .week-days button > span:first-child { font-size: .77rem; font-weight: 650; }
 .week-days strong { font-size: 1.25rem; line-height: 1.13; color: #213228; font-weight: 790; }
 .week-dot { display: grid; height: 8px; place-items: center; }
-.week-dot i, .legend i, .dot-row i { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #4c7640; }
+.week-dot i { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #4c7640; }
 .hero { min-height: 288px; border-radius: var(--radius); overflow: hidden; isolation: isolate; display: flex; align-items: center; color: #fff; background: linear-gradient(90deg, #15271a 0%, #15271aed 23%, #15271a55 58%, #15271a05 100%), url("/training.webp") center 49% / cover no-repeat, #15271a; }
 .hero-content { width: 100%; padding: 27px 28px; min-width: 0; }
 .hero-tag { font-size: .77rem; color: #e4fcbe; font-weight: 700; display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #c2f68142; background: #152b20ac; border-radius: 100px; }
@@ -147,20 +149,7 @@ small { font-size: .81rem; }
 .empty-state h3 { font-size: 1rem; font-weight: 740; }
 .muted, .empty-copy { color: var(--muted); font-size: .91rem; }
 .empty-copy { margin-top: 14px; }
-.history-grid, .import-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 19px; align-items: start; }
-.calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-top: 16px; }
-.calendar > button { display: grid; gap: 2px; align-content: center; justify-items: center; min-height: 48px; border-radius: 10px; border: 1px solid transparent; background: #f4f7f2; font-weight: 700; color: #2b3e2e; }
-.calendar > button:hover { background: #e8f0e3; }
-.calendar > button[aria-pressed=true] { background: var(--lime); border-color: #bded63; }
-.calendar > button.other-month { color: #637363; background: #fafcf8; }
-.calendar .calendar-label { text-align: center; color: var(--muted); font-size: .85rem; padding: 5px 0; }
-.dot-row { min-height: 7px; display: flex; align-items: center; gap: 3px; }
-.dot-row .purple, .legend .purple { background: #8460b0; }
-.legend { display: flex; gap: 14px; margin-top: 12px; color: var(--muted); font-size: .83rem; }
-.legend span { display: flex; align-items: center; gap: 5px; }
-.history-line { background: transparent; border: 0; color: var(--text); }
-.history-line:hover { background: #f5f8f2; }
-.history-line:first-of-type { margin-top: 6px; }
+.import-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 19px; align-items: start; }
 .stat-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 11px; }
 .segmented { display: inline-flex; gap: 3px; background: #edf1e9; border: 1px solid #dfe7dc; padding: 3px; border-radius: 12px; }
 .segmented button { color: var(--muted); background: transparent; border: 0; font-weight: 690; min-height: 39px; border-radius: 9px; padding: 0 11px; font-size: .9rem; }
@@ -271,7 +260,7 @@ progress::-moz-progress-bar { background: #8fbc60; border-radius: 10px; }
   .page-heading .date-line { font-size: .81rem; margin-bottom: 5px; }
   .page-action { margin-top: 20px; font-size: .82rem; padding-inline: 9px; gap: 3px; }
   .page-action svg { width: 16px; height: 16px; }
-  .today-grid, .history-grid, .import-grid { grid-template-columns: minmax(0, 1fr); }
+  .today-grid, .import-grid { grid-template-columns: minmax(0, 1fr); }
   .main-column, .right-column, .stats-page { gap: 12px; }
   .today-grid { gap: 12px; }
   .padded { padding: 14px; }
@@ -289,8 +278,7 @@ progress::-moz-progress-bar { background: #8fbc60; border-radius: 10px; }
   .stats-tiles { grid-template-columns: 1fr 1fr; }
   .dialog { width: calc(100% - 14px); max-height: calc(96dvh - env(safe-area-inset-bottom)); }
   .dialog-body, .dialog-heading, .dialog-footer { padding-inline: 11px; }
-  .week-card .icon-button, .calendar + .icon-button { width: 37px; height: 37px; }
-  .calendar > button { min-height: 45px; }
+  .week-card .icon-button { width: 37px; height: 37px; }
 }
 @media (max-width: 365px) {
   .topbar { padding-inline: 11px; }

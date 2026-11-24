@@ -1,58 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Bookmark, CalendarDays, Check, ChevronLeft, ChevronRight, Dumbbell, Pencil, Share2 } from "lucide-react";
-import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
+import { CalendarDays, ChevronLeft, ChevronRight, Dumbbell } from "lucide-react";
 import { offsetDate, shortDate, weekdayIndex, weekdays } from "@/shared/dates";
-import { sessionTotals, type Session } from "@/features/training/model";
-import { parsePlanMove } from "@/features/exercises/move-name";
-import { EditLog } from "./edit-log";
-import { ShareCard } from "@/features/share/share-card";
-import { HeartPanel } from "@/features/heart/heart-panel";
-import type { WhoopStatus } from "@/features/heart/whoop";
-import { kindLabels } from "@/features/training/set-row";
-import { ProteinCheck } from "@/features/training/protein-check";
 import type { TrainingEntry } from "@/shared/state";
 
-export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share, trackProtein }: {
-  log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus; onTemplate?: () => void;
-  today?: string; onEdit?: (next: Session) => Promise<void>; trackProtein?: boolean;
-  share?: { name: string; owner: string; logs: TrainingEntry[] };
-}) {
-  const [editing, setEditing] = useState(false);
-  const [sharing, setSharing] = useState(false);
-  const { volume, sets } = sessionTotals(log.data);
-  if (sharing && own && share) return <ShareCard log={log} {...share} close={() => setSharing(false)} />;
-  if (editing && onEdit && today) return <Dialog title="编辑训练记录" onClose={() => setEditing(false)}>
-    <EditLog original={log.data} today={today} cancel={() => setEditing(false)} save={async (next) => {
-      await onEdit(next);
-      setEditing(false);
-    }} />
-  </Dialog>;
-  return <Dialog title={log.data.plan.title} onClose={close}><div className="dialog-body form-fields">
-    <p className="muted">{shortDate(log.data.date)} · {log.data.plan.category}</p>
-    <div className="totals"><div><strong>{log.data.minutes}</strong><span>分钟</span></div><div><strong>{sets}</strong><span>完成组数</span></div><div><strong>{displayNumber(volume)}</strong><span>容量 kg</span></div></div>
-    {own && trackProtein && onEdit && <ProteinCheck checked={log.data.proteinShake === true}
-      save={(proteinShake) => onEdit({ ...log.data, proteinShake })} />}
-    {log.data.note && <p className="note">{log.data.note}</p>}
-    {log.data.plan.video && <VideoLink url={log.data.plan.video} />}
-    {(onTemplate || onEdit || own && share) && <div className="exercise-toolbar">
-      {own && share && <button className="button outline small" type="button" onClick={() => setSharing(true)}><Share2 size={16} /> 分享训练</button>}
-      {onTemplate && <button className="button outline small" type="button" onClick={onTemplate}><Bookmark size={16} /> 另存为模板</button>}
-      {onEdit && <button className="button outline small" type="button" onClick={() => setEditing(true)}><Pencil size={16} /> 编辑记录</button>}
-    </div>}
-    {own && <HeartPanel id={log.id} session={log.data} whoopResult={whoop} />}
-    {log.data.plan.exercises.map((item, i) => <div className="log-move" key={i}><strong>{parsePlanMove(item.name).name}</strong>
-      {log.data.rows[i].map((line, j) => line.done && <div key={j}>
-        <span>第 {j + 1} 组{line.kind ? " · " + kindLabels[line.kind] : ""}</span>
-        <span>{line.seconds ? line.seconds + " 秒" + (line.weight ? " · " + line.weight + " " + item.unit : "") :
-          line.right ? "左 " + line.weight + " " + item.unit + " × " + line.reps + " · 右 " + line.right.weight + " " + item.unit + " × " + line.right.reps :
-          line.weight + " " + item.unit + " × " + line.reps + " 次"}{line.rpe === undefined ? "" : " · RPE " + line.rpe}</span>
-        <Check size={16} />
-      </div>)}
-    </div>)}
-  </div></Dialog>;
-}
+export { LogDetail } from "./log-detail";
 
 export type HistorySubject = "all" | "self" | "partner";
 
@@ -62,11 +15,15 @@ const subjects: { id: HistorySubject; label: string }[] = [
   { id: "partner", label: "搭子记录" },
 ];
 
-function latestLogDate(logs: TrainingEntry[], today: string) {
-  return logs.reduce((latest, log) => {
-    const date = log.data.date;
-    return date <= today && date > latest ? date : latest;
-  }, "");
+function latestLogDate(logs: TrainingEntry[], today: string, month?: string) {
+  return logs.reduce((latest, { data: { date } }) =>
+    date <= today && date > latest && (!month || date.startsWith(month)) ? date : latest, "");
+}
+
+function moveMonth(first: string, step: number) {
+  const date = new Date(first + "T12:00:00Z");
+  date.setUTCMonth(date.getUTCMonth() + step);
+  return date.toISOString().slice(0, 10);
 }
 
 export function History({ today, logs, self, partner, show, subject = "all", onSubject }: {
@@ -74,51 +31,97 @@ export function History({ today, logs, self, partner, show, subject = "all", onS
   subject?: HistorySubject; onSubject?: (subject: HistorySubject) => void;
 }) {
   const logsFor = (scope: HistorySubject) => logs.filter((log) =>
-    log.kind === "log" && (scope === "all" || (scope === "self" ? log.owner === self : log.owner !== self)));
+    log.kind === "log" && (log.owner === self ? scope !== "partner" : Boolean(partner) && scope !== "self"));
   const visibleLogs = logsFor(subject);
   const [active, setActive] = useState(() =>
     subject === "partner" ? latestLogDate(visibleLogs, today) || today : today);
-  const [month, setMonth] = useState(() => active.slice(0, 7));
-  const activeLogs = visibleLogs.filter((log) => log.data.date === active);
+  const month = active.slice(0, 7);
+  const first = month + "-01";
+  const leading = weekdayIndex(first);
+  const start = offsetDate(first, -leading);
+  const daysInMonth = Number(offsetDate(moveMonth(first, 1), -1).slice(-2));
+  const shownDays = Math.ceil((leading + daysInMonth) / 7) * 7;
 
-  const selectSubject = (next: HistorySubject) => {
+  const byDate = new Map<string, TrainingEntry[]>();
+  for (const log of visibleLogs) {
+    const entries = byDate.get(log.data.date);
+    if (entries) entries.push(log);
+    else byDate.set(log.data.date, [log]);
+  }
+  const activeLogs = byDate.get(active) ?? [];
+
+  function selectSubject(next: HistorySubject) {
     if (next === subject) return;
     onSubject?.(next);
     const matches = logsFor(next);
     if (matches.some((log) => log.data.date === active)) return;
-    const date = latestLogDate(matches, today);
-    if (!date) return;
-    setActive(date);
-    setMonth(date.slice(0, 7));
-  };
-  const first = month + "-01";
-  const start = offsetDate(first, -weekdayIndex(first));
-  const monthChange = (step: number) => {
-    const value = new Date(first + "T12:00:00Z");
-    value.setUTCMonth(value.getUTCMonth() + step);
-    const next = value.toISOString().slice(0, 10);
-    setMonth(next.slice(0, 7)); setActive(next);
-  };
-  return <div className="history-grid">
-    <section className="card padded">
-      <div className="section-head"><h2>{month.slice(0, 4)}年 {Number(month.slice(5))}月</h2><div className="steppers"><button className="icon-button" aria-label="上个月" onClick={() => monthChange(-1)}><ChevronLeft /></button><button className="icon-button" aria-label="下个月" onClick={() => monthChange(1)}><ChevronRight /></button></div></div>
-      {partner && onSubject && <div className="segmented" role="group" aria-label="训练记录归属">
+    setActive(latestLogDate(matches, today) || active);
+  }
+
+  function changeMonth(step: number) {
+    const next = moveMonth(first, step);
+    const nextMonth = next.slice(0, 7);
+    setActive(today.startsWith(nextMonth) ? today : latestLogDate(visibleLogs, today, nextMonth) || next);
+  }
+
+  return <div className="history-calendar">
+    <section className="card history-month-card" aria-label="训练月历">
+      <div className="history-month-bar">
+        <h2><time dateTime={month}><span>{Number(month.slice(0, 4))} 年</span> <strong>{Number(month.slice(5))} 月</strong></time></h2>
+        <div className="steppers">
+          <button className="icon-button" type="button" aria-label="上个月" onClick={() => changeMonth(-1)}><ChevronLeft size={20} aria-hidden="true" /></button>
+          <button className="icon-button" type="button" aria-label="下个月" onClick={() => changeMonth(1)}><ChevronRight size={20} aria-hidden="true" /></button>
+        </div>
+      </div>
+      {partner && onSubject && <div className="segmented history-subjects" role="group" aria-label="训练记录归属">
         {subjects.map(({ id, label }) => <button key={id} type="button" aria-pressed={subject === id}
           onClick={() => selectSubject(id)}>{label}</button>)}
       </div>}
-      <div className="calendar">
-        {weekdays.map((day) => <span className="calendar-label" key={day}>{day}</span>)}
-        {Array.from({ length: Math.ceil((weekdayIndex(first) + new Date(Number(month.slice(0, 4)), Number(month.slice(5)), 0).getDate()) / 7) * 7 }, (_, index) => {
+      <div className="history-week-grid">
+        {weekdays.map((day) => <span className="history-weekday" key={day}>{day}</span>)}
+        {Array.from({ length: shownDays }, (_, index) => {
           const date = offsetDate(start, index);
-          const entries = visibleLogs.filter((log) => log.data.date === date);
-          return <button key={date} aria-label={date + "，" + entries.length + " 次打卡"} aria-pressed={active === date} className={date.startsWith(month) ? "" : "other-month"} onClick={() => setActive(date)}><span>{Number(date.slice(8))}</span><span className="dot-row">{entries.some((log) => log.owner === self) && <i />}{entries.some((log) => log.owner !== self) && <i className="purple" />}</span></button>;
+          const entries = byDate.get(date) ?? [];
+          const mine = entries.filter((log) => log.owner === self).length;
+          const theirs = entries.length - mine;
+          const label = [date, entries.length + " 次打卡", mine > 0 && "我 " + mine + " 次",
+            theirs > 0 && partner + " " + theirs + " 次"].filter(Boolean).join("，");
+          return <button type="button" className="history-date" key={date} aria-label={label}
+            aria-current={date === today ? "date" : undefined} aria-pressed={active === date}
+            data-outside={date.startsWith(month) ? undefined : true} onClick={() => setActive(date)}>
+            <span className="history-date-number">{Number(date.slice(8))}</span>
+            <span className="history-date-marks" aria-hidden="true">
+              {mine > 0 && <span className="history-date-mark" data-person="self">{mine > 1 ? mine : null}</span>}
+              {theirs > 0 && <span className="history-date-mark" data-person="partner">{theirs > 1 ? theirs : null}</span>}
+            </span>
+          </button>;
         })}
       </div>
-      <div className="legend">{subject !== "partner" && <span><i /> 我</span>}{partner && subject !== "self" && <span><i className="purple" /> {partner}</span>}</div>
+      <div className="history-key">
+        {subject !== "partner" && <span data-person="self"><i aria-hidden="true" />我</span>}
+        {partner && subject !== "self" && <span data-person="partner"><i aria-hidden="true" />{partner}</span>}
+      </div>
     </section>
-    <section className="card padded"><div className="section-head"><h2>{shortDate(active)}的打卡</h2><CalendarDays size={20} /></div>
-      {!activeLogs.length && <p className="empty-copy">{subject === "partner" ? "搭子这一天还没有训练记录。" : "这一天还没有训练记录。"}</p>}
-      {activeLogs.map((log) => <button className="list-line history-line" key={log.owner + log.id} onClick={() => show(log)}><span className={"tile " + (log.owner === self ? "mint" : "lilac")}><Dumbbell size={18} /></span><span><strong>{log.data.plan.title}</strong><small>{log.owner === self ? "我" : partner} · {log.data.minutes} 分钟</small></span><ChevronRight size={18} /></button>)}
+    <section className="card history-day-list" aria-labelledby="history-day-heading">
+      <div className="history-day-bar">
+        <CalendarDays size={20} aria-hidden="true" />
+        <h2 id="history-day-heading" aria-live="polite">{shortDate(active)}的打卡</h2>
+        {activeLogs.length > 0 && <span>{activeLogs.length} 次</span>}
+      </div>
+      {!activeLogs.length && <p className="history-no-records">{subject === "partner" ? "搭子这一天还没有训练记录。" : "这一天还没有训练记录。"}</p>}
+      {activeLogs.map((log) => {
+        const mine = log.owner === self;
+        return <button className="history-day-record" type="button" data-person={mine ? "self" : "partner"}
+          key={log.owner + log.id} onClick={() => show(log)}>
+          <span className="history-record-icon"><Dumbbell size={19} aria-hidden="true" /></span>
+          <span className="history-record-label">
+            <strong>{log.data.plan.title}</strong>
+            <small><span className="history-owner">{mine ? "我" : partner}</span>
+              <span>{log.data.plan.category} · {log.data.minutes} 分钟</span></small>
+          </span>
+          <ChevronRight size={19} aria-hidden="true" />
+        </button>;
+      })}
     </section>
   </div>;
 }

@@ -30,6 +30,7 @@ import { defaultCatalogMove } from "@/features/exercises/exercise-picker";
 import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym";
 import { NutritionView } from "@/features/nutrition/nutrition-view";
 import { FriendsView } from "@/features/friends/friends-view";
+import { planCompletions } from "@/features/plans/completion";
 import { PlanSections } from "@/features/plans/plan-sections";
 import { planDisplayTitle, planWeekDay } from "@/features/plans/scheduled-title";
 import { withoutTemplateLink } from "@/features/plans/template-link";
@@ -111,6 +112,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [targetPlan, setTargetPlan] = useState("");
   const [historySubject, setHistorySubject] = useState<HistorySubject>("all");
   const [planTab, setPlanTab] = useState<"个人模板">();
+  const [planStatus, setPlanStatus] = useState<"pending" | "completed">("pending");
   const [confirmRemoveTemplate, setConfirmRemoveTemplate] = useState(false);
   const library = useLibrary(Boolean(viewer));
   const [returnToLog, setReturnToLog] = useState(heartReturn);
@@ -225,6 +227,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const demo = !viewer;
   const logs = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "log");
   const plans = entries.filter((entry): entry is PlanEntry => entry.kind === "plan");
+  const completions = planCompletions(logs);
+  const completionFor = (item: PlanEntry) => completions.get(item.owner)?.get(item.id);
+  const pendingPlans = plans.filter((item) => !completionFor(item));
+  const completedPlans = plans.filter(completionFor);
+  const visiblePlans = planStatus === "completed"
+    ? completedPlans.sort((a, b) => (completionFor(b)?.data.date ?? b.data.date).localeCompare(completionFor(a)?.data.date ?? a.data.date))
+    : [...pendingPlans].sort((a, b) => a.data.date.localeCompare(b.data.date));
   const myDrafts = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "draft" && entry.owner === me.id);
   const drafts = [...Object.entries(pendingDrafts), ...myDrafts.filter((item) => !pendingDrafts[item.id]).map((item) => [item.id, item.data] as const)]
     .filter(([id]) => !logs.some((log) => log.owner === me.id && log.id === id));
@@ -238,15 +247,16 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     ...plans.filter((plan) => plan.owner === me.id).flatMap((plan) => plan.data.exercises.map((item) => item.name)),
     ...logs.filter((log) => log.owner === me.id).flatMap((log) => log.data.plan.exercises.map((item) => item.name)),
   ].map((name) => parsePlanMove(name).name);
-  const todaysPlans = plans.filter((item) => item.data.date === selected)
+  const todaysPlans = pendingPlans.filter((item) => item.data.date === selected)
     .sort((a, b) => Number(b.owner === me.id) - Number(a.owner === me.id));
+  const selectedPlanCompletions = completedPlans.filter((item) => item.data.date === selected);
   const latestPartner = logs.filter((log) => log.owner === partner?.id && log.data.date <= today).sort((a, b) => b.data.date.localeCompare(a.data.date))[0];
   const partnerLastDay = room?.partnerCheckins?.reduce((last, day) => day.count > 0 && day.date <= today && day.date > last ? day.date : last, "") || latestPartner?.data.date;
   const myToday = logs.filter((log) => log.owner === me.id && log.data.date === today);
   const partnerToday = logs.filter((log) => log.owner === partner?.id && log.data.date === today);
   const buddyStatus = demo ? "signed-out" : cloud === "正在连接" ? "loading" : cloud === "云端已连接" ? "ready" : "offline";
-  const current: KeyedPlan | null = todaysPlans[0] ?? null;
-  const canManageToday = current && todaysPlans.some((item) => item.id === current.id && item.owner === me.id);
+  const current = todaysPlans[0];
+  const canManageToday = current?.owner === me.id;
   const sentCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === me.id && entry.data.date === today);
   const receivedCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === partner?.id && entry.data.date === today);
   const weekStart = offsetDate(selected, -weekdayIndex(selected));
@@ -254,6 +264,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const go = (next: View) => {
     setView(next);
     setPlanTab(undefined);
+    if (next === "plans" && view !== "plans") setPlanStatus("pending");
     setWarning("");
     setFriendFocus(undefined);
     if (next === "stats" && view !== "stats") setStatsTab("overview");
@@ -317,6 +328,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   }
 
   function newPlan(data = planBlank(selected)) {
+    setPlanStatus("pending");
     open({ kind: "editor", plan: { id: crypto.randomUUID(), data } });
   }
 
@@ -387,7 +399,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     saveTimer.current = setTimeout(() => flushDraft(id, data), 420);
   }
 
-  function begin(item?: KeyedPlan, kind?: FreeWorkoutKind) {
+  function begin(item?: PlanEntry, kind?: FreeWorkoutKind) {
+    const completion = item && completionFor(item);
+    if (completion) {
+      open({ kind: "log", log: completion });
+      return;
+    }
     const existing = item && drafts.find(([, data]) => data.planId === item.id && data.date === today);
     const id = existing?.[0] ?? crypto.randomUUID();
     const data = item
@@ -473,15 +490,19 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       <button className="button subtle small" onClick={() => open({ kind: "editor", plan: item })}>编辑</button>;
   }
 
-  function renderPlan(item: KeyedPlan, i: number) {
-    const own = plans.some((plan) => plan.id === item.id && plan.owner === me.id);
+  function renderPlan(item: PlanEntry, i: number) {
+    const own = item.owner === me.id;
+    const completion = completionFor(item);
     const weekDay = planWeekDay(item.data);
     const fromTemplate = own && templates.some((row) => row.id === item.data.templateId);
-    return <div className="plan-line" key={item.id}>
-      <span className={"tile " + (i % 2 ? "lilac" : "mint")}>{item.data.video ? <Play size={20} /> : <Dumbbell size={20} />}</span>
+    return <div className="plan-line" key={item.owner + ":" + item.id}>
+      <span className={"tile " + (i % 2 ? "lilac" : "mint")}>{completion ? <Check size={20} /> : item.data.video ? <Play size={20} /> : <Dumbbell size={20} />}</span>
       <div><strong>{planDisplayTitle(item.data)}</strong><small>{[shortDate(item.data.date), weekDay, item.data.category,
-        item.data.minutes > 0 && item.data.minutes + " 分钟", fromTemplate && "模板", item.data.shared && "共享"].filter(Boolean).join(" · ")}</small></div>
-      <div className="plan-actions">{own && planActions(item)}<button className="button outline small" onClick={() => begin(item)}>开始</button></div>
+        item.data.minutes > 0 && item.data.minutes + " 分钟", fromTemplate && "模板", item.data.shared && "共享",
+        completion && (completion.data.date === item.data.date ? "已完成" : shortDate(completion.data.date) + "打卡")].filter(Boolean).join(" · ")}</small></div>
+      <div className="plan-actions">{own && planActions(item)}
+        <button type="button" className="button outline small" onClick={() => begin(item)}>{completion ? "查看记录" : "开始"}</button>
+      </div>
     </div>;
   }
 
@@ -577,7 +598,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 <div className="movement-content"><PlanSequence plan={current.data} onExercise={setExercise} /></div>
               </details>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
-            </> : buddyStatus === "loading" ? null : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3>{selected !== today && <button className="button outline small" onClick={() => go("plans")}>去安排训练</button>}</section>}
+            </> : buddyStatus === "loading" || selectedPlanCompletions.length > 0 ? null : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3>{selected !== today && <button className="button outline small" onClick={() => go("plans")}>去安排训练</button>}</section>}
+            {selectedPlanCompletions.length > 0 && <section className="card plan-list" aria-label="已完成训练">{selectedPlanCompletions.map(renderPlan)}</section>}
           </div>
 
           <aside className="right-column">
@@ -597,7 +619,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               <button className="button primary small" type="button" onClick={() => newPlan()}><Plus size={17} /> 新建计划</button>
             </div>
           </div>
-          {plans.length ? [...plans].sort((a, b) => a.data.date.localeCompare(b.data.date)).map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span><h3>还没有训练计划</h3></div>}
+          <div className="segmented" role="group" aria-label="计划状态">
+            <button type="button" aria-pressed={planStatus === "pending"} onClick={() => setPlanStatus("pending")}>待训练</button>
+            <button type="button" aria-pressed={planStatus === "completed"} onClick={() => setPlanStatus("completed")}>已完成</button>
+          </div>
+          {visiblePlans.length ? visiblePlans.map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span>
+            <h3>{planStatus === "completed" ? "还没有已完成的计划" : plans.length ? "没有待训练的计划" : "还没有训练计划"}</h3></div>}
         </section></PlanSections>}
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
