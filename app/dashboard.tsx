@@ -31,7 +31,7 @@ import { AnatomySubject } from "@/features/exercises/anatomy";
 import { OpenGymCatalogue } from "@/features/exercises/open-gym-catalogue";
 import { defaultCatalogMove } from "@/features/exercises/exercise-picker";
 import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym";
-import { NutritionView } from "@/features/nutrition/nutrition-view";
+import { NutritionView, mealForNow } from "@/features/nutrition/nutrition-view";
 import { CoachMealPhoto, type CoachMealRequest } from "@/features/nutrition/meal-editor";
 import { HomeNutrition } from "@/features/nutrition/home-nutrition";
 import { useNutritionPreferences } from "@/features/nutrition/nutrition-preferences";
@@ -138,7 +138,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const nutritionToggle = useRef<HTMLButtonElement>(null);
   const focusNutritionToggle = useRef(false);
   const [assistantMode, setAssistantMode] = useState<PlanAssistantMode>("import");
-  const [assistantMeal, setAssistantMeal] = useState<CoachMealRequest>();
+  const [assistantMeal, setAssistantMeal] = useState<CoachMealRequest & { fromCoach: boolean }>();
   const assistantOrigin = useRef<{ view: View; setting?: SettingsPage }>({ view: "plans" });
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
@@ -377,12 +377,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     setAssistantMode(mode);
     go("assistant");
   }
-  function openMealPhoto(date: string, meal: CoachMealRequest["meal"]) {
+  function openMealPhoto(date = asDate(), meal = mealForNow()) {
     if (!viewer) return;
     setNutritionStartDate(date);
     setNutritionShortcut(undefined);
     openPlanAssistant("coach");
-    setAssistantMeal({ date, meal, owner: viewer.id, id: crypto.randomUUID() });
+    setAssistantMeal({ date, meal, owner: viewer.id, id: crypto.randomUUID(), fromCoach: view === "assistant" });
   }
   function leavePlanAssistant() {
     const { view: previous, setting } = assistantOrigin.current;
@@ -699,7 +699,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         </>}
         {showPageHeading && <div className={view === "friends" ? "page-heading friends-heading" : coachPage ? "page-heading coach-page-heading" : "page-heading"}>
           {coachPage ? <div className="coach-page-title">
-            <button className="icon-button coach-back" type="button" onClick={leavePlanAssistant} aria-label={coachMeal ? "返回饮食记录" : "返回"}>
+            <button className="icon-button coach-back" type="button"
+              onClick={coachMeal?.fromCoach ? () => go("assistant") : leavePlanAssistant}
+              aria-label={coachMeal ? coachMeal.fromCoach ? "返回 AI 教练" : "返回饮食记录" : "返回"}>
               <ChevronLeft size={21} aria-hidden="true" />
             </button>
             <h1>{heading}</h1>
@@ -855,12 +857,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "friends" && <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
           today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()} />}
 
-        {coachMeal && <CoachMealPhoto key={coachMeal.id} request={coachMeal} close={leavePlanAssistant} />}
+        {coachMeal && <CoachMealPhoto key={coachMeal.id} request={coachMeal} close={() => go("nutrition")} />}
         <div hidden={view !== "assistant" || Boolean(coachMeal)}><PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} save={importPlans} owner={viewer?.id} profileRef={profileRef}
           active={view === "assistant" && !coachMeal} mode={assistantMode} onModeChange={setAssistantMode}
           onPrograms={() => go("programs")} onData={() => go("data")}
           coachShortcuts={{
-            logMeal: display.nutrition ? () => openNutrition() : undefined,
+            logMeal: viewer && display.nutrition ? () => openMealPhoto() : undefined,
             trainingStats: () => go("stats"),
             logWeight: () => go("body"),
             startWorkout: () => open({ kind: "launch" }),

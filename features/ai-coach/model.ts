@@ -5,7 +5,7 @@ import { dateSchema, offsetDate, weekdayIndex } from "@/shared/dates";
 import { guidedDateRanges, guidedMessage, guidedMoveNameKey, guidedSchema, guidedWeeks, maxGuidedSessions,
   type GuidedDraft, type GuidedMove } from "./guided";
 
-export const coachModels = ["haiku", "sonnet"] as const;
+export const coachModel = "haiku" as const;
 export const maxDraftPlans = maxGuidedSessions;
 export const maxDraftMoves = 12;
 export const maxCoachMessages = 9;
@@ -29,7 +29,8 @@ export const coachRequestSchema = z.object({
     messages.every(({ role }, index) => role === (index % 2 === 0 ? "user" : "assistant")) &&
     messages.reduce((length, { content }) => length + content.length, 0) <= maxCoachConversationLength),
   intent: z.enum(["chat", "draft"]),
-  model: z.enum(coachModels),
+  // Older draft clients can still send the previous selector.
+  model: z.enum([coachModel, "sonnet"]),
   date: dateSchema.refine((date) => date >= "2000-01-01" && date <= "2099-12-31"),
   includePlans: z.boolean(),
   contextRange: z.enum(["day", "week"]).optional(),
@@ -37,12 +38,12 @@ export const coachRequestSchema = z.object({
   priorDraft: priorDraftSchema.optional(),
   guided: guidedSchema.optional(),
 }).strict().refine(({ intent, model, priorDraft, guided, draftDays = 7, messages, includePlans }) => {
-  if (!guided) return intent === "draft" || (model === "haiku" && !priorDraft);
+  if (!guided) return intent === "draft" || (model === coachModel && !priorDraft);
   return intent === "draft" && !includePlans && !priorDraft && messages.length === 1 && messages[0].content === guidedMessage &&
     guidedWeeks.some((weeks) => draftDays === weeks * 7 && guided.daysPerWeek * weeks <= maxGuidedSessions);
 });
 
-export type CoachModel = typeof coachModels[number];
+export type CoachModel = typeof coachModel;
 export type CoachRequest = z.infer<typeof coachRequestSchema>;
 export type CoachConfig = { enabled: boolean; models: CoachModel[] };
 export type CoachResponse = { reply: string; draft?: { plans: Plan[] }; model: CoachModel };
@@ -112,7 +113,7 @@ export function normalizeCoachDraft(value: unknown, request: CoachRequest): Coac
       normalized.push(plan.data);
     }
     normalized.sort((left, right) => left.date.localeCompare(right.date));
-    return { reply: draft.data.reply, draft: { plans: normalized }, model: request.model };
+    return { reply: draft.data.reply, draft: { plans: normalized }, model: coachModel };
   }
   const priorPlans = request.priorDraft?.plans ?? [];
   const priorMoves = priorPlans.flatMap(({ exercises }) => exercises);
@@ -132,5 +133,5 @@ export function normalizeCoachDraft(value: unknown, request: CoachRequest): Coac
     if (!plan.success) return null;
     plans.push(plan.data);
   }
-  return { reply: draft.data.reply, draft: { plans }, model: request.model };
+  return { reply: draft.data.reply, draft: { plans }, model: coachModel };
 }

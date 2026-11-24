@@ -30,7 +30,7 @@ const isMeal = (shortcut: NutritionShortcut): shortcut is MealEntry["meal"] => s
 const minDate = "1900-01-01";
 const maxDate = "2100-12-31";
 
-function mealForNow(): MealEntry["meal"] {
+export function mealForNow(): MealEntry["meal"] {
   const hour = new Date().getHours();
   return hour < 10 ? "早餐" : hour < 14 ? "午餐" : hour < 17 ? "加餐" : "晚餐";
 }

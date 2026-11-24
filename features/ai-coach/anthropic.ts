@@ -2,18 +2,68 @@ import { z } from "zod";
 import { planContentRules } from "@/features/import/ai-instructions";
 import { categories } from "@/features/plans/model";
 import { HttpError } from "@/server/http";
-import { coachDraftEnd, maxCoachMessageLength, maxDraftMoves, maxDraftPlans, normalizeCoachDraft,
+import { coachDraftEnd, coachModel, maxCoachMessageLength, maxDraftMoves, maxDraftPlans, normalizeCoachDraft,
   type CoachRequest, type CoachResponse } from "./model";
 
 const messageUrl = "https://api.anthropic.com/v1/messages";
-export const modelIds = { haiku: "claude-haiku-5-5", sonnet: "claude-sonnet-5-5" } as const;
+const providerError = z.object({ error: z.object({
+  type: z.enum(["invalid_request_error", "authentication_error", "billing_error", "permission_error",
+    "not_found_error", "conflict_error", "request_too_large", "rate_limit_error", "api_error",
+    "timeout_error", "overloaded_error"]),
+  message: z.string().optional(),
+  details: z.object({ error_code: z.enum(["organization_on_hold", "linked_organization_billing_unavailable",
+    "linked_organization_spend_limit_reached", "user_profile_billing_not_authorized", "user_profile_not_billable",
+    "contract_spend_limit_reached", "enforced_spend_limit_reached", "ramp_limit_exceeded", "cmek_key_unreachable",
+    "request_body_encoding_invalid", "request_body_encoding_unsupported"]).optional().catch(undefined) }).optional(),
+}) });
+const validationFailures = [
+  ["workspace_required", /anthropic-workspace-id|workspace_id/i],
+  ["billing_limit", /credit balance|spend limit|payment method/i],
+  ["api_version", /anthropic-version|api version/i],
+  ["service_tier", /service_tier/i],
+  ["thinking", /thinking\.type|thinking cannot be disabled/i],
+  ["effort", /output_config|effort/i],
+  ["tool_schema", /input_schema|tool_choice/i],
+  ["generation_limit", /max_tokens/i],
+] as const;
+const transportFailures = [
+  ["unsupported_cache_option", /RequestInitializerDict|unsupported cache mode/i],
+  ["invalid_header", /invalid header|header.{0,40}invalid|header name|header value|ByteString/i],
+  ["unexpected_redirect", /redirect/i],
+  ["egress_denied", /outbound|egress|subrequest.{0,40}(?:forbidden|blocked|denied)|fetch.{0,40}not allowed/i],
+  ["tls_failed", /certificate|\bTLS\b|SSL/i],
+  ["connection_failed", /\bDNS\b|ENOTFOUND|ECONN|connection lost|connection refused|connect timeout/i],
+] as const;
 
-export function postAnthropicMessage(key: string, body: object, signal: AbortSignal) {
-  return fetch(messageUrl, {
-    method: "POST", redirect: "error", cache: "no-store", signal,
-    headers: { "Content-Type": "application/json", "anthropic-version": "2026-10-21", "x-api-key": key },
-    body: JSON.stringify(body),
-  });
+export async function postAnthropicMessage(key: string, body: object, signal: AbortSignal) {
+  let response: Response;
+  try {
+    response = await fetch(messageUrl, {
+      // Workers implements manual redirects. Keep the API key on this endpoint.
+      method: "POST", redirect: "manual", signal,
+      headers: { "Content-Type": "application/json", "anthropic-version": "2026-10-21", "x-api-key": key },
+      body: JSON.stringify({ ...body, model: "claude-haiku-5-5", output_config: { effort: "medium" } }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
+    const reason = transportFailures.find(([, pattern]) => pattern.test(message) || pattern.test(cause))?.[0];
+    console.error("Spotter Anthropic transport failure", signal.aborted ? "aborted" : reason ?? "fetch_failed");
+    throw error;
+  }
+  if (!response.ok) {
+    if (response.status >= 300 && response.status < 400) {
+      console.error("Spotter Anthropic request redirected", { status: response.status });
+      return response;
+    }
+    const result = providerError.safeParse(await response.clone().json().catch(() => null));
+    const type = result.success ? result.data.error.type : "unknown";
+    const message = result.success ? result.data.error.message ?? "" : "";
+    const reason = type === "invalid_request_error" ? validationFailures.find(([, pattern]) => pattern.test(message))?.[0] : undefined;
+    const code = result.success ? result.data.error.details?.error_code : undefined;
+    console.error("Spotter Anthropic request rejected", { status: response.status, type, code, reason });
+  }
+  return response;
 }
 const draftTool = {
   name: "prepare_spotter_draft",
@@ -105,7 +155,7 @@ function coachSystemPrompt(request: CoachRequest) {
 }
 
 export async function askAnthropic(key: string, request: CoachRequest, context: string): Promise<CoachResponse> {
-  const { intent, model, messages } = request;
+  const { intent, messages } = request;
   const drafting = intent === "draft";
   const lastMessage = messages[messages.length - 1];
   const system = coachSystemPrompt(request);
@@ -113,11 +163,10 @@ export async function askAnthropic(key: string, request: CoachRequest, context: 
   let decoded: unknown;
   try {
     const response = await postAnthropicMessage(key, {
-        model: modelIds[model], system,
+        system,
         service_tier: "standard_only",
         max_tokens: drafting ? 8_192 : 750,
-        thinking: { type: model === "sonnet" ? "between_tools" : "disabled" },
-        output_config: { effort: drafting ? "medium" : "low" },
+        thinking: { type: "disabled" },
         messages: context ? [...messages.slice(0, -1), { role: "user", content: [
           { type: "text", text: context }, { type: "text", text: lastMessage.content },
         ] }] : messages,
@@ -136,7 +185,7 @@ export async function askAnthropic(key: string, request: CoachRequest, context: 
     const { stop_reason, content } = result.data;
     const text = () => content.flatMap(({ type, text }) => type === "text" && text ? [text] : [])
       .join("\n").trim().slice(0, maxCoachMessageLength);
-    if (stop_reason === "refusal") return { reply: text() || "这项请求无法处理，可以换一个训练安排相关的问题。", model };
+    if (stop_reason === "refusal") return { reply: text() || "这项请求无法处理，可以换一个训练安排相关的问题。", model: coachModel };
     if (stop_reason === "max_tokens") throw new HttpError(502, "AI 回复过长，请缩小问题或计划范围后重试。");
     const toolCalls = content.filter(({ type }) => type === "tool_use");
     if (drafting && stop_reason === "tool_use" && toolCalls.length === 1 && toolCalls[0].name === draftTool.name) {
@@ -146,7 +195,7 @@ export async function askAnthropic(key: string, request: CoachRequest, context: 
     }
     if (!toolCalls.length && stop_reason === "end_turn") {
       const reply = text();
-      if (reply) return { reply, model };
+      if (reply) return { reply, model: coachModel };
     }
   }
   throw new HttpError(502, "AI 回复格式异常，请调整问题或计划要求后重试。");

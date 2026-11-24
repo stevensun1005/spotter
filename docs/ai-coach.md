@@ -5,9 +5,11 @@
 - **自由对话**是教练的默认入口。可以直接问训练问题，或打开饮食、训练统计、体重和训练记录。
 - 点「生成计划」或在输入框提出排训练计划，教练会在同一对话里逐步询问动作限制、场景、预设、正式与热身动作以及计划设置。可生成 1、2 或 4 周，每批最多 12 堂。
 
-两种方式都沿用「添加计划」中的预览和保存流程。Haiku 5.5 是默认模型，Sonnet 5.5 可以单独开启。复制提示词、粘贴计划和外部 Agent 连接仍使用原入口。
+自由对话、训练计划生成与修改、餐食和食品包装照片识别统一使用 Claude Haiku 5.5，推理强度为 `medium`。计划草稿可以在「添加计划」中预览、编辑和保存。复制提示词、粘贴计划和外部 Agent 连接仍使用原入口。
 
-从「首页 → 饮食记录 → AI 识别」进入 AI 教练的餐食拍照页。日期和餐次随记录带入，拍照或选图后填入食物、份量和营养草稿，确认保存后回到原来那天的饮食记录。食品包装可从食物库的拍照入口识别每 100 克数值。识别复用站内 AI 的 Haiku 模型、账号允许名单和每日额度。 [Claude 图片输入文档](https://platform.claude.com/docs/en/build-with-claude/vision)
+从「首页 → 饮食记录 → AI 识别」进入 AI 教练的餐食拍照页。日期和餐次随记录带入，拍照或选图后填入食物、份量和营养草稿，确认保存后回到原来那天的饮食记录。食品包装可从食物库的拍照入口识别每 100 克数值。识别使用站内 AI 的账号允许名单和每日额度。 [Claude 图片输入文档](https://platform.claude.com/docs/en/build-with-claude/vision)
+
+AI 教练首页的「拍照记饮食」打开同一表单，默认使用今天的日期和当前餐次。返回键回到 AI 教练，保存后打开当天的饮食记录。
 
 ## 在本机试用
 
@@ -26,7 +28,6 @@ npm run build
 AI_COACH_ENABLED=true
 AI_COACH_ALLOWED_EMAILS=seedy@sites.test
 ANTHROPIC_API_KEY=<粘贴你在 Claude Console 创建的 Key>
-AI_COACH_SONNET_ENABLED=false
 ```
 
 `seedy@sites.test` 是本机预览的合成账号。启动或重启预览后，在网页完成本地登录，进入「设置 → AI 教练」。
@@ -43,7 +44,7 @@ npm run dev:ai-coach
 
 从干净工作区构建发布包。Cloudflare Vite 可能把本机 `.dev.vars` 复制到本地构建目录，上传前请确认归档中没有任何本机环境文件。详见 [Cloudflare 本地变量说明](https://developers.cloudflare.com/workers/vite-plugin/reference/secrets/)。
 
-默认关闭，缺少开关、Key 或允许名单时保持关闭。打开后，每个账号每天最多 20 次调用，整个部署每天最多 30 次，按 UTC 日重置。`AI_COACH_SONNET_ENABLED=true` 会显示 Sonnet 5.5。Claude Console 中用量归属于 Key 所在的 Workspace 和关联组织，可在那里查看用量、额度和预算设置。相关规则见 [API 额度说明](https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers)。
+默认关闭，缺少开关、Key 或允许名单时保持关闭。打开后，每个账号每天最多 20 次调用，整个部署每天最多 30 次，按 UTC 日重置。Claude Console 中用量归属于 Key 所在的 Workspace 和关联组织，可在那里查看用量、额度和预算设置。相关规则见 [API 额度说明](https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers)。
 
 ## 发送和保存的数据
 

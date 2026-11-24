@@ -15,7 +15,6 @@ import {
 type Phase = "work" | "warmup";
 type Pools = Record<Phase, GuidedMove[]>;
 type Scene = GuidedDraft["scene"];
-type Model = "haiku" | "sonnet";
 type Choice = { value: string; label: string };
 type Art = "impact" | "overhead" | "knee" | "hinge" | Scene | "guided";
 export type GuidedCoachSelection = { date: string; draftDays: number; guided: GuidedDraft };
@@ -187,9 +186,9 @@ function PoolEditor({ value, phase, setPhase, disabled, remove, add }: {
   </div>;
 }
 
-export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, status, onGenerate, presentation = "standalone" }: {
-  selectedDate: string; busy: boolean; enabled: boolean; sonnet?: boolean; error?: string; status?: string;
-  onGenerate: (selection: GuidedCoachSelection, model: Model) => void | Promise<void>;
+export function GuidedCoachPanel({ selectedDate, busy, enabled, error, status, onGenerate, presentation = "standalone" }: {
+  selectedDate: string; busy: boolean; enabled: boolean; error?: string; status?: string;
+  onGenerate: (selection: GuidedCoachSelection) => void | Promise<void>;
   presentation?: "standalone" | "conversation";
 }) {
   const [step, setStep] = useState(0);
@@ -206,7 +205,6 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
   const [weeks, setWeeks] = useState<number>(1);
   const [focus, setFocus] = useState<GuidedDraft["focus"]>([]);
   const [start, setStart] = useState<string>();
-  const [model, setModel] = useState<Model>("haiku");
   const headline = useRef<HTMLHeadingElement>(null);
   const previous = useRef(step);
   const id = useId();
@@ -280,7 +278,7 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
     }
     if (!canGenerate || !scene) return;
     const result = guidedSchema.safeParse({ limits, scene, goal, focus, daysPerWeek: days, minutes, ...pool });
-    if (result.success) void onGenerate({ date, draftDays: weeks * 7, guided: result.data }, sonnet ? model : "haiku");
+    if (result.success) void onGenerate({ date, draftDays: weeks * 7, guided: result.data });
   }
 
   return <section className={conversation ? "guided-coach guided-coach-conversation" : "card guided-coach"} aria-label="问答定制计划">
@@ -363,8 +361,6 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
             <label>计划周期<select value={weeks} onChange={(event) => setWeeks(Number(event.target.value))}>
               {guidedWeeks.map((week) => <option key={week} value={week}>{week} 周</option>)}</select></label>
             <label>开始日期<input type="date" required min="2000-01-01" max="2099-12-31" value={date} onChange={(event) => setStart(event.target.value)} /></label>
-            {sonnet && <label>模型<select value={model} onChange={(event) => setModel(event.target.value === "sonnet" ? "sonnet" : "haiku")}>
-              <option value="haiku">Haiku 5.5</option><option value="sonnet">Sonnet 5.5</option></select></label>}
           </div>
           <div className="feature-stack guided-settings-group">
             <h3>重点部位 <small className="muted">选填</small></h3>
