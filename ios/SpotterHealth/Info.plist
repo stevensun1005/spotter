@@ -23,6 +23,8 @@
     <string>当你选择拍照记录饮食时，使用相机拍摄本次餐食，供你预览和识别。</string>
     <key>NSHealthShareUsageDescription</key>
     <string>仅按您选择的类型和日期范围，读取训练心率、体重、系统运动、步数、活跃能量或运动时长，私密同步到您配对的训练搭子账号。</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>训练搭子通过只读授权同步您选择的 Apple 健康数据，训练记录保存在您的训练搭子账号中。</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>连接您选择的训练搭子站点，读取和保存训练记录。</string>
     <key>NSMicrophoneUsageDescription</key>

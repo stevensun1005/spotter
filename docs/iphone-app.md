@@ -1,6 +1,6 @@
 # 训练搭子 iPhone App 开发版
 
-本轮 App 为 1.0（构建 9），连接 [Cloudflare 独立试用版](https://spotter-free.couple-ledger-service.workers.dev)。App 内显示原生构建号和打包时核对的网页版本，构建清单记录两边的源码。
+本轮 App 为 1.0（构建 10），连接 [Cloudflare 独立试用版](https://spotter-free.couple-ledger-service.workers.dev)。App 内显示原生构建号和打包时核对的网页版本，构建清单记录两边的源码。
 
 ## 网页版本核对
 
@@ -52,6 +52,8 @@ npm run ios:package
 产物是被 Git 忽略的 `outputs/Spotter-Simulator-<commit>.zip` 和同名 JSON 记录，包含构建 commit、分支和核验的远端 SHA。打包还核验 App 内的 `SpotterWebRelease` 和拉取到的 GitHub 网页部署分支或快照。托管发布状态由发布记录另行核对。网页加载实时站点，构建记录中的版本用于追溯。**这是 iOS 模拟器开发包，不能直接安装到真实 iPhone。**
 
 TestFlight 使用相同的 `Spotter` scheme 做 Release 归档。归档使用 Apple Developer 团队签名，分发选择 App Store Connect。App Store Connect 的应用记录使用 Bundle ID `app.spotter.health`。
+
+HealthKit 读取与更新用途说明按 App Store 的静态检查提供。运行时申请的是所选类型的读取权限，写入权限列表为空。
 
 ## 已运行的验证
 
