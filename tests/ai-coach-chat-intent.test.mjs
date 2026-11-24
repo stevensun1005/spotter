@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { asksForTrainingPlan } from "../features/ai-coach/chat-intent.ts";
 
-test("explicit Chinese training plan requests enter the guided questions", () => {
+test("Chinese training plan requests enter the conversation drafting flow", () => {
   for (const message of [
     "生成计划",
+    "我今天想练上半身，只有30分钟",
+    "帮我排30分钟的上半身",
     "我要排个训练计划",
     "帮我做个每周三练的增肌计划",
     "给我生成一个 4 周增肌计划，不要饮食",
@@ -22,7 +24,7 @@ test("explicit Chinese training plan requests enter the guided questions", () =>
   ]) assert.equal(asksForTrainingPlan(message), true, message);
 });
 
-test("explicit English training plan requests enter the guided questions", () => {
+test("English training plan requests enter the conversation drafting flow", () => {
   for (const message of [
     "Please create a workout plan.",
     "Can you make me a 4-week lifting plan?",

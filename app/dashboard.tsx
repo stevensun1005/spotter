@@ -24,7 +24,10 @@ import { ProteinCheck } from "@/features/training/protein-check";
 import { PairToday } from "@/features/pair/pair-today";
 import { DisconnectPair } from "@/features/pair/disconnect-pair";
 import { WeekCheckins } from "@/features/pair/week-checkins";
-import { PlanAssistant, type PlanAssistantMode } from "@/features/import/plan-assistant";
+import { PlanAssistant } from "@/features/import/plan-assistant";
+import type { PlanAssistantMode } from "@/features/ai-coach/mode-tabs";
+import { readActivitySummary } from "@/features/ai-coach/activity-summary";
+import { CoachSheet, type CoachSheetSize } from "@/features/ai-coach/coach-sheet";
 import { ImportView } from "@/features/import/import-view";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
@@ -139,7 +142,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const nutritionToggle = useRef<HTMLButtonElement>(null);
   const focusNutritionToggle = useRef(false);
   const [assistantMode, setAssistantMode] = useState<PlanAssistantMode>("coach");
+  const [coachSheet, setCoachSheet] = useState<CoachSheetSize>();
   const [assistantMeal, setAssistantMeal] = useState<CoachMealRequest & { fromCoach: boolean }>();
+  const [assistantMealResult, setAssistantMealResult] = useState<{ id: string; owner: string; message: string }>();
   const assistantOrigin = useRef<{ view: View; setting?: SettingsPage }>({ view: "plans" });
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
@@ -350,6 +355,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const latestOwnWorkout = logs.find((item) => item.owner === me.id && item.data.date <= today);
 
   const go = (next: View) => {
+    setCoachSheet(undefined);
     setAssistantMeal(undefined);
     setView(next === "data" ? "settings" : next);
     if (next === "settings" || next === "data") setSettingsPage(next === "data" ? "data" : undefined);
@@ -387,8 +393,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     if (!viewer) return;
     setNutritionStartDate(date);
     setNutritionShortcut(undefined);
-    openPlanAssistant("coach");
-    setAssistantMeal({ date, meal, owner: viewer.id, id: crypto.randomUUID(), fromCoach: view === "assistant" });
+    const fromCoach = view === "assistant" || Boolean(coachSheet);
+    if (fromCoach) {
+      setAssistantMode("coach");
+      if (coachSheet) setCoachSheet("full");
+    } else openPlanAssistant("coach");
+    setAssistantMeal({ date, meal, owner: viewer.id, id: crypto.randomUUID(), fromCoach });
   }
   function leavePlanAssistant() {
     const { view: previous, setting } = assistantOrigin.current;
@@ -499,7 +509,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     else newPlan(next);
   }
 
-  async function savePlans(items: KeyedPlan[], skipExisting = false) {
+  async function savePlans(items: KeyedPlan[], skipExisting = false, announce = true) {
     const clean = items.map((item) => ({ ...item, checked: cleanPlan(item.data) }));
     const broken = clean.findIndex((item) => !item.checked.success);
     if (broken >= 0) throw new Error("请检查第 " + (broken + 1) + " 个计划的名称、日期、动作和视频链接。");
@@ -509,7 +519,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       await refresh();
       if (skipExisting) {
         const { added, skipped } = await reply.json() as { added: number; skipped: number };
-        setToast("已导入 " + added + " 个计划" + (skipped ? "，跳过 " + skipped + " 个重复计划" : ""));
+        if (announce) setToast("已导入 " + added + " 个计划" + (skipped ? "，跳过 " + skipped + " 个重复计划" : ""));
         return;
       }
     } else {
@@ -673,7 +683,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   const assistantPage = view === "assistant";
   const heading = pageTitles[view];
-  const coachMeal = assistantPage && assistantMeal?.owner === viewer?.id ? assistantMeal : undefined;
+  const coachMeal = (assistantPage || coachSheet) && assistantMeal?.owner === viewer?.id ? assistantMeal : undefined;
   const activeTab = view === "programs" ? "plans"
     : view === "coaching" ? "friends" : view === "body" ? "stats" : view;
   const calendarOpen = view === "stats" && statsTab === "history";
@@ -851,19 +861,38 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "friends" && <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
           today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()} />}
 
-        <div hidden={!assistantPage}><PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} save={importPlans} owner={viewer?.id} profileRef={profileRef}
-          active={assistantPage} mode={assistantMode} onModeChange={changeAssistantMode}
-          backLabel={coachMeal ? coachMeal.fromCoach ? "返回 AI 教练" : "返回饮食记录" : "返回"}
-          onBack={coachMeal?.fromCoach ? () => { setAssistantMode("coach"); go("assistant"); } : leavePlanAssistant}
-          mealPhoto={coachMeal && <CoachMealPhoto key={coachMeal.id} request={coachMeal} close={() => go("nutrition")} />}
-          onPrograms={() => go("programs")} onData={() => go("data")}
-          coachShortcuts={{
-            logMeal: viewer && display.nutrition ? () => openMealPhoto() : undefined,
-            trainingStats: () => go("stats"),
-            logWeight: () => go("body"),
-            startWorkout: () => open({ kind: "launch" }),
-          }}
-          saved={() => { void refresh(); void library.load(); go("plans"); }} /></div>
+        <CoachSheet size={coachSheet} inlineOpen={assistantPage} mode={assistantMode} onModeChange={changeAssistantMode}
+          onResize={setCoachSheet} onClose={() => setCoachSheet(undefined)}>
+          <PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} owner={viewer?.id} profileRef={profileRef}
+            active={assistantPage || Boolean(coachSheet)} mode={assistantMode} onModeChange={changeAssistantMode}
+            inSheet={Boolean(coachSheet)}
+            compact={coachSheet === "half"} onExpandCoach={coachSheet === "half" ? () => setCoachSheet("full") : undefined}
+            backLabel={coachMeal ? coachMeal.fromCoach ? "返回 AI 教练" : "返回饮食记录" : "返回"}
+            onBack={coachMeal?.fromCoach ? () => { setAssistantMode("coach"); go("assistant"); } : leavePlanAssistant}
+            mealPhoto={coachMeal && <CoachMealPhoto key={coachMeal.id} request={coachMeal} onSaved={(entry) => {
+              if (!coachMeal.fromCoach) { go("nutrition"); return; }
+              setAssistantMeal(undefined);
+              setAssistantMealResult({ id: coachMeal.id, owner: coachMeal.owner, message: `已记入${entry.meal}「${entry.name}」。` });
+            }} />}
+            mealPhotoId={coachMeal?.id} mealResult={assistantMealResult?.owner === viewer?.id ? assistantMealResult : undefined}
+            onDismissMeal={coachMeal ? () => { if (coachMeal.fromCoach) setAssistantMeal(undefined); else leavePlanAssistant(); } : undefined}
+            onPrograms={() => go("programs")} onData={() => go("data")}
+            coachActions={{
+              logMeal: viewer && display.nutrition ? (meal) => openMealPhoto(undefined, meal) : undefined,
+              trainingStats: (question, date) => {
+                const summary = readActivitySummary(question, date, logs, viewer?.id ?? "");
+                if (!summary) return undefined;
+                if (!viewer) return "请先登录训练搭子，再查看你的训练统计。";
+                if (cloud === "正在连接") return "训练记录还在同步，稍后再问我一次。";
+                if (cloud === "云端连接异常") return "暂时读不到完整的云端训练记录，连接恢复后再问我一次。";
+                return summary.reply;
+              },
+              saveWeight: viewer ? ({ id, date, kg }) => library.save({ kind: "nutrition", id, date, entry: { type: "weight", kg } }, undefined, viewer.id) : undefined,
+              saveDraft: viewer ? (items) => savePlans(items, true, false) : undefined,
+              startWorkout: () => { setCoachSheet(undefined); open({ kind: "launch" }); },
+            }}
+            saved={() => { void refresh(); void library.load(); go("plans"); }} />
+        </CoachSheet>
       </main>
     </div>
     {view !== "nutrition" && <nav aria-label="主导航" className="primary-nav">
@@ -873,8 +902,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           <button className={activeTab === id ? "active" : ""} aria-current={id === view ? "page" : id === activeTab ? "location" : undefined}
             key={id} type="button" onClick={() => go(id)}><Icon size={21} aria-hidden="true" /><span>{label}</span></button>)}
       </div>
-      <button className={assistantPage ? "primary-nav-coach active" : "primary-nav-coach"} aria-current={assistantPage ? "page" : undefined}
-        type="button" aria-label="AI 教练" title="AI 教练" onClick={() => assistantPage ? changeAssistantMode("coach") : openPlanAssistant("coach")}>
+      <button className={assistantPage || coachSheet ? "primary-nav-coach active" : "primary-nav-coach"} aria-current={assistantPage ? "page" : undefined}
+        type="button" aria-label="AI 教练" title="AI 教练" aria-haspopup="dialog" aria-expanded={Boolean(coachSheet)}
+        onClick={() => { if (!assistantPage) setAssistantMode("coach"); setCoachSheet("half"); }}>
         <span className="primary-nav-coach-icon"><Sparkles size={21} aria-hidden="true" /></span>
       </button>
     </nav>}

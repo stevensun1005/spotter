@@ -226,7 +226,7 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
 
 export type CoachMealRequest = { owner: string; id: string; date: string; meal: MealEntry["meal"] };
 
-export function CoachMealPhoto({ request: { owner, id, date, meal }, close }: { request: CoachMealRequest; close: () => void }) {
+export function CoachMealPhoto({ request: { owner, id, date, meal }, onSaved }: { request: CoachMealRequest; onSaved: (entry: MealEntry) => void }) {
   const store = useLibrary(true, date);
   const save = (item: PersonalFood | FoodPortions) => store.save(item, undefined, owner);
   const active = useRef(false);
@@ -235,11 +235,11 @@ export function CoachMealPhoto({ request: { owner, id, date, meal }, close }: { 
     return () => { active.current = false; };
   }, []);
 
-  return <MealEditor owner={owner} meal={meal} coachDate={date} close={close}
+  return <MealEditor owner={owner} meal={meal} coachDate={date} close={() => { }}
     personal={store.rows.filter((item) => item.kind === "food")} recent={store.recentMeals}
     savedPortions={store.rows.filter((item) => item.kind === "food-portions")} onSaveFood={save} onSavePortions={save}
     onLog={async (entry) => {
       await store.save({ kind: "nutrition", date, id, entry }, undefined, owner);
-      if (active.current) close();
+      if (active.current) onSaved(entry);
     }} />;
 }

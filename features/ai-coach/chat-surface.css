@@ -52,10 +52,9 @@
 .coach-home-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .coach-home-task {
   min-width: 0;
-  min-height: 105px;
+  min-height: 62px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: auto auto;
   align-content: center;
   align-items: center;
   gap: 5px 9px;
@@ -70,7 +69,6 @@
 .coach-home-task-plan { border-color: color-mix(in srgb, var(--stroke) 60%, #649460); background: var(--coach-choice); }
 .coach-home-task-plan:hover { background: color-mix(in srgb, var(--lime) 37%, var(--card)); }
 .coach-home-task strong { font-size: .99rem; line-height: 1.3; }
-.coach-home-task small { grid-column: 1 / -1; font-size: .78rem; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
 .coach-task-icon {
   display: grid;
   place-items: center;
@@ -102,33 +100,16 @@
   background: var(--coach-choice);
 }
 .coach-reply { justify-self: start; }
+.coach-reply-draft { width: min(100%, 630px); max-width: 100%; }
+.coach-reply-action { margin-block-start: 8px; }
+.coach-photo-tool { min-width: 0; scroll-margin-block-start: calc(60px + env(safe-area-inset-top)); }
+.coach-photo-tool > .text-button { margin-block-start: 5px; }
 .coach-reply p, .coach-own-message p { font-size: .94rem; line-height: 1.56; white-space: pre-wrap; overflow-wrap: anywhere; }
 .coach-reply-byline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; margin-block-end: 4px; font-weight: 750; font-size: .87rem; }
 .coach-reply-byline small { color: var(--muted); font-size: .74rem; font-weight: 500; }
 .coach-turn-status { color: var(--muted); font-size: .84rem; }
 .coach-turn-status.inline-error { color: #a63535; }
 .coach-thread-anchor { block-size: 1px; scroll-margin-block-end: calc(var(--coach-nav-space) + 100px); }
-.coach-guide-question { min-width: 0; display: grid; gap: 6px; scroll-margin-block-start: 10px; }
-.coach-guide-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 9px; color: var(--muted); font-size: .82rem; }
-.coach-guide-toolbar .text-button { padding-inline: 5px; }
-.coach-resume, .coach-draft-preview {
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px 9px;
-  padding: 8px;
-  border: 1px solid var(--stroke);
-  border-radius: 12px;
-  background: var(--coach-paper);
-  color: var(--text);
-  font-size: .86rem;
-}
-.coach-draft-preview { margin-block-start: 10px; }
-.coach-resume > span, .coach-draft-preview > div { flex: 1; }
-.coach-draft-preview p { color: var(--muted); font-size: .79rem; line-height: 1.35; }
-.coach-draft-preview-icon { display: grid; place-items: center; inline-size: 33px; block-size: 33px; border-radius: 9px; background: var(--coach-choice); }
-.coach-draft-preview .button { white-space: nowrap; }
 
 .coach-composer {
   position: sticky;
@@ -219,7 +200,7 @@
 .coach-composer-notice.inline-error { color: #a63535; }
 
 @media (max-width: 370px) {
-  .coach-home-task { min-height: 90px; padding: 8px; gap: 4px 6px; }
+  .coach-home-task { min-height: 55px; padding: 8px; gap: 4px 6px; }
   .coach-home-task strong { font-size: .88rem; }
   .coach-task-icon { inline-size: 29px; block-size: 29px; border-radius: 8px; }
   .coach-task-icon svg { width: 17px; height: 17px; }

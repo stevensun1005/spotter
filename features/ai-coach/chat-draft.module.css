@@ -1,0 +1,64 @@
+.card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin-block-start: 10px;
+  padding: 10px;
+  color: var(--text);
+  background: var(--coach-paper);
+  border: 1px solid var(--stroke);
+  border-radius: 13px;
+  font-size: .88rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.header { display: flex; align-items: center; gap: 8px; }
+.header small, .heading small { display: block; color: var(--muted); }
+.icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--coach-choice);
+}
+
+.sessions { display: grid; gap: 6px; }
+.session { border: 1px solid var(--stroke); border-radius: 10px; background: var(--card); }
+.session > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.session > summary::-webkit-details-marker { display: none; }
+.session > summary:hover { background: var(--coach-paper); }
+.heading { flex: 1; min-width: 0; }
+.chevron { color: var(--muted); flex: none; }
+.session[open] .chevron { transform: rotate(180deg); }
+
+.content, .exercises { display: grid; min-width: 0; gap: 7px; }
+.content { padding: 7px 9px 9px; }
+.content > small, .exercise small { color: var(--muted); }
+.exercises { margin: 0; padding: 0; list-style: none; }
+.exercise { display: grid; gap: 2px; padding-block-start: 7px; border-block-start: 1px solid var(--stroke); }
+.exercise strong { font-weight: 680; }
+.slot {
+  display: inline-block;
+  margin-inline-end: 5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--coach-choice);
+  font-size: .75rem;
+  font-weight: 650;
+}
+
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.card :global(.button.small) { gap: 5px; padding-inline: 9px; font-size: .8rem; }
+.confirmed { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
