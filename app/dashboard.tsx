@@ -21,7 +21,6 @@ import type { FreeWorkoutKind } from "@/features/training/model";
 import { ProteinCheck } from "@/features/training/protein-check";
 import { PairToday } from "@/features/pair/pair-today";
 import { WeekCheckins } from "@/features/pair/week-checkins";
-import type { HistorySubject } from "@/features/history/history";
 import { ImportView } from "@/features/import/import-view";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
@@ -110,7 +109,6 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [exercise, setExercise] = useState<ExerciseChoice>();
   const [planPick, setPlanPick] = useState<{ choice: ExerciseChoice; row?: CatalogEntry }>();
   const [targetPlan, setTargetPlan] = useState("");
-  const [historySubject, setHistorySubject] = useState<HistorySubject>("all");
   const [planTab, setPlanTab] = useState<"个人模板">();
   const [planStatus, setPlanStatus] = useState<"pending" | "completed">("pending");
   const [confirmRemoveTemplate, setConfirmRemoveTemplate] = useState(false);
@@ -526,7 +524,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   const showPageHeading = view !== "plans" && view !== "stats" && view !== "nutrition";
   const heading = navigation.find((item) => item.id === view)?.title;
-  return <div className="app">
+  const calendarOpen = view === "stats" && statsTab === "history";
+  return <div className={calendarOpen ? "app app-history" : "app"}>
     <aside className="sidebar">
       <button className="brand" onClick={() => go("today")}><span className="brand-mark"><Dumbbell size={23} strokeWidth={2.5} /></span><span>训练搭子<small>SPOTTER CLUB</small></span></button>
       <nav aria-label="主导航" className="desktop-nav">
@@ -652,13 +651,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           <button className="list-line" type="button" onClick={() => open({ kind: "pair" })}><span className="tile mint"><Users size={18} /></span><strong>账号与搭子空间</strong><ChevronRight size={16} /></button>
         </section>}
 
-        {view === "stats" && <div className="feature-stack">
+        {view === "stats" && <div className={calendarOpen ? "feature-stack history-layout" : "feature-stack"}>
           <div className="segmented stats-page-tabs" role="group" aria-label="统计页面">
             <button type="button" aria-pressed={statsTab === "overview"} onClick={() => setStatsTab("overview")}>训练统计</button>
             <button type="button" aria-pressed={statsTab === "history"} onClick={() => setStatsTab("history")}>打卡历史</button>
           </div>
-          {statsTab === "history" ? <History today={today} self={me.id} partner={partnerWithDetails?.name} logs={logs}
-            subject={partnerWithDetails ? historySubject : "self"} onSubject={setHistorySubject} show={(log) => open({ kind: "log", log })} /> :
+          {calendarOpen ? <History today={today} self={me.id} partner={partnerWithDetails?.name} logs={logs}
+            show={(log) => open({ kind: "log", log })} /> :
             <Stats today={today} self={me.id} partner={partnerWithDetails ?? null} logs={logs} onExercise={setExercise}
               pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
               savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}

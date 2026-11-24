@@ -11,13 +11,12 @@ import { displayNumber } from "@/shared/ui";
 import { offsetDate, weekdayIndex } from "@/shared/dates";
 import {
   cumulative, metrics, muscleGroups, periodLabel, periodRange, previousRange, rangeDays, summarize,
-  type Metric, type Period, type Range, type StatsSummary, type TrainingMode,
+  type Metric, type Period, type Range, type StatsSummary,
 } from "./model";
 
 const periods = [
   ["week", "周"], ["month", "月"], ["quarter", "季"], ["year", "年"], ["recent", "最近"], ["custom", "自定义"],
 ] as const;
-const modes = [["all", "全部"], ["weighted", "力量负重"], ["bodyweight", "自重训练"]] as const;
 const metricIcons = { volume: BarChart3, sessions: CalendarDays, minutes: Clock3, sets: Check };
 const defaultPins = ["0025", "0043", "0032", "0314"];
 
@@ -167,7 +166,6 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
   const [stepping, setStepping] = useState(0);
   const [recent, setRecent] = useState(30);
   const [custom, setCustom] = useState<Range>({ from: offsetDate(today, -29), to: today });
-  const [mode, setMode] = useState<TrainingMode>("all");
   const [person, setPerson] = useState(self);
   const subject = partner?.id === person ? person : self;
   const [comparison, setComparison] = useState<"previous" | "year" | "none">("previous");
@@ -182,9 +180,9 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
   const { current, former } = useMemo(() => {
     const owned = logs.filter((log) => log.kind === "log" && log.owner === subject);
     const slice = (span: Range) => owned.filter((log) => log.data.date >= span.from && log.data.date <= span.to);
-    return { current: summarize(customValid ? slice(range) : [], data?.rows ?? [], mode),
-      former: comparison === "none" || !customValid ? undefined : summarize(slice(compare), data?.rows ?? [], mode) };
-  }, [logs, subject, range.from, range.to, compare.from, compare.to, data, mode, comparison, customValid]);
+    return { current: summarize(customValid ? slice(range) : [], data?.rows ?? [], "all"),
+      former: comparison === "none" || !customValid ? undefined : summarize(slice(compare), data?.rows ?? [], "all") };
+  }, [logs, subject, range.from, range.to, compare.from, compare.to, data, comparison, customValid]);
   const focus = metric === "volume" ? current.total.volume / (customValid ? rangeDays(range) : 1) : current.total[metric];
   const formerFocus = former && (metric === "volume" ? former.total.volume / rangeDays(compare) : former.total[metric]);
   const max = Math.max(1, focus, formerFocus ?? 0);
@@ -204,7 +202,6 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
           {subject === partner.id && <Check size={17} aria-hidden="true" />}
         </button>
       </div>}
-      <div className="segmented stats-segment" role="group" aria-label="训练类型">{modes.map(([value, title]) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{title}</button>)}</div>
       <div className="stats-periods" role="group" aria-label="统计周期">{periods.map(([value, title]) => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setStepping(0); }}>{title}</button>)}</div>
       {period === "recent" && <label className="stats-compare-select">最近天数<select value={recent} onChange={(event) => { setRecent(Number(event.target.value)); setStepping(0); }}>
         {[7, 30, 90, 365].map((days) => <option key={days} value={days}>{days} 天</option>)}
@@ -247,7 +244,6 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
       <ActivityCalendar current={current} range={range} today={today} />
       <MusclePanel current={current} loading={!data && !error} error={error} />
       <Performance key={subject} current={current} comparison={former} onExercise={onExercise} pinned={subject === self ? pinned : undefined} savePins={subject === self ? savePins : undefined} />
-      {mode !== "all" && <p className="muted stats-description">分类筛选按已完成的组识别。同一堂混合训练会出现在两种分类里，时长按整堂课记录。</p>}
     </>}
   </div>;
 }
