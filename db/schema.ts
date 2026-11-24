@@ -242,6 +242,15 @@ export const aiCoachQuota = sqliteTable("ai_coach_quota", {
   requests: integer().notNull(),
 }, (table) => [primaryKey({ columns: [table.day, table.owner] })]);
 
+export const aiCoachBudget = sqliteTable("ai_coach_budget", {
+  month: text().notNull(),
+  owner: text().notNull(),
+  chargedNanos: integer("charged_nanos").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.month, table.owner] }),
+  check("ai_coach_budget_cap", sql`${table.chargedNanos} BETWEEN 0 AND 10000000000`),
+]);
+
 export const spotterAccessAccounts = sqliteTable("spotter_access_accounts", {
   id: text().primaryKey().notNull(),
   email: text().notNull().unique(),

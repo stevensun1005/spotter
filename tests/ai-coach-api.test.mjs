@@ -25,6 +25,9 @@ const second = { userId: "synthetic-second", email: "second@example.invalid" };
 const outsider = { userId: "synthetic-outsider", email: "outsider@example.invalid" };
 const date = "2026-11-25";
 const timestamp = date + "T12:00:00Z";
+const monthlyCap = 10_000_000_000;
+const usage = { input_tokens: 300, output_tokens: 40, inference_geo: "global", service_tier: "standard" };
+const knownCost = 50_000;
 const key = "synthetic-key-local-mock-only";
 const exercise = { name: "哑铃卧推", sets: 3, reps: 8, weight: 0, unit: "kg", seconds: 0 };
 const plan = { title: "校验训练", date, category: "力量训练", minutes: 45, exercises: [exercise] };
@@ -45,13 +48,15 @@ const guidedRequest = {
     warmup: [{ name: "胸椎转动", catalogueId: "9998" }],
   },
 };
-const providerText = () => Response.json({ stop_reason: "end_turn", content: [{ type: "text", text: "可以按上肢和下肢分两天。" }] });
-const providerDrafts = (plans, name = "prepare_spotter_draft") => Response.json({ stop_reason: "tool_use", content: [{
+const providerMessage = (body) => Response.json({ usage, ...body });
+const providerText = () => providerMessage({ stop_reason: "end_turn", content: [{ type: "text", text: "可以按上肢和下肢分两天。" }] });
+const providerDrafts = (plans, name = "prepare_spotter_draft") => providerMessage({ stop_reason: "tool_use", content: [{
   type: "tool_use", name, input: { reply: "这是可复核的草稿。", plans },
 }] });
 const providerDraft = (item, name) => providerDrafts([item], name);
 
 function setup(t) {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(timestamp) });
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("PRAGMA foreign_keys=ON");
   for (const file of readdirSync(new URL("drizzle/", root)).filter((name) => name.endsWith(".sql")).sort()) {
@@ -66,8 +71,7 @@ function setup(t) {
       } };
     },
   };
-  Object.assign(runtime.env, { DB: db, ANTHROPIC_API_KEY: key, AI_COACH_ENABLED: "true",
-    AI_COACH_ALLOWED_EMAILS: " Owner@example.invalid , second@example.invalid" });
+  Object.assign(runtime.env, { DB: db, ANTHROPIC_API_KEY: key, AI_COACH_ENABLED: "true" });
   const calls = [];
   let nextResponse = providerText;
   t.mock.method(globalThis, "fetch", async (url, init) => {
@@ -79,6 +83,8 @@ function setup(t) {
     const body = JSON.parse(init.body);
     assert.equal(body.model, "claude-haiku-5-5");
     assert.deepEqual(body.output_config, { effort: "medium" });
+    assert.equal(body.inference_geo, "global");
+    assert.equal(body.service_tier, "standard_only");
     calls.push(body);
     return nextResponse();
   });
@@ -87,7 +93,10 @@ function setup(t) {
     for (const name of Object.keys(runtime.env)) delete runtime.env[name];
     runtime.user = null;
   });
-  return { sqlite, calls, respond: (respond) => { nextResponse = respond; } };
+  const charged = (account, month = date.slice(0, 7)) => sqlite.prepare(
+    "SELECT charged_nanos FROM ai_coach_budget WHERE month = ? AND owner = ?",
+  ).get(month, account.userId)?.charged_nanos ?? 0;
+  return { sqlite, calls, charged, respond: (respond) => { nextResponse = respond; } };
 }
 
 function get(user) {
@@ -119,10 +128,10 @@ function photoPost(user, body, suppliedOrigin = origin) {
     body: JSON.stringify({ expectedOwner: user?.userId, ...body }),
   }));
 }
-const photoTool = (name, input) => () => Response.json({ stop_reason: "tool_use", content: [{ type: "tool_use", name, input }] });
+const photoTool = (name, input) => () => providerMessage({ stop_reason: "tool_use", content: [{ type: "tool_use", name, input }] });
 
-test("in-site photo uses the same configured Claude model and quota and returns only a draft", async (t) => {
-  const { calls, sqlite, respond } = setup(t);
+test("in-site photo shares the monthly Claude budget with chat and returns only a draft", async (t) => {
+  const { calls, charged, sqlite, respond } = setup(t);
   runtime.user = owner;
   assert.deepEqual(await checked(photoRoute.GET(new Request(origin + "/api/food-photo"))), { enabled: true, owner: owner.userId });
   const draft = { name: "米饭和煎蛋", grams: 215, calories: 346.25, protein: 14, carbs: 49, fat: 10 };
@@ -130,18 +139,23 @@ test("in-site photo uses the same configured Claude model and quota and returns 
   assert.deepEqual(await checked(photoPost(owner, photo)), { draft });
   assert.deepEqual(calls[0].messages[0].content[0], { type: "image", source: { type: "base64", media_type: "image/jpeg", data: photo.image.base64 } });
   assert.equal(calls[0].messages.length, 1);
-  assert.equal(sqlite.prepare("SELECT requests FROM ai_coach_quota WHERE owner=?").get(owner.userId).requests, 1);
+  assert.equal(charged(owner), knownCost);
+  respond(providerText);
+  await checked(post(owner, chat));
+  assert.equal(charged(owner), 2 * knownCost);
   assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM personal_library").get().count, 0);
-  sqlite.prepare("UPDATE ai_coach_quota SET requests=20 WHERE owner=?").run(owner.userId);
-  await checked(post(owner, chat), 429);
-  await checked(photoPost(owner, photo), 429);
-  assert.equal(calls.length, 1);
+  sqlite.prepare("UPDATE ai_coach_budget SET charged_nanos = ? WHERE owner = ?").run(monthlyCap, owner.userId);
+  assert.match((await checked(post(owner, chat), 429)).error, /本月 AI 额度不足/);
+  assert.match((await checked(post(owner, draftRequest), 429)).error, /本月 AI 额度不足/);
+  assert.match((await checked(photoPost(owner, photo), 429)).error, /本月 AI 额度不足/);
+  assert.equal(calls.length, 2);
 });
 
 test("photo recognition validates identity, origins, JPEG and quantities before a record can be prepared", async (t) => {
   const { calls, respond } = setup(t);
   await checked(photoPost(null, photo), 401);
-  await checked(photoPost(outsider, photo), 503);
+  runtime.user = outsider;
+  assert.deepEqual(await checked(photoRoute.GET(new Request(origin + "/api/food-photo"))), { enabled: true, owner: outsider.userId });
   await checked(photoPost(second, { ...photo, expectedOwner: owner.userId }), 403);
   await checked(photoPost(owner, photo, "https://another-app.invalid"), 403);
   await checked(photoPost(owner, { ...photo, image: { ...photo.image, base64: "abcdefghijklmnopqrstuvwxyz" } }), 400);
@@ -161,12 +175,11 @@ function saveEntry(sqlite, who, id, kind, data) {
     .run(who.userId, id, kind, JSON.stringify(data), timestamp);
 }
 
-test("AI coach requires login, preview configuration and same-origin validated JSON", async (t) => {
+test("AI coach enables every signed-in account when configured and validates identity and origin", async (t) => {
   const { calls } = setup(t);
   await checked(get(null), 401);
   await checked(post(null, chat), 401);
-  assert.deepEqual(await checked(get(outsider)), { enabled: false, models: [] });
-  await checked(post(outsider, chat), 503);
+  assert.deepEqual(await checked(get(outsider)), { enabled: true, models: ["haiku"] });
   runtime.env.AI_COACH_ENABLED = "false";
   assert.deepEqual(await checked(get(owner)), { enabled: false, models: [] });
   runtime.env.AI_COACH_ENABLED = "true";
@@ -186,6 +199,7 @@ test("AI coach requires login, preview configuration and same-origin validated J
   assert.equal(calls.length, 0);
   runtime.env.AI_COACH_SONNET_ENABLED = "true";
   assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"] });
+  await checked(post(outsider, chat));
 });
 
 test("only opted-in, in-range and non-coaching plans from the signed-in account are projected", async (t) => {
@@ -269,7 +283,7 @@ test("drafts are date-bounded, private, and repeatable without writing plans", a
   await checked(post(owner, draftRequest), 502);
   respond(() => providerDraft({ ...plan, video: "https://youtu.be/notSupplied" }));
   await checked(post(owner, draftRequest), 502);
-  respond(() => Response.json({ stop_reason: "refusal", content: [] }));
+  respond(() => providerMessage({ stop_reason: "refusal", content: [] }));
   const refusal = await checked(post(owner, draftRequest));
   assert.equal(refusal.draft, undefined);
   assert.match(refusal.reply, /无法处理/);
@@ -293,17 +307,28 @@ test("drafts are date-bounded, private, and repeatable without writing plans", a
   assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM entries").get().count, 0);
 });
 
-test("daily account and site quotas reserve requests atomically before a provider call", async (t) => {
-  const { sqlite, calls } = setup(t);
-  const ownerRequests = await Promise.all(Array.from({ length: 21 }, () => post(owner, chat)));
-  assert.equal(ownerRequests.filter(({ status }) => status === 200).length, 20);
-  assert.equal(ownerRequests.filter(({ status }) => status === 429).length, 1);
-  const secondRequests = await Promise.all(Array.from({ length: 11 }, () => post(second, chat)));
-  assert.equal(secondRequests.filter(({ status }) => status === 200).length, 10);
-  assert.equal(secondRequests.filter(({ status }) => status === 429).length, 1);
-  assert.equal(calls.length, 30);
-  const rows = sqlite.prepare("SELECT owner,requests FROM ai_coach_quota ORDER BY owner").all();
-  assert.deepEqual(rows.map(({ owner, requests }) => [owner, requests]), [[owner.userId, 20], [second.userId, 10]]);
+test("monthly usage is isolated by signed-in account and resets at the UTC month boundary", async (t) => {
+  const { charged, calls } = setup(t);
+  for (let i = 0; i < 21; i++) await checked(post(owner, chat));
+  for (let i = 0; i < 11; i++) await checked(post(second, chat));
+  assert.equal(calls.length, 32);
+  assert.equal(charged(owner), 21 * knownCost);
+  assert.equal(charged(second), 11 * knownCost);
+  t.mock.timers.setTime(Date.parse("2026-12-01T00:00:00Z"));
+  await checked(post(owner, chat));
+  assert.equal(charged(owner, "2026-12"), knownCost);
+  assert.equal(charged(second, "2026-12"), 0);
+  assert.equal(charged(owner), 21 * knownCost);
+});
+
+test("a missing provider usage record keeps the held funds with no paid retry", async (t) => {
+  const { charged, calls, respond } = setup(t);
+  const diagnostics = t.mock.method(console, "error", () => {});
+  respond(() => providerMessage({ usage: null, stop_reason: "end_turn", content: [{ type: "text", text: "示例建议" }] }));
+  await checked(post(owner, chat));
+  assert.equal(calls.length, 1);
+  assert.equal(charged(owner), 1_001_875_000);
+  assert.deepEqual(diagnostics.mock.calls[0].arguments, ["Spotter Anthropic usage unavailable"]);
 });
 
 test("guided drafts validate selected conditions and authorization before the Claude call", async (t) => {
@@ -322,7 +347,7 @@ test("guided drafts validate selected conditions and authorization before the Cl
     await checked(post(owner, { ...guidedRequest, guided: { ...guidedRequest.guided, ...edit } }), 400);
   }
   assert.equal(calls.length, 0);
-  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM ai_coach_quota").get().count, 0);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM ai_coach_budget").get().count, 0);
 });
 
 test("guided drafts use questionnaire data only, retain catalogue IDs and review on distinct scheduled dates", async (t) => {

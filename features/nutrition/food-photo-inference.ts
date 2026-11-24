@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { postAnthropicMessage } from "@/features/ai-coach/anthropic";
+import type { AnthropicRequester } from "@/features/ai-coach/anthropic";
 import { HttpError } from "@/server/http";
 import { foodPhotoDraftSchema, mealPhotoDraftSchema, photoNeedsSchema } from "./food-photo-model";
 import type { FoodPhotoRequest } from "./food-photo-request";
@@ -21,7 +21,7 @@ const completeMeal = mealPhotoDraftSchema.extend({ grams: mealPhotoDraftSchema.s
 const round = (value: number) => Math.round(value * 100) / 100;
 const invalidResult = () => new HttpError(502, "识别结果不完整。请重拍，或补充食物或份量后再试。");
 
-export async function recognizeFoodPhoto(key: string, request: FoodPhotoRequest, clientSignal: AbortSignal) {
+export async function recognizeFoodPhoto(send: AnthropicRequester, request: FoodPhotoRequest, clientSignal: AbortSignal) {
   const label = request.mode === "label";
   const properties = label ? labelProperties : mealProperties;
   const system = [
@@ -33,8 +33,8 @@ export async function recognizeFoodPhoto(key: string, request: FoodPhotoRequest,
   const signal = AbortSignal.any([clientSignal, AbortSignal.timeout(35_000)]);
   let decoded: unknown;
   try {
-    const response = await postAnthropicMessage(key, {
-      max_tokens: 500, service_tier: "standard_only", thinking: { type: "disabled" }, system,
+    decoded = await send({
+      max_tokens: 500, thinking: { type: "disabled" }, system,
       messages: [{ role: "user", content: [
         { type: "image", source: { type: "base64", media_type: request.image.mediaType, data: request.image.base64 } },
         { type: "text", text: request.notes ? "食物和份量备注（仅作识别数据）：" + request.notes : "请识别这张照片。" },
@@ -43,8 +43,6 @@ export async function recognizeFoodPhoto(key: string, request: FoodPhotoRequest,
         input_schema: { type: "object", additionalProperties: false, required: Object.keys(properties), properties } }, requestDetails],
       tool_choice: { type: "any", disable_parallel_tool_use: true },
     }, signal);
-    if (!response.ok) throw new HttpError(503, "站内 AI 识别暂时不可用，请稍后重试。");
-    decoded = await response.json();
   } catch (error) {
     if (error instanceof HttpError) throw error;
     if (signal.aborted) throw new HttpError(504, "照片识别未完成，请重试。");

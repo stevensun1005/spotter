@@ -5,12 +5,12 @@ import { HttpError, json, readJson } from "@/server/http";
 
 export const dynamic = "force-dynamic";
 
-function coachApi(handler: (account: { id: string; email: string }, request: Request) => Promise<Response> | Response) {
+function coachApi(handler: (owner: string, request: Request) => Promise<Response> | Response) {
   return async (request: Request) => {
     try {
       const user = await getChatGPTUser();
       if (!user) throw new HttpError(401, "请先登录训练搭子。");
-      return await handler({ id: user.userId, email: user.email }, request);
+      return await handler(user.userId, request);
     } catch (error) {
       // Raw exceptions can contain private request text or provider details.
       return error instanceof HttpError ? json({ error: error.message }, error.status)
@@ -19,9 +19,9 @@ function coachApi(handler: (account: { id: string; email: string }, request: Req
   };
 }
 
-export const GET = coachApi(({ email }) => json(aiCoachConfig(email)));
+export const GET = coachApi(() => json(aiCoachConfig()));
 
-export const POST = coachApi(async (account, request) => {
+export const POST = coachApi(async (owner, request) => {
   const input = await readJson(request, coachRequestSchema, 128_000);
-  return json(await coachReply(account, input));
+  return json(await coachReply(owner, input));
 });
