@@ -35,6 +35,7 @@ export function History({ today, logs, self, partner, show, subject = "all", onS
   const visibleLogs = logsFor(subject);
   const [active, setActive] = useState(() =>
     subject === "partner" ? latestLogDate(visibleLogs, today) || today : today);
+  const [showDay, setShowDay] = useState(false);
   const month = active.slice(0, 7);
   const first = month + "-01";
   const leading = weekdayIndex(first);
@@ -59,6 +60,7 @@ export function History({ today, logs, self, partner, show, subject = "all", onS
   }
 
   function changeMonth(step: number) {
+    setShowDay(false);
     const next = moveMonth(first, step);
     const nextMonth = next.slice(0, 7);
     setActive(today.startsWith(nextMonth) ? today : latestLogDate(visibleLogs, today, nextMonth) || next);
@@ -86,15 +88,24 @@ export function History({ today, logs, self, partner, show, subject = "all", onS
           const theirs = entries.length - mine;
           const label = [date, entries.length + " 次打卡", mine > 0 && "我 " + mine + " 次",
             theirs > 0 && partner + " " + theirs + " 次"].filter(Boolean).join("，");
-          return <button type="button" className="history-date" key={date} aria-label={label}
-            aria-current={date === today ? "date" : undefined} aria-pressed={active === date}
-            data-outside={date.startsWith(month) ? undefined : true} onClick={() => setActive(date)}>
-            <span className="history-date-number">{Number(date.slice(8))}</span>
-            <span className="history-date-marks" aria-hidden="true">
-              {mine > 0 && <span className="history-date-mark" data-person="self">{mine > 1 ? mine : null}</span>}
-              {theirs > 0 && <span className="history-date-mark" data-person="partner">{theirs > 1 ? theirs : null}</span>}
-            </span>
-          </button>;
+          const selected = showDay && active === date;
+          return <div className="history-cell" key={date} data-outside={!date.startsWith(month) || undefined}
+            data-selected={selected || undefined}>
+            <button type="button" className="history-date" aria-label={label}
+              aria-current={date === today ? "date" : undefined} aria-pressed={selected} onClick={() => {
+                setActive(date);
+                setShowDay(!selected);
+              }}>
+              <span>{Number(date.slice(8))}</span>
+            </button>
+            {entries.map((log) => {
+              const mine = log.owner === self;
+              const title = log.data.plan.title;
+              return <button type="button" className="history-calendar-record" key={log.owner + ":" + log.id}
+                data-person={mine ? "self" : "partner"} aria-label={[title, mine ? "我" : partner, date].join("，")}
+                title={title} onClick={() => show(log)}><span>{title}</span></button>;
+            })}
+          </div>;
         })}
       </div>
       <div className="history-key">
@@ -102,7 +113,7 @@ export function History({ today, logs, self, partner, show, subject = "all", onS
         {partner && subject !== "self" && <span data-person="partner"><i aria-hidden="true" />{partner}</span>}
       </div>
     </section>
-    <section className="card history-day-list" aria-labelledby="history-day-heading">
+    {showDay && <section className="card history-day-list" aria-labelledby="history-day-heading">
       <div className="history-day-bar">
         <CalendarDays size={20} aria-hidden="true" />
         <h2 id="history-day-heading" aria-live="polite">{shortDate(active)}的打卡</h2>
@@ -122,6 +133,6 @@ export function History({ today, logs, self, partner, show, subject = "all", onS
           <ChevronRight size={19} aria-hidden="true" />
         </button>;
       })}
-    </section>
+    </section>}
   </div>;
 }
