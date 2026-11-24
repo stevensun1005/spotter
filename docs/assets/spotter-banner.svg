@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" role="img" aria-labelledby="title description">
+  <title id="title">Spotter</title>
+  <desc id="description">A workout plan, a completed set, and a teammate check-in connected in sequence.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1">
+      <stop stop-color="#111d18"/>
+      <stop offset="1" stop-color="#244538"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0v32" fill="none" stroke="#b4d4bc" stroke-opacity=".11"/>
+    </pattern>
+    <linearGradient id="path" x2="1" y2="0">
+      <stop stop-color="#99cb8b"/>
+      <stop offset="1" stop-color="#dbfa98"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="360" rx="36" fill="url(#background)"/>
+  <path d="M540 0h704a36 36 0 0 1 36 36v288a36 36 0 0 1-36 36H540z" fill="url(#grid)"/>
+  <path d="M585 258C655 255 680 159 753 158s83 71 156 71 114-112 209-112h126" fill="none" stroke="url(#path)" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"/>
+  <circle cx="751" cy="158" r="7" fill="#dbfa98"/>
+  <circle cx="910" cy="229" r="7" fill="#dbfa98"/>
+  <circle cx="1117" cy="117" r="7" fill="#dbfa98"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <g transform="translate(73 56)">
+      <rect width="48" height="48" rx="14" fill="#dbfa98"/>
+      <path d="M13 24h22M11 19v10m6-14v18m14-18v18m6-14v10" stroke="#17291e" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+      <text x="66" y="31" fill="#d1e5d7" font-size="19" font-weight="600" letter-spacing="2.4">TRAINING LOG</text>
+    </g>
+    <text x="69" y="220" fill="#f5fbf2" font-size="115" font-weight="700" letter-spacing="-7">Spotter</text>
+    <text x="77" y="276" fill="#dbfa98" font-size="24" font-weight="600" letter-spacing="2">PLAN · LIFT · CHECK IN</text>
+    <g transform="translate(611 63)">
+      <rect width="167" height="82" rx="18" fill="#203329" stroke="#5c7f6b"/>
+      <rect x="16" y="17" width="34" height="34" rx="10" fill="#354d37"/>
+      <path d="M24 27h18v15H24zm0 5h18m-13-7v5m8-5v5" fill="none" stroke="#dbfa98" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="61" y="40" font-size="19" font-weight="700" fill="#f5fbf2">Plan</text>
+      <path d="M18 65h96m9 0h23" stroke="#729281" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(780 243)">
+      <rect width="193" height="70" rx="18" fill="#25392c" stroke="#709381"/>
+      <rect x="14" y="16" width="36" height="36" rx="10" fill="#dbfa98"/>
+      <path d="m25 34 5 5 9-10" fill="none" stroke="#203329" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="65" y="30" font-size="17" font-weight="700" fill="#f5fbf2">Log a set</text>
+      <text x="65" y="49" font-size="13" fill="#bfdbca">Weight · Reps · RPE</text>
+    </g>
+    <g transform="translate(982 134)">
+      <rect width="219" height="82" rx="18" fill="#22372c" stroke="#6f9883"/>
+      <circle cx="38" cy="41" r="20" fill="#dbfa98"/>
+      <circle cx="62" cy="41" r="20" fill="#93c5ad" stroke="#22372c" stroke-width="3"/>
+      <path d="m33 41 4 4 7-7m13 3 4 4 7-7" fill="none" stroke="#203329" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="92" y="38" font-size="18" font-weight="700" fill="#f5fbf2">Check in</text>
+      <text x="92" y="59" font-size="14" fill="#c8e2d2">With your spotter</text>
+    </g>
+  </g>
+</svg>
