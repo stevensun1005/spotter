@@ -1,27 +1,38 @@
 import { z } from "zod";
 import { tempoFromCue } from "@/features/exercises/tempo";
 import { moveBlank, planBlank, planSchema, videoUrl, type Move, type Plan } from "@/features/plans/model";
+import { planAiPrompt } from "./ai-instructions";
 
-export const importPrompt = (today: string) => [
-  "把我附上的健身计划、训练笔记、YouTube 或 B站链接整理成训练搭子可导入的 JSON。",
-  "只返回 JSON 数组，每次训练一个对象，按顺序列出。明确写出每项日期（YYYY-MM-DD）；未指定开始日就从 " + today + " 开始。",
-  '对象示例：[{"title":"上肢力量","date":"' + today + '","category":"力量训练","minutes":45,"shared":false,"video":"","exercises":[{"name":"哑铃卧推","sets":3,"reps":10,"weight":0,"unit":"kg","seconds":0,"tempo":"2-0-1-0"}]}]',
-  "category 只能是力量训练、有氧训练、拉伸恢复、跟练视频、其他。重量未知填 0，单位只能是 kg 或 lb，计时动作使用 seconds；不要猜测视频里没有依据的动作或时长。只有链接时，保留 video 原链接，把 exercises 留空；若一堂课有多个视频，每个视频拆成一项。shared 默认 false。",
-  "tempo 可选，原文注明节奏时保留。四拍用字符串，例如 2-0-1-0。无明确节奏可省略，网站会按动作给出建议。",
-  "训练原文：",
-].join("\n");
+export const importPrompt = (today: string) => planAiPrompt(today, "organize");
+const plainInput = (input: string) => input.trim().replace(/^\uFEFF/, "").replace(/^\x60{3}(?:json)?\s*/i, "").replace(/\s*\x60{3}$/, "");
+export type PlanImportFormat = "program" | "backup" | "plans";
+function decodedFormat(value: unknown): PlanImportFormat {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "plans";
+  const object = value as Record<string, unknown>;
+  if (object.format === "spotter-backup") return "backup";
+  if (object.format === "spotter-program") return "program";
+  const program = object.program && typeof object.program === "object" ? object.program as Record<string, unknown> : object;
+  return Array.isArray(program.sessions) && typeof program.startDate === "string" && typeof program.weeks === "number" ? "program" : "plans";
+}
+export function detectImportFormat(input: string): PlanImportFormat {
+  try { return decodedFormat(JSON.parse(plainInput(input))); } catch { return "plans"; }
+}
 
 export function parseImport(input: string, today: string): Plan[] {
-  const raw = input.trim().replace(/^\x60{3}(?:json)?\s*/i, "").replace(/\s*\x60{3}$/, "");
+  const raw = plainInput(input);
   if (!raw) throw new Error("请先粘贴训练内容或视频链接。");
   if (/^[\[{]/.test(raw)) {
-    try {
-      const decoded = JSON.parse(raw);
-      const plans = z.array(planSchema).min(1).max(20).parse(Array.isArray(decoded) ? decoded : [decoded]);
-      return plans;
-    } catch {
-      throw new Error("JSON 格式有误。可复制导入提示词，重新生成与示例一致的内容。");
-    }
+    let decoded: unknown;
+    try { decoded = JSON.parse(raw); }
+    catch { throw new Error("JSON 格式有误。请检查完整内容，或到「用自己的 AI」复制统一提示词后重新整理。"); }
+    const format = decodedFormat(decoded);
+    if (format === "program") throw new Error("这是完整训练周期，请转到「训练周期 → 导入周期」预览；这里不会截取其中的训练。");
+    if (format === "backup") throw new Error("这是训练搭子备份，请转到「数据导出与导入 → 恢复备份」，不要作为新计划重复导入。");
+    const items = Array.isArray(decoded) ? decoded : [decoded];
+    if (items.length > 20) throw new Error("普通计划每批最多 20 堂，当前有 " + items.length + " 堂。完整多周安排请使用「训练周期」，内容尚未导入且不会截断。");
+    const checked = z.array(planSchema).min(1).max(20).safeParse(items);
+    if (!checked.success) throw new Error("计划 JSON 的日期、动作或数值不符合格式。可到「用自己的 AI」复制统一提示词重新整理，再预览核对。");
+    return checked.data;
   }
   const links = [...new Set((raw.match(/https:\/\/[^\s<>"，。；）]+/g) ?? []).map((link) => link.replace(/[\])!?，。；,;]+$/, "")).filter((link) => videoUrl.safeParse(link).success))];
   const lines = raw.split("\n").map((line) => line.trim().replace(/^[\s#*>•-]+|^\d+[.)、]\s*/g, "")).filter(Boolean);
@@ -34,6 +45,7 @@ export function parseImport(input: string, today: string): Plan[] {
     exercises.push({
       ...moveBlank(), name: match[1].replace(/[|：:\s]+$/, ""), sets: Number(match[2]),
       reps: match[5] === "秒" ? 0 : Number(match[3]),
+      ...(match[4] && match[5] !== "秒" ? { repsMax: Number(match[4]) } : {}),
       seconds: match[5] === "秒" ? Number(match[3]) : 0,
       tempo: tempoFromCue(match[6]),
       weight: weight ? Number(weight[1]) : 0,
@@ -51,6 +63,7 @@ export function parseImport(input: string, today: string): Plan[] {
     const platform = /bilibili\.com|b23\.tv/.test(new URL(link).hostname) ? "B站" : "YouTube";
     plans.push({ ...planBlank(today), title: title || platform + " 跟练", category: "跟练视频", video: link, minutes, exercises: [] });
   }
+  if (plans.length > 20) throw new Error("普通计划每批最多 20 堂。请分批核对，或使用训练周期；内容尚未导入且不会截断。");
   const validated = z.array(planSchema).min(1).max(20).safeParse(plans);
   if (!validated.success) throw new Error("未能整理这段内容。可以粘贴视频链接、使用「动作名 3×10」格式，或导入 AI 生成的 JSON。");
   return validated.data;

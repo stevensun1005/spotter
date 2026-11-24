@@ -1,6 +1,7 @@
 import type { DataScope } from "@/features/data/model";
 import type { LibraryItem } from "@/features/library/model";
 import type { Plan } from "@/features/plans/model";
+import { agentPlanningGuide } from "@/features/import/ai-instructions";
 
 export const agentGuideScopes = [
   ["all", "全部说明"],
@@ -12,13 +13,7 @@ export const agentGuideScopes = [
 
 type AgentScope = Exclude<DataScope, "all">;
 const guideDetails: Record<AgentScope, readonly string[]> = {
-  training: [
-    "## 训练",
-    "- 新计划用 add_spotter_plans。每批 1–20 堂，传 plans 数组，每堂有 title、date（YYYY-MM-DD）、category；可补充 minutes、video、durationNote、defaultRestSeconds、exercises。",
-    "- category 选「力量训练」「有氧训练」「拉伸恢复」「跟练视频」「其他」。按用户当地日期安排未指定开始日的计划。动作沿用动作库名称；分组和顺序可单放 block、station、sourceSlot，休息用 restSeconds。",
-    "- 动作保留 name、sets、reps、weight、unit（kg 或 lb）、seconds。保留已知的重量、范围、分侧和 tempo（例如 2-0-1-0）；组数、次数或休息时间有疑问时先核对。未知重量填 0；只有跟练链接时保留原链接，动作空数组，未知时长填 0。计划默认私密。",
-    "- 示例参数在下方。已完成的训练用 import_spotter_records 的 training 类别，成品放 backup.training 中的 log，只在用户确认确实完成后写入。",
-  ],
+  training: [],
   nutrition: [
     "## 饮食",
     "- 包装食品或常用食物用 add_spotter_foods 保存到个人食物库，每批 1–20 项。foods 数组每项提供 name 和 per100g，其中 calories 为千卡，protein、carbs、fat 为克。",
@@ -44,6 +39,8 @@ function jsonBlock(value: unknown) {
 }
 
 export function createAgentGuide({ scope, profileRef, origin }: { scope: DataScope; profileRef: string; origin: string }) {
+  const trainingGuide = agentPlanningGuide(origin, profileRef) + "\n## 已完成的训练记录\n已经完成的训练须确认用户确实完成，再按独立的训练记录／备份流程处理；支持旧工具的客户端可使用 import_spotter_records 的 training 类别和有效 spotter-backup 中的 log，不把它作为新计划。\n";
+  if (scope === "training") return trainingGuide;
   const scopes = scope === "all" ? agentGuideScopes.slice(1).map(([item]) => item as AgentScope) : [scope];
   const title = agentGuideScopes.find(([item]) => item === scope)?.[1];
   const exampleDate = "2026-01-01";
@@ -54,10 +51,7 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     profileRef, scope: kind, confirmed: true, backup: { format: "spotter-backup", version: 1, training: [], library: [entry], heart: [] },
   });
   const examples: Record<AgentScope, readonly string[]> = {
-    training: [
-      "### add_spotter_plans 参数示例",
-      jsonBlock({ profileRef, confirmed: true, plans: [examplePlan] }),
-    ],
+    training: [],
     nutrition: [
       "### add_spotter_foods 参数示例",
       jsonBlock({ profileRef, confirmed: true, foods: [{ name: "品牌和食品名", per100g: { calories: 380, protein: 13, carbs: 65, fat: 8 } }] }),
@@ -75,7 +69,7 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     ],
   };
   const connection = [
-    "# 训练搭子 · 我的 AI 写入说明",
+    "# 训练搭子 · 数据 AI 写入说明",
     "范围 " + title,
     "站点 " + origin + "/",
     "个人账号标识 " + profileRef,
@@ -90,9 +84,9 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     "- import_spotter_records 传 profileRef、单一 scope、confirmed: true 和 backup。可使用站点导出的有效 spotter-backup v1 数据，也可按下方示例从已确认的材料构造。结构是 format、version、training、library、heart，未使用的数组留空。每条新记录使用新 UUID，重试沿用同一个 ID，已有 ID 跳过。普通饮食、身体和模板条目放 library，训练计划和已完成训练放 training。",
     "",
     "## 使用浏览器操作的 AI",
-    "- 能操作浏览器的 AI 可使用用户已经自行登录并授权使用的站点会话。在「更多 → 数据导出与导入 → 我的 AI 写入说明」核对账号标识，再按用户授权通过页面表单保存。",
-    "- 训练计划可打开「训练 → 导入计划」，粘贴 JSON 或计划文本，预览并保存。适用的备份可从「更多 → 数据导出与导入 → 恢复备份」上传，预览并确认。",
+    "- 能操作浏览器的 AI 可使用用户已经自行登录并授权使用的站点会话。在「更多 → 数据导出与导入 → 其他数据的 AI 写入说明」核对账号标识，再按用户授权通过页面表单保存。",
+    "- 训练计划统一打开「添加计划 → 粘贴已有内容」预览；需要起草或连接 Agent 时使用「添加计划 → 用自己的 AI」。适用的备份仍从「更多 → 数据导出与导入 → 恢复备份」上传并确认。",
     "- 个人账号 Sites 的网站邀请仅提供网站访问权限。训练搭子插件的连接由客户端和账号的权限单独管理。只有文本工具的 AI 可先准备可导入材料，并向用户说明保存状态。",
   ];
-  return [...connection, ...scopes.flatMap((item) => ["", ...guideDetails[item], "", ...examples[item].flatMap((part) => ["", part])])].join("\n") + "\n";
+  return [...connection, ...scopes.flatMap((item) => item === "training" ? ["", trainingGuide] : ["", ...guideDetails[item], "", ...examples[item].flatMap((part) => ["", part])])].join("\n") + "\n";
 }

@@ -6,7 +6,7 @@ import { asDate } from "@/shared/dates";
 import { AgentPack } from "@/features/agent/agent-pack";
 import { backupLimit, backupSchema, dataScopes, scopeNames, type Backup, type DataScope } from "./model";
 
-export function DataView({ enabled, saved, importPlans, profileRef }: { enabled: boolean; saved: () => void; importPlans: () => void; profileRef?: string }) {
+export function DataView({ enabled, saved, importPlans, profileRef, planAssistant }: { enabled: boolean; saved: () => void; importPlans: () => void; profileRef?: string; planAssistant?: () => void }) {
   const [scope, setScope] = useState<DataScope>("all");
   const [file, setFile] = useState<Backup>();
   const [selection, setSelection] = useState(0);
@@ -27,7 +27,7 @@ export function DataView({ enabled, saved, importPlans, profileRef }: { enabled:
     setBusy(true);
     try {
       const parsed = backupSchema.safeParse(JSON.parse((await upload.text()).replace(/^\uFEFF/, "")));
-      if (!parsed.success) throw new Error("文件不是有效的训练搭子备份。训练计划 JSON 请用「导入计划」。");
+      if (!parsed.success) throw new Error("文件不是有效的训练搭子备份。训练计划 JSON 请用「添加计划 → 粘贴已有内容」。");
       setFile(parsed.data);
     } catch (reason) { setError(reason instanceof SyntaxError ? "JSON 文件格式无效。" : (reason as Error).message); }
     finally { setBusy(false); }
@@ -47,7 +47,7 @@ export function DataView({ enabled, saved, importPlans, profileRef }: { enabled:
   }
 
   return <div className="feature-stack">
-    <AgentPack profileRef={profileRef} />
+    <AgentPack profileRef={profileRef} planAssistant={planAssistant ?? importPlans} />
     <section className="card padded feature-stack">
       <div className="section-head"><h2>导出备份</h2></div>
       <div className="segmented data-scopes" aria-label="导出类别">{dataScopes.map((item) =>
@@ -74,7 +74,7 @@ export function DataView({ enabled, saved, importPlans, profileRef }: { enabled:
           <button className="button primary" disabled={busy} onClick={() => void restore()}><Upload size={17} /> 确认恢复备份</button></div>
       </div>}
       {message && <p role="status">{message}</p>}{error && <p role="alert" className="inline-error">{error}</p>}
-      <button className="button outline" onClick={importPlans}><FileJson size={17} /> 导入训练计划</button>
+      <button className="button outline" onClick={importPlans}><FileJson size={17} /> 添加训练计划</button>
     </section>
   </div>;
 }
