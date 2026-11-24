@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CalendarClock, Clipboard, ClipboardList, FileInput, Plug, Sparkles } from "lucide-react";
 import { AgentAccessPanel } from "@/features/agent-access/access-panel";
-import { AiCoachPanel } from "@/features/ai-coach/chat-panel";
+import { AiCoachPanel, type CoachShortcuts } from "@/features/ai-coach/chat-panel";
 import type { Plan, PlannedWorkout } from "@/features/plans/model";
 import { ImportView, PlanImportReview } from "./import-view";
 import { planAiPrompt, type PlanAiIntent } from "./ai-instructions";
@@ -15,10 +15,11 @@ const methods = [
   { mode: "ai", label: "用自己的 AI", detail: "提示词和 Agent 连接", icon: Plug },
 ] as const;
 
-export function PlanAssistant({ today, selectedDate, save, saved, owner, profileRef, active, mode, onModeChange, onPrograms, onData }: {
+export function PlanAssistant({ today, selectedDate, save, saved, owner, profileRef, active, mode, onModeChange, onPrograms, onData, coachShortcuts }: {
   today: string; selectedDate: string; save: (plans: PlannedWorkout[], revise: boolean) => Promise<void>; saved: () => void;
   owner?: string; profileRef?: string; active: boolean;
   mode: PlanAssistantMode; onModeChange: (mode: PlanAssistantMode) => void; onPrograms: () => void; onData: () => void;
+  coachShortcuts?: CoachShortcuts;
 }) {
   const [intent, setIntent] = useState<PlanAiIntent>("create");
   const [showPrompt, setShowPrompt] = useState(false);
@@ -45,19 +46,19 @@ export function PlanAssistant({ today, selectedDate, save, saved, owner, profile
     catch { setShowPrompt(true); setPromptMessage("可以在下方选中并复制提示词。"); }
   }
 
-  return <div className={mode === "coach" ? "plan-assistant plan-assistant-coach feature-stack" : "plan-assistant feature-stack"}>
-    <div className="plan-assistant-tabs" role="group" aria-label="添加计划方式">
+  return <div className="plan-assistant feature-stack">
+    {mode !== "coach" && <div className="plan-assistant-tabs" role="group" aria-label="添加计划方式">
       {methods.map(({ mode: method, label, detail, icon: Icon }) => <button type="button" key={method} aria-pressed={mode === method} onClick={() => onModeChange(method)}>
         <Icon size={19} aria-hidden="true" /><span>{label}<small>{detail}</small></span>
       </button>)}
-    </div>
+    </div>}
     <div hidden={mode !== "import"}>
       <ImportView today={today} save={save} saved={saved} canRevise={Boolean(owner)} focusRequest={focusRequest}
         helpAI={() => { setIntent("organize"); onModeChange("ai"); }} onPrograms={onPrograms} onData={onData} />
     </div>
     <div hidden={mode !== "coach"}>
       <div hidden={reviewOpen}><AiCoachPanel active={active && mode === "coach" && !reviewOpen} owner={owner} selectedDate={selectedDate}
-        onReview={reviewDraft} savedDrafts={savedDrafts} resumeReview={review ? () => setReviewOpen(true) : undefined} /></div>
+        onReview={reviewDraft} shortcuts={coachShortcuts} savedDrafts={savedDrafts} resumeReview={review ? () => setReviewOpen(true) : undefined} /></div>
       {review && <div hidden={!reviewOpen} tabIndex={-1} ref={reviewTarget}>
         <div className="feature-stack coach-review">
           <div className="exercise-toolbar">

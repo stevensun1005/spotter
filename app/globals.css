@@ -4,6 +4,7 @@
 @import "./agent-access.css";
 @import "./plan-assistant.css";
 @import "../features/ai-coach/guided-panel.css";
+@import "../features/ai-coach/chat-surface.css";
 @import "./coaching.css";
 @import "./training-launch.css";
 @import "./heart.css";

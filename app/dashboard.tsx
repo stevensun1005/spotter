@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cloud,
-  Bookmark, CalendarClock, Copy, Dumbbell, GraduationCap, House, LogIn, Play, Plus, Settings, Sparkles, Trash2, Utensils, Users,
+  Bookmark, CalendarClock, Copy, Dumbbell, Ellipsis, GraduationCap, House, LogIn, Play, Plus, Settings, Sparkles, Trash2, Utensils, Users,
 } from "lucide-react";
 import {
   asDate, examples, offsetDate, planBlank, sessionTotals, startFreeSession, startSession,
@@ -652,6 +652,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           {view === "today" && <div className="plan-heading-actions">
             <button className="button primary page-action" onClick={() => open({ kind: "launch" })}><Play size={19} fill="currentColor" /> 开始训练</button>
           </div>}
+          {coachPage && <details className="coach-plan-menu">
+            <summary className="icon-button coach-back" aria-label="其他添加计划方式"><Ellipsis size={22} aria-hidden="true" /></summary>
+            <div className="coach-plan-menu-items">
+              <button type="button" onClick={() => setAssistantMode("import")}>粘贴已有计划</button>
+              <button type="button" onClick={() => setAssistantMode("ai")}>用自己的 AI</button>
+            </div>
+          </details>}
         </div>}
 
         {view === "today" && <div className="today-grid">
@@ -793,6 +800,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         <div hidden={view !== "assistant"}><PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} save={importPlans} owner={viewer?.id} profileRef={profileRef}
           active={view === "assistant"} mode={assistantMode} onModeChange={setAssistantMode}
           onPrograms={() => go("programs")} onData={() => go("data")}
+          coachShortcuts={{
+            logMeal: display.nutrition ? () => go("nutrition") : undefined,
+            trainingStats: () => go("stats"),
+            logWeight: () => go("body"),
+            startWorkout: () => open({ kind: "launch" }),
+          }}
           saved={() => { void refresh(); void library.load(); go("plans"); }} /></div>
       </main>
     </div>

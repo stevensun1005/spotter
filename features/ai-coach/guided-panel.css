@@ -337,3 +337,94 @@
   .guided-option .guided-art, .guided-option .guided-thumbnail { width: 49px; }
   .guided-intro > .guided-art { width: 62px; }
 }
+
+.guided-coach-conversation {
+  --guided-inset: clamp(11px, 2vw, 16px);
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+.guided-coach-conversation .guided-intro {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--stroke);
+  border-radius: 6px 18px 18px 18px;
+  color: var(--text);
+  background: var(--card);
+}
+.guided-coach-mark {
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 29px;
+  border-radius: 11px;
+  color: #2b4631;
+  background: #eaf2d7;
+}
+.guided-coach-conversation .guided-step-count {
+  color: var(--muted);
+  font-size: .77rem;
+}
+.guided-coach-conversation .guided-intro h2 {
+  margin: 3px 0;
+  font-size: clamp(1.06rem, 3.8vw, 1.27rem);
+  line-height: 1.35;
+  letter-spacing: -.02em;
+}
+.guided-coach-conversation .guided-intro-copy > p:last-child { color: var(--muted); }
+.guided-coach-conversation .guided-intro > .guided-art {
+  width: clamp(47px, 11vw, 61px);
+  align-self: center;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.guided-coach-conversation .guided-progress {
+  border: 0;
+  padding-block: 0;
+}
+.guided-coach-conversation .guided-progress > li { font-size: .75rem; }
+.guided-coach-conversation .guided-form {
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  background: var(--card);
+}
+.guided-coach-conversation .guided-actions {
+  position: static;
+  z-index: auto;
+  box-shadow: none;
+  background: transparent;
+}
+.guided-question-history {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.guided-question-history > li {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.guided-question-history p {
+  width: fit-content;
+  max-width: min(92%, 30rem);
+  padding: 8px 11px;
+  font-size: .87rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.guided-past-question {
+  border: 1px solid var(--stroke);
+  border-radius: 5px 14px 14px 14px;
+  background: var(--card);
+  color: var(--muted);
+}
+.guided-past-answer {
+  justify-self: end;
+  border-radius: 14px 5px 14px 14px;
+  background: var(--guided-selected);
+  color: var(--text);
+}

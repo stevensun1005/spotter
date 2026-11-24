@@ -21,11 +21,11 @@ type Art = "impact" | "overhead" | "knee" | "hinge" | Scene | "guided";
 export type GuidedCoachSelection = { date: string; draftDays: number; guided: GuidedDraft };
 
 const steps = [
-  { label: "限制", title: "有哪些动作想先避开？", detail: "可多选。只需选择本次想避开的动作。", art: "knee" },
-  { label: "场景", title: "这次在哪里练？", detail: "选择你能使用的器械和训练空间。", art: "gym" },
-  { label: "预设", title: "从一组动作开始", detail: "选一组 Spotter 动作，下一步可以自由增删。", art: "guided" },
-  { label: "动作", title: "调整候选动作", detail: "为正式训练和热身分别选动作。", art: "bodyweight" },
-  { label: "设置", title: "设置训练目标与节奏", detail: "告诉教练你想练什么，以及每周能练多久。", art: "home" },
+  { label: "限制", title: "有哪些动作想先避开？", question: "有哪些动作想先避开？", detail: "可多选。只需选择本次想避开的动作。", art: "knee" },
+  { label: "场景", title: "这次在哪里练？", question: "这次在哪里练？", detail: "选择你能使用的器械和训练空间。", art: "gym" },
+  { label: "预设", title: "从一组动作开始", question: "你想从哪组动作开始？", detail: "选一组 Spotter 动作，下一步可以自由增删。", art: "guided" },
+  { label: "动作", title: "调整候选动作", question: "这次要保留哪些候选动作？", detail: "为正式训练和热身分别选动作。", art: "bodyweight" },
+  { label: "设置", title: "设置训练目标与节奏", question: "你想达成什么目标，每周能练几天？", detail: "告诉教练你想练什么，以及每周能练多久。", art: "home" },
 ] as const;
 const sceneDetail = {
   gym: "有器械、自由重量和训练凳",
@@ -187,9 +187,10 @@ function PoolEditor({ value, phase, setPhase, disabled, remove, add }: {
   </div>;
 }
 
-export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, status, onGenerate }: {
+export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, status, onGenerate, presentation = "standalone" }: {
   selectedDate: string; busy: boolean; enabled: boolean; sonnet?: boolean; error?: string; status?: string;
   onGenerate: (selection: GuidedCoachSelection, model: Model) => void | Promise<void>;
+  presentation?: "standalone" | "conversation";
 }) {
   const [step, setStep] = useState(0);
   const [limits, setLimits] = useState<GuidedDraft["limits"]>([]);
@@ -210,6 +211,7 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
   const previous = useRef(step);
   const id = useId();
   const selected = steps[step];
+  const conversation = presentation === "conversation";
   const final = step === steps.length - 1;
   const date = start ?? selectedDate;
   const sessionCount = days * weeks;
@@ -218,6 +220,12 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
   const validMinutes = Number.isInteger(minutes) && minutes >= 15 && minutes <= 120;
   const canAdvance = step === 0 || (step === 1 && scene) || (step === 2 && preset) || (step === 3 && pool.work.length > 0);
   const canGenerate = enabled && Boolean(scene) && pool.work.length > 0 && !tooMany && validDate && validMinutes;
+  const answers = conversation ? [
+    guidedLimits.filter(({ value }) => limits.includes(value)).map(({ label }) => label).join("、") || "暂无限制",
+    guidedScenes.find(({ value }) => value === scene)?.label,
+    preset === "own" ? "自选动作" : scene && presets[scene].find(({ id }) => id === preset)?.title,
+    `${pool.work.length} 个正式动作 · ${pool.warmup.length} 个热身动作`,
+  ] : [];
 
   useEffect(() => {
     if (previous.current === step) return;
@@ -275,12 +283,21 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
     if (result.success) void onGenerate({ date, draftDays: weeks * 7, guided: result.data }, sonnet ? model : "haiku");
   }
 
-  return <section className="card guided-coach" aria-label="问答定制计划">
+  return <section className={conversation ? "guided-coach guided-coach-conversation" : "card guided-coach"} aria-label="问答定制计划">
+    {conversation && step > 0 && <ol className="guided-question-history" aria-label="已回答的问题">
+      {steps.slice(0, step).map(({ question }, index) => <li key={question}>
+        <p className="guided-past-question"><span className="sr-only">AI 教练 </span>{question}</p>
+        <p className="guided-past-answer"><span className="sr-only">你的回答 </span>{answers[index]}</p>
+      </li>)}
+    </ol>}
     <header className="guided-intro">
+      {conversation && <span className="guided-coach-mark" aria-hidden="true"><Sparkles size={16} /></span>}
       <div className="guided-intro-copy">
         <p className="guided-step-count" aria-hidden="true">{step + 1} / {steps.length} · {selected.label}</p>
-        <h2 id={id + "-heading"} tabIndex={-1} ref={headline}>{selected.title}</h2>
-        <p>{selected.detail}</p>
+        <h2 id={id + "-heading"} tabIndex={-1} ref={headline}>
+          {conversation && <span className="sr-only">AI 教练 </span>}{conversation ? selected.question : selected.title}
+        </h2>
+        {(!conversation || !final) && <p>{selected.detail}</p>}
       </div>
       <GuidedArt art={selected.art} />
     </header>
