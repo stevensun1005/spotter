@@ -15,6 +15,10 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 const toHex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 const hash = async (value: string) => toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value))));
 
+export async function sessionTokenHash(token?: string) {
+  return token && hex256.test(token) ? hash(token) : undefined;
+}
+
 export async function readSession(db: D1Database, token: string) {
   if (!hex256.test(token)) return null;
   const account = await db.prepare(
@@ -33,15 +37,17 @@ export async function startSession(db: D1Database, data: z.infer<typeof signInIn
   const account = await db.prepare("SELECT id FROM spotter_access_accounts WHERE email = ? AND access_hash = ?")
     .bind(data.email, await hash(data.accessCode)).first<{ id: string }>();
   if (!account) return null;
+  return startAccountSession(db, account.id, previous);
+}
 
+export async function startAccountSession(db: D1Database, accountId: string, previous?: string) {
   const token = toHex(crypto.getRandomValues(new Uint8Array(32)));
   const now = nowSeconds();
   const writes = [db.prepare("DELETE FROM spotter_access_sessions WHERE expires_at <= ?").bind(now)];
-  if (previous && hex256.test(previous)) {
-    writes.push(db.prepare("DELETE FROM spotter_access_sessions WHERE token_hash = ?").bind(await hash(previous)));
-  }
+  const oldHash = await sessionTokenHash(previous);
+  if (oldHash) writes.push(db.prepare("DELETE FROM spotter_access_sessions WHERE token_hash = ?").bind(oldHash));
   writes.push(db.prepare("INSERT INTO spotter_access_sessions (token_hash, account_id, expires_at) VALUES (?, ?, ?)")
-    .bind(await hash(token), account.id, now + sessionSeconds));
+    .bind(await hash(token), accountId, now + sessionSeconds));
   await db.batch(writes);
   return token;
 }

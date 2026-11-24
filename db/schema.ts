@@ -269,3 +269,39 @@ export const spotterAccessSessions = sqliteTable("spotter_access_sessions", {
   index("spotter_access_sessions_expiry").on(table.expiresAt),
   index("spotter_access_sessions_account").on(table.accountId),
 ]);
+
+export const spotterOAuthIdentities = sqliteTable("spotter_oauth_identities", {
+  provider: text().notNull(),
+  subject: text().notNull(),
+  accountId: text("account_id").notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+}, (table) => [
+  primaryKey({ columns: [table.provider, table.subject] }),
+  uniqueIndex("spotter_oauth_account_provider").on(table.accountId, table.provider),
+  check("spotter_oauth_identity_provider", sql`${table.provider} IN ('apple','google')`),
+]);
+
+export const spotterOAuthFlows = sqliteTable("spotter_oauth_flows", {
+  stateHash: text("state_hash").primaryKey().notNull(),
+  provider: text().notNull(),
+  accountId: text("account_id").references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  sessionHash: text("session_hash"),
+  native: integer({ mode: "boolean" }).notNull(),
+  proof: text().notNull(),
+  nonce: text().notNull(),
+  pkce: text(),
+  expiresAt: integer("expires_at").notNull(),
+}, (table) => [index("spotter_oauth_flow_expiry").on(table.expiresAt)]);
+
+export const spotterOAuthGrants = sqliteTable("spotter_oauth_grants", {
+  codeHash: text("code_hash").primaryKey().notNull(),
+  stateHash: text("state_hash").notNull(),
+  provider: text().notNull(),
+  accountId: text("account_id").references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  sessionHash: text("session_hash"),
+  native: integer({ mode: "boolean" }).notNull(),
+  proof: text().notNull(),
+  subject: text().notNull(),
+  email: text(),
+  displayName: text("display_name"),
+  expiresAt: integer("expires_at").notNull(),
+}, (table) => [index("spotter_oauth_grant_expiry").on(table.expiresAt)]);

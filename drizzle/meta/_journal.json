@@ -92,6 +92,13 @@
       "when": 1795551812008,
       "tag": "0012_ai_coach_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1795560101349,
+      "tag": "0013_spotter_oauth",
+      "breakpoints": true
     }
   ]
 }
