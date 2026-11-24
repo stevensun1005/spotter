@@ -91,6 +91,9 @@
 .workout-load-suggestion { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 8px; border-radius: 8px; color: var(--muted); font-size: .79rem; font-variant-numeric: tabular-nums; }
 .workout-load-suggestion[data-reason=increase] { color: #35562e; background: #eef5e5; }
 .workout-load-suggestion[data-reason=backoff] { color: #6f4b20; background: #faf3e6; }
+.workout-load-suggestion[data-reason=trial] { color: var(--text); background: color-mix(in srgb, var(--card) 84%, #88b5db); padding-block: 5px; }
+.workout-load-copy { min-width: 0; overflow-wrap: anywhere; }
+.workout-load-copy small { display: block; margin-top: 2px; color: var(--muted); font-size: inherit; line-height: 1.35; }
 .workout-load-suggestion .text-button { padding: 0 5px; min-height: 40px; flex: none; white-space: nowrap; font-size: inherit; }
 .edit-log-move { border: 1px solid var(--stroke); border-radius: 12px; padding: 8px 10px; }
 .edit-log-move summary { cursor: pointer; min-height: 42px; align-content: center; }

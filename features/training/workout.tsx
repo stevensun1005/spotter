@@ -23,9 +23,9 @@ import { cardioSeconds } from "./cardio";
 import { useRestReminder } from "./use-rest-reminder";
 import { useWorkoutWakeLock } from "./use-wake-lock";
 import { saveWorkoutPreferences, useWorkoutPreferences } from "@/features/settings/workout-prefs";
-import { applyLoadSuggestion, recommendLoads, type LoadHistory } from "./load-progression";
+import { applyLoadSuggestion, type LoadHistory } from "./load-progression";
 import { LoadSuggestion } from "./load-suggestions";
-import { adaptsWorkoutLoads, seedMoveLoads } from "./workout-loads";
+import { adaptsWorkoutLoads, initialLoadDetail, seedMoveLoads, workoutLoadAdvice } from "./workout-loads";
 
 const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, "0")).join(":");
 
@@ -69,12 +69,12 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const plan = data.plan;
   const prefs = useWorkoutPreferences();
   const adaptLoads = adaptsWorkoutLoads(plan);
+  const { data: catalogue } = useCatalogue();
   const loadSuggestions = useMemo(() => adaptLoads ? data.rows.map((rows, index) =>
-    recommendLoads(plan.exercises[index], rows, loadHistory, prefs.weightStep)) : [],
-  [adaptLoads, data.rows, loadHistory, plan.exercises, prefs.weightStep]);
+    workoutLoadAdvice(plan.exercises[index], rows, loadHistory, catalogue, prefs.weightStep)) : [],
+  [adaptLoads, catalogue, data.rows, loadHistory, plan.exercises, prefs.weightStep]);
   const effortLabel = prefs.effortScale.toUpperCase();
   const blocks = trainingBlocks(plan.exercises);
-  const { data: catalogue } = useCatalogue();
   const pendingSet = nextSet(plan, data.rows);
   const activeBlock = pendingSet && blocks.find((block) => block.moves.includes(pendingSet.move));
   const activeSlot = activeBlock && pendingSet && activeBlock.slots[activeBlock.moves.indexOf(pendingSet.move)];
@@ -107,6 +107,12 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   function openKeypad() {
     const { move, row } = pendingSet ?? { move: 0, row: 0 };
     activate({ move, row, field: data.plan.exercises[move].seconds > 0 ? "seconds" : "weight" });
+  }
+
+  function adoptLoad(move: number, row: number, weight: number, rightWeight?: number) {
+    const next = changeSet(data, move, row, (line) => applyLoadSuggestion(line, { weight, rightWeight }));
+    update(next);
+    if (edit?.move === move && edit.row === row) activate(edit, next);
   }
 
   function digit(key: string) {
@@ -315,7 +321,10 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
             <button type="button" className="button subtle" disabled={data.rows[i].some((line) => line.done)} onClick={() => setPicker(i)}>替换动作</button>
           </div>
           {data.rows[i].map((line, j) => {
-            const suggestion = loadSuggestions[i]?.[j];
+            const advice = loadSuggestions[i];
+            const suggestion = advice?.suggestions[j];
+            const trial = advice?.trial?.row === j ? advice.trial : undefined;
+            const trialWeight = trial?.weight;
             const canApply = suggestion && (line.weight !== suggestion.weight || (line.right
               ? line.right.weight !== (suggestion.rightWeight ?? suggestion.weight) : suggestion.rightWeight !== undefined));
             const showSuggestion = !line.done && suggestion && suggestion.reason !== "history" && (canApply || suggestion.reason === "backoff");
@@ -324,11 +333,11 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
                 selected={edit?.move === i && edit.row === j ? edit.field : undefined}
                 edit={(field) => activate({ move: i, row: j, field })} showEffort={prefs.showEffort} effortScale={prefs.effortScale}
                 toggle={() => toggleSet(i, j)} />
-              {showSuggestion && <LoadSuggestion {...suggestion} unit={move.unit} onApply={canApply ? () => {
-                const next = changeSet(data, i, j, (value) => applyLoadSuggestion(value, suggestion));
-                update(next);
-                if (edit?.move === i && edit.row === j) activate(edit, next);
-              } : undefined} />}
+              {showSuggestion && <LoadSuggestion {...suggestion} unit={move.unit}
+                onApply={canApply ? () => adoptLoad(i, j, suggestion.weight, suggestion.rightWeight) : undefined} />}
+              {trial && <LoadSuggestion reason="trial" unit={move.unit} weight={trialWeight} rightWeight={trial.rightWeight}
+                retry={trial.kind === "retry"} detail={initialLoadDetail(trial)}
+                onApply={trialWeight === undefined ? undefined : () => adoptLoad(i, j, trialWeight, trial.rightWeight)} />}
             </div>;
           })}
             </details>;

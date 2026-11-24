@@ -51,6 +51,10 @@ function matchingHistory(move: Move, history: LoadHistory) {
   return [...conflictingIds].some((other) => other !== id) ? byId : [...byId, ...legacy].sort((a, b) => a.order - b.order);
 }
 
+export function hasExerciseLoadHistory(move: Move, history: LoadHistory) {
+  return matchingHistory(move, history).length > 0;
+}
+
 const roundWeight = (weight: number) => Math.round(weight * 100) / 100;
 const effectiveRight = ({ weight, rightWeight }: Load) => rightWeight ?? weight;
 const repsDone = (line: SetLine) => Math.min(line.reps, line.right?.reps ?? line.reps);
@@ -186,7 +190,7 @@ export function recommendLoads(move: Move, rows: readonly SetLine[], history: Lo
   return output;
 }
 
-export function applyLoadSuggestion(line: SetLine, suggestion: LoadSuggestion): SetLine {
+export function applyLoadSuggestion(line: SetLine, suggestion: Load): SetLine {
   if (line.done || line.kind) return line;
   const right = suggestion.rightWeight !== undefined || line.right;
   return {
