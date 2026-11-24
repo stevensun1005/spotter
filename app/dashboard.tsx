@@ -32,6 +32,9 @@ import { OpenGymCatalogue } from "@/features/exercises/open-gym-catalogue";
 import { defaultCatalogMove } from "@/features/exercises/exercise-picker";
 import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym";
 import { NutritionView } from "@/features/nutrition/nutrition-view";
+import { HomeNutrition } from "@/features/nutrition/home-nutrition";
+import { useNutritionPreferences } from "@/features/nutrition/nutrition-preferences";
+import type { NutritionShortcut } from "@/features/nutrition/nutrition-summary";
 import { FriendsView } from "@/features/friends/friends-view";
 import { planCompletions } from "@/features/plans/completion";
 import { PlanSections } from "@/features/plans/plan-sections";
@@ -70,7 +73,6 @@ type PlanEntry = Extract<Entry, { kind: "plan" }>;
 const primaryTabs = [
   { id: "today", label: "今日", icon: House },
   { id: "plans", label: "训练", icon: Dumbbell },
-  { id: "nutrition", label: "饮食", icon: Utensils },
   { id: "stats", label: "统计", icon: BarChart3 },
   { id: "friends", label: "好友", icon: Users },
 ] as const;
@@ -127,6 +129,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [view, setView] = useState<View>(heartReturn ? "stats" : "today");
   const [settingsPage, setSettingsPage] = useState<SettingsPage>();
   const { display, changeDisplay } = useDisplayPreferences();
+  const { preferences: nutritionPreferences, update: updateNutrition } = useNutritionPreferences(viewer?.id ?? "guest", !display.nutrition);
+  const orderedNutritionShortcuts: NutritionShortcut[] = [...nutritionPreferences.mealOrder, "饮水", "体重"];
+  const homeNutritionShortcuts = orderedNutritionShortcuts.filter((shortcut) => nutritionPreferences.homeShortcuts.includes(shortcut));
+  const [nutritionShortcut, setNutritionShortcut] = useState<NutritionShortcut>();
+  const nutritionToggle = useRef<HTMLButtonElement>(null);
+  const focusNutritionToggle = useRef(false);
   const [assistantMode, setAssistantMode] = useState<"import" | "ai">("import");
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
@@ -158,6 +166,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const refreshId = useRef(0);
   const draftKey = "spotter-drafts:" + (viewer?.id ?? "demo");
   const [sync, setSync] = useState("正在保存");
+
+  useEffect(() => {
+    if (!focusNutritionToggle.current) return;
+    nutritionToggle.current?.focus({ preventScroll: true });
+    focusNutritionToggle.current = false;
+  }, [nutritionPreferences.collapsed]);
 
   useEffect(() => {
     const openFriendInvite = () => {
@@ -284,6 +298,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const partnerWithDetails = room?.partnerTrainingShared === false ? null : partner;
   const demo = !viewer;
   const logs = useMemo(() => entries.filter(draftsOrLogs).filter((entry) => entry.kind === "log"), [entries]);
+  const ownNutritionLogs = useMemo(() => logs.filter((log) => log.owner === viewer?.id), [logs, viewer?.id]);
   const loadDate = overlay?.kind === "session" ? overlay.data.date : today;
   const loadHistory = useMemo(() => buildLoadHistory(logs.filter((log) => log.data.date <= loadDate), me.id), [logs, loadDate, me.id]);
   const plans = entries.filter((entry): entry is PlanEntry => entry.kind === "plan");
@@ -342,6 +357,14 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   function openSetting(page?: SettingsPage) {
     setSettingsPage(page);
     window.scrollTo({ top: 0 });
+  }
+  function openNutrition(shortcut?: NutritionShortcut) {
+    setNutritionShortcut(shortcut);
+    go("nutrition");
+  }
+  function toggleNutrition(collapsed: boolean) {
+    focusNutritionToggle.current = true;
+    updateNutrition({ collapsed });
   }
   function openPlanAssistant(mode: "import" | "ai") {
     setAssistantMode(mode);
@@ -629,17 +652,28 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const calendarOpen = view === "stats" && statsTab === "history";
   return <AnatomySubject.Provider value={me.anatomyVariant}><div className={calendarOpen ? "app app-history" : "app"}>
     <div className="stage">
-      <main className={view === "today" ? "content content-today" : "content"}>
+      <main className={view === "today" ? "content content-today" : view === "nutrition" ? "content content-nutrition" : "content"}>
         {view === "today" && <>
           <header className="home-toolbar">
-            <button className="button primary" type="button" onClick={() => open({ kind: "launch" })}>
-              <Play size={17} fill="currentColor" aria-hidden="true" /> 训练
-            </button>
+            <div className="home-toolbar-start">
+              {nutritionPreferences.collapsed && <button type="button" className="icon-button home-nutrition-restore" ref={nutritionToggle}
+                aria-controls="today-nutrition" aria-expanded="false" aria-label="展开饮食记录" title="展开饮食记录" onClick={() => toggleNutrition(false)}>
+                <Utensils size={19} aria-hidden="true" />
+              </button>}
+              <button className="button primary" type="button" onClick={() => open({ kind: "launch" })}>
+                <Play size={17} fill="currentColor" aria-hidden="true" /> 训练
+              </button>
+            </div>
             <button className="icon-button home-settings" type="button" onClick={() => go("settings")} aria-label="设置" title="设置">
               <Settings size={21} aria-hidden="true" />
             </button>
           </header>
           {demo && <p className="muted home-demo">正在查看示例数据。登录后可同步你们的记录。</p>}
+          <div id="today-nutrition" hidden={nutritionPreferences.collapsed}>
+            {!nutritionPreferences.collapsed && <HomeNutrition key={viewer?.id ?? "guest"} owner={viewer?.id ?? ""} today={today}
+              shortcuts={homeNutritionShortcuts} cacheEnabled={nutritionPreferences.cacheEnabled} logs={ownNutritionLogs} open={openNutrition}
+              dismiss={() => toggleNutrition(true)} dismissRef={nutritionToggle} />}
+          </div>
         </>}
         {showPageHeading && <div className={view === "friends" ? "page-heading friends-heading" : "page-heading"}>
           <div><h1>{heading}</h1>
@@ -740,7 +774,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             <h3>{planStatus === "completed" ? "还没有已完成的计划" : plans.length ? "没有待训练的计划" : "还没有训练计划"}</h3></div>}
         </section></PlanSections>}
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
-        {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} onBody={() => go("body")} />}
+        {view === "nutrition" && <NutritionView key={viewer?.id ?? "guest"} enabled={Boolean(viewer)} owner={viewer?.id} today={today}
+          records={ownNutritionLogs} initialShortcut={nutritionShortcut} onBack={() => go("today")} onBody={() => go("body")}
+          onDevices={() => { go("settings"); openSetting("watches"); }} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} onProfileSaved={(sex) => {
           setState((current) => ({ ...current, me: { ...current.me, anatomyVariant: sex } }));
           void refresh();
@@ -789,11 +825,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           saved={() => { void refresh(); void library.load(); go("plans"); }} /></div>
       </main>
     </div>
-    <nav aria-label="主导航" className="primary-nav">{primaryTabs
-      .filter(({ id }) => (id !== "nutrition" || display.nutrition) && (id !== "friends" || display.social))
+    {view !== "nutrition" && <nav aria-label="主导航" className="primary-nav">{primaryTabs
+      .filter(({ id }) => id !== "friends" || display.social)
       .map(({ id, icon: Icon, label }) =>
       <button className={activeTab === id ? "active" : ""} aria-current={id === view ? "page" : id === activeTab ? "location" : undefined}
-        key={id} type="button" onClick={() => go(id)}><Icon size={21} aria-hidden="true" /><span>{label}</span></button>)}</nav>
+        key={id} type="button" onClick={() => go(id)}><Icon size={21} aria-hidden="true" /><span>{label}</span></button>)}</nav>}
     {overlay?.kind === "editor" && <Dialog title={plans.some((plan) => plan.id === overlay.plan.id && plan.owner === me.id) ? "编辑计划" : "新建计划"} onClose={close}>
       <form onSubmit={(e) => { e.preventDefault(); const item = overlay.plan; void act(async () => { await savePlans([item]); setSelected(item.data.date); setOverlay(null); }); }}>
         <div className="dialog-body"><PlanFields value={overlay.plan.data} templates={templates} change={(data) => setOverlay({ kind: "editor", plan: { ...overlay.plan, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>

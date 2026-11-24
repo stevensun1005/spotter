@@ -30,9 +30,19 @@
 .page-heading.friends-heading { align-items: center; margin-bottom: 12px; }
 .friends-heading > .button { white-space: nowrap; }
 .home-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-block-end: 12px; }
-.home-toolbar .home-settings { width: 44px; height: 44px; border-radius: 12px; background: var(--card); color: var(--text); }
-.home-toolbar .home-settings:hover { background: var(--mint); }
+.home-toolbar-start { display: flex; align-items: center; gap: 8px; }
+.home-toolbar .icon-button { width: 44px; height: 44px; border-radius: 12px; background: var(--card); color: var(--text); }
+.home-toolbar .icon-button:hover { background: var(--mint); }
 .home-demo { margin-block-end: 12px; }
+.home-nutrition { display: grid; gap: 8px; margin-block-end: 18px; }
+.home-nutrition-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.home-nutrition-heading h2 { font-size: 1.13rem; font-weight: 790; letter-spacing: -.026em; }
+.home-nutrition-dismiss { width: 44px; height: 44px; background: transparent; border-color: transparent; color: var(--muted); }
+.home-nutrition-dismiss:hover { background: var(--mint); color: var(--text); }
+.home-nutrition-panel { display: grid; padding: 14px clamp(10px, 3vw, 20px); gap: 12px; }
+.home-nutrition-panel .nutrition-overview { position: relative; }
+.home-nutrition-panel .nutrition-energy-button::after { position: absolute; inset: 0; content: ""; }
+.home-nutrition-panel .nutrition-shortcuts { padding-block-start: 10px; border-block-start: 1px solid var(--stroke); }
 .plans-list-heading { flex-wrap: wrap; }
 .plans-list-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-inline-start: auto; }
 .plans-list-actions .button { white-space: nowrap; }

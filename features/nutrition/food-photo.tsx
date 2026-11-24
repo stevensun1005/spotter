@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { ArrowLeft, Copy, ImageUp } from "lucide-react";
-import { foodPhotoPrompt, parseFoodPhotoResult, type FoodPhotoDraft } from "./food-photo-model";
+import { foodPhotoPrompt, mealPhotoPrompt, parseFoodPhotoResult, parseMealPhotoResult, type FoodPhotoDraft, type MealPhotoDraft } from "./food-photo-model";
 
-export function FoodPhoto({ onApply, onBack, onReload }: {
+export function FoodPhoto({ onApply, onBack, onReload, onMeal }: {
   onApply: (draft: FoodPhotoDraft) => void;
   onBack: () => void;
   onReload: () => void;
+  onMeal?: (draft: MealPhotoDraft) => void;
 }) {
   const [photo, setPhoto] = useState<{ file: File; url: string }>();
   const [result, setResult] = useState("");
@@ -17,6 +18,7 @@ export function FoodPhoto({ onApply, onBack, onReload }: {
   const [copied, setCopied] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shareNote, setShareNote] = useState("");
+  const prompt = onMeal ? mealPhotoPrompt : foodPhotoPrompt;
 
   useEffect(() => () => {
     if (photo) URL.revokeObjectURL(photo.url);
@@ -31,7 +33,7 @@ export function FoodPhoto({ onApply, onBack, onReload }: {
 
   async function copyPrompt() {
     try {
-      await navigator.clipboard.writeText(foodPhotoPrompt);
+      await navigator.clipboard.writeText(prompt);
       setCopied(true);
     } catch {
       setPromptVisible(true);
@@ -43,7 +45,7 @@ export function FoodPhoto({ onApply, onBack, onReload }: {
     setSharing(true);
     setShareNote("");
     try {
-      await navigator.share({ files: [photo.file], text: foodPhotoPrompt });
+      await navigator.share({ files: [photo.file], text: prompt });
     } catch (reason) {
       if (!(reason instanceof DOMException) || reason.name !== "AbortError") {
         setShareNote("请打开你常用的 AI，从相册上传这张照片。");
@@ -54,6 +56,12 @@ export function FoodPhoto({ onApply, onBack, onReload }: {
   }
 
   function apply() {
+    if (onMeal) {
+      const parsed = parseMealPhotoResult(result);
+      if ("draft" in parsed) onMeal(parsed.draft);
+      else setError(parsed.error);
+      return;
+    }
     const parsed = parseFoodPhotoResult(result);
     if ("draft" in parsed) onApply(parsed.draft);
     else setError(parsed.error);
@@ -64,9 +72,9 @@ export function FoodPhoto({ onApply, onBack, onReload }: {
 
   return <div className="form-fields">
     <button className="text-button food-back" type="button" onClick={onBack}><ArrowLeft size={17} /> 返回食物库</button>
-    <p className="muted">拍清楚食品名和营养表。复制提示词，把照片发给你常用的 AI，再将它返回的 JSON 粘贴到下方。</p>
-    <label>拍摄或选取包装照片<input type="file" accept="image/*" capture="environment" onChange={(event) => pickPhoto(event.target.files?.[0])} /></label>
-    {photo && previewVisible && <img src={photo.url} alt="所选食品包装照片" onError={() => setPreviewVisible(false)}
+    <p className="muted">{onMeal ? "拍下整份餐食，并告诉你常用的 AI 实际份量。" : "拍清楚食品名和营养表。"}复制提示词，把照片发给 AI，再将返回的 JSON 粘贴到下方。</p>
+    <label>{onMeal ? "拍摄或选取餐食照片" : "拍摄或选取包装照片"}<input type="file" accept="image/*" capture="environment" onChange={(event) => pickPhoto(event.target.files?.[0])} /></label>
+    {photo && previewVisible && <img src={photo.url} alt={onMeal ? "所选餐食照片" : "所选食品包装照片"} onError={() => setPreviewVisible(false)}
       style={{ maxHeight: 180, width: "100%", objectFit: "contain", borderRadius: 10 }} />}
     <div className="food-alternatives">
       <button className="button outline" type="button" onClick={() => void copyPrompt()}><Copy size={16} /> {copied ? "已复制提示词" : "复制提示词"}</button>
@@ -77,13 +85,13 @@ export function FoodPhoto({ onApply, onBack, onReload }: {
     {shareNote && <p className="muted" role="status">{shareNote}</p>}
     <details open={promptVisible} onToggle={(event) => setPromptVisible(event.currentTarget.open)}>
       <summary>查看提示词</summary>
-      <label>营养标签识别提示词<textarea value={foodPhotoPrompt} rows={5} readOnly onFocus={(event) => event.currentTarget.select()} /></label>
+      <label>{onMeal ? "餐食估算提示词" : "营养标签识别提示词"}<textarea value={prompt} rows={5} readOnly onFocus={(event) => event.currentTarget.select()} /></label>
     </details>
     <label>粘贴 AI 返回的 JSON<textarea rows={4} maxLength={3600} value={result} onChange={(event) => { setResult(event.target.value); setError(""); }} /></label>
     {error && <p className="inline-error" role="alert">{error}</p>}
     <div className="food-alternatives">
       <button className="button primary" type="button" disabled={!result.trim()} onClick={apply}>检查并填入</button>
-      <button className="text-button" type="button" onClick={onReload}>AI 已保存，刷新食物库</button>
+      {!onMeal && <button className="text-button" type="button" onClick={onReload}>AI 已保存，刷新食物库</button>}
     </div>
   </div>;
 }

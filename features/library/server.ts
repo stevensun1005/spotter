@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { HttpError } from "@/server/http";
 import type { LibraryItem, LibraryRow } from "./model";
-import { libraryKey } from "@/features/data/model";
+import { libraryDay, libraryKey } from "@/features/data/model";
 import { nextRevision } from "@/features/plans/schedule";
 import { withoutTemplateLink } from "@/features/plans/template-link";
 import { freezeTemplatePlans } from "@/features/plans/template-server";
@@ -17,7 +17,8 @@ export async function readLibrary(owner: string, day?: string, body = false): Pr
   const statement = body
     ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind = 'body-profile' OR (kind = 'nutrition' AND json_extract(payload, '$.entry.type') IN ('weight','measurement'))) ORDER BY day ASC, updated DESC").bind(owner)
     : day
-    ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind IN ('targets', 'food', 'food-portions') OR (kind = 'nutrition' AND day = ?)) ORDER BY updated DESC").bind(owner, day)
+    ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind IN ('targets', 'food', 'food-portions', 'nutrition-plan') " +
+      "OR (kind IN ('nutrition', 'nutrition-energy') AND day = ?)) ORDER BY updated DESC").bind(owner, day)
     : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins', 'protein-preference', 'history-order') ORDER BY updated DESC").bind(owner);
   const { results } = await statement.all<{ payload: string; updated: string }>();
   return results.map(({ payload, updated }) => ({ ...JSON.parse(payload) as LibraryItem, updated }));
@@ -38,7 +39,7 @@ const staleLibraryItem = () => new HttpError(409, "模板或计划设置已在�
 
 export async function saveLibrary(owner: string, item: LibraryItem, revision?: string | null) {
   const id = libraryKey(item);
-  const day = item.kind === "nutrition" ? item.date : item.kind === "history-order" ? item.id : null;
+  const day = libraryDay(item);
   const payload = JSON.stringify(item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item);
   const protectedWrite = item.kind === "template" || item.kind === "schedule" || item.kind === "body-profile";
   const updated = nextRevision(new Date().toISOString(), protectedWrite ? [revision] : []);

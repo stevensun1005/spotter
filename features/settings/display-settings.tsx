@@ -11,7 +11,6 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 export function DisplaySettings({ display, change, modules }: { display: DisplayPreferences; change: ChangeDisplay; modules?: boolean }) {
   if (modules) return <>
     <SettingsRows title="底栏功能">
-      <Toggle label="饮食" checked={display.nutrition} onChange={(value) => change("nutrition", value)} />
       <Toggle label="好友与搭子" checked={display.social} onChange={(value) => change("social", value)} />
     </SettingsRows>
     <p className="settings-footnote">隐藏入口会保留你的记录和分享设置。这些选项应用于当前浏览器。</p>

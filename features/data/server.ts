@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { HttpError } from "@/server/http";
 import { acceptsHeart, workoutWindow } from "@/features/heart/model";
 import { resolvePlanTemplate, withoutTemplateLink } from "@/features/plans/template-link";
-import { dateBounds, emptyBackup, libraryKey, scopeBackup, type Backup, type DataScope, type DateBounds } from "./model";
+import { dateBounds, emptyBackup, libraryDay, libraryKey, scopeBackup, type Backup, type DataScope, type DateBounds } from "./model";
 
 function database() {
   if (!env.DB) throw new HttpError(503, "云端数据库暂不可用。");
@@ -65,7 +65,7 @@ export async function importBackup(owner: string, file: Backup) {
   const now = new Date().toISOString();
   const workouts = new Map(file.training.flatMap((row) => row.kind === "log" ? [[row.id, row.data] as const] : []));
   const library = file.library.map((item) => ({
-    id: libraryKey(item), kind: item.kind, day: item.kind === "nutrition" ? item.date : item.kind === "history-order" ? item.id : null,
+    id: libraryKey(item), kind: item.kind, day: libraryDay(item),
     item: item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item,
   }));
   const heart = file.heart.flatMap((row) => {

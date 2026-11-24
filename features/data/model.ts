@@ -38,7 +38,7 @@ export function libraryScope(item: LibraryItem): DataScope {
   if (item.kind === "template") return "templates";
   if (item.kind === "body-profile") return "body";
   if (item.kind === "nutrition") return item.entry.type === "weight" || item.entry.type === "measurement" ? "body" : "nutrition";
-  if (item.kind === "targets" || item.kind === "food" || item.kind === "food-portions") return "nutrition";
+  if (item.kind === "targets" || item.kind === "food" || item.kind === "food-portions" || item.kind === "nutrition-plan" || item.kind === "nutrition-energy") return "nutrition";
   return "training";
 }
 
@@ -53,4 +53,9 @@ export const emptyBackup = (): Backup => ({ format: backingFormat, version: 1, t
 export function libraryKey(item: LibraryItem) {
   if (item.kind === "exercise") return item.item.name;
   return "id" in item ? item.id : item.kind;
+}
+
+export function libraryDay(item: LibraryItem) {
+  if (item.kind === "nutrition") return item.date;
+  return item.kind === "history-order" || item.kind === "nutrition-energy" ? item.id : null;
 }

@@ -17,12 +17,18 @@ const nutrients = [
   { key: "carbs", label: "碳水", unit: "g" },
   { key: "fat", label: "脂肪", unit: "g" },
 ] as const;
-type Mode = "lookup" | "manual" | "personal" | "photo";
+type Mode = "lookup" | "manual" | "personal" | "photo" | "meal-photo";
 type Values = Food["per100g"];
 
-export function MealEditor({ meal, initial, personal, recent, savedPortions, close, onLog, onSaveFood, onSavePortions, reloadFoods }: {
+export function MealEditor({ meal, initial, initialFood, initialGrams, initialQuery = "", initialMode, preferAll = false,
+  personal, recent, savedPortions, close, onLog, onSaveFood, onSavePortions, reloadFoods }: {
   meal: MealEntry["meal"];
   initial?: MealEntry;
+  initialFood?: Food;
+  initialGrams?: number;
+  initialQuery?: string;
+  initialMode?: "meal-photo";
+  preferAll?: boolean;
   personal: PersonalFood[];
   recent: RecentMealFood[];
   savedPortions: FoodPortions[];
@@ -34,12 +40,12 @@ export function MealEditor({ meal, initial, personal, recent, savedPortions, clo
 }) {
   const myFoods: Food[] = personal.map(({ id, name, per100g }) => ({ id, name, per100g, aliases: [] }));
   const choices = [...myFoods, ...foods];
-  const [selected, setSelected] = useState<Food | undefined>(() => choices.find((food) => food.id === initial?.foodId));
-  const [mode, setMode] = useState<Mode>(() => initial && !selected ? "manual" : "lookup");
-  const [query, setQuery] = useState("");
-  const [showAll, setShowAll] = useState(false);
+  const [selected, setSelected] = useState<Food | undefined>(() => initialFood ?? choices.find((food) => food.id === initial?.foodId));
+  const [mode, setMode] = useState<Mode>(() => initialMode ?? (initial && !selected ? "manual" : "lookup"));
+  const [query, setQuery] = useState(initialQuery);
+  const [showAll, setShowAll] = useState(preferAll);
   const [name, setName] = useState(initial?.name ?? "");
-  const [amount, setAmount] = useState(initial?.grams ? String(initial.grams) : "");
+  const [amount, setAmount] = useState(() => String(initialGrams ?? initial?.grams ?? ""));
   const [unit, setUnit] = useState("");
   const [values, setValues] = useState<Partial<Values>>(() =>
     initial ? { calories: initial.calories, protein: initial.protein, carbs: initial.carbs, fat: initial.fat } : {});
@@ -57,6 +63,7 @@ export function MealEditor({ meal, initial, personal, recent, savedPortions, clo
   const displayed = searching ? searchFoods(foodQuery, choices).slice(0, 12).map((food) => ({ food, grams: portions.get(food.id) }))
     : showAll ? common : common.slice(0, 12);
   const choosing = mode === "lookup" && !selected;
+  const photo = mode === "photo" || mode === "meal-photo";
 
   function setManual(next: "manual" | "personal") {
     setMode(next);
@@ -75,7 +82,7 @@ export function MealEditor({ meal, initial, personal, recent, savedPortions, clo
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (busy || choosing || mode === "photo") return;
+    if (busy || choosing || photo) return;
     const nutrition = { calories: values.calories ?? 0, protein: values.protein ?? 0, carbs: values.carbs ?? 0, fat: values.fat ?? 0 };
     if (mode === "lookup" && (!selected || !computed)) return setError("请输入有效的食物克数。");
     if (mode !== "lookup" && !name.trim()) return setError("请输入食物名称。");
@@ -108,15 +115,22 @@ export function MealEditor({ meal, initial, personal, recent, savedPortions, clo
   const weightInput = (required: boolean) => <label>吃了多少（g）<input type="number" inputMode="decimal" required={required}
     min="0.1" step="any" max={maxFoodGrams} value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={required ? "例如 40" : "选填"} /></label>;
 
-  return <Dialog title={mode === "photo" ? "拍照加常用食物" : (initial ? "编辑" : "添加") + meal} className="food-dialog" onClose={() => { if (!busy) close(); }}>
+  return <Dialog title={mode === "meal-photo" ? "AI 识别 · " + meal : photo ? "拍照加常用食物" : (initial ? "编辑" : "添加") + meal}
+    className="food-dialog" onClose={() => { if (!busy) close(); }}>
     <form onSubmit={save}>
       <div className="dialog-body feature-stack">
-        {mode === "photo" ? <FoodPhoto onBack={() => setMode("lookup")} onReload={() => {
+        {photo ? <FoodPhoto onBack={() => setMode("lookup")} onReload={() => {
           reloadFoods();
           setMode("lookup");
           setQuery("");
           setShowAll(true);
-        }} onApply={(draft) => {
+        }} onMeal={mode === "meal-photo" ? (draft) => {
+          setName(draft.name.slice(0, 96) + "（估算）");
+          setAmount(String(draft.grams ?? ""));
+          setValues({ calories: draft.calories, protein: draft.protein, carbs: draft.carbs, fat: draft.fat });
+          setError("");
+          setMode("manual");
+        } : undefined} onApply={(draft) => {
           setName(draft.name);
           setValues(draft.per100g);
           setError("");
@@ -182,7 +196,7 @@ export function MealEditor({ meal, initial, personal, recent, savedPortions, clo
         </fieldset>}
         {error && <p className="inline-error" role="alert">{error}</p>}
       </div>
-      {!choosing && mode !== "photo" && <div className="dialog-footer">
+      {!choosing && !photo && <div className="dialog-footer">
         <button className="button primary" disabled={busy || (mode === "lookup" && !computed)}>
           {busy ? "保存中…" : mode === "personal" ? "保存到食物库" : initial ? "保存修改" : "添加到" + meal}
         </button>

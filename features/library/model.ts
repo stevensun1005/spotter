@@ -9,6 +9,7 @@ import { measurements, recordedMetrics } from "@/features/body/measurements";
 import { bodyProfileItem } from "@/features/body/profile";
 import { maxFoodGrams } from "@/features/nutrition/foods";
 import { nutritionActivity, nutritionGoal } from "@/features/nutrition/goal-estimate";
+import { nutritionEnergyItem, nutritionPlanningItem } from "@/features/nutrition/nutrition-planning-schema";
 
 export const exerciseName = z.string().trim().min(1).max(100);
 const video = z.object({ label: z.string().trim().min(1).max(45), url: videoUrl.refine(Boolean) });
@@ -62,7 +63,8 @@ export const nutritionGoalPreference = z.object({
   weightRange: z.object({ minKg: targetWeightKg, maxKg: targetWeightKg })
     .refine(({ minKg, maxKg }) => minKg <= maxKg).optional(),
 }).refine(({ goal, weightRange }) => !weightRange || goal === "recompose");
-const targets = z.object({ kind: z.literal("targets"), values: nutritionValues, preference: nutritionGoalPreference.optional() });
+const targets = z.object({ kind: z.literal("targets"), values: nutritionValues, preference: nutritionGoalPreference.optional(),
+  targetWeightKg: targetWeightKg.optional() });
 export const personalFood = z.object({ kind: z.literal("food"), id: uuid, name: foodName,
   per100g: foodValues.extend({ calories: amount.max(1000), protein: amount.max(100), carbs: amount.max(100), fat: amount.max(100) }),
 });
@@ -80,7 +82,8 @@ export const historyOrder = z.object({
 });
 export type HistoryOrder = z.infer<typeof historyOrder>;
 const statsPins = z.object({ kind: z.literal("stats-pins"), ids: z.array(z.string().min(1).max(100)).max(80) });
-export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, personalFood, foodPortions, historyOrder, statsPins, proteinPreference, bodyProfileItem, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
+export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, nutritionEnergyItem, nutritionPlanningItem,
+  personalFood, foodPortions, historyOrder, statsPins, proteinPreference, bodyProfileItem, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
 export type LibraryItem = z.infer<typeof libraryItem>;
 export type LibraryRow = LibraryItem & { updated: string };
 export const libraryMutation = z.discriminatedUnion("action", [

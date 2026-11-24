@@ -7,6 +7,7 @@
 @import "./training-launch.css";
 @import "./heart.css";
 @import "./library.css";
+@import "./nutrition.css";
 @import "./open-gym.css";
 @import "./exercise-family.css";
 @import "./stats.css";
@@ -18,6 +19,7 @@
 @import "./home.css";
 @import "./friends.css";
 @import "./settings.css";
+@import "./nutrition-settings.css";
 
 /* Outlined buttons use the .button.outline border and the shared keyboard focus style. */
 @source not inline("outline");
