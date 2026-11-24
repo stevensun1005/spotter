@@ -134,6 +134,7 @@
 .catalogue-thumb { color: #69866b; background: #e9f0e3; aspect-ratio: 1; border-radius: 8px; display: grid; place-items: center; overflow: hidden; }
 .catalogue-thumb:has(img) { background: #314839; }
 .catalogue-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.catalogue-name-cover { color: #273e9c; font-size: clamp(1rem, 4vw, 1.5rem); font-weight: 750; letter-spacing: .04em; }
 .catalogue-row .catalogue-add { width: 42px; height: 42px; border-radius: 50%; }
 .catalogue-cards .catalogue-row { display: block; padding: 6px; }
 .catalogue-cards .catalogue-exercise { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 7px; width: 100%; height: 100%; }

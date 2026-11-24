@@ -14,7 +14,7 @@ export type ExerciseChoice = {
 };
 export type CatalogDetail = { description: string; steps: string[]; language?: "zh" };
 
-type Catalog = { rows: CatalogEntry[]; variants: Record<string, string> };
+export type Catalog = { rows: CatalogEntry[]; variants: Record<string, string> };
 let index: Promise<Catalog> | undefined;
 const shards = new Map<number, Promise<Record<string, CatalogDetail>>>();
 
@@ -298,14 +298,30 @@ const originalIds: Record<string, string> = {
   "地面凳上臂屈伸": "1399",
 };
 
+const catalogueLookups = new WeakMap<Catalog, { ids: Map<string, CatalogEntry>; names: Map<string, CatalogEntry | null> }>();
+
+function catalogueLookup(data: Catalog) {
+  const cached = catalogueLookups.get(data);
+  if (cached) return cached;
+  const ids = new Map<string, CatalogEntry>();
+  const names = new Map<string, CatalogEntry | null>();
+  for (const row of data.rows) {
+    ids.set(row.id, row);
+    for (const key of new Set([searchable(row.name), searchable(row.en)])) {
+      if (key) names.set(key, names.has(key) ? null : row);
+    }
+  }
+  const lookup = { ids, names };
+  catalogueLookups.set(data, lookup);
+  return lookup;
+}
+
 export function fromCatalogue(data: Catalog | undefined, choice: ExerciseChoice) {
   if (!data) return undefined;
   const name = searchable(parsePlanMove(choice.name).name);
   const id = canonicalCatalogueId(choice.catalogueId || originalIds[name] || "");
-  if (id) return data.rows.find((item) => item.id === (data.variants[id] || id));
-  if (!name) return undefined;
-  const matches = data.rows.filter((item) => searchable(item.name) === name || searchable(item.en) === name);
-  return matches.length === 1 ? matches[0] : undefined;
+  const lookup = catalogueLookup(data);
+  return id ? lookup.ids.get(data.variants[id] || id) : lookup.names.get(name) ?? undefined;
 }
 
 export function useCatalogDetail(id: string | undefined) {

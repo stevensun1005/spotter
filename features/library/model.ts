@@ -2,19 +2,26 @@ import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
 import { planSchema, videoUrl } from "@/features/plans/model";
 import { scheduleSchema } from "@/features/plans/schedule";
-import { muscleNames } from "@/features/exercises/labels";
+import { muscleNames, types as exerciseTypes } from "@/features/exercises/labels";
+import { exerciseAreaOptions } from "@/features/exercises/catalogue-areas";
 import { proteinPreference } from "@/features/training/protein";
 import { measurements } from "@/features/body/measurements";
 import { maxFoodGrams } from "@/features/nutrition/foods";
 
 export const exerciseName = z.string().trim().min(1).max(100);
 const video = z.object({ label: z.string().trim().min(1).max(45), url: videoUrl.refine(Boolean) });
+export const exerciseClassification = z.object({
+  area: z.string().refine((key) => key === "" || exerciseAreaOptions.some(({ id }) => id === key)),
+  equipment: z.string().trim().max(50),
+  type: z.string().refine((key) => key === "" || exerciseTypes.includes(key)),
+});
 export const exerciseProfile = z.object({
   name: exerciseName,
   pinned: z.boolean(),
   note: z.string().trim().max(2000),
   videos: z.array(video).max(8),
   versionOf: exerciseName.optional(),
+  classification: exerciseClassification.optional(),
   guide: z.object({
     description: z.string().trim().max(400),
     steps: z.array(z.string().trim().min(1).max(400)).max(12),

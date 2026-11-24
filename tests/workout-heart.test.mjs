@@ -20,6 +20,47 @@ const training = await import("../features/training/model.ts");
 const { importHeartFile } = await import("../features/heart/file-import.ts");
 const { heartSchema } = await import("../features/heart/model.ts");
 
+test("documented custom exercises use the same cover as their demo and participate in filters", async () => {
+  const { customCatalogueEntry, customCover, matchesCustomArea } = await import("../features/exercises/custom-catalogue.ts");
+  const { exerciseAreaOptions } = await import("../features/exercises/catalogue-areas.ts");
+  const { guideClassifications } = await import("../features/exercises/custom-catalogue-classifications.ts");
+  const { catalogueCover } = await import("../features/exercises/catalogue-demo.ts");
+  const { blankProfile, exerciseProfile } = await import("../features/library/model.ts");
+  const { filterRows } = await import("../features/exercises/catalog-search.ts");
+  const read = (path) => JSON.parse(readFileSync(new URL(path, root), "utf8"));
+  const data = read("public/open-gym/index.json");
+  const guides = read("features/exercises/training-guides.json");
+  const entries = Object.keys(guides).map((name) => customCatalogueEntry(name, undefined, data));
+  for (const entry of entries) {
+    assert.ok(Object.hasOwn(guideClassifications, entry.name), entry.name);
+    assert.ok(exerciseAreaOptions.some(({ id }) => id === entry.area), entry.name);
+    const cover = customCover(entry);
+    assert.equal(cover, catalogueCover(entry.demo), entry.name);
+    assert.ok(cover, entry.name);
+    if (cover.startsWith("/")) assert.ok(existsSync(new URL("public" + cover, root)), entry.name);
+    else assert.match(cover, /^data:image\/svg\+xml,/);
+  }
+  const byName = (name) => entries.find((entry) => entry.name === name);
+  assert.ok(matchesCustomArea(byName("半跪肩关节慢速绕环"), "shoulders:rotator cuff"));
+  assert.ok(matchesCustomArea(byName("半跪胸椎侧弯"), "back:thoracic"));
+  assert.equal(byName("轻松骑车或快走").equipment, "");
+  const cable = filterRows(entries, { query: "单臂绳索开胸转体", part: "back", type: "mobility",
+    equipment: "cable", terms: [], any: false, gear: [] }).rows;
+  assert.deepEqual(cable.map(({ name }) => name), ["单臂绳索开胸转体"]);
+
+  const name = "合成动作甲";
+  const original = customCatalogueEntry(name, blankProfile(name), data);
+  assert.ok(matchesCustomArea(original, "custom:unclassified"));
+  assert.equal(customCover(original), undefined);
+  const personal = exerciseProfile.parse({ ...blankProfile(name), versionOf: "杠铃卧推",
+    classification: { area: "shoulders:rotator cuff", equipment: "dumbbell", type: "strength" } });
+  const classified = customCatalogueEntry(name, personal, data);
+  assert.ok(matchesCustomArea(classified, "shoulders:rotator cuff"));
+  assert.equal(matchesCustomArea(classified, "custom:unclassified"), false);
+  assert.equal(classified.equipment, "dumbbell");
+  assert.equal(customCover(classified), undefined, "A privately named variation must not show an unrelated base exercise");
+});
+
 test("a workout without a plan can be synced and backed up as an empty draft", async () => {
   const { backupSchema, emptyBackup } = await import("../features/data/model.ts");
   const { planSchema } = await import("../features/plans/model.ts");

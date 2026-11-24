@@ -1,10 +1,21 @@
 import { catalogueVideo } from "./catalogue-video";
 import type { CatalogEntry } from "./open-gym";
-import { catalogueMotion, type Illustration } from "./motion-data";
+import { catalogueMotion, exerciseMotion, type Illustration } from "./motion-data";
 import { paintMotionFrame } from "./motion-drawing";
 
-export function catalogueDemo(row: Pick<CatalogEntry, "id" | "name" | "animation">) {
+type ExerciseDemo = { id?: string; illustration?: Illustration; poseSlug?: string; video?: string };
+
+export function catalogueDemo(row: Pick<CatalogEntry, "id" | "name" | "animation">): ExerciseDemo {
   return { ...catalogueMotion(row), video: catalogueVideo(row.id) };
+}
+
+export function exerciseDemo(name: string, referenceName: string, row: CatalogEntry | undefined, custom: boolean): ExerciseDemo | undefined {
+  const exact = row && catalogueDemo(row);
+  const named = custom && exerciseMotion(name, name, referenceName, row?.id);
+  if (named && (named.id || named.illustration)) {
+    return { id: named.id, illustration: named.illustration ?? exact?.illustration, poseSlug: undefined, video: undefined };
+  }
+  return exact;
 }
 
 export const videoPoster = (video: string) => video.replace(/\.mp4$/, ".jpg");
@@ -27,7 +38,8 @@ function illustrationCover(motion: Illustration) {
   return cover;
 }
 
-export function catalogueCover(demo: ReturnType<typeof catalogueDemo>) {
+export function catalogueCover(demo: ExerciseDemo | undefined) {
+  if (!demo) return;
   if (demo.video) return videoPoster(demo.video);
   if (demo.id) return flowCover(demo.id);
   if (demo.poseSlug) return poseFrame(demo.poseSlug, "01");

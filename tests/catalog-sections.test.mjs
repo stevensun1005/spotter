@@ -12,6 +12,7 @@ registerHooks({ resolve(specifier, context, next) {
 
 const { catalogueSections, collapseCatalogueRows } = await import("../features/exercises/catalog-sections.ts");
 const { filterRows } = await import("../features/exercises/catalog-search.ts");
+const { label } = await import("../features/exercises/labels.ts");
 
 test("equipment sections group related apparatus and keep a pinned action in one place", () => {
   const rows = [
@@ -30,12 +31,23 @@ test("equipment sections group related apparatus and keep a pinned action in one
   assert.deepEqual(result.at(-1).customNames, ["个人动作"]);
 });
 
-test("every catalogue row appears once across equipment sections", () => {
+test("every built-in exercise has a named equipment section and translated classifications", () => {
   const { rows } = JSON.parse(readFileSync(new URL("../public/open-gym/index.json", import.meta.url)));
-  const all = catalogueSections(rows).flatMap((section) => section.rows);
+  const sections = catalogueSections(rows);
+  assert.ok(sections.every((section) => section.id !== "other"));
+  const all = sections.flatMap((section) => section.rows);
   assert.equal(all.length, rows.length);
   assert.deepEqual(new Set(all.map(({ id }) => id)), new Set(rows.map(({ id }) => id)));
   assert.deepEqual(catalogueSections([]), []);
+  const equipmentSection = new Map(sections.flatMap(({ id, rows }) => rows.map((row) => [row.equipment, id])));
+  assert.equal(equipmentSection.get("high bar"), "suspension");
+  assert.equal(equipmentSection.get("assisted"), "assisted");
+  assert.equal(equipmentSection.get("medicine ball"), "training-balls");
+  assert.equal(equipmentSection.get("massage ball"), "recovery");
+  for (const key of ["part", "equipment", "target", "type"]) {
+    const values = new Set(rows.map((row) => row[key]));
+    assert.deepEqual([...values].filter((value) => label(value) === value), []);
+  }
 });
 
 test("a family browses once and exact-name search opens the matching variant", () => {

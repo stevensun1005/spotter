@@ -11,12 +11,14 @@ import { exerciseHistory } from "./history";
 import { ExerciseProgress } from "./progress";
 import { MuscleBreakdown } from "./anatomy";
 import { ExerciseAnimation } from "./exercise-animation";
-import { exerciseMotion } from "./motion-data";
-import { catalogueDemo } from "./catalogue-demo";
+import { exerciseDemo } from "./catalogue-demo";
 import { fromCatalogue, useCatalogue, useCatalogDetail, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 import { label as translate } from "./labels";
 import { exerciseMuscles, researchedGuide } from "./guidance";
 import { GuideEditor } from "./guide-editor";
+import { ClassificationEditor } from "./classification-editor";
+import { customCatalogueEntry, customNameKey } from "./custom-catalogue";
+import { equipmentOptions } from "./catalog-search";
 import { exerciseTempo, tempoNotationHint } from "./tempo";
 import { catalogFamilies, variantDetails } from "./catalog-families";
 import { FamilyVariantOptions } from "./family-chooser";
@@ -36,8 +38,8 @@ export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
   const [variantId, setVariantId] = useState<string>();
   const { data } = useCatalogue();
   const families = useMemo(() => data && catalogFamilies(data.rows), [data]);
-  const personalBase = profiles.find((profile) => profile.name === choice.name)?.versionOf;
-  const original = fromCatalogue(data, { name: personalBase ?? choice.name, catalogueId: choice.catalogueId });
+  const personalBase = profiles.find((profile) => customNameKey(profile.name) === customNameKey(choice.name))?.versionOf;
+  const original = fromCatalogue(data, choice);
   const family = !personalBase && original ? families?.get(original.id) : undefined;
   const item = family?.variants.find((variant) => variant.id === variantId) ?? original;
   const current = item && item.id !== original?.id
@@ -65,28 +67,23 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
   item: CatalogEntry | undefined; data: ReturnType<typeof useCatalogue>["data"];
 }) {
   const { name, catalogueId } = choice;
-  const profile = profiles.find((item) => item.name === name) ?? blankProfile(name);
+  const profile = profiles.find((item) => customNameKey(item.name) === customNameKey(name)) ?? blankProfile(name);
   const base = profile.versionOf ?? name;
   const detail = useCatalogDetail(item?.id);
-  const inherited = profiles.find((entry) => entry.name === base)?.guide;
-  const personal = profile.guide ?? inherited;
-  const plannedName = choice.sourceName && researchedGuide(choice.sourceName) ? choice.sourceName : base;
+  const personal = profile.guide;
+  const plannedName = choice.sourceName && researchedGuide(choice.sourceName) ? choice.sourceName : name;
   const plannedGuide = researchedGuide(plannedName);
-  const customMove = Boolean(profile.versionOf || choice.sourceName || (choice.trainingCategory && plannedGuide)
+  const customMove = Boolean(profile.versionOf || choice.sourceName || (plannedGuide && (choice.trainingCategory || !catalogueId))
     || (!item && (!choice.catalogueId || data)));
   const exact = customMove ? undefined : item;
-  const guide = customMove ? guides[base] : undefined;
+  const guide = customMove ? guides[name] : undefined;
   const referenceName = exact?.name ?? plannedName;
   const reference = customMove ? plannedGuide : undefined;
   const demo = reference?.demoCatalogueId
     ? fromCatalogue(data, { name: referenceName, catalogueId: reference.demoCatalogueId })
     : item;
-  const namedMotion = customMove ? exerciseMotion(name, base, plannedGuide ? plannedName : choice.sourceName, demo?.id) : undefined;
-  const exactMotion = demo ? catalogueDemo(demo) : undefined;
-  const animationId = namedMotion?.id ?? (namedMotion?.illustration ? undefined : exactMotion?.id);
-  const illustration = namedMotion?.illustration ?? exactMotion?.illustration;
-  const poseSlug = namedMotion?.illustration ? undefined : exactMotion?.poseSlug;
-  const video = !namedMotion?.illustration && !namedMotion?.id ? exactMotion?.video : undefined;
+  const media = exerciseDemo(name, referenceName, demo, customMove);
+  const classification = customMove ? customCatalogueEntry(name, profile, data) : undefined;
   const weights = exact && !Object.keys(personal?.muscles ?? {}).length && Object.keys(exact.muscles).length
     ? exact.muscles : exerciseMuscles(referenceName, item, personal);
   const steps = personal?.steps.length ? personal.steps : reference?.steps ?? (detail?.data?.steps.length ? detail.data.steps : guide?.steps);
@@ -125,8 +122,8 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
     <div className="dialog-body feature-stack">
       {error && <p className="inline-error" role="alert">{error}</p>}
       {tab === "guide" && <>
-        {video || animationId || illustration || poseSlug ? <ExerciseAnimation key={demo?.id ?? referenceName}
-          id={animationId} illustration={illustration} poseSlug={poseSlug} video={video} name={referenceName} /> :
+        {media && (media.video || media.id || media.illustration || media.poseSlug) ? <ExerciseAnimation key={demo?.id ?? referenceName}
+          {...media} name={referenceName} /> :
           guide?.photos ? <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} /> :
           item && <p className="muted catalogue-detail-label">此动作暂无已核对的动画。</p>}
         {referenceName !== base && <p className="muted catalogue-detail-label">{referenceName}</p>}
@@ -136,6 +133,9 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
           )}><Plus size={15} /> 加入计划</button>}
           <button type="button" className="button outline small" aria-pressed={profile.pinned} disabled={busy} onClick={() => void update({ ...profile, pinned: !profile.pinned })}><Pin size={15} /> {profile.pinned ? "取消置顶" : "置顶"}</button>
         </div></div>
+        {classification && <ClassificationEditor current={classification} stored={profile.classification}
+          equipment={equipmentOptions([...(data?.rows ?? []), classification])} busy={busy}
+          save={(next) => void update({ ...profile, classification: next })} />}
         <section className="card padded feature-stack"><h3>动作步骤</h3>
           <p className="exercise-plan-cue"><strong>{cadence.label}</strong> {cadence.text}
             {cadence.numeric && <small className="exercise-tempo-hint">{tempoNotationHint}</small>}

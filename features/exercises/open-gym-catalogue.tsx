@@ -2,7 +2,7 @@
 
 import { catalogueCover, catalogueDemo } from "./catalogue-demo";
 import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
-import { ChevronDown, Dumbbell, Grid2X2, List, Plus, Search, SlidersHorizontal, Star, X } from "lucide-react";
+import { ChevronDown, Grid2X2, List, Plus, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import { Dialog } from "@/shared/ui";
 import { exerciseName, type ExerciseProfile } from "@/features/library/model";
 import { Anatomy } from "./anatomy";
@@ -10,7 +10,8 @@ import { equipmentOptions, filterRows, normalizeSearch } from "./catalog-search"
 import { catalogueSections, collapseCatalogueRows } from "./catalog-sections";
 import { catalogFamilies, variantDetails, type ExerciseFamily } from "./catalog-families";
 import { FamilyChooser } from "./family-chooser";
-import { catalogueAreas, matchesCatalogueArea } from "./catalogue-areas";
+import { catalogueAreas, exerciseAreaOptions, matchesCatalogueArea } from "./catalogue-areas";
+import { customCatalogueEntry, customCover, customNameKey, isPersonalExercise, matchesCustomArea } from "./custom-catalogue";
 import { groups, label, muscleNames, termMuscles } from "./labels";
 import { useCatalogue, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 import { canonicalMoveName } from "./move-name";
@@ -63,22 +64,38 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     try { setCards(localStorage.getItem(viewKey) !== "list"); setGear(JSON.parse(localStorage.getItem(gearKey) ?? "[]")); }
     catch { /* Browser storage is optional. */ }
   }, []);
-  const favorites = useMemo(() => new Set(profiles.filter((profile) => profile.pinned).map(({ name }) => normalizeSearch(name))), [profiles]);
-  const chosen = useMemo(() => new Set(names.map(normalizeSearch)), [names]);
-  const personal = useMemo(() => [...new Set([...profiles.map(({ name }) => name), ...names].map(canonicalMoveName))], [profiles, names]);
+  const favorites = useMemo(() => new Set(profiles.filter((profile) => profile.pinned).map(({ name }) => customNameKey(name))), [profiles]);
+  const chosen = useMemo(() => new Set(names.map(customNameKey)), [names]);
+  const known = useMemo(() => new Set([
+    ...(data?.rows ?? []).map((item) => normalizeSearch(item.name)),
+    ...[...new Set(families.values())].flatMap((family) => [family.title, ...(family.aliases ?? [])].map(normalizeSearch)),
+  ]), [data, families]);
+  const personal = useMemo(() => {
+    const profilesByName = new Map(profiles.map((profile) => [customNameKey(profile.name), profile]));
+    const entries = new Map<string, ReturnType<typeof customCatalogueEntry>>();
+    for (const rawName of [...profiles.map(({ name }) => name), ...names]) {
+      const name = canonicalMoveName(rawName);
+      const key = customNameKey(name);
+      if (!key || known.has(key) || entries.has(key)) continue;
+      entries.set(key, customCatalogueEntry(name, profilesByName.get(key), data));
+    }
+    return entries;
+  }, [data, known, names, profiles]);
   const source = useMemo(() => {
-    if (area === "custom") return [];
-    const rows = (data?.rows ?? []).filter((item) => matchesCatalogueArea(item, area));
-    if (scope === "favorites") return rows.filter((item) => favorites.has(normalizeSearch(item.name)));
-    if (scope === "chosen") return rows.filter((item) => chosen.has(normalizeSearch(item.name)));
+    const rows = [
+      ...(data?.rows ?? []).filter((item) => matchesCatalogueArea(item, area)),
+      ...[...personal.values()].filter((item) => matchesCustomArea(item, area)),
+    ];
+    if (scope === "favorites") return rows.filter((item) => favorites.has(customNameKey(item.name)));
+    if (scope === "chosen") return rows.filter((item) => chosen.has(customNameKey(item.name)));
     return rows;
-  }, [data, area, scope, chosen, favorites]);
+  }, [data, area, scope, chosen, favorites, personal]);
   const filters = useMemo(() => filterRows(source, { query: search, part: "", type, equipment,
     terms: byMuscle ? terms : [], any, gear: useGear ? gear : [], families,
   }), [source, search, type, equipment, terms, byMuscle, any, gear, useGear, families]);
   const matched = useMemo(() => {
     const querying = Boolean(search.trim());
-    return [...filters.rows].sort((a, b) => {
+    return filters.rows.filter((item): item is CatalogEntry => !isPersonalExercise(item)).sort((a, b) => {
       const aName = querying || favorites.size ? normalizeSearch(a.name) : "";
       const bName = querying || favorites.size ? normalizeSearch(b.name) : "";
       const pinnedFirst = Number(favorites.has(bName)) - Number(favorites.has(aName));
@@ -90,30 +107,25 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   }, [filters, favorites, chosen, search, demonstrated]);
   const rows = useMemo(() => collapseCatalogueRows(matched, families, filters.score, favorites, demonstrated),
     [matched, families, filters.score, favorites, demonstrated]);
-  const known = useMemo(() => new Set([
-    ...(data?.rows ?? []).map((item) => normalizeSearch(item.name)),
-    ...[...new Set(families.values())].flatMap((family) => [family.title, ...(family.aliases ?? [])].map(normalizeSearch)),
-  ]), [data, families]);
-  const custom = (area && area !== "custom") || type || equipment || byMuscle ? [] : personal.filter((name) => !known.has(normalizeSearch(name)) &&
-    normalizeSearch(name).includes(normalizeSearch(search)) && (!scope || (scope === "favorites" ? favorites : chosen).has(normalizeSearch(name))));
+  const custom = filters.rows.filter(isPersonalExercise).map(({ name }) => name);
   const searching = Boolean(search.trim());
   const sections = searching
     ? [{ id: "search", title: "搜索结果", jumpLabel: "", rows, customNames: custom }]
     : catalogueSections(rows, custom, favorites);
   const showJumpRail = sections.length > 1;
-  const equipmentAll = useMemo(() => equipmentOptions(data?.rows ?? []), [data]);
+  const equipmentAll = useMemo(() => equipmentOptions([...(data?.rows ?? []), ...personal.values()]), [data, personal]);
   const equipmentChips = [...primaryEquipment.filter((key) => filters.equipmentList.includes(key)),
     ...filters.equipmentList.filter((key) => !primaryEquipment.includes(key))];
   const activeOptions = Number(Boolean(filters.activeType)) + Number(Boolean(filters.activeEquipment)) + Number(byMuscle);
   const familyKey = (id: string) => families.get(id)?.id ?? id;
-  const featured = !search && !scope && area !== "custom" && !byMuscle && !filters.activeType && !filters.activeEquipment
+  const featured = !search && !scope && !area.startsWith("custom") && !byMuscle && !filters.activeType && !filters.activeEquipment
     ? [...new Set([
       ...featuredIds.flatMap((id) => rows.find((row) => familyKey(row.id) === familyKey(id)) ?? []),
       ...rows.filter((row) => demonstrated.has(row.id)).slice(0, 3),
     ])].slice(0, 3)
     : [];
   const parsedCustom = exerciseName.safeParse(customName === undefined ? undefined : canonicalMoveName(customName.trim()));
-  const customExists = (name: string) => known.has(normalizeSearch(name)) || personal.some((item) => normalizeSearch(item) === normalizeSearch(name));
+  const customExists = (name: string) => known.has(customNameKey(name)) || personal.has(customNameKey(name));
   const selectedWeights = Object.fromEntries(terms.flatMap(termMuscles).map((key) => [key, 100]));
   function resultsPane() {
     const element = results.current;
@@ -128,7 +140,6 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   function pickArea(id: string) {
     show(() => {
       setArea(id);
-      if (id === "custom") { setType(""); setEquipment(""); setByMuscle(false); }
     });
     const start = searchLine.current;
     if (!resultsPane() && start && start.getBoundingClientRect().top < 0) start.scrollIntoView({ block: "start", inline: "nearest" });
@@ -173,15 +184,18 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     const caption = family?.title ?? name;
     const match = row && family && filters.score.get(row.id) === 4 && caption !== name
       ? variantDetails(row, family).label : undefined;
-    const pinned = favorites.has(normalizeSearch(name));
-    const cover = row && catalogueCover(catalogueDemo(row));
+    const pinned = favorites.has(customNameKey(name));
+    const own = !row ? personal.get(customNameKey(name)) : undefined;
+    const areaTitle = own?.area && exerciseAreaOptions.find(({ id }) => id === own.area)?.title;
+    const ownCaption = [areaTitle || "待分类", own?.equipment && label(own.equipment)].filter(Boolean).join(" · ");
+    const cover = row ? catalogueCover(catalogueDemo(row)) : own && customCover(own);
     return <div className="catalogue-row" key={family?.id ?? row?.id ?? "own:" + name}>
       <button type="button" className="catalogue-exercise" onClick={() => chooseExercise(name, row)}>
         <span className="catalogue-thumb" aria-hidden="true">{cover
           ? <img src={cover} loading="lazy" alt="" />
-          : <Dumbbell size={23} />}</span>
+          : <span className="catalogue-name-cover">{[...name].slice(0, 2).join("")}</span>}</span>
         <span className="catalogue-exercise-text"><strong>{pinned && <Star size={13} fill="currentColor" aria-label="已置顶" />} {caption}</strong>
-          <small>{row ? [match ?? label(row.target), label(row.equipment), family && family.variants.length + " 个变式"].filter(Boolean).join(" · ") : "自定义动作"}</small></span>
+          <small>{row ? [match ?? label(row.target), label(row.equipment), family && family.variants.length + " 个变式"].filter(Boolean).join(" · ") : ownCaption}</small></span>
       </button>
       {quick && <button type="button" className="icon-button catalogue-add"
         aria-label={family ? "选择 " + caption + " 的变式" : "添加 " + name} onClick={() => chooseExercise(name, row, true)}><Plus size={17} /></button>}
@@ -304,7 +318,7 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     {showFilters && <Dialog title="筛选" className="catalogue-filter-dialog" onClose={() => setShowFilters(false)}>
       <div className="dialog-body feature-stack">
         <button type="button" className="button outline small" aria-pressed={byMuscle}
-          onClick={() => show(() => { setByMuscle(!byMuscle); if (area === "custom") setArea(""); })}>
+          onClick={() => show(() => setByMuscle(!byMuscle))}>
           {byMuscle ? "关闭肌肉图筛选" : "按肌肉图筛选"}</button>
         {byMuscle && <div className="card padded feature-stack">
           <Anatomy weights={selectedWeights} onPick={pickTerm} />

@@ -1,7 +1,7 @@
 export const types = ["strength", "calisthenics", "olympic", "plyometrics", "isometric", "cardio", "stretching", "mobility", "yoga", "pilates", "combat", "rehab"];
 const labels: Record<string, string> = {
   back: "背部", cardio: "有氧", chest: "胸部", "full body": "全身", "lower arms": "前臂", "lower legs": "小腿",
-  neck: "颈部", shoulders: "肩部", "upper arms": "上臂", "upper legs": "大腿", waist: "腰腹",
+  feet: "脚部", neck: "颈部", shoulders: "肩部", "upper arms": "上臂", "upper legs": "大腿", waist: "腰腹",
   strength: "力量", calisthenics: "徒手训练", olympic: "奥林匹克举重", plyometrics: "增强式训练", isometric: "等长训练",
   stretching: "拉伸", mobility: "活动度", yoga: "瑜伽", pilates: "普拉提", combat: "搏击", rehab: "康复",
   "body weight": "自重", "wheel roller": "健腹轮", cable: "绳索", treadmill: "跑步机", stick: "训练棍", "bosu ball": "半球平衡球", "stationary bike": "固定单车",
@@ -11,7 +11,7 @@ const labels: Record<string, string> = {
   roller: "泡沫轴", "upper body ergometer": "上肢功率车", "suspension trainer": "悬挂训练带", kettlebell: "壶铃",
   landmine: "地雷杆", "weight plate": "杠铃片", "smith machine": "史密斯机", "massage ball": "按摩球",
   sandbag: "沙袋", "skierg machine": "滑雪机", hammer: "训练锤", macebell: "训练锤铃", tire: "轮胎",
-  "trap bar": "六角杠", "stepmill machine": "登阶机",
+  "trap bar": "六角杠", "stepmill machine": "登阶机", "high bar": "单杠",
   "axle bar": "粗轴杠", "atlas stone": "阿特拉斯石球", "conan wheel": "柯南之轮", "hinged post": "铰接立柱",
   "hercules columns": "负重立柱", "cross hold weights": "侧举配重", "iron block": "铁块", "throwing keg": "投掷桶",
   "log bar": "圆木杠", "mas stick": "木棒与抵脚板", "weighted shield": "盾形负重", "timber frame": "负重木框",
@@ -20,7 +20,7 @@ const labels: Record<string, string> = {
   "front delts": "三角肌前束", "side delts": "三角肌中束", "rear delts": "三角肌后束",
   triceps: "肱三头肌", biceps: "肱二头肌", "upper back": "上背", lats: "背阔肌", calves: "小腿后侧",
   quads: "股四头肌", forearms: "前臂", hamstrings: "腘绳肌", spine: "下背", traps: "斜方肌",
-  "hip flexors": "髋屈肌", obliques: "腹斜肌", shins: "小腿前侧",
+  "hip flexors": "髋屈肌", obliques: "腹斜肌", shins: "小腿前侧", thoracic: "胸椎", "rotator cuff": "肩袖",
   adductors: "大腿内收肌", "serratus anterior": "前锯肌", abductors: "髋外展肌", "levator scapulae": "肩胛提肌",
 };
 export const label = (value: string) => labels[value] ?? value;

@@ -6,13 +6,13 @@ export function normalizeSearch(value: string) {
   return value.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s*\bv\s*(\d+)\b/g, " v$1").trim();
 }
 
-export function equipmentOptions(rows: CatalogEntry[]) {
+export function equipmentOptions(rows: readonly Pick<CatalogEntry, "equipment">[]) {
   const counts = new Map<string, number>();
   for (const row of rows) if (row.equipment) counts.set(row.equipment, (counts.get(row.equipment) ?? 0) + 1);
   return [...counts.keys()].sort((a, b) => counts.get(b)! - counts.get(a)! || a.localeCompare(b));
 }
 
-export function filterRows(rows: CatalogEntry[], {
+export function filterRows<T extends Pick<CatalogEntry, "id" | "name" | "en" | "part" | "target" | "equipment" | "type" | "muscles">>(rows: readonly T[], {
   query, part, type, equipment, terms, any, gear, families,
 }: {
   query: string; part: string; type: string; equipment: string; terms: string[]; any: boolean; gear: string[];
@@ -30,7 +30,7 @@ export function filterRows(rows: CatalogEntry[], {
     if (part && row.part !== part) return false;
     if (gear.length && row.equipment !== "body weight" && !gear.includes(row.equipment)) return false;
     if (groups.length) {
-      const contains = (terms: string[]) => terms.some((key) => row.muscles[key] > 0);
+      const contains = (terms: string[]) => terms.some((key) => row.muscles[key] > 0 || (row.target === "shins" && key === "tibialis"));
       if (!(any ? groups.some(contains) : groups.every(contains))) return false;
     }
     if (!words.length) return true;

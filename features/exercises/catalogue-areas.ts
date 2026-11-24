@@ -15,9 +15,9 @@ const targetArea = (target: string): CatalogueArea => ({ id: "muscle:" + target,
 export const catalogueAreas: readonly CatalogueArea[] = [
   { id: "", title: "全部" },
   partArea("chest", ["pectorals", "serratus anterior"]),
-  partArea("back", ["lats", "upper back", "spine", "traps"]),
+  partArea("back", ["lats", "upper back", "thoracic", "spine", "traps"]),
   partArea("upper legs", ["quads", "hamstrings", "adductors", "abductors", "hip flexors", "glutes"], "腿部"),
-  partArea("shoulders", ["front delts", "side delts", "rear delts"]),
+  partArea("shoulders", ["front delts", "side delts", "rear delts", "rotator cuff"]),
   targetArea("serratus anterior"),
   targetArea("traps"),
   partArea("upper arms", ["biceps", "triceps"]),
@@ -29,13 +29,23 @@ export const catalogueAreas: readonly CatalogueArea[] = [
   partArea("waist", ["abs", "obliques", "spine"]),
   partArea("full body"),
   partArea("cardio"),
-  { id: "custom", title: "自定义" },
+  { id: "custom", title: "自定义", children: [{ id: "custom:unclassified", title: "待分类" }] },
 ];
 
-export function matchesCatalogueArea(row: Pick<CatalogEntry, "part" | "target">, id: string) {
+export const exerciseAreaOptions = catalogueAreas
+  .filter(({ id }) => id && id !== "custom" && !id.startsWith("muscle:"))
+  .flatMap(({ id, title, children }) => [{ id, title }, ...(children ?? []).map((child) => ({
+    id: child.id, title: title + " · " + child.title,
+  }))]);
+
+export function matchesCatalogueArea(row: Pick<CatalogEntry, "part" | "target"> & Partial<Pick<CatalogEntry, "en">>, id: string) {
   if (!id) return true;
-  if (id === "custom") return false;
+  if (id === "custom" || id === "custom:unclassified") return false;
   if (id.startsWith("muscle:")) return row.target === id.slice("muscle:".length);
   const [part, target] = id.split(":");
-  return row.part === part && (!target || row.target === target);
+  if (row.part !== part) return false;
+  if (!target || row.target === target) return true;
+  if (id === "back:thoracic") return /\bthoracic\b/i.test(row.en ?? "");
+  if (id === "shoulders:rotator cuff") return /\b((external|internal) rotation|rotator cuff)\b/i.test(row.en ?? "");
+  return false;
 }
