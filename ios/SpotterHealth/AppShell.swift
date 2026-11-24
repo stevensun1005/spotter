@@ -140,7 +140,9 @@ private struct AppSettings: View {
                     Text("训练、计划和记录使用所选站点的账号。切换前请先保存当前训练。")
                 }
                 Section {
-                    LabeledContent("版本", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
+                    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+                    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+                    LabeledContent("App 版本", value: build.map { "\(version) (\($0))" } ?? version)
                     if let version = configuration.verifiedWebVersion {
                         LabeledContent("打包时核对的网页版", value: "第 \(version) 版")
                     }

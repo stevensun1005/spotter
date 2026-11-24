@@ -4,22 +4,28 @@
 <dict>
     <key>CFBundleDisplayName</key>
     <string>训练搭子</string>
+    <key>NSCameraUsageDescription</key>
+    <string>当你选择拍照记录饮食时，使用相机拍摄本次餐食，供你预览和识别。</string>
     <key>NSHealthShareUsageDescription</key>
     <string>仅按您选择的类型和日期范围，读取训练心率、体重、系统运动、步数、活跃能量或运动时长，私密同步到您配对的训练搭子账号。</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>连接您选择的训练搭子站点，读取和保存训练记录。</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>当你选择语音记录饮食时，使用麦克风接收食物和份量描述。</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>当你选择语音记录饮食时，将食物和份量描述转成可编辑的文字。</string>
     <key>SpotterWebRelease</key>
     <dict>
         <key>origin</key>
         <string>https://spotter-duo.stezero.chatgpt.site</string>
         <key>version</key>
-        <integer>60</integer>
+        <integer>70</integer>
         <key>sourceCommit</key>
-        <string>d980ce49a8a8de600e2512e0ca2fbb97660f3398</string>
+        <string>d735bb3a781bffa1049f3a03fbb301999583e326</string>
         <key>exportRef</key>
         <string>origin/sites/source-2026-11-24</string>
         <key>exportCommit</key>
-        <string>bf26c5e14758277dc0bcb0377758d7f2b880302d</string>
+        <string>2455ab8d9fd4b433367aca8fc0cf4c04fe8b5086</string>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>
