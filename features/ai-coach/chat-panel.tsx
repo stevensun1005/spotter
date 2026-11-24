@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowUp, CalendarDays, ChartNoAxesColumn, ClipboardList, Dumbbell, MessageSquarePlus,
-  Scale, SlidersHorizontal, Utensils } from "lucide-react";
+import { ArrowUp, CalendarDays, Camera, ChartNoAxesColumn, ClipboardList, Dumbbell, MessageSquarePlus,
+  Scale, SlidersHorizontal } from "lucide-react";
 import type { Plan } from "@/features/plans/model";
 import { asksForTrainingPlan } from "./chat-intent";
 import { guidedMessage } from "./guided";
 import { GuidedCoachPanel, type GuidedCoachSelection } from "./guided-panel";
-import { maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
-  type CoachConfig, type CoachModel, type CoachRequest, type CoachResponse } from "./model";
+import { coachModel, maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
+  type CoachConfig, type CoachRequest, type CoachResponse } from "./model";
 
 export type CoachShortcuts = {
   logMeal?: () => void;
@@ -31,9 +31,10 @@ type Availability = CoachConfig | { error: string };
 
 const endpoint = "/api/ai-coach";
 const planRequest = "帮我制定训练计划";
-const modelNames = { haiku: "Haiku 5.5", sonnet: "Sonnet 5.5" };
+const openingSuggestions = ["今天怎么热身？", "想轻松动一动"];
+const replySuggestions = ["能给个简单例子吗？", "能给个更轻松的版本吗？"];
 const shortcutCards = [
-  { key: "logMeal", title: "记饮食", detail: "记录一餐和营养摄入", icon: Utensils, tone: "apricot" },
+  { key: "logMeal", title: "拍照记饮食", detail: "拍照或选图，核对营养后保存", icon: Camera, tone: "apricot" },
   { key: "trainingStats", title: "训练统计", detail: "查看记录与训练趋势", icon: ChartNoAxesColumn, tone: "blue" },
   { key: "logWeight", title: "记体重", detail: "记录今天的体重", icon: Scale, tone: "violet" },
   { key: "startWorkout", title: "开始训练", detail: "选一堂计划或自由训练", icon: Dumbbell, tone: "moss" },
@@ -61,7 +62,10 @@ function DraftPreview({ draft, saved, onReview }: { draft: Plan[]; saved: boolea
   </div>;
 }
 
-function CoachWelcome({ shortcuts, startPlan }: { shortcuts?: CoachShortcuts; startPlan: () => void }) {
+function CoachWelcome({ compact, shortcuts, startPlan }: { compact?: boolean; shortcuts?: CoachShortcuts; startPlan: () => void }) {
+  if (compact) return <div className="coach-welcome-compact">
+    <h2>今天想怎么练？</h2><p>聊聊热身、训练动作，或一起安排今天的运动。</p>
+  </div>;
   return <div className="coach-home">
     <div className="coach-home-intro">
       <div>
@@ -88,8 +92,8 @@ function CoachWelcome({ shortcuts, startPlan }: { shortcuts?: CoachShortcuts; st
   </div>;
 }
 
-export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDrafts, resumeReview, shortcuts }: {
-  active: boolean; owner?: string; selectedDate: string; onReview: (plans: Plan[]) => void;
+export function AiCoachPanel({ active, compact, onExpand, owner, selectedDate, onReview, savedDrafts, resumeReview, shortcuts }: {
+  active: boolean; compact?: boolean; onExpand?: () => void; owner?: string; selectedDate: string; onReview: (plans: Plan[]) => void;
   savedDrafts: ReadonlySet<Plan[]>; resumeReview?: () => void; shortcuts?: CoachShortcuts;
 }) {
   const [availability, setAvailability] = useState<Availability>();
@@ -112,8 +116,12 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
   const currentGuide = turns.find((turn) => turn.kind === "guide" && !turn.cancelled && !turn.response?.draft);
   const latestDraft = [...turns].reverse().find((turn) => turn.response?.draft && turn.window);
   const available = !!owner && availability && "enabled" in availability && availability.enabled;
-  const sonnet = !!available && availability.models.includes("sonnet");
   const chatDate = includePlans ? contextDate ?? selectedDate : selectedDate;
+  const lastTurn = turns.at(-1);
+  const showSuggestions = !waiting && !currentGuide && !revising && !optionsOpen && !includePlans;
+  const showSuggestedQuestions = showSuggestions && available && (!lastTurn || lastTurn.kind === "chat" && lastTurn.response);
+  const suggestedQuestions = lastTurn ? replySuggestions : openingSuggestions;
+  const suggestPlan = compact && showSuggestions && !lastTurn;
 
   useEffect(() => {
     if (!active || !owner) return;
@@ -138,13 +146,12 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
     if (!active || !turns.length) return;
-    const lastTurn = turns.at(-1);
     if (currentGuide && lastTurn?.id === currentGuide.id && !currentGuide.response) {
       planQuestion.current?.scrollIntoView({ block: "nearest" });
     } else {
       transcriptEnd.current?.scrollIntoView({ block: "end" });
     }
-  }, [active, currentGuide, turns]);
+  }, [active, compact, currentGuide, lastTurn, turns.length]);
 
   function updateTurn(id: string, patch: Partial<Turn>) {
     setTurns((previous) => previous.map((turn) => turn.id === id ? { ...turn, ...patch } : turn));
@@ -165,6 +172,7 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
   function startPlan(question = planRequest) {
     if (request.current) return;
     setError("");
+    onExpand?.();
     if (currentGuide) {
       focusGuide();
       return;
@@ -198,7 +206,7 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
       });
       const result = await response.json().catch(() => null) as (CoachResponse & { error?: string }) | null;
       if (!response.ok) throw new Error(result?.error || "AI 教练暂时无法回复。请稍后重试。");
-      if (typeof result?.reply !== "string" || !result.reply || (result.model !== "haiku" && result.model !== "sonnet")) throw new Error("未收到完整回复。请重试。");
+      if (typeof result?.reply !== "string" || !result.reply || result.model !== coachModel) throw new Error("未收到完整回复。请重试。");
       if (!controller.signal.aborted) receive(result);
     } catch (reason) {
       if (!controller.signal.aborted) showError(reason instanceof Error && reason.name === "Error"
@@ -217,10 +225,14 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
 
   function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const question = input.trim();
+    submitQuestion(input);
+  }
+
+  function submitQuestion(value: string, fromSuggestion = false) {
+    const question = value.trim();
     if (!question || request.current) return;
     if (!revising && asksForTrainingPlan(question)) {
-      if (!currentGuide) setInput("");
+      if (!fromSuggestion && !currentGuide) setInput("");
       startPlan(question);
       return;
     }
@@ -231,71 +243,77 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
     const target = revising ? latestDraft : undefined;
     const priorDraft = target?.response?.draft;
     const draftWindow = target?.window;
-    if (!chatDate && !draftWindow) {
+    const date = fromSuggestion ? selectedDate : chatDate;
+    if (!date && !draftWindow) {
       setError("请选择要附上的训练日期。");
       return;
     }
     const id = addTurn(priorDraft ? "revision" : "chat", question);
-    setInput("");
+    if (!fromSuggestion) setInput("");
     void askCoach({
-      expectedOwner: owner, messages: recentMessages(turns, question), model: "haiku",
+      expectedOwner: owner, messages: recentMessages(turns, question), model: coachModel,
       ...(priorDraft && draftWindow ? { ...draftWindow, intent: "draft" as const, priorDraft, includePlans: false }
-        : { intent: "chat" as const, date: chatDate, includePlans, contextRange }),
+        : { intent: "chat" as const, date, includePlans: !fromSuggestion && includePlans, contextRange }),
     }, (response) => {
       updateTurn(id, { response, window: draftWindow });
       setRevising(false);
     }, (message) => {
       updateTurn(id, { error: message });
-      setInput(question);
+      setInput((draft) => draft || question);
     });
   }
 
-  function generate(id: string, selection: GuidedCoachSelection, model: CoachModel) {
+  function generate(id: string, selection: GuidedCoachSelection) {
     if (!owner || !available || request.current || currentGuide?.id !== id) return;
     updateTurn(id, { error: undefined });
     void askCoach({
       ...selection, expectedOwner: owner, messages: [{ role: "user", content: guidedMessage }],
-      intent: "draft", model: sonnet ? model : "haiku", includePlans: false,
+      intent: "draft", model: coachModel, includePlans: false,
     }, (response) => updateTurn(id, { response, window: { date: selection.date, draftDays: selection.draftDays } }),
     (message) => updateTurn(id, { error: message }));
   }
 
   return <section className="coach-surface" aria-label="AI 教练对话">
-    {resumeReview && <div className="coach-resume"><ClipboardList size={17} aria-hidden="true" />
-      <span>有一份草稿正在核对</span><button className="button outline small" type="button" onClick={resumeReview}>继续核对</button>
-    </div>}
-    {!turns.length ? <CoachWelcome shortcuts={shortcuts} startPlan={() => startPlan()} /> : <>
-      <div className="coach-thread-controls"><button className="button outline small" type="button" onClick={clearConversation} disabled={waiting}>
-        <MessageSquarePlus size={17} aria-hidden="true" />新对话
-      </button></div>
-      <ol className="coach-thread" aria-label="对话记录">
-        {turns.map((turn) => {
-          const { id, kind, question, response, cancelled } = turn;
-          const draft = response?.draft?.plans;
-          return <li className={kind === "guide" ? "coach-turn coach-turn-guide" : "coach-turn"} key={id}>
-            <div className="coach-own-message"><span className="sr-only">你</span><p>{question}</p></div>
-            {kind === "guide" && !response?.draft && !cancelled && <div ref={planQuestion} className="coach-guide-question" tabIndex={-1}>
-              <div className="coach-guide-toolbar"><span>训练计划问答</span>
-                <button className="text-button" type="button" disabled={waiting} onClick={() => updateTurn(id, { cancelled: true })}>结束问答</button>
-              </div>
-              <GuidedCoachPanel presentation="conversation" selectedDate={selectedDate} busy={waiting} enabled={!!available}
-                sonnet={sonnet} status={available ? undefined : status} error={turn.error}
-                onGenerate={(selection, model) => generate(id, selection, model)} />
-            </div>}
-            {cancelled && <p className="coach-turn-status">已结束本次问答</p>}
-            {response && <div className="coach-reply" aria-live="polite">
-              <div className="coach-reply-byline"><span>Spotter 教练</span><small>{modelNames[response.model]}</small></div>
-              <p>{response.reply}</p>
-              {draft && <DraftPreview draft={draft} saved={savedDrafts.has(draft)} onReview={() => onReview(draft)} />}
-            </div>}
-            {kind !== "guide" && turn.error && <p className="inline-error coach-turn-status" role="alert">{turn.error}</p>}
-            {kind !== "guide" && !response && !turn.error && <p className="coach-turn-status" role="status">教练正在回复…</p>}
-          </li>;
-        })}
-        <li ref={transcriptEnd} className="coach-thread-anchor" aria-hidden="true" />
-      </ol>
-    </>}
+    <div className="coach-conversation">
+      {resumeReview && <div className="coach-resume"><ClipboardList size={17} aria-hidden="true" />
+        <span>有一份草稿正在核对</span><button className="button outline small" type="button" onClick={resumeReview}>继续核对</button>
+      </div>}
+      {!turns.length ? <CoachWelcome compact={compact} shortcuts={shortcuts} startPlan={() => startPlan()} /> : <>
+        <div className="coach-thread-controls"><button className="button outline small" type="button" onClick={clearConversation} disabled={waiting}>
+          <MessageSquarePlus size={17} aria-hidden="true" />新对话
+        </button></div>
+        <ol className="coach-thread" aria-label="对话记录">
+          {turns.map((turn) => {
+            const { id, kind, question, response, cancelled } = turn;
+            const draft = response?.draft?.plans;
+            return <li className={kind === "guide" ? "coach-turn coach-turn-guide" : "coach-turn"} key={id}>
+              <div className="coach-own-message"><span className="sr-only">你</span><p>{question}</p></div>
+              {kind === "guide" && !response?.draft && !cancelled && <div ref={planQuestion} className="coach-guide-question" tabIndex={-1}>
+                <div className="coach-guide-toolbar"><span>训练计划问答</span>
+                  <button className="text-button" type="button" disabled={waiting} onClick={() => updateTurn(id, { cancelled: true })}>结束问答</button>
+                </div>
+                <GuidedCoachPanel presentation="conversation" selectedDate={selectedDate} busy={waiting} enabled={!!available}
+                  status={available ? undefined : status} error={turn.error} onGenerate={(selection) => generate(id, selection)} />
+              </div>}
+              {cancelled && <p className="coach-turn-status">已结束本次问答</p>}
+              {response && <div className="coach-reply" aria-live="polite">
+                <div className="coach-reply-byline"><span>Spotter 教练</span><small>Haiku 5.5</small></div>
+                <p>{response.reply}</p>
+                {draft && <DraftPreview draft={draft} saved={savedDrafts.has(draft)} onReview={() => onReview(draft)} />}
+              </div>}
+              {kind !== "guide" && turn.error && <p className="inline-error coach-turn-status" role="alert">{turn.error}</p>}
+              {kind !== "guide" && !response && !turn.error && <p className="coach-turn-status" role="status">教练正在回复…</p>}
+            </li>;
+          })}
+          <li ref={transcriptEnd} className="coach-thread-anchor" aria-hidden="true" />
+        </ol>
+      </>}
+    </div>
     <div className="coach-composer">
+      {(suggestPlan || showSuggestedQuestions) && <div className="coach-suggestions" role="group" aria-label="推荐对话">
+        {showSuggestedQuestions && suggestedQuestions.map((question) => <button key={question} type="button" onClick={() => submitQuestion(question, true)}>{question}</button>)}
+        {suggestPlan && <button type="button" onClick={() => submitQuestion(planRequest, true)}>制定训练计划</button>}
+      </div>}
       <div className="coach-quick-actions">
         {turns.length > 0 && <button className="coach-quick-button" type="button" disabled={waiting} onClick={() => startPlan()}>
           <CalendarDays size={15} aria-hidden="true" />{currentGuide ? "继续答题" : "生成计划"}

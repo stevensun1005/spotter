@@ -5,7 +5,7 @@ import { ownTemplateJoin } from "@/features/plans/template-server";
 import { HttpError } from "@/server/http";
 import { askAnthropic } from "./anthropic";
 import { guidedContext } from "./guided";
-import { coachCalendarRange, type CoachConfig, type CoachRequest } from "./model";
+import { coachCalendarRange, coachModel, type CoachConfig, type CoachRequest } from "./model";
 
 const dailyAccountLimit = 20;
 const dailySiteLimit = 30;
@@ -16,12 +16,12 @@ function credentials(email: string) {
   const key = env.ANTHROPIC_API_KEY?.trim();
   const allowed = env.AI_COACH_ALLOWED_EMAILS?.split(",").some((entry) => entry.trim().toLowerCase() === email.toLowerCase());
   if (env.AI_COACH_ENABLED !== "true" || !key || !allowed || !env.DB) return null;
-  return { key, db: env.DB, sonnet: env.AI_COACH_SONNET_ENABLED === "true" };
+  return { key, db: env.DB };
 }
 
 export function aiCoachConfig(email: string): CoachConfig {
   const available = credentials(email);
-  return available ? { enabled: true, models: available.sonnet ? ["haiku", "sonnet"] : ["haiku"] }
+  return available ? { enabled: true, models: [coachModel] }
     : { enabled: false, models: [] };
 }
 
@@ -76,7 +76,6 @@ export async function coachReply(account: { id: string; email: string }, request
   if (request.expectedOwner !== account.id) throw new HttpError(403, "登录账号已切换，请刷新后重开对话。");
   const available = credentials(account.email);
   if (!available) throw new HttpError(503, "此账号暂未启用 AI 教练。");
-  if (request.model === "sonnet" && !available.sonnet) throw new HttpError(403, "此站点暂未启用 Sonnet 起草。");
   const { db, key } = available;
   const context = [];
   if (request.guided) {

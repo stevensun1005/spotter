@@ -327,7 +327,7 @@
   .guided-actions {
     position: sticky;
     z-index: 2;
-    bottom: calc(61px + env(safe-area-inset-bottom));
+    bottom: calc(var(--primary-nav-space) + 5px);
     box-shadow: 0 -9px 18px #18251d0b;
   }
   .guided-actions > .primary { flex: 1; min-width: 0; }

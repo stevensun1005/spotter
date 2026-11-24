@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Check, ClipboardList, Sparkles, Upload } from "lucide-react";
+import { Check, ClipboardList, Upload } from "lucide-react";
 import { PlanFields } from "@/features/plans/plan-fields";
 import type { Plan, PlannedWorkout } from "@/features/plans/model";
 import { errorText } from "@/shared/client";
@@ -10,18 +10,16 @@ import { DraftDayPreview, DraftProgress } from "./draft-preview";
 
 type SavePlans = (plans: PlannedWorkout[], revise: boolean) => Promise<void>;
 
-export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, onData, focusRequest = 0 }: {
+export function ImportView({ today, save, saved, canRevise, onPrograms, onData }: {
   today: string; save: SavePlans; saved: () => void; canRevise: boolean;
-  helpAI?: () => void; onPrograms?: () => void; onData?: () => void; focusRequest?: number;
+  onPrograms: () => void; onData: () => void;
 }) {
   const [source, setSource] = useState("");
   const [imported, setImported] = useState<PlannedWorkout[]>([]);
   const [parseError, setParseError] = useState("");
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
-  const input = useRef<HTMLTextAreaElement>(null);
   const format = detectImportFormat(source);
-  useEffect(() => { if (focusRequest > 0) input.current?.focus(); }, [focusRequest]);
   useUnsavedImport(Boolean(source.trim()));
 
   function changeSource(value: string) {
@@ -46,7 +44,7 @@ export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, 
       <div className="section-head"><h2>粘贴并预览计划</h2><span className="tile lilac"><ClipboardList size={18} /></span></div>
       <p className="muted">已有训练文本、视频链接，或 AI 返回的计划 JSON，都在这里预览和编辑后保存。</p>
       <form className="form-fields import-form" onSubmit={preview}>
-        <label>训练文本、计划 JSON 或视频链接<textarea ref={input} rows={9} maxLength={450000} disabled={busy || reading} value={source} onChange={(event) => changeSource(event.target.value)} placeholder={"例如：上肢训练\n哑铃卧推 3×10，12 kg\n坐姿划船 3×12，25 kg\n\n也可以粘贴 AI 返回的 JSON、B站或 YouTube 链接"} /></label>
+        <label>训练文本、计划 JSON 或视频链接<textarea rows={9} maxLength={450000} disabled={busy || reading} value={source} onChange={(event) => changeSource(event.target.value)} placeholder={"例如：上肢训练\n哑铃卧推 3×10，12 kg\n坐姿划船 3×12，25 kg\n\n也可以粘贴 AI 返回的 JSON、B站或 YouTube 链接"} /></label>
         <label className="import-file"><Upload size={17} /> 选择计划 JSON 文件<input type="file" accept=".json,application/json" aria-label="选择计划 JSON 文件" disabled={busy || reading} onChange={(event) => {
           const file = event.target.files?.[0]; event.target.value = "";
           if (file) void readFile(file);
@@ -55,7 +53,6 @@ export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, 
         {parseError && <p className="inline-error" role="alert">{parseError}</p>}
         <button className="button primary" type="submit" disabled={!source.trim() || busy || reading || format !== "plans"}><ClipboardList size={18} />{reading ? "正在读取文件…" : "预览导入"}</button>
       </form>
-      {helpAI && <div className="plan-import-help"><p className="muted">还需要从目标起草，或让 AI 整理复杂内容？</p><button className="button subtle small" type="button" onClick={helpAI}><Sparkles size={16} />用自己的 AI</button></div>}
     </section>
     {imported.length > 0 && <PlanImportReview key={imported[0].id} plans={imported} save={save} busyChanged={setBusy} canRevise={canRevise}
       saved={() => { setImported([]); setSource(""); saved(); }} />}

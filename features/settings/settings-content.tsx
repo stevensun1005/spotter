@@ -11,10 +11,10 @@ import { SettingsLink, SettingsRows, type SettingsPage } from "./settings-hub";
 import { WeightEntrySettings, WorkoutSettings } from "./workout-settings";
 
 export function SettingsContent({ page, open, owner, cloud, sex, sync, pair, sharing, coaching, body,
-  schedule, programs, plans, importPlans, latestWorkout, display, changeDisplay, protein, data, agent }: {
+  schedule, programs, plans, planImport, latestWorkout, display, changeDisplay, protein, data, agent }: {
   page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string; cloud: string; sex?: AnatomyVariant;
   sync: () => void; pair: () => void; sharing?: () => void; coaching: () => void; body: () => void;
-  schedule: () => void; programs: () => void; plans: () => void; importPlans: () => void; latestWorkout?: () => void;
+  schedule: () => void; programs: () => void; plans: () => void; planImport: ReactNode; latestWorkout?: () => void;
   display: DisplayPreferences; changeDisplay: ChangeDisplay; protein: ReactNode; data: ReactNode; agent: ReactNode;
 }) {
   switch (page) {
@@ -43,7 +43,7 @@ export function SettingsContent({ page, open, owner, cloud, sex, sync, pair, sha
         {owner && <SettingsLink label="个人计划设置" detail="每周休息日和临时休息日期" onClick={schedule} icon={CalendarDays} />}
         <SettingsLink label="训练周期" detail="多周编排、调整和排期预览" onClick={programs} icon={CalendarDays} />
         <SettingsLink label="我的计划与模板" onClick={plans} />
-        <SettingsLink label="导入训练计划" onClick={importPlans} icon={Download} />
+        <SettingsLink label="粘贴已有内容" onClick={() => open("planImport")} icon={Download} />
       </SettingsRows>
       <SettingsRows title="首页周历">
         <label className="settings-control"><strong>每周从哪一天开始</strong>
@@ -108,6 +108,7 @@ export function SettingsContent({ page, open, owner, cloud, sex, sync, pair, sha
     </>;
     case "data": return data;
     case "ai": return agent;
+    case "planImport": return planImport;
     case "about": return <>
       <SettingsRows title="训练搭子 · Spotter">
         <SettingsLink label="加载网站最新版本" detail="刷新当前浏览器" onClick={() => window.location.reload()} icon={RefreshCw} />

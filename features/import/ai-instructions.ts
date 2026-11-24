@@ -30,7 +30,7 @@ export function planAiPrompt(today: string, intent: PlanAiIntent = "organize") {
     ...planContentRules,
     "结构示例（仅展示格式，不要无条件照抄示例动作或组次）：",
     JSON.stringify([planPromptExample(today)]),
-    "生成后我会粘贴到「添加计划 → 粘贴已有内容」，预览、编辑并确认保存。返回 JSON 不代表已经写入 Spotter。",
+    "生成后我会到「设置 → 计划与日程 → 粘贴已有内容」，预览、编辑并确认保存。返回 JSON 不代表已经写入 Spotter。",
     intent === "create" ? "我的训练目标、时间、器械和限制：" : "我的原始训练材料：",
   ].join("\n");
 }

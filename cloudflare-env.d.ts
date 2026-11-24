@@ -6,7 +6,6 @@ declare namespace Cloudflare {
     WHOOP_CLIENT_SECRET?: string;
     AI_COACH_ENABLED?: string;
     AI_COACH_ALLOWED_EMAILS?: string;
-    AI_COACH_SONNET_ENABLED?: string;
     ANTHROPIC_API_KEY?: string;
   }
 }

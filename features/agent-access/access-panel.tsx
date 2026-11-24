@@ -172,7 +172,7 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
     {message && <p className="agent-feedback" role="status"><Check size={17} />{message}</p>}
     <section className="card padded feature-stack">
       <div className="section-head"><h2><FilePenLine size={20} />Agent 送来的计划草稿</h2><div className="exercise-toolbar"><span className="count-label">{drafts.filter((draft) => draft.status === "draft").length} 份待确认</span>{enabled && <button type="button" className="button subtle small" onClick={() => void load()} disabled={loading || busy}><RefreshCw size={16} />刷新草稿</button>}</div></div>
-      <p className="muted">已连接的 Agent 提交后会显示在这里，编辑、校验并确认后进入日历。普通聊天 AI 返回的 JSON，请用上方「粘贴 AI 结果」。</p>
+      <p className="muted">已连接的 Agent 提交后会显示在这里，编辑、校验并确认后进入日历。聊天 AI 返回的 JSON 可在「设置 → 计划与日程 → 粘贴已有内容」预览。</p>
       {!enabled ? <p className="muted">登录后可以接收并确认 Agent 草稿。</p> : loading && !drafts.length ? <p className="muted" role="status">正在读取草稿…</p> : !drafts.length ? <p className="empty-copy">暂无 Agent 草稿。可以先使用上方提示词起草，也可展开连接设置。</p> : <ul className="agent-connection-list">{drafts.map((draft) => <li key={draft.id}><div className="agent-connection-heading"><strong>{draft.title}</strong><span className="state-tag">{draft.status === "committed" ? "已排入日历" : "待确认"}</span></div><p className="muted">{draft.plans.length} 堂训练 · {dateTime(draft.createdAt)}</p><button className="button outline small" type="button" disabled={busy} onClick={() => void inspect(draft)}>{draft.status === "committed" ? "查看结果" : "查看与编辑"}</button></li>)}</ul>}
     </section>
     {create && <Dialog title="新建 Agent 连接" onClose={() => { if (!busy) setCreate(false); }}><form onSubmit={(event) => { event.preventDefault(); void createConnection(); }}>

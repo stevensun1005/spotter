@@ -36,7 +36,7 @@ export function DataView({ enabled, saved, importPlans }: { enabled: boolean; sa
     setBusy(true);
     try {
       const parsed = backupSchema.safeParse(JSON.parse((await upload.text()).replace(/^\uFEFF/, "")));
-      if (!parsed.success) throw new Error("文件不是有效的训练搭子备份。训练计划 JSON 请用「添加计划 → 粘贴已有内容」。");
+      if (!parsed.success) throw new Error("文件不是有效的训练搭子备份。训练计划 JSON 可在「设置 → 计划与日程 → 粘贴已有内容」导入。");
       setFile(parsed.data);
     } catch (reason) { setError(reason instanceof SyntaxError ? "JSON 文件格式无效。" : (reason as Error).message); }
     finally { setBusy(false); }
@@ -86,7 +86,7 @@ export function DataView({ enabled, saved, importPlans }: { enabled: boolean; sa
           <button className="button primary" disabled={busy} onClick={() => void restore()}><Upload size={17} /> 确认恢复备份</button></div>
       </div>}
       {message && <p role="status">{message}</p>}{error && <p role="alert" className="inline-error">{error}</p>}
-      <button className="button outline" onClick={importPlans}><FileJson size={17} /> 添加训练计划</button>
+      <button className="button outline" onClick={importPlans}><FileJson size={17} /> 粘贴已有内容</button>
     </section>
   </div>;
 }
