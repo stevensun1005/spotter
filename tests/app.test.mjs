@@ -185,8 +185,31 @@ test("independent app auth, pairing, sharing and persistence", { timeout: 45_000
   assert.equal((await (await apple({ id: logId, data: heart })).json()).saved, true);
   assert.equal((await (await apple({ id: logId, data: heart })).json()).saved, false);
   assert.deepEqual((await (await expect(heartUrl, owner)).json()).data, heart);
+  const recordAt = session.started - 60_000;
+  const records = {
+    selected: ["bodyMass", "workouts", "steps"], from: recordAt - 60_000, to: recordAt + 60_000, timeZone: "UTC",
+    bodyMass: [{ id: randomUUID(), at: recordAt, value: 80, unit: "kg", sourceName: "Synthetic Scale", sourceId: "test.scale" }],
+    workouts: [{ id: randomUUID(), from: recordAt, to: recordAt + 30_000, durationSeconds: 30, activity: "Synthetic exercise", sourceName: "Synthetic Watch", sourceId: "test.watch" }],
+    activity: [{ date: new Date(recordAt).toISOString().slice(0, 10), from: recordAt, to: recordAt + 30_000, steps: 100, sourceName: "Synthetic merged activity", sourceId: "test.statistics" }],
+  };
+  const sendRecords = () => fetch(base + "/api/health/apple/records", { method: "POST",
+    headers: { Authorization: "Bearer " + claimed.token, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify(records) });
+  const upload = await sendRecords();
+  assert.equal(upload.status, 200);
+  assert.equal((await upload.json()).saved, 3);
+  assert.equal((await (await sendRecords()).json()).saved, 0);
+  const personalHealth = (await (await expect("health/apple", owner)).json()).health;
+  assert.equal(personalHealth.bodyMass[0].kg, 80);
+  assert.equal(personalHealth.activity[0].steps, 100);
+  assert.equal(personalHealth.workouts[0].matchedWorkoutId, null);
+  assert.deepEqual((await (await expect("health/apple", partner)).json()).health, { bodyMass: [], activity: [], workouts: [] });
+  assert.equal(JSON.stringify(await state(partner)).includes("Synthetic Scale"), false);
+  await stop();
+  await start();
+  assert.deepEqual((await (await expect("health/apple", owner)).json()).health, personalHealth);
   assert.equal((await (await apple({}, "DELETE")).json()).connected, false);
   assert.equal((await apple()).status, 401);
+  assert.equal((await sendRecords()).status, 401);
   await expect("auth/logout", owner, {});
   await expect("state", owner, null, 401);
   await expect("auth/login", null, { username: "owner", password: "wrong-password" }, 401);
