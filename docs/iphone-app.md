@@ -55,6 +55,8 @@ TestFlight 使用相同的 `Spotter` scheme 做 Release 归档。归档使用 Ap
 
 HealthKit 读取与更新用途说明按 App Store 的静态检查提供。运行时申请的是所选类型的读取权限，写入权限列表为空。
 
+已上传 App Store Connect 的构建 10 使用 `9d9ff5a` 对应的原生源码。此后 Cloudflare 增加了账号删除及隐私和支持页，已归档的 App 也会从同一站点加载这些页面。
+
 ## 已运行的验证
 
 | 检查 | 结果与限制 |
