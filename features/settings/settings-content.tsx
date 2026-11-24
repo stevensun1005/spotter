@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { CalendarDays, ClipboardList, Download, HeartPulse, Package, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
 import { signInPath, signOutEndpoint } from "@/features/auth/paths";
+import { OAuthControls } from "@/features/auth/oauth-controls";
+import type { OAuthNotice } from "@/features/auth/oauth-ui";
 import type { AnatomyVariant } from "@/features/body/profile";
 import type { ChangeDisplay, DisplayPreferences } from "./display-preferences";
 import { DisplaySettings } from "./display-settings";
@@ -11,15 +13,20 @@ import { ReminderSettings } from "./reminders";
 import { SettingsLink, SettingsRows, type SettingsPage } from "./settings-hub";
 import { WeightEntrySettings, WorkoutSettings } from "./workout-settings";
 
-export function SettingsContent({ page, open, owner, cloud, sex, sync, pair, sharing, coaching, body,
+export function SettingsContent({ page, open, owner, cloud, sex, authNotice, sync, pair, sharing, coaching, body,
   schedule, programs, plans, planImport, latestWorkout, display, changeDisplay, protein, proteinWarehouse, data, agent }: {
-  page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string; cloud: string; sex?: AnatomyVariant;
+  page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string; cloud: string; sex?: AnatomyVariant; authNotice?: OAuthNotice;
   sync: () => void; pair: () => void; sharing?: () => void; coaching: () => void; body: () => void;
   schedule: () => void; programs: () => void; plans: () => void; planImport: ReactNode; latestWorkout?: () => void;
   display: DisplayPreferences; changeDisplay: ChangeDisplay; protein: ReactNode; proteinWarehouse: ReactNode; data: ReactNode; agent: ReactNode;
 }) {
   switch (page) {
     case "account": return <>
+      {owner && <section className="card padded feature-stack" aria-label="登录方式">
+        <h2>绑定登录方式</h2>
+        <p className="muted">绑定后，Apple 和 Google 都会打开这个训练搭子账号。</p>
+        <OAuthControls key={owner} mode="link" owner={owner} notice={authNotice} />
+      </section>}
       <SettingsRows title="账户与同步">
         {owner && <SettingsLink label="性别" detail={sex === "female" ? "女" : sex === "male" ? "男" : "未填写"} icon={UserRound} onClick={body} />}
         {owner && <SettingsLink label="立即同步" detail={cloud} icon={RefreshCw} onClick={sync} />}

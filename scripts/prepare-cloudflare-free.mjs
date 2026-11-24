@@ -48,7 +48,10 @@ async function prepare() {
       database_id: dryRun ? dryRunDatabaseId : databaseId,
       migrations_dir: "../../drizzle",
     }],
-    observability: { enabled: true },
+    observability: {
+      enabled: true,
+      logs: { enabled: true, invocation_logs: false },
+    },
   };
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
   console.log(`Prepared dist/server/wrangler.production.json${dryRun ? " with a dry-run D1 ID" : ""}.`);

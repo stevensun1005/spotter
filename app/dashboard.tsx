@@ -32,6 +32,7 @@ import { readActivitySummary } from "@/features/ai-coach/activity-summary";
 import { CoachSheet, type CoachSheetSize } from "@/features/ai-coach/coach-sheet";
 import { ImportView } from "@/features/import/import-view";
 import { signInPath } from "@/features/auth/paths";
+import type { OAuthNotice } from "@/features/auth/oauth-ui";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
 import { AnatomySubject } from "@/features/exercises/anatomy";
@@ -132,13 +133,20 @@ async function uploadCheckin(body: CheckinUpload): Promise<CheckinReceipt> {
 const message = (reason: unknown, fallback: string) =>
   reason instanceof Error && reason.name === "Error" ? reason.message : fallback;
 
-export default function Dashboard({ viewer, initialDate, initialWorkoutId, heartReturn, profileRef }: {
+export default function Dashboard({ viewer, initialDate, initialWorkoutId, heartReturn, profileRef, authNotice }: {
   viewer: State["me"] | null; initialDate: string; initialWorkoutId?: string; heartReturn?: { id: string; result: WhoopStatus }; profileRef?: string;
+  authNotice?: OAuthNotice;
 }) {
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
-  const [view, setView] = useState<View>(heartReturn ? "stats" : "today");
-  const [settingsPage, setSettingsPage] = useState<SettingsPage>();
+  const [view, setView] = useState<View>(authNotice ? "settings" : heartReturn ? "stats" : "today");
+  const [settingsPage, setSettingsPage] = useState<SettingsPage | undefined>(authNotice ? "account" : undefined);
+  useEffect(() => {
+    if (!authNotice) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auth");
+    window.history.replaceState(window.history.state, "", url);
+  }, [authNotice]);
   const { display, changeDisplay } = useDisplayPreferences();
   const { preferences: nutritionPreferences, update: updateNutrition } = useNutritionPreferences(viewer?.id ?? "guest", !display.nutrition);
   const orderedNutritionShortcuts: NutritionShortcut[] = [...nutritionPreferences.mealOrder, "饮水", "体重"];
@@ -868,7 +876,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           plans={pendingPlans.filter((item) => item.owner === me.id).map(({ id, data }) => ({ id, plan: data }))}
           saved={() => { void refresh(); void library.load(); }} /></div>
         {view === "settings" && <SettingsHub page={settingsPage} open={openSetting} close={() => go("today")} name={me.name} cloud={cloud} account={Boolean(viewer)}>
-          <SettingsContent page={settingsPage} open={openSetting} owner={viewer?.id ?? ""} cloud={cloud} sex={me.anatomyVariant}
+          <SettingsContent page={settingsPage} open={openSetting} owner={viewer?.id ?? ""} cloud={cloud} sex={me.anatomyVariant} authNotice={authNotice}
             sync={() => { void refresh(); void library.load(); }} pair={() => open({ kind: "pair" })}
             sharing={viewer ? () => open({ kind: "friend-sharing" }) : undefined}
             coaching={() => go("coaching")} body={() => go("body")} schedule={() => openScheduleSettings()}
