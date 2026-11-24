@@ -55,17 +55,19 @@
 .friend-new .friend-row > span:nth-child(2) { text-align: start; }
 .friend-new .state-tag { margin-inline-start: 5px; }
 .friend-contacts { overflow: hidden; }
+.friend-contacts-title { display: flex; align-items: center; gap: 7px; padding: 9px 14px; font-size: .97rem; }
+.friend-buddy-list { padding-block: 10px 2px; }
 .friend-letters { display: flex; overflow-x: auto; gap: 4px; padding: 7px 10px; border-bottom: 1px solid var(--stroke); }
 .friend-letters button { flex: 0 0 40px; min-height: 40px; border-radius: 8px; color: #466042; font-weight: 710; }
 .friend-letters button:hover { background: var(--mint); }
 .friend-letter-group { scroll-margin-top: 12px; }
-.friend-letter-group h3 { padding: 5px 14px; background: #f4f7f0; color: var(--muted); font-size: .85rem; }
+.friend-letter-group h4 { padding: 5px 14px; background: #f4f7f0; color: var(--muted); font-size: .85rem; }
 .friend-letter-group > div { padding-inline: 14px; }
 .friend-feed-entry { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 8px 0; min-height: 56px; text-align: start; }
 .friend-feed-entry + .friend-feed-entry { border-top: 1px solid var(--stroke); }
 .friend-feed-entry > svg:last-child { align-self: center; color: var(--muted); }
 .friend-feed-copy, .friend-feed-summary { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
-.friend-feed-copy > strong { font-weight: 760; }
+.friend-feed-copy > strong { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-weight: 760; }
 .friend-feed-summary { padding: 8px 9px; background: #f3f6ef; border: 1px solid #e6ede1; border-radius: 9px; }
 .friend-feed-copy small { color: var(--muted); }
 .friend-settings-dialog .friend-privacy { padding: 0; border: 0; }

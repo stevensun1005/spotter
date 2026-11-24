@@ -152,12 +152,12 @@ function SharingSettings({ friend, busy, save }: {
     <div className="friend-record-heading"><span className="tile lilac"><Lock size={18} aria-hidden="true" /></span><h2>我分享给{friend.name}</h2></div>
     <div className="friend-share-option friend-share-locked">
       <span><strong>训练打卡状态</strong><small>当天有没有完成训练</small></span>
-      <span className="state-tag checked"><Lock size={12} aria-hidden="true" /> 始终分享</span>
+      <span className="state-tag checked"><Lock size={12} aria-hidden="true" /> {friend.buddy ? "搭子可见" : "随朋友圈分享"}</span>
     </div>
     {friend.buddy ? <>
       <div className="friend-share-option friend-share-locked">
         <span><strong>训练详情</strong><small>已完成的动作、组数、重量和次数</small></span>
-        <span className="state-tag checked"><Lock size={12} aria-hidden="true" /> 始终分享</span>
+        <span className="state-tag checked"><Lock size={12} aria-hidden="true" /> 搭子可见</span>
       </div>
       <SharingSwitch title="饮食记录与详情" description="是否记录饮食，以及餐次、食物、克数和营养" checked={sharing.nutrition} disabled={busy}
         change={(checked) => setSharing({ ...sharing, nutrition: checked, nutritionDetails: checked })} />
@@ -170,7 +170,7 @@ function SharingSettings({ friend, busy, save }: {
         checked={sharing.nutritionDetails} disabled={busy || !sharing.nutrition}
         change={(checked) => setSharing({ ...sharing, nutritionDetails: checked })} />
     </>}
-    <p className="muted">好友可依照你的朋友圈权限查看已分享的记录。你可以随时调整开关。</p>
+    {!friend.buddy && <p className="muted">朋友圈开启时，普通好友可按以上范围查看你的记录。</p>}
     <button className="button primary" type="button" disabled={busy || !changed} onClick={() => save(sharing)}>保存分享范围</button>
   </section>;
 }
@@ -236,25 +236,38 @@ function FriendRow({ person, sharingOnly, open }: { person: Friend; sharingOnly?
   </button>;
 }
 
-function ContactList({ people, open }: { people: Friend[]; open: (person: Friend) => void }) {
+function ContactList({ people, sharingOnly = false, open }: { people: Friend[]; sharingOnly?: boolean; open: (person: Friend) => void }) {
+  const buddies = people.filter((person) => person.buddy);
+  const friends = people.filter((person) => !person.buddy).sort((a, b) => nameOrder.compare(a.name, b.name));
   const groups = new Map<string, Friend[]>();
-  for (const person of [...people].sort((a, b) => nameOrder.compare(a.name, b.name))) {
+  for (const person of friends) {
     const letter = initial(person.name);
     const group = groups.get(letter);
     if (group) group.push(person);
     else groups.set(letter, [person]);
   }
   const letters = Array.from(groups.keys()).sort((a, b) => a === "#" ? 1 : b === "#" ? -1 : a.localeCompare(b));
-  return <section className="card friend-contacts" aria-label="好友名单">
-    <nav className="friend-letters" aria-label="按首字母定位">
-      {letters.map((letter) => <button key={letter} type="button" aria-label={"跳转到 " + letter}
-        onClick={() => document.getElementById("friend-letter-" + letter)?.scrollIntoView({ block: "start" })}>{letter}</button>)}
-    </nav>
-    {letters.map((letter) => <section key={letter} className="friend-letter-group" id={"friend-letter-" + letter} aria-label={letter}>
-      <h3>{letter}</h3>
-      <div>{groups.get(letter)?.map((person) => <FriendRow key={person.id} person={person} open={() => open(person)} />)}</div>
-    </section>)}
-  </section>;
+  const row = (person: Friend) => <FriendRow key={person.id} person={person} sharingOnly={sharingOnly} open={() => open(person)} />;
+  return <>
+    {buddies.length > 0 && <section className="card padded friend-list friend-buddy-list" aria-label="训练搭子">
+      <h3>训练搭子</h3>
+      {buddies.map(row)}
+    </section>}
+    {sharingOnly ? friends.length > 0 && <section className="card padded friend-list" aria-label="普通好友">
+      <h3>普通好友</h3>
+      {friends.map(row)}
+    </section> : <section className="card friend-contacts" aria-label="普通好友">
+      <h3 className="friend-contacts-title">普通好友 <span className="state-tag">{friends.length} 位</span></h3>
+      {letters.length > 0 && <nav className="friend-letters" aria-label="按首字母定位">
+        {letters.map((letter) => <button key={letter} type="button" aria-label={"跳转到 " + letter}
+          onClick={() => document.getElementById("friend-letter-" + letter)?.scrollIntoView({ block: "start" })}>{letter}</button>)}
+      </nav>}
+      {letters.map((letter) => <section key={letter} className="friend-letter-group" id={"friend-letter-" + letter} aria-label={letter}>
+        <h4>{letter}</h4>
+        <div>{groups.get(letter)?.map(row)}</div>
+      </section>)}
+    </section>}
+  </>;
 }
 
 function FriendFeed({ days, today, open }: { days: Feed["days"]; today: string; open: (person: { id: string }, date: string) => void }) {
@@ -264,7 +277,7 @@ function FriendFeed({ days, today, open }: { days: Feed["days"]; today: string; 
       {items.length === 0 && <p className="empty-copy">当天暂无可见训练打卡。</p>}
       {items.map(({ friend, workouts }) => <button key={friend.id} type="button" className="friend-feed-entry" onClick={() => open(friend, date)}>
         <span className={"avatar " + (friend.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(friend.name)}</span>
-        <span className="friend-feed-copy"><strong>{friend.name}</strong>
+        <span className="friend-feed-copy"><strong>{friend.name}{friend.buddy && <span className="state-tag checked">训练搭子</span>}</strong>
           {!workouts?.length ? <small>训练已打卡</small> : workouts.map((workout) => <span key={workout.id} className="friend-feed-summary">
             <span>{workout.title}</span>
             <small>{[workout.category, workout.minutes > 0 ? displayNumber(workout.minutes) + " 分钟" : "",
@@ -278,7 +291,7 @@ function FriendFeed({ days, today, open }: { days: Feed["days"]; today: string; 
 }
 
 const privacyOptions = [
-  { key: "closed", label: "关闭朋友圈", description: "暂停向搭子和好友展示你的训练和饮食记录。" },
+  { key: "closed", label: "关闭朋友圈", description: "向普通好友隐藏训练和饮食记录。搭子的训练共享和独立饮食开关照常生效。" },
   { key: "discoverable", label: "允许通过昵称搜索到我", description: "可以在添加好友时通过站内昵称搜索找到你。" },
   { key: "recentOnly", label: "仅显示最近 3 天", description: "你与搭子、好友互相查看最近 3 天的活动。" },
 ] as const;
@@ -526,11 +539,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
       {sharingOnly ? "添加好友或连接搭子后，可以在这里设置分享范围。" : "添加好友后，可从联系人查看对方分享的每日记录。"}
     </p>}
     {active && friends && !listError && <p className="empty-copy">这位好友目前不可查看。</p>}
-    {!!friends?.friends.length && (sharingOnly ?
-      <section className="card padded friend-list" aria-label="好友名单">
-        {friends.friends.map((person) => <FriendRow key={person.id} person={person} sharingOnly open={() => openFriend(person)} />)}
-      </section> :
-      <ContactList people={friends.friends} open={openFriend} />)}
+    {!!friends?.friends.length && <ContactList people={friends.friends} sharingOnly={sharingOnly} open={openFriend} />}
   </>;
 
   const socialError = social.error && <div className="feature-stack"><p className="inline-error" role="alert">{social.error}</p>
@@ -569,7 +578,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
           <button className="text-button" type="button" onClick={() => setDayRevision((value) => value + 1)}>重新读取</button></div>}
       </section>
       {day?.data?.restricted
-        ? <section className="card padded"><p className="friend-private"><Lock size={15} aria-hidden="true" /> 朋友圈权限限制了这一天的记录。</p></section>
+        ? <section className="card padded"><p className="friend-private"><Lock size={15} aria-hidden="true" /> 这一天的记录未开放查看。</p></section>
         : day?.data && <FriendDailyRecords data={day.data} />}
       {!removeOpen && feedback}
       {!friend.buddy && <button className="text-button friend-remove" type="button" disabled={busy}

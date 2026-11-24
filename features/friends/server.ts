@@ -80,18 +80,13 @@ export function friendCurrentDay(request?: Request) {
   return asDate(Date.now(), zone && zone.length <= 64 && validTimeZone(zone) ? zone : "UTC");
 }
 
-export function friendDataOpen(peer: string) {
-  return "NOT EXISTS (SELECT 1 FROM friend_profiles WHERE owner = " + peer + " AND closed = 1)";
-}
-
 export function friendDateLimited(peer: string) {
   return "EXISTS (SELECT 1 FROM friend_profiles WHERE recent_only = 1 AND (owner = ? OR owner = " + peer + "))";
 }
 
-export function friendDataVisible(owner: string, peer: string, day: string, today: string) {
+export function friendDateVisible(owner: string, peer: string, day: string, today: string) {
   return {
-    condition: friendDataOpen(peer) + " AND (NOT " + friendDateLimited(peer) +
-      " OR " + day + " BETWEEN ? AND ?)",
+    condition: "(NOT " + friendDateLimited(peer) + " OR " + day + " BETWEEN ? AND ?)",
     args: [owner, offsetDate(today, -2), today] as const,
   };
 }
@@ -107,7 +102,7 @@ export async function listFriends(db: D1Database, owner: string, day?: string, t
   if (buddy && !friends.some((item) => item.buddy)) friends.push(pairedFriend(buddy));
   friends.sort((a, b) => Number(b.buddy) - Number(a.buddy) || a.name.localeCompare(b.name, "zh-CN"));
   if (day && friends.length) {
-    const visible = friendDataVisible(owner, "contact.value", "target.day", today);
+    const visible = friendDateVisible(owner, "contact.value", "target.day", today);
     const { results } = await db.prepare(
       "SELECT contact.value AS owner, EXISTS (SELECT 1 FROM entries e WHERE e.owner = contact.value " +
       "AND e.kind = 'log' AND json_extract(e.payload, '$.date') = target.day) AS checkedIn " +
@@ -126,6 +121,7 @@ type Scope = "checkin" | "training" | "dietCheckin" | "nutrition";
 function relationshipAccess(selection: string, scope: Scope) {
   const buddy = " FROM members m JOIN members p ON p.room = m.room WHERE m.user = pair.peer AND p.user = pair.viewer";
   const paired = "EXISTS (SELECT 1" + buddy + ")";
+  const openFriend = "(f.linked = 1 AND NOT EXISTS (SELECT 1 FROM friend_profiles WHERE owner = pair.peer AND closed = 1))";
   const flag = (name: string) => "(CASE WHEN pair.peer = f.first_id THEN f.first_" + name + " ELSE f.second_" + name + " END)";
   const details = flag("nutrition");
   const dietStatus = "CASE WHEN " + paired + " THEN (SELECT m.share_nutrition" + buddy + ")" +
@@ -138,7 +134,7 @@ function relationshipAccess(selection: string, scope: Scope) {
   }[scope];
   return "EXISTS (SELECT 1 FROM (" + selection + ") AS pair " +
     "LEFT JOIN friend_links f ON f.first_id = MIN(pair.viewer, pair.peer) AND f.second_id = MAX(pair.viewer, pair.peer) " +
-    "WHERE pair.viewer <> pair.peer AND (" + paired + " OR f.linked = 1) AND " + allowed + ")";
+    "WHERE pair.viewer <> pair.peer AND (" + paired + " OR " + openFriend + ") AND " + allowed + ")";
 }
 
 export function shareAccess(owner: string, friend: string, scope: Scope) {
@@ -148,7 +144,7 @@ export function shareAccess(owner: string, friend: string, scope: Scope) {
 export async function buddyCheckins(db: D1Database, owner: string, friend: string, connection: string,
   today = friendCurrentDay()): Promise<Checkin[]> {
   const day = "json_extract(e.payload, '$.date')";
-  const visible = friendDataVisible(owner, "e.owner", day, today);
+  const visible = friendDateVisible(owner, "e.owner", day, today);
   const { results } = await db.prepare(
     "SELECT " + day + " AS date, COUNT(*) AS count FROM entries e WHERE e.owner = ? AND e.kind = 'log' AND " +
     activePair + " AND " + visible.condition + " GROUP BY date ORDER BY date DESC"
@@ -174,7 +170,7 @@ export async function friendFeed(db: D1Database, owner: string, today = friendCu
     "SELECT e.owner, e.id, " + day + " AS date, CASE WHEN " + relationshipAccess(pair, "training") +
     " THEN e.payload END AS payload FROM entries e WHERE e.owner IN (SELECT value FROM json_each(?)) " +
     "AND e.kind = 'log' AND " + day + " IN (SELECT value FROM json_each(?)) AND " +
-    relationshipAccess(pair, "checkin") + " AND " + friendDataOpen("e.owner") + " ORDER BY e.updated DESC, e.id ASC"
+    relationshipAccess(pair, "checkin") + " ORDER BY e.updated DESC, e.id ASC"
   ).bind(owner, JSON.stringify(friends.map((friend) => friend.id)), JSON.stringify(dates), owner)
     .all<{ owner: string; id: string; date: string; payload: string | null }>();
 
@@ -210,16 +206,17 @@ function publicMeal(id: string, entry: MealEntry): SharedMeal {
 export async function friendDay(db: D1Database, owner: string, id: string, date: string,
   today = friendCurrentDay()): Promise<FriendDay> {
   const friend = await getFriend(db, owner, id);
-  const access = friendDataVisible(owner, "target.peer", "target.day", today);
-  const visible = await db.prepare("SELECT 1 FROM (SELECT ? AS peer, ? AS day) AS target WHERE " + access.condition)
-    .bind(id, date, ...access.args).first();
+  const access = friendDateVisible(owner, "target.peer", "target.day", today);
+  const visible = await db.prepare("SELECT 1 FROM (SELECT ? AS peer, ? AS day) AS target WHERE " +
+    relationshipAccess("SELECT ? AS viewer, target.peer AS peer", "checkin") + " AND " + access.condition)
+    .bind(id, date, owner, ...access.args).first();
   if (!visible) return { friend, date, restricted: true, workoutCheckin: false, dietCheckin: null, training: null, nutrition: null };
   const checkin = shareAccess(owner, id, "checkin");
   const training = shareAccess(owner, id, "training");
   const dietCheckin = shareAccess(owner, id, "dietCheckin");
   const nutrition = shareAccess(owner, id, "nutrition");
-  const logAccess = friendDataVisible(owner, "entries.owner", "json_extract(entries.payload, '$.date')", today);
-  const nutritionAccess = friendDataVisible(owner, "personal_library.owner", "personal_library.day", today);
+  const logAccess = friendDateVisible(owner, "entries.owner", "json_extract(entries.payload, '$.date')", today);
+  const nutritionAccess = friendDateVisible(owner, "personal_library.owner", "personal_library.day", today);
   const workoutFilter = " FROM entries WHERE owner = ? AND kind = 'log' AND json_extract(payload, '$.date') = ? AND " + logAccess.condition + " AND ";
   const mealFilter = " FROM personal_library WHERE owner = ? AND kind = 'nutrition' AND day = ? " +
     "AND json_extract(payload, '$.entry.type') = 'meal' AND " + nutritionAccess.condition + " AND ";

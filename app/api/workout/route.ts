@@ -11,7 +11,7 @@ import { resolvePlanTemplate } from "@/features/plans/template-link";
 import { ownTemplateJoin } from "@/features/plans/template-server";
 import { updateLog } from "@/features/history/update-log";
 import { checkinOwnerMatches, checkinProblem } from "@/features/training/checkin-outbox";
-import { buddyCheckins, friendCurrentDay, friendDataOpen, friendDataVisible, friendDateLimited } from "@/features/friends/server";
+import { buddyCheckins, friendCurrentDay, friendDateLimited, friendDateVisible } from "@/features/friends/server";
 import { activePair, disconnectPair, joinPair, membership, sendPairCheer, validTimeZone } from "@/features/pair/server";
 import { publicPartnerSession } from "@/features/friends/public-training";
 import { anatomyVariant } from "@/features/body/profile";
@@ -50,7 +50,7 @@ export async function GET(request?: Request) {
   const partner = member?.partnerId;
   const pair = partner && member ? [member.connectionId, me.id, partner] as const : null;
   const today = friendCurrentDay(request);
-  const partnerVisibility = friendDataVisible(me.id, "e.owner", "json_extract(e.payload, '$.date')", today);
+  const partnerVisibility = friendDateVisible(me.id, "e.owner", "json_extract(e.payload, '$.date')", today);
   const ownCheer = pair ? " OR (e.kind = 'cheer' AND json_extract(e.payload, '$.connection') = ? " +
     "AND json_extract(e.payload, '$.recipient') = ? AND " + activePair + ")" : "";
   const partnerFilter = pair ?
@@ -64,18 +64,18 @@ export async function GET(request?: Request) {
       "WHERE (e.owner = ? AND (e.kind IN ('plan', 'draft', 'log')" + ownCheer + "))" + partnerFilter + " ORDER BY e.updated DESC")
       .bind(me.id, me.id, ...ownCheerArgs, ...partnerArgs).all<Row>(),
     pair ? buddyCheckins(env.DB, me.id, pair[2], pair[0], today) : undefined,
-    pair ? env.DB.prepare("SELECT " + friendDataOpen("?") + " AS trainingShared, " + friendDateLimited("?") + " AS recentOnly WHERE " + activePair)
-      .bind(pair[2], me.id, pair[2], ...pair).first<{ trainingShared: number; recentOnly: number }>() : undefined,
+    pair ? env.DB.prepare("SELECT " + friendDateLimited("?") + " AS recentOnly WHERE " + activePair)
+      .bind(me.id, pair[2], ...pair).first<{ recentOnly: number }>() : undefined,
     env.DB.prepare("SELECT p.owner, json_extract(p.payload, '$.values.sex') AS variant FROM personal_library p " +
       "WHERE p.kind = 'body-profile' AND (p.owner = ?" +
-      (pair ? " OR (p.owner = ? AND " + activePair + " AND " + friendDataOpen("p.owner") + ")" : "") + ")")
+      (pair ? " OR (p.owner = ? AND " + activePair + ")" : "") + ")")
       .bind(me.id, ...(pair ? [pair[2], ...pair] : [])).all<{ owner: string; variant: unknown }>(),
   ]);
   const sharedPlanIds = new Set(rows.results.filter((row) => row.owner === partner && row.kind === "plan").map((row) => row.id));
   const entries: Entry[] = rows.results.flatMap(({ payload, templatePlan, ...row }): Entry[] => {
     const entry = { ...row, data: JSON.parse(payload) } as Entry;
     const own = entry.owner === me.id;
-    if (!own && !stillPaired?.trainingShared) return [];
+    if (!own && !stillPaired) return [];
     if (entry.kind === "cheer") return stillPaired ? [{ ...entry, data: { date: entry.data.date } }] : [];
     if (entry.kind === "plan") {
       if (!own) {
@@ -97,11 +97,11 @@ export async function GET(request?: Request) {
       connectionId: member.connectionId,
       invite: member.creator === me.id && !partner ? member.invite : null,
       partner: partner ? { id: partner, name: member.partnerName || "搭子",
-        anatomyVariant: stillPaired?.trainingShared ? variants.get(partner) : undefined } : null,
+        anatomyVariant: variants.get(partner) } : null,
       ...(partner ? {
-        partnerCheckins: stillPaired?.trainingShared ? partnerCheckins : [],
-        partnerTrainingShared: Boolean(stillPaired?.trainingShared),
-        partnerCheckinsFrom: stillPaired?.trainingShared && stillPaired.recentOnly ? offsetDate(today, -2) : undefined,
+        partnerCheckins,
+        partnerTrainingShared: true,
+        partnerCheckinsFrom: stillPaired?.recentOnly ? offsetDate(today, -2) : undefined,
       } : {}),
     } : null,
   };
