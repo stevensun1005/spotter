@@ -23,10 +23,13 @@
   line-height: 1.55;
 }
 .training-sections, .training-sections .catalogue-browser { grid-template-columns: minmax(0, 1fr); }
-.segmented.training-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: min(100%, 475px); }
+.segmented.training-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: min(100%, 475px); }
 .segmented.training-tabs > button { min-width: 0; min-height: 44px; padding-inline: 4px; white-space: nowrap; }
 .plan-heading-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 7px; min-width: 0; }
 .plan-heading-actions .page-action { margin-top: 0; }
+.plans-list-heading { flex-wrap: wrap; }
+.plans-list-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-inline-start: auto; }
+.plans-list-actions .button { white-space: nowrap; }
 
 .week-checkins .section-head { margin-bottom: 12px; }
 .week-checkin-grid { display: grid; gap: 8px; }

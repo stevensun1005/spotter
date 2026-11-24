@@ -243,9 +243,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const myToday = logs.filter((log) => log.owner === me.id && log.data.date === today);
   const partnerToday = logs.filter((log) => log.owner === partner?.id && log.data.date === today);
   const buddyStatus = demo ? "signed-out" : cloud === "正在连接" ? "loading" : cloud === "云端已连接" ? "ready" : "offline";
-  const showExample = (demo || buddyStatus === "ready") && selected === today &&
-    myToday.length === 0 && !drafts.some(([, data]) => data.date === today);
-  const current: KeyedPlan | null = todaysPlans[0] ?? (showExample ? { id: "example", data: examples(today) } : null);
+  const current: KeyedPlan | null = todaysPlans[0] ?? null;
   const canManageToday = current && todaysPlans.some((item) => item.id === current.id && item.owner === me.id);
   const sentCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === me.id && entry.data.date === today);
   const receivedCheer = entries.some((entry) => entry.kind === "cheer" && entry.owner === partner?.id && entry.data.date === today);
@@ -499,7 +497,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       }} />;
   }
 
-  const showPageHeading = view !== "stats" && view !== "nutrition";
+  const showPageHeading = view !== "plans" && view !== "stats" && view !== "nutrition";
   const heading = view === "today" ? "今天一起练" : navigation.find((item) => item.id === view)?.title;
   return <div className="app">
     <aside className="sidebar">
@@ -521,11 +519,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             {view === "today" && demo && <p>正在查看示例数据。登录后可同步你们的记录。</p>}
             {view === "import" && <p>把聊天里的训练安排或视频链接变成可打卡的计划。</p>}
           </div>
-          {(view === "today" || view === "plans") && <div className="plan-heading-actions">
-            {view === "plans" && viewer && <button className="button outline page-action" disabled={library.loading || Boolean(library.error)} onClick={() => open({ kind: "schedule" })}><Settings2 size={18} /> 个人计划设置</button>}
-            {view === "today"
-              ? <button className="button primary page-action" onClick={() => open({ kind: "launch" })}><Play size={19} fill="currentColor" /> 开始训练</button>
-              : <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>}
+          {view === "today" && <div className="plan-heading-actions">
+            <button className="button primary page-action" onClick={() => open({ kind: "launch" })}><Play size={19} fill="currentColor" /> 开始训练</button>
           </div>}
         </div>}
 
@@ -557,10 +552,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               <section className={"card today-workout-card" + (current.data.durationNote ? " has-estimate" : "")}>
                 <div className="hero">
                   <div className="hero-content">
-                    <span className="hero-tag"><span />{current.id === "example" ? "示例计划" : !canManageToday ? "搭子共享 · " + current.data.category : current.data.category}</span>
+                    <span className="hero-tag"><span />{!canManageToday ? "搭子共享 · " + current.data.category : current.data.category}</span>
                     <h2>{current.data.title}</h2>
                     <div className="hero-meta">{current.data.minutes > 0 && <span><Clock3 size={16} /> {current.data.minutes} 分钟</span>}{current.data.exercises.length > 0 && <span><Dumbbell size={16} /> {current.data.exercises.length} 个动作</span>}{current.data.video && <span><Play size={16} /> 跟练视频</span>}</div>
-                    <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> {current.id === "example" ? "试练示例" : "开始计划训练"}</button>
+                    <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> 开始计划训练</button>
                   </div>
                 </div>
                 {canManageToday && <div className="hero-menu" key={current.id}>{planActions(current)}</div>}
@@ -574,7 +569,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 <div className="movement-content"><PlanSequence plan={current.data} onExercise={setExercise} /></div>
               </details>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
-            </> : buddyStatus === "loading" ? null : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3>{selected !== today && <button className="button outline small" onClick={() => newPlan()}>安排训练</button>}</section>}
+            </> : buddyStatus === "loading" ? null : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3>{selected !== today && <button className="button outline small" onClick={() => go("plans")}>去安排训练</button>}</section>}
           </div>
 
           <aside className="right-column">
@@ -587,8 +582,14 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "plans" && <PlanSections key={planTab ?? "plans"} date={selected} templates={templates} initial={planTab}
           exerciseLibrary={<OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
           schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, true)}><section className="card padded">
-          <div className="section-head"><h2>全部计划</h2><button className="button subtle small" onClick={() => go("import")}><Sparkles size={17} /> 导入计划</button></div>
-          {plans.length ? [...plans].sort((a, b) => a.data.date.localeCompare(b.data.date)).map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span><h3>还没有训练计划</h3><button className="button outline small" onClick={() => newPlan(examples(today))}>使用示例计划</button></div>}
+          <div className="section-head plans-list-heading">
+            <h2>全部计划</h2>
+            <div className="plans-list-actions">
+              <button className="button subtle small" type="button" onClick={() => go("import")}><Sparkles size={17} /> 导入计划</button>
+              <button className="button primary small" type="button" onClick={() => newPlan()}><Plus size={17} /> 新建计划</button>
+            </div>
+          </div>
+          {plans.length ? [...plans].sort((a, b) => a.data.date.localeCompare(b.data.date)).map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span><h3>还没有训练计划</h3></div>}
         </section></PlanSections>}
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
@@ -599,6 +600,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           <ProteinCheck label="显示蛋白粉打卡" checked={trackProtein} disabled={!viewer || library.loading || Boolean(library.error)}
             save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
           <p className="muted">{viewer ? "开启后，训练结束时可以勾选是否已喝蛋白粉。" : "登录后可以保存训练偏好。"}</p>
+          {viewer && <button className="list-line" type="button" aria-haspopup="dialog" disabled={library.loading || Boolean(library.error)}
+            onClick={() => open({ kind: "schedule" })}><span className="tile mint"><Settings2 size={18} /></span><strong>个人计划设置</strong><ChevronRight size={16} /></button>}
           {library.error && <button className="button outline small" type="button" onClick={() => void library.load()}>{library.error}</button>}
         </section>}
         {view === "more" && <section className="card padded feature-stack">
