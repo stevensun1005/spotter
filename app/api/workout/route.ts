@@ -22,7 +22,7 @@ const id = z.string().uuid();
 const expectedOwner = z.string().min(1).max(300).optional();
 const pairTarget = z.object({ partner: z.string().trim().min(1).max(120), connection: id });
 const mutation = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("plans"), skipExisting: z.boolean().optional(), reviseExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema, revision: planRevisionSchema.nullable().optional() })).min(1).max(20) }),
+  z.object({ action: z.literal("plans"), expectedOwner, skipExisting: z.boolean().optional(), reviseExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema, revision: planRevisionSchema.nullable().optional() })).min(1).max(20) }),
   moveChoiceSchema.extend({ action: z.literal("previewMove") }),
   moveChoiceSchema.extend({ action: z.literal("move"), token: z.string().regex(/^[a-f0-9]{64}$/) }),
   z.object({ action: z.literal("delete"), id, kind: z.enum(["plan", "draft"]), revision: planRevisionSchema.optional() }),
@@ -141,6 +141,9 @@ export const POST = api(async (request) => {
     ).bind(owner, body.id, "deleted-" + body.kind, now, body.kind).run();
     if (!removed.meta.changes) return reply({ error: "这条记录已变更，无法删除。" }, 409);
   } else if (body.action === "plans") {
+    if (body.expectedOwner !== undefined && body.expectedOwner !== owner) {
+      return reply({ error: "登录账号已切换。请切回原账号后再保存计划。", code: "account_mismatch" }, 409);
+    }
     return reply(await writePlans(db, owner, body.items, now, body));
   } else if (body.action === "editLog") {
     return reply(await updateLog(db, owner, body.id, body.revision, body.data, now));
