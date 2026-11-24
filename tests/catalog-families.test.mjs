@@ -48,8 +48,33 @@ test("cable movements with similar names stay in their correct joint-action fami
   assert.equal(families.has("5066"), false);
 });
 
+test("bench press families preserve equipment and bench angle", () => {
+  const flat = families.get("0025");
+  const incline = families.get("0047");
+  const decline = families.get("0033");
+  assert.equal(flat.title, "杠铃卧推");
+  assert.equal(incline.title, "上斜杠铃卧推");
+  assert.equal(decline.title, "杠铃下斜卧推");
+  assert.equal(flat, families.get("5013"));
+  assert.equal(flat, families.get("0122"));
+  assert.equal(incline, families.get("5011"));
+  assert.equal(decline, families.get("5010"));
+  assert.notEqual(flat, incline);
+  assert.notEqual(flat, decline);
+  assert.notEqual(flat, families.get("0289"));
+  assert.notEqual(incline, families.get("0314"));
+  assert.notEqual(flat, families.get("3724"));
+  assert.notEqual(families.get("0043"), families.get("0042"));
+
+  const search = (query) => filterRows(rows, { query, part: "", type: "", equipment: "", terms: [], any: false, gear: [], families }).rows;
+  assert.ok(search("杠铃平板卧推").includes(flat.primary));
+  assert.ok(!search("杠铃平板卧推").includes(incline.primary));
+  assert.ok(search("杠铃上斜卧推").includes(incline.primary));
+  assert.ok(!search("杠铃上斜卧推").includes(byId.get("0314")));
+  for (const id of ["0047", "0314"]) assert.ok(search("上斜卧推").includes(byId.get(id)));
+});
+
 test("family entries preserve the exact existing catalogue objects and stable representatives", () => {
-  assert.equal(families.get("0025"), families.get("0289"));
   assert.equal(families.get("0025").primary.id, "0025");
   assert.equal(families.get("1241"), families.get("3141"));
   assert.equal(families.get("1241").title, "鸟狗式");
@@ -58,6 +83,9 @@ test("family entries preserve the exact existing catalogue objects and stable re
   for (const family of new Set(families.values())) {
     assert.ok(family.variants.length >= 2 && family.variants.includes(family.primary));
     for (const member of family.variants) {
+      assert.equal(member.equipment, family.primary.equipment);
+      assert.equal(member.machine, family.primary.machine);
+      assert.deepEqual((member.needs ?? []).slice().sort(), (family.primary.needs ?? []).slice().sort());
       assert.equal(member, byId.get(member.id));
       assert.equal(families.get(member.id), family);
       const details = variantDetails(member, family);

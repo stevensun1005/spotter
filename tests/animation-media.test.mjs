@@ -43,7 +43,11 @@ test("equivalent atlas motions keep the original equipment and action", async ()
     json("../features/exercises/flow-motion-equivalents.json"),
   ]);
   const action = (name) => name.toLowerCase()
-    .replace(/\s*\((?:side|front|back) pov\)$/, "")
+    .replace(/\s*\((?:(?:side|front|back) pov|female|male)\)$/, "")
+    .replace(/^shoulder press \(with band\)$/, "band shoulder press")
+    .replace(/^side neck stretch$/, "neck side stretch")
+    .replace(/\bsingle (arm|leg)\b/g, "one $1")
+    .replace(/\bwith rope attachment\b/g, "with rope")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
   for (const [id, animation] of Object.entries(links)) {

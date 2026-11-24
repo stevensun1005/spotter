@@ -1,5 +1,9 @@
 import illustrations from "./workout-motions.json" with { type: "json" };
 import { parsePlanMove } from "./move-name";
+import { catalogueIllustrations } from "./catalogue-illustrations";
+import type { CatalogEntry } from "./open-gym";
+import poseSources from "./workout-guide-motions.json" with { type: "json" };
+import flowSources from "./flow-motion-equivalents.json" with { type: "json" };
 
 export type Point = [number, number];
 export type Illustration = {
@@ -37,6 +41,18 @@ const linkedMotion: Record<string, string> = {
   "2473": "靠凳单腿臀桥", "7743": "半跪绳索面拉", "3525": "半跪单臂地雷杆推举",
   "5066": "哑铃深蹲接推肩", "0564": "侧向跳上低箱", "5473": "中立握引体向上",
 };
+
+const poseMotions: Record<string, string> = poseSources;
+const flowMotions: Record<string, string> = flowSources;
+
+export function catalogueMotion(item: Pick<CatalogEntry, "id" | "name" | "animation">) {
+  const { id, name, animation } = item;
+  const linkedName = id === "1671" ? name : id === "11253" ? undefined : linkedMotion[id];
+  const illustration = catalogueIllustrations[id] ?? motionFor(linkedName);
+  // Despite the atlas name, 1015's frames show the horizontal press from a lateral anchor.
+  const flow = illustration ? undefined : id === "0979" ? "1015" : animation ? id : flowMotions[id];
+  return { id: flow, illustration, poseSlug: illustration ? undefined : poseMotions[id] };
+}
 
 export function exerciseMotion(name: string, base: string, original?: string, id?: string, animated = false) {
   const illustration = motionFor(original, name, base, id ? linkedMotion[id] : undefined);

@@ -18,3 +18,7 @@ https://github.com/ozansozuozgit/flow-exercise-dataset/tree/961bb2739015da373daa
 https://github.com/bryllim/workout-guide/tree/aac599224bb9780305239607ef98540b7e0ce389
 
 原版 Gym visual 媒体需要独立许可。
+
+少量本地 MP4 动作示意来自 Workout Free Videos v2.0.0（CC0 1.0），按器械和训练动作匹配。
+https://github.com/namnq/workout-free-videos/tree/v2.0.0
+完整许可见 demo-video/LICENSE.txt。

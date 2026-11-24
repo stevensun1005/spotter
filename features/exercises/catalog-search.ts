@@ -20,6 +20,8 @@ export function filterRows(rows: CatalogEntry[], {
 }) {
   const phrase = normalizeSearch(query);
   const words = phrase.split(" ").filter(Boolean);
+  const benchQuery = phrase.match(/^([^ ]*?)(平板|上斜|下斜)([^ ]*)卧推$/);
+  const benchEquipment = benchQuery ? benchQuery[1] + benchQuery[3] : "";
   const preferredFamily = families && preferredFamilyForQuery(phrase);
   const modifiers = phrase.match(/杠铃|哑铃|壶铃|绳索|弹力带|自重|史密斯|器械|上斜|下斜|平板|跪姿|坐姿|站姿|单臂|单腿|负重|助力|后踢/g) ?? [];
   const groups = terms.map(termMuscles);
@@ -41,8 +43,11 @@ export function filterRows(rows: CatalogEntry[], {
     const ownText = [name, english, category].join(" ");
     const relatedText = [ownText, ...commonNames].join(" ");
     const familyMatch = modifiers.every((term) => ownText.includes(term)) && words.every((word) => relatedText.includes(word));
-    if (!words.every((word) => ownText.includes(word)) && !familyMatch) return false;
-    score.set(row.id, name === phrase || english === phrase ? 4 : familyMatch && commonNames.includes(phrase) ? 3 :
+    const benchMatch = benchQuery && (!benchEquipment || benchEquipment === label(row.equipment)) &&
+      /\bbench press\b/.test(english) && !/\b(?:floor|bridge|side lying|stability ball|exercise ball|form check|catch)\b/.test(english) &&
+      benchQuery[2] === (/\bincline(?:d)?\b/.test(english) ? "上斜" : /\bdecline(?:d)?\b/.test(english) ? "下斜" : "平板");
+    if (!words.every((word) => ownText.includes(word)) && !familyMatch && !benchMatch) return false;
+    score.set(row.id, name === phrase || english === phrase ? 4 : benchMatch || (familyMatch && commonNames.includes(phrase)) ? 3 :
       name.startsWith(phrase) || english.startsWith(phrase) ? 2 : 1);
     return true;
   });

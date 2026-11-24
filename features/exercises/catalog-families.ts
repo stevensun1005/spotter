@@ -1,5 +1,4 @@
 import type { CatalogEntry } from "./open-gym";
-import { label as translate } from "./labels";
 
 export type ExerciseFamily = {
   id: string;
@@ -64,7 +63,7 @@ const rules: Rule[] = [
   { id: "triceps-kickback", title: "俯身三头臂屈伸", action: /\bkickback\b/, targets: triceps, primary: "0333", aliases: ["三头后踢", "哑铃三头肌后踢", "哑铃俯身臂屈伸"] },
   { id: "overhead-extension", title: "过头臂屈伸", action: /\boverhead\b.*\b(?:triceps?\s+)?extension\b|\btriceps?\b.*\boverhead\b.*\bextension\b/, targets: triceps, aliases: ["过头三头肌伸展", "头上三头屈伸"] },
   { id: "lying-extension", title: "仰卧臂屈伸", action: /\b(?:lying|skull crusher|skullcrusher)\b.*\b(?:triceps?|extension)\b|\bskull crushers?\b/, targets: triceps, aliases: ["仰卧三头肌伸展", "碎颅者"] },
-  { id: "bench-press", title: "卧推", action: /\bbench press(?:es)?\b/, targets: chest, primary: "0025", aliases: ["杠铃卧推", "哑铃卧推", "上斜卧推", "平板卧推"], note: "平板是常见基准。上斜改变推举方向，单臂和哑铃版本可以分别控制两侧路径。" },
+  { id: "bench-press", title: "卧推", action: /\bbench press(?:es)?\b/, targets: chest, primary: "0025" },
   { id: "close-bench-press", title: "窄距卧推", action: /\bbench press(?:es)?\b/, targets: triceps, aliases: ["三头卧推", "窄握卧推"] },
   { id: "chest-press", title: "推胸", action: /\bchest press\b/, targets: chest, aliases: ["器械推胸", "绳索推胸", "坐姿推胸"] },
   { id: "chest-fly", title: "飞鸟夹胸", action: /\b(?:fly|flye|flyes|flies|pec deck|crossover)\b/, targets: chest, primary: "0308", aliases: ["哑铃飞鸟", "绳索夹胸", "夹胸", "胸飞鸟"] },
@@ -149,7 +148,6 @@ const reviewed: Record<string, string> = {
   "4960": "cable-triceps",
   "11051": "cable-triceps",
   "3719": "cable-triceps",
-  "0172": "lat-pulldown",
 };
 
 const specific: Record<string, { label: string; tip: string }> = {
@@ -233,32 +231,61 @@ function groupRule(row: CatalogEntry) {
     (!rule.exclude || !rule.exclude.test(name)) && rule.action.test(name));
 }
 
+// Keep names with changes to leverage, stance or angle separate. Only known qualifiers
+// describing the same exercise can be removed from the movement name.
+const minorVariation = /\b(?:pause|paused|palms in|(?:wide(?: reverse)?|narrow|reverse|neutral|overhand|underhand) grip)\b/g;
+
+function isReviewedCableFamily(row: CatalogEntry, rule: Rule | undefined, name: string) {
+  if (row.equipment !== cable || row.machine || row.needs?.length) return false;
+  switch (rule?.id) {
+    case "cable-triceps": return true;
+    case "glute-kickback": return /^cable (?:(?:standing|kneeling) )?(?:glute )?kickback$/.test(name);
+    case "straight-arm-pulldown": return /^cable (?:(?:standing )?lat pushdown|straight arm pulldown|pushdown straight arm)(?: (?:with rope(?: attachment)?|rope equipment))?$/.test(name);
+    case "lat-pulldown": return !/\b(?:incline|lying|behind neck|rear pulldown|standing|cross over|on floor)\b/.test(name);
+    default: return false;
+  }
+}
+
+function sameMovementName(name: string, rule: Rule | undefined) {
+  if (!rule) return name;
+  const normalized = name.replace(minorVariation, "").replace(/ +/g, " ").trim();
+  return rule.id === "bench-press" || rule.id === "close-bench-press"
+    ? normalized.replace(/\bflat (?=bench press\b)/, "").replace(/\bwide (?=bench press\b)/, "")
+    : normalized;
+}
+
 const fallbackTip = "可在详情核对器械、起始姿势和演示，再按自己现场的条件选择。";
 const cachedFamilies = new WeakMap<readonly CatalogEntry[], ReadonlyMap<string, ExerciseFamily>>();
 export function catalogFamilies(rows: readonly CatalogEntry[]): ReadonlyMap<string, ExerciseFamily> {
   const cached = cachedFamilies.get(rows);
   if (cached) return cached;
-  const groups = new Map<string, { rows: CatalogEntry[]; rule?: Rule }>();
+  const groups = new Map<string, { rows: CatalogEntry[]; movement: string; rule?: Rule; reviewed: boolean }>();
   for (const row of rows) {
     const rule = groupRule(row);
-    // Only ignore source version suffixes when English name, muscle and equipment still match.
-    const key = rule?.id ?? ["source", row.type, row.equipment, row.target, canonicalEnglish(baseName(row.en))].join(":");
+    const name = canonicalEnglish(baseName(row.en));
+    const reviewed = isReviewedCableFamily(row, rule, name);
+    const movement = sameMovementName(name, rule);
+    const equipment = [row.equipment, row.machine ?? "", (row.needs ?? []).slice().sort().join(",")];
+    const key = reviewed && rule ? rule.id :
+      [rule?.id ?? "source", ...equipment, row.type, row.target, movement].join(":");
     const group = groups.get(key);
     if (group) group.rows.push(row);
-    else groups.set(key, { rows: [row], rule });
+    else groups.set(key, { rows: [row], movement, rule, reviewed });
   }
 
   const byId = new Map<string, ExerciseFamily>();
-  for (const [id, { rows: members, rule }] of groups) {
+  for (const [id, { rows: members, movement, rule, reviewed }] of groups) {
     if (members.length < 2) continue;
     const primary = members.find((row) => row.id === rule?.primary)
+      ?? members.find((row) => canonicalEnglish(row.en) === movement)
       ?? members.find((row) => row.animation && baseName(row.en) === row.en.trim())
       ?? members.find((row) => baseName(row.en) === row.en.trim())
       ?? members[0];
+    const aliases = reviewed || primary.id === rule?.primary ? rule?.aliases : undefined;
     const family = {
-      id, title: rule?.title ?? baseName(primary.name), primary,
+      id, title: reviewed && rule ? rule.title : baseName(primary.name), primary,
       variants: [primary, ...members.filter((row) => row !== primary)],
-      aliases: rule?.aliases, note: rule?.note,
+      aliases, note: reviewed ? rule?.note : undefined,
     };
     for (const row of members) byId.set(row.id, family);
   }
@@ -269,18 +296,17 @@ export function catalogFamilies(rows: readonly CatalogEntry[]): ReadonlyMap<stri
 type VariantDetails = { label: string; tip: string };
 const cachedDetails = new WeakMap<ExerciseFamily, Map<string, VariantDetails>>();
 
-function conciseDetails(row: CatalogEntry, family: ExerciseFamily, variedEquipment: boolean): VariantDetails {
+function conciseDetails(row: CatalogEntry, family: ExerciseFamily): VariantDetails {
   const stored = specific[row.id];
   if (stored) return stored;
   const name = canonicalEnglish(row.en);
   const found = variantMarkers.filter(({ find, label }) => find.test(name) &&
     (label !== "跪姿" || !name.includes("half kneeling")) &&
     (label !== "卧姿" || !/\b(?:side lying|supine|prone)\b/.test(name)));
-  const gear = variedEquipment ? translate(row.equipment) : "";
   const tags = found.map(({ label }) => label);
   const distinctions = found.filter(({ label }) => label !== "站姿");
   return {
-    label: [gear, ...tags].filter(Boolean).join(" · ") || (row.id === family.primary.id ? "标准动作" : row.name),
+    label: tags.join(" · ") || (row.id === family.primary.id ? "标准动作" : row.name),
     tip: (distinctions.length ? distinctions.slice(0, 2) : found).map(({ tip }) => tip).join("") || family.note || fallbackTip,
   };
 }
@@ -288,11 +314,10 @@ function conciseDetails(row: CatalogEntry, family: ExerciseFamily, variedEquipme
 export function variantDetails(row: CatalogEntry, family: ExerciseFamily): VariantDetails {
   let details = cachedDetails.get(family);
   if (!details) {
-    const differentEquipment = family.variants.some((variant) => variant.equipment !== family.primary.equipment);
     details = new Map();
     const byLabel = new Map<string, CatalogEntry[]>();
     for (const variant of family.variants) {
-      const detail = conciseDetails(variant, family, differentEquipment);
+      const detail = conciseDetails(variant, family);
       details.set(variant.id, detail);
       const matches = byLabel.get(detail.label);
       if (matches) matches.push(variant);
@@ -313,5 +338,5 @@ export function variantDetails(row: CatalogEntry, family: ExerciseFamily): Varia
     }
     cachedDetails.set(family, details);
   }
-  return details.get(row.id) ?? conciseDetails(row, family, false);
+  return details.get(row.id) ?? conciseDetails(row, family);
 }

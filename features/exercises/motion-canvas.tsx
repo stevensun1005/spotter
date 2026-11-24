@@ -49,6 +49,11 @@ function draw(context: CanvasRenderingContext2D, motion: Illustration, elapsed: 
   for (const [kind, index, x, y] of motion.dynamic ?? []) {
     const joint = points[index];
     if (!joint) continue;
+    if (kind === "knee-band") {
+      const aboveKnee = ([px, py]: Point): Point => [px + (points[2][0] - px) * 0.18, py + (points[2][1] - py) * 0.18];
+      stroke("#e2c678", 4, [aboveKnee(joint), aboveKnee(points[x])]);
+      continue;
+    }
     if (kind === "cable" || kind === "band" || kind === "line" || kind === "bar") {
       const anchor = y === undefined ? points[x] : [x, y] as Point;
       if (anchor) stroke("#e2c678", kind === "bar" ? 4 : 2, [anchor, joint]);

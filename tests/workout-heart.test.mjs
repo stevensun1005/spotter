@@ -296,6 +296,20 @@ test("workout guidance covers custom variants and preserves Y-shaped exercise na
   assert.match(researchedGuide("站姿正握慢放弯举").steps.join(" "), /掌心/);
 });
 
+test("catalogue demos follow the selected exercise and apply only reviewed corrections", async () => {
+  const { catalogueMotion } = await import("../features/exercises/motion-data.ts");
+  const { rows } = JSON.parse(readFileSync(new URL("../public/open-gym/index.json", import.meta.url), "utf8"));
+  const demo = (id) => catalogueMotion(rows.find((row) => row.id === id));
+  for (const id of ["0025", "0047", "0289", "0314"]) assert.equal(demo(id).id, id);
+  assert.equal(demo("6813").id, "0025");
+  assert.equal(demo("8297").id, "0237");
+  assert.equal(demo("0979").id, "1015");
+  for (const id of ["1015", "0176", "1671", "8299", "11253", "3863", "2906", "4029", "2473", "7743", "3525", "5066", "0564", "5473"]) {
+    assert.equal(demo(id).id, undefined);
+    assert.ok(demo(id).illustration.frames.length > 1, id);
+  }
+});
+
 test("exercise animations slow existing loops and keep plan variants distinct", async () => {
   const { exerciseMotion, slowFrameMs } = await import("../features/exercises/motion-data.ts");
   assert.equal(slowFrameMs(180), 360);

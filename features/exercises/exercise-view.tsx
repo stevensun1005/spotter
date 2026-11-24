@@ -11,9 +11,8 @@ import { exerciseHistory } from "./history";
 import { ExerciseProgress } from "./progress";
 import { MuscleBreakdown } from "./anatomy";
 import { ExerciseAnimation } from "./exercise-animation";
-import { exerciseMotion } from "./motion-data";
-import poseSources from "./workout-guide-motions.json" with { type: "json" };
-import flowSources from "./flow-motion-equivalents.json" with { type: "json" };
+import { catalogueMotion, exerciseMotion } from "./motion-data";
+import { catalogueVideo } from "./catalogue-video";
 import { fromCatalogue, useCatalogue, useCatalogDetail, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 import { label as translate } from "./labels";
 import { exerciseMuscles, researchedGuide } from "./guidance";
@@ -21,9 +20,6 @@ import { GuideEditor } from "./guide-editor";
 import { exerciseTempo, tempoNotationHint } from "./tempo";
 import { catalogFamilies, variantDetails } from "./catalog-families";
 import { FamilyVariantOptions } from "./family-chooser";
-
-const poseMotions: Record<string, string> = poseSources;
-const flowMotions: Record<string, string> = flowSources;
 
 const sections = [
   { id: "guide", label: "要点", icon: BookOpen }, { id: "history", label: "历史", icon: Clock3 },
@@ -71,19 +67,28 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
   const { name, catalogueId } = choice;
   const profile = profiles.find((item) => item.name === name) ?? blankProfile(name);
   const base = profile.versionOf ?? name;
-  const guide = guides[base];
   const detail = useCatalogDetail(item?.id);
   const inherited = profiles.find((entry) => entry.name === base)?.guide;
   const personal = profile.guide ?? inherited;
-  const referenceName = choice.sourceName && researchedGuide(choice.sourceName) ? choice.sourceName : base;
-  const reference = researchedGuide(referenceName);
+  const plannedName = choice.sourceName && researchedGuide(choice.sourceName) ? choice.sourceName : base;
+  const plannedGuide = researchedGuide(plannedName);
+  const customMove = Boolean(profile.versionOf || choice.sourceName || (choice.trainingCategory && plannedGuide)
+    || (!item && (!choice.catalogueId || data)));
+  const exact = customMove ? undefined : item;
+  const guide = customMove ? guides[base] : undefined;
+  const referenceName = exact?.name ?? plannedName;
+  const reference = customMove ? plannedGuide : undefined;
   const demo = reference?.demoCatalogueId
     ? fromCatalogue(data, { name: referenceName, catalogueId: reference.demoCatalogueId })
     : item;
-  const motion = exerciseMotion(name, base, choice.sourceName, demo?.id, demo?.animation);
-  const animationId = motion.id ?? (!motion.illustration && demo ? flowMotions[demo.id] : undefined);
-  const poseSlug = !motion.illustration && demo ? poseMotions[demo.id] : undefined;
-  const weights = exerciseMuscles(referenceName, item, personal);
+  const namedMotion = customMove ? exerciseMotion(name, base, plannedGuide ? plannedName : choice.sourceName, demo?.id) : undefined;
+  const exactMotion = demo ? catalogueMotion(demo) : undefined;
+  const animationId = namedMotion?.id ?? (namedMotion?.illustration ? undefined : exactMotion?.id);
+  const illustration = namedMotion?.illustration ?? exactMotion?.illustration;
+  const poseSlug = namedMotion?.illustration ? undefined : exactMotion?.poseSlug;
+  const video = demo && !namedMotion?.illustration && !namedMotion?.id ? catalogueVideo(demo.id) : undefined;
+  const weights = exact && !Object.keys(personal?.muscles ?? {}).length && Object.keys(exact.muscles).length
+    ? exact.muscles : exerciseMuscles(referenceName, item, personal);
   const steps = personal?.steps.length ? personal.steps : reference?.steps ?? (detail?.data?.steps.length ? detail.data.steps : guide?.steps);
   const description = personal?.description || reference?.description || detail?.data?.description;
   const cadence = exerciseTempo(choice, item, choice.trainingCategory);
@@ -120,8 +125,8 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
     <div className="dialog-body feature-stack">
       {error && <p className="inline-error" role="alert">{error}</p>}
       {tab === "guide" && <>
-        {animationId || motion.illustration || poseSlug ? <ExerciseAnimation key={animationId ?? poseSlug ?? referenceName}
-          id={animationId} illustration={motion.illustration} poseSlug={poseSlug} name={referenceName} /> :
+        {video || animationId || illustration || poseSlug ? <ExerciseAnimation key={demo?.id ?? referenceName}
+          id={animationId} illustration={illustration} poseSlug={poseSlug} video={video} name={referenceName} /> :
           guide?.photos ? <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} /> :
           item && <p className="muted catalogue-detail-label">此动作暂无已核对的动画。</p>}
         {referenceName !== base && <p className="muted catalogue-detail-label">{referenceName}</p>}
