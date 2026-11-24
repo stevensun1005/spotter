@@ -1,0 +1,160 @@
+.app.app-history {
+  display: grid;
+  height: 100dvh;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: clip;
+}
+.app-history .stage { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.app-history .primary-nav { position: static; }
+.app-history .content {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  min-height: 0;
+  padding-block: 12px;
+}
+.app-history .history-layout { grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
+.app-history .stats-page-tabs { max-width: 720px; }
+
+.history-calendar {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  width: min(100%, 720px);
+  margin-inline: auto;
+}
+.history-calendar [data-person=self] { --history-tone: #476a42; --history-tint: #e9f3e3; }
+.history-calendar [data-person=partner] { --history-tone: #694b99; --history-tint: #f0e8f9; }
+
+.history-month-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  min-height: 0;
+  padding: clamp(9px, 2.8vw, 17px);
+}
+.history-month-bar { display: flex; align-items: center; justify-content: space-between; gap: 7px; }
+.history-month-bar h2 time { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.history-month-bar h2 span { color: var(--muted); font-size: .86rem; font-weight: 650; }
+.history-month-bar h2 strong { font-size: clamp(1.3rem, 5.7vw, 2rem); font-weight: 820; letter-spacing: -.05em; }
+.history-month-bar .steppers { gap: 4px; }
+.history-month-bar .icon-button { width: 42px; height: 42px; border-radius: 10px; }
+.history-month-bar .history-filter { position: relative; cursor: pointer; }
+.history-filter[data-filtered] { background: #e5f1d6; border-color: #9fbc91; }
+.history-filter select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.history-filter:focus-within { outline: 2px solid #476a42; outline-offset: 2px; }
+
+.history-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 2px 3px;
+  min-height: 0;
+}
+.history-weekday { padding-block: 3px; color: var(--muted); text-align: center; font-size: .76rem; font-weight: 690; }
+.history-cell {
+  display: grid;
+  grid-template-rows: minmax(0, 1.05fr) repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  min-width: 0;
+  min-height: 0;
+  border-top: 1px solid var(--stroke);
+}
+.history-cell[data-outside] { color: var(--muted); }
+.history-date {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  align-self: start;
+  height: min(100%, 35px);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: .84rem;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+.history-date:hover { background: #edf5e9; }
+.history-date > span {
+  display: grid;
+  place-items: center;
+  height: min(100%, 24px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+.history-date[aria-current=date] > span { color: white; background: #375b3b; }
+.history-date > small { color: #476a42; font-size: .61rem; font-weight: 790; }
+.history-calendar-record {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  max-height: 32px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--history-tone);
+  color: white;
+  font-size: clamp(.58rem, 2.4vw, .75rem);
+  font-weight: 720;
+  line-height: 1.13;
+  text-align: left;
+}
+.history-calendar-record > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.history-calendar-record:hover { filter: brightness(1.13); }
+.history-calendar-record:focus-visible, .history-date:focus-visible { outline-offset: -2px; }
+.history-key { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: .76rem; color: var(--muted); }
+.history-key span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.history-key i { flex: none; width: 12px; height: 7px; border-radius: 10px; background: var(--history-tone); }
+
+@media (max-width: 840px) {
+  .app-history .content { padding-block: 8px; }
+}
+@media (max-height: 660px) {
+  .app.app-history { --primary-nav-height: 54px; --primary-nav-bottom: calc(5px + env(safe-area-inset-bottom, 0px)); }
+  .app-history .content { padding-block: 5px; }
+  .app-history .stats-page-tabs > button { min-height: 36px; }
+  .history-month-card { gap: 3px; padding-block: 7px; }
+  .history-month-bar .icon-button { width: 36px; height: 36px; }
+  .history-calendar-record > span { -webkit-line-clamp: 1; }
+  .history-date { font-size: .76rem; }
+}
+
+.history-day-list { display: grid; gap: 8px; min-width: 0; }
+.history-no-records { color: var(--muted); font-size: .88rem; padding-block: 4px; }
+.history-day-record {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 19px;
+  align-items: center;
+  gap: 10px;
+  min-height: 61px;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  padding: 8px;
+  background: white;
+  color: var(--text);
+  text-align: start;
+}
+.history-day-record:hover { background: var(--history-tint); }
+.history-day-record > svg { color: var(--history-tone); }
+.history-record-icon { display: grid; place-items: center; height: 40px; border-radius: 10px; color: var(--history-tone); background: var(--history-tint); }
+.history-record-label { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.history-record-label strong { font-size: .94rem; font-weight: 760; line-height: 1.3; }
+.history-record-label small { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: var(--muted); font-size: .75rem; }
+.history-owner { border-radius: 999px; padding: 1px 5px; color: var(--history-tone); background: var(--history-tint); font-weight: 750; }
+.history-day-sort-row { display: flex; gap: 6px; align-items: center; }
+.history-day-sort-row > .history-day-record { flex: 1; min-width: 0; }
+.history-day-sort-row > .history-day-record:disabled { opacity: 1; }
+.history-day-sort-controls { display: flex; gap: 4px; flex: none; }

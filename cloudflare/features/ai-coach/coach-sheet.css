@@ -1,0 +1,183 @@
+.coach-sheet:not([open]) { display: none; }
+.coach-sheet[open]:not([data-size]) {
+  position: static;
+  margin: 0;
+  inline-size: 100%;
+  max-inline-size: none;
+  max-block-size: none;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  background: transparent;
+  color: inherit;
+}
+
+.coach-conversation { display: contents; }
+.coach-sheet[data-size] {
+  --canvas: #14201a;
+  --card: #202e25;
+  --dark: #18251d;
+  --text: #f0f5ee;
+  --muted: #afc0b3;
+  --stroke: #3b5144;
+  --mint: #2a4132;
+  --coach-sheet-available: calc(var(--coach-viewport-height, 100dvh) - max(8px, env(safe-area-inset-top, 0px)));
+  --coach-sheet-target: min(510px, max(310px, calc(var(--coach-viewport-height, 100dvh) * .5)));
+  --coach-sheet-inset: clamp(12px, 4vw, 22px);
+  color-scheme: dark;
+  position: fixed;
+  inset: auto 0 var(--coach-viewport-bottom, 0px);
+  margin: 0 auto;
+  inline-size: min(690px, 100% - 16px);
+  block-size: clamp(0px, calc(var(--coach-sheet-target) - var(--coach-sheet-drag-offset, 0px)), var(--coach-sheet-available));
+  max-inline-size: none;
+  max-block-size: none;
+  min-inline-size: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0;
+  border: 1px solid var(--stroke);
+  border-block-end: 0;
+  border-radius: 23px 23px 0 0;
+  background: radial-gradient(ellipse at top right, #2e4d37 0%, transparent 72%), var(--canvas);
+  color: var(--text);
+  box-shadow: 0 -14px 48px #0819106e;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  transition: block-size 190ms ease, border-radius 190ms ease;
+}
+.coach-sheet[data-size][open] { display: grid; }
+.coach-sheet[data-size="full"] { --coach-sheet-target: var(--coach-sheet-available); }
+.coach-sheet[data-dragging] { transition: none; }
+.coach-sheet[data-size]::backdrop { background: #111c1466; }
+:root:has(.coach-sheet[data-size][open]) { overflow: hidden; }
+
+.coach-sheet-header {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 350px) 44px;
+  justify-content: space-between;
+  align-items: center;
+  column-gap: 5px;
+  min-block-size: 53px;
+  padding: 4px max(var(--coach-sheet-inset), env(safe-area-inset-right, 0px)) 4px max(var(--coach-sheet-inset), env(safe-area-inset-left, 0px));
+  border-block-end: 1px solid #b6d2b022;
+}
+.coach-sheet-handle, .coach-sheet-close {
+  display: grid;
+  place-items: center;
+  block-size: 44px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.coach-sheet-handle {
+  inline-size: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+.coach-sheet[data-dragging] .coach-sheet-handle { cursor: grabbing; }
+.coach-sheet-handle > span { inline-size: 25px; block-size: 5px; border-radius: 99px; background: #adc4b2; }
+.coach-sheet-close { justify-self: end; inline-size: 44px; }
+.coach-sheet :is(.coach-sheet-close, .coach-sheet-handle):hover { background: #dcefd31a; color: var(--text); }
+.coach-sheet[data-size] :focus-visible { outline-color: var(--lime); }
+
+.coach-sheet[data-size] .coach-sheet-body {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 10px max(var(--coach-sheet-inset), env(safe-area-inset-right, 0px)) max(9px, env(safe-area-inset-bottom, 0px)) max(var(--coach-sheet-inset), env(safe-area-inset-left, 0px));
+}
+.coach-sheet[data-size] :is(.plan-assistant, .plan-assistant > div:not([hidden]):has(> .coach-surface)) {
+  display: contents;
+}
+.coach-sheet[data-size] .coach-surface {
+  --coach-evergreen: #44694d;
+  --coach-nav-space: 0px;
+  --coach-choice: #2c4534;
+  display: grid;
+  flex: 1;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-block-size: 0;
+  gap: 9px;
+}
+.coach-sheet[data-size] .coach-conversation {
+  display: grid;
+  align-content: start;
+  gap: 11px;
+  min-inline-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 2px;
+  scroll-padding-block: 4px;
+}
+.coach-sheet[data-size] .coach-thread-anchor { scroll-margin-block-end: 5px; }
+.coach-sheet[data-size] .coach-welcome-compact {
+  padding: 11px 13px 13px;
+  border: 1px solid #75967e6e;
+  border-radius: 15px;
+  background: #273f30af;
+}
+.coach-welcome-compact h2 { font-size: clamp(1.05rem, 4vw, 1.24rem); font-weight: 780; }
+.coach-welcome-compact p { margin-block-start: 5px; color: var(--muted); font-size: .91rem; line-height: 1.5; }
+.coach-sheet[data-size] .coach-composer {
+  position: static;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.coach-sheet[data-size] .coach-composer-field textarea { font-size: max(16px, 1rem); max-block-size: min(105px, 22dvh); }
+.coach-sheet[data-size] .coach-composer-field { border-color: #617965; }
+.coach-sheet[data-size] .coach-composer-field:focus-within { border-color: var(--lime); }
+.coach-sheet[data-size] .coach-send:not(:disabled) { background: var(--lime); color: var(--dark); }
+.coach-sheet[data-size] .coach-composer-note { padding-inline: 2px; }
+.coach-suggestions {
+  display: flex;
+  gap: 7px;
+  min-inline-size: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  padding: 4px 3px;
+}
+.coach-suggestions > button {
+  flex: none;
+  min-block-size: 42px;
+  padding: 5px 12px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: var(--coach-choice);
+  color: var(--text);
+  font-size: .84rem;
+  font-weight: 690;
+  white-space: nowrap;
+}
+.coach-suggestions > button:hover { background: var(--card); }
+.coach-sheet[data-size] .coach-suggestions > button { border-color: #9db9a2; background: #dae9d2; color: #1c3827; }
+.coach-sheet[data-size] .coach-suggestions > button:hover { background: var(--lime); }
+.coach-sheet[data-size] :is(.button.outline, .button.subtle, .icon-button, .form-fields input, .form-fields select, .form-fields textarea) {
+  border-color: var(--stroke);
+  background: var(--card);
+  color: var(--text);
+}
+.coach-sheet[data-size] :is(.button.outline, .button.subtle, .icon-button):not(:disabled):hover { background: var(--mint); }
+.coach-sheet[data-size] .text-button { color: #c2e0b5; }
+.coach-sheet[data-size] .inline-error { color: #ffb7b4; }
+
+@media (max-width: 580px) {
+  .coach-sheet[data-size="full"] { inline-size: 100%; border-radius: 17px 17px 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach-sheet[data-size] { transition: none; }
+}

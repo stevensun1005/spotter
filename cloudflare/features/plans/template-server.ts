@@ -1,0 +1,18 @@
+// Look up only the owner's template. Plans received from a partner keep their shared snapshot.
+export const ownTemplateJoin =
+  " LEFT JOIN personal_library t ON e.kind = 'plan' AND e.owner = ? AND t.owner = e.owner AND t.kind = 'template'" +
+  " AND t.id = json_extract(e.payload, '$.templateId') ";
+
+export function freezeTemplatePlans(db: D1Database, owner: string, templateId: string, now: string, revision?: string) {
+  return db.prepare(
+    "UPDATE entries AS e SET payload = json_patch(" +
+    "json_remove(e.payload, '$.templateId', '$.ownExercises', '$.category', '$.minutes', '$.durationNote', '$.defaultRestSeconds', '$.video'), " +
+    "json_remove(json_extract(t.payload, '$.plan'), '$.title', '$.date', '$.shared', '$.templateId', '$.week', '$.day'," +
+    "'$.programId', '$.programSessionId', '$.phaseId', '$.ownExercises', " +
+    "CASE WHEN json_extract(e.payload,'$.ownExercises') = 1 THEN '$.exercises' ELSE '$.ownExercises' END)" +
+    "), updated = CASE WHEN julianday(e.updated) >= julianday(?) THEN strftime('%Y-%m-%dT%H:%M:%fZ', e.updated, '+0.001 seconds') ELSE ? END " +
+    "FROM personal_library t " +
+    "WHERE e.owner = ? AND e.kind = 'plan' AND t.owner = e.owner AND t.kind = 'template' AND t.id = ? " +
+    "AND t.id = json_extract(e.payload, '$.templateId')" + (revision ? " AND t.updated=?" : "")
+  ).bind(now, now, owner, templateId, ...(revision ? [revision] : []));
+}

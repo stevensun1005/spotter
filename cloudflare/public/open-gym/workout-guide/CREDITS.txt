@@ -1,0 +1,7 @@
+动作分帧示意 / Workout Guide artwork
+
+Frames by Bryl Lim (https://bryllim.com/), with credited original pose artwork by Everkinetic.
+Upstream source: https://github.com/bryllim/workout-guide/tree/aac599224bb9780305239607ef98540b7e0ce389
+License: Creative Commons Attribution-ShareAlike 4.0 International (https://creativecommons.org/licenses/by-sa/4.0/).
+The SVG frames are unchanged. Spotter has selected the corresponding exercise, renamed the files and sequences the frames in the player.
+See attribution.json for the upstream URL and attribution of every frame, including links and changes for adapted Everkinetic work.

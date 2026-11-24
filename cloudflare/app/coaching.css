@@ -1,0 +1,151 @@
+.coaching-workspace { display: grid; gap: 22px; min-width: 0; }
+.coaching-workspace .button.small, .coach-connect-dialog .button.small, .coach-send-dialog .button.small, .coach-assignment-dialog .button.small { font-size: .875rem; }
+.coaching-workspace p, .coach-connect-dialog p, .coach-send-dialog p, .coach-assignment-dialog p { line-height: 1.6; }
+.coach-intro { display: grid; gap: 17px; padding: 22px; border-color: #d6e4c8; background: #edf4e5; }
+.coach-intro-copy { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 14px; }
+.coach-intro-copy .tile { width: 52px; height: 52px; border-radius: 15px; }
+.coach-intro h2 { font-size: 1.4rem; line-height: 1.35; margin-bottom: 6px; }
+.coach-intro-copy p { color: #52654d; max-width: 68ch; }
+.coach-toolbar, .coach-role-heading, .coach-section-heading, .coach-card-heading, .coach-assignment-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.coach-toolbar { justify-content: flex-start; }
+.coach-section-heading h3, .coach-connect-dialog h3 { display: flex; align-items: center; gap: 7px; font-size: 1.12rem; }
+.coach-privacy { display: flex; gap: 8px; align-items: start; color: #4a6441; font-size: .9rem; }
+.coach-privacy svg { flex: none; margin-top: 3px; }
+.coach-tabs { display: flex; flex-wrap: wrap; gap: 7px; }
+.coach-tabs button { display: inline-flex; gap: 7px; align-items: center; padding: 10px 13px; min-height: 44px; background: #fff; border: 1px solid var(--stroke); border-radius: 10px; font-size: .9rem; font-weight: 720; color: #53634f; }
+.coach-tabs button[aria-pressed=true] { background: var(--lime); color: #2d471f; border-color: #b5d589; }
+.coach-tabs button > span { font-size: .875rem; padding: 2px 6px; border-radius: 6px; background: #edf2e6; }
+.coach-tabs button > .coach-unread { background: #dbecc1; }
+.coach-role-heading .coach-tabs button { white-space: nowrap; }
+.coach-role-heading .coach-tabs button > svg { flex: none; }
+.coach-person-list, .coach-assignment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; min-width: 0; }
+.coach-person-card, .coach-assignment-card { display: grid; align-content: start; gap: 15px; padding: 18px; min-width: 0; }
+.coach-person-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.coach-person-heading > div { min-width: 0; }
+.coach-person-heading h4, .coach-card-heading h4 { font-size: 1.12rem; margin: 0; overflow-wrap: anywhere; line-height: 1.4; }
+.coach-person-heading p, .coach-card-heading p { font-size: .9rem; color: var(--muted); margin-top: 4px; }
+.coach-card-heading { align-items: start; }
+.coach-card-heading > div { min-width: 0; }
+.coach-meta { display: flex; flex-wrap: wrap; gap: 7px 14px; color: var(--muted); font-size: .875rem; line-height: 1.5; }
+.coach-meta > span { display: inline-flex; align-items: center; gap: 5px; }
+.coach-option { display: flex; gap: 10px; align-items: start; font-size: .9rem; line-height: 1.55; cursor: pointer; }
+.coach-option input { flex: none; width: 19px; height: 19px; margin-top: 3px; accent-color: #45662d; }
+.coach-option > span { min-width: 0; display: grid; gap: 5px; }
+.coach-option strong { font-weight: 650; }
+.coach-option small { font-size: .875rem; color: var(--muted); }
+.coach-disconnect { display: inline-flex; align-items: center; gap: 5px; justify-self: start; font-size: .875rem; color: #65715f; }
+.coach-self-start { justify-self: start; }
+.coach-empty { padding: 30px 20px; display: grid; gap: 13px; justify-items: center; text-align: center; }
+.coach-empty h3, .coach-empty h2 { font-size: 1.18rem; }
+.coach-empty p { color: var(--muted); max-width: 47ch; line-height: 1.6; }
+.coach-empty-small { padding: 23px 20px; }
+.coach-state, .coach-role { display: inline-flex; align-items: center; border-radius: 7px; padding: 5px 9px; background: #edf2e7; color: #526549; font-size: .875rem; font-weight: 700; white-space: nowrap; }
+.coach-state[data-state=pending] { background: #f8efd8; color: #755c28; }
+.coach-state[data-state=accepted], .coach-state[data-state=completed] { background: #e6f1d8; color: #3a5e26; }
+.coach-state[data-state=inProgress] { background: #eeebf8; color: #655280; }
+.coach-role { background: #f0edf7; color: #67557c; }
+.coach-progress-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; color: #52634d; font-size: .875rem; }
+.coach-progress-summary progress { width: 100%; height: 8px; border: 0; overflow: hidden; border-radius: 20px; accent-color: #7d9e54; }
+.coach-progress-summary progress::-webkit-progress-bar { background: #edf1e8; border-radius: 20px; }
+.coach-progress-summary progress::-webkit-progress-value { background: #9ec568; border-radius: 20px; }
+.coach-notice { display: flex; gap: 8px; align-items: start; padding: 12px 13px; border-radius: 10px; background: #f0f5e9; border: 1px solid #dce6d1; color: #4b6240; font-size: .9rem; }
+.coach-notice.feature-stack { display: grid; }
+.coach-notice > svg { flex: none; margin-top: 2px; }
+.coach-connect-dialog { width: min(650px, calc(100% - 20px)); }
+.coach-send-dialog, .coach-assignment-dialog { width: min(800px, calc(100% - 20px)); }
+.coach-connect-dialog label:not(.coach-option), .coach-send-dialog label, .coach-feedback label { display: grid; gap: 7px; font-size: .9rem; font-weight: 650; }
+.coach-connect-dialog input:not([type=checkbox]), .coach-send-dialog input, .coach-send-dialog select, .coach-connect-dialog textarea, .coach-send-dialog textarea, .coach-feedback textarea { width: 100%; min-width: 0; font-size: 1rem; }
+.coach-fieldset { min-width: 0; border: 0; margin: 0; }
+.coach-consent, .coach-invite-box { padding: 16px; border: 1px solid #d7e3cc; border-radius: 12px; background: #f5f8f0; }
+.coach-invite-box input { font-family: monospace; }
+.coach-recipient { display: flex; align-items: center; gap: 9px; font-size: 1.05rem; }
+.coach-message { padding: 14px; background: #f5f7f1; border: 1px solid var(--stroke); border-radius: 11px; display: grid; gap: 8px; }
+.coach-message p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.coach-message h3 { font-size: 1.05rem; }
+.coach-source-preview { padding: 15px; border: 1px solid var(--stroke); border-radius: 12px; min-width: 0; }
+.coach-source-preview > h3 { font-size: 1.12rem; overflow-wrap: anywhere; }
+.coach-program-content, .coach-plan-content { display: grid; gap: 13px; min-width: 0; }
+.coach-plan-content > .muted { font-size: .9rem; }
+.coach-phases { display: flex; flex-wrap: wrap; gap: 6px; }
+.coach-phases > span { border-radius: 7px; padding: 5px 8px; font-size: .875rem; background: #edf3e8; color: #53664d; }
+.coach-week-list { display: grid; gap: 9px; }
+.coach-week-list > details { border: 1px solid var(--stroke); border-radius: 10px; overflow: hidden; }
+.coach-week-list summary, .coach-full-program > summary { cursor: pointer; display: flex; gap: 10px; justify-content: space-between; align-items: start; padding: 13px; background: #f4f7ef; font-size: .95rem; font-weight: 700; list-style: none; }
+.coach-week-list summary::after, .coach-full-program > summary::after { content: "+"; font-size: 1rem; font-weight: 500; color: #65765d; }
+.coach-week-list details[open] > summary::after, .coach-full-program[open] > summary::after { content: "−"; }
+.coach-week-list summary > span:last-child, .coach-full-program > summary > span { margin-left: auto; color: var(--muted); font-size: .875rem; font-weight: 500; white-space: nowrap; }
+.coach-week-sessions { padding: 10px; display: grid; gap: 9px; }
+.coach-session-outline { border: 1px solid var(--stroke); border-radius: 9px; overflow: hidden; }
+.coach-session-outline > summary { background: #fff; }
+.coach-session-outline > summary > span:first-child { display: grid; gap: 4px; min-width: 0; }
+.coach-session-outline strong { overflow-wrap: anywhere; }
+.coach-session-outline small { color: var(--muted); font-size: .875rem; font-weight: 400; }
+.coach-session-outline > .coach-plan-content { padding: 12px; border-top: 1px solid var(--stroke); }
+.coach-move-list { list-style: none; display: grid; gap: 13px; padding: 0; margin: 0; }
+.coach-move-list > li { display: grid; gap: 5px; border-top: 1px solid var(--stroke); padding-top: 12px; font-size: .95rem; overflow-wrap: anywhere; }
+.coach-move-list > li > span { font-size: .9rem; }
+.coach-move-list small { font-size: .875rem; line-height: 1.5; color: var(--muted); }
+.coach-move-list small:empty { display: none; }
+.coach-move-list p { color: #52634b; font-size: .9rem; }
+.coach-full-program { border: 1px solid var(--stroke); border-radius: 11px; overflow: hidden; }
+.coach-full-program > .coach-program-content { padding: 13px; border-top: 1px solid var(--stroke); }
+.coach-preview-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.coach-preview-counts > div { display: grid; gap: 4px; border-radius: 9px; padding: 13px 8px; background: #edf3e6; text-align: center; }
+.coach-preview-counts strong { font-size: 1.3rem; color: #37552c; }
+.coach-preview-counts span { font-size: .875rem; color: var(--muted); }
+.coach-preview-list, .coach-session-progress { list-style: none; padding: 0; margin: 0; border: 1px solid var(--stroke); border-radius: 10px; overflow: hidden; }
+.coach-preview-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; align-items: start; padding: 12px; border-bottom: 1px solid var(--stroke); }
+.coach-preview-list > li:last-child, .coach-session-progress > li:last-child { border-bottom: 0; }
+.coach-preview-list > li > div { display: grid; gap: 5px; min-width: 0; }
+.coach-preview-list strong { font-size: .95rem; line-height: 1.4; overflow-wrap: anywhere; }
+.coach-preview-list small { font-size: .875rem; color: var(--muted); line-height: 1.5; }
+.coach-session-progress > li { padding: 13px; border-bottom: 1px solid var(--stroke); display: grid; gap: 10px; }
+.coach-progress-heading { display: flex; gap: 9px; justify-content: space-between; align-items: start; }
+.coach-progress-heading > div { display: grid; gap: 5px; min-width: 0; }
+.coach-progress-heading strong { font-size: .95rem; overflow-wrap: anywhere; }
+.coach-progress-heading small { font-size: .875rem; color: var(--muted); }
+.coach-session-progress details > summary { cursor: pointer; color: #526b43; font-size: .9rem; font-weight: 650; }
+.coach-actual { display: grid; gap: 13px; margin-top: 12px; }
+.coach-actual strong { font-size: .95rem; }
+.coach-actual ul { list-style: none; padding: 0; display: grid; gap: 8px; margin-top: 8px; }
+.coach-actual li { display: flex; justify-content: space-between; gap: 10px; font-size: .875rem; line-height: 1.5; }
+.coach-actual li > span:last-child { text-align: right; }
+.coach-assignment-actions { flex-wrap: wrap; }
+.coach-assignment-actions .button { min-height: 42px; }
+.coach-learner-period { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 5px; align-items: center; text-align: center; }
+.coach-learner-period > strong { font-size: .875rem; }
+.coach-learner-totals { grid-template-columns: repeat(auto-fit, minmax(min(100%, 94px), 1fr)); }
+.coach-lesson-list p { overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 700px) {
+  .coach-person-list, .coach-assignment-list { grid-template-columns: minmax(0, 1fr); }
+  .coach-intro { padding: 17px; }
+  .coach-intro h2 { font-size: 1.2rem; }
+  .coach-intro-copy { grid-template-columns: minmax(0, 1fr); gap: 11px; }
+  .coach-intro-copy .tile { width: 44px; height: 44px; }
+  .coach-person-card, .coach-assignment-card { padding: 15px; }
+  .coach-role-heading > .coach-tabs { flex: 1 0 auto; max-width: 100%; }
+  .coach-tabs button { flex: 1; justify-content: center; }
+  .coach-role-heading .coach-tabs button { flex: 1 0 auto; gap: 5px; padding-inline: 9px; }
+  .coach-role-heading > .coach-refresh { width: 44px; min-height: 44px; justify-content: center; padding: 0; margin-left: auto; }
+  .coach-refresh > span { display: none; }
+  .coach-unread > span { display: none; }
+  .coach-connect-dialog .coach-tabs { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .coach-preview-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .coach-preview-list > li { grid-template-columns: minmax(0, 1fr); }
+  .coach-preview-list .coach-state { justify-self: start; }
+  .coach-consent, .coach-invite-box { padding: 13px; }
+  .coach-source-preview { padding: 12px; }
+  .coach-week-sessions { padding: 7px; }
+  .coach-session-outline > summary { flex-wrap: wrap; }
+  .coach-session-outline > summary > span:last-child { margin-left: 0; }
+  .coach-assignment-actions { gap: 8px; }
+  .coach-assignment-actions > .button.primary { flex: 1 1 100%; }
+}
+@media (max-width: 390px) {
+  .coach-tabs button { padding-inline: 9px; }
+  .coach-progress-summary { grid-template-columns: minmax(0, 1fr); gap: 7px; }
+  .coach-intro .coach-toolbar > .button { flex: 1; }
+  .coach-card-heading { gap: 8px; }
+  .coach-full-program > summary { flex-wrap: wrap; }
+  .coach-full-program > summary > span { margin-left: 0; }
+}

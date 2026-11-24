@@ -1,0 +1,47 @@
+.plan-assistant { min-width: 0; }
+.content.content-coach { max-width: 800px; padding-top: 0; }
+.ai-assistant-header {
+  position: sticky; inset-block-start: 0; z-index: 10; display: grid;
+  grid-template-columns: 42px minmax(0, 340px); align-items: center; gap: 8px;
+  margin-inline: calc(-1 * var(--page-gutter));
+  padding: calc(5px + env(safe-area-inset-top)) var(--page-gutter) 5px;
+  background: var(--canvas); border-bottom: 1px solid var(--stroke);
+}
+.ai-assistant-back.icon-button { width: 42px; height: 42px; border-radius: 11px; }
+.ai-assistant-tabs {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 2px;
+  border: 1px solid var(--stroke); border-radius: 11px; background: var(--card);
+}
+.ai-assistant-tabs > button {
+  min-height: 36px; padding: 3px 6px; border: 0; border-radius: 8px;
+  color: var(--muted); background: transparent; font-size: .875rem; font-weight: 700; white-space: nowrap;
+}
+.ai-assistant-tabs > button[aria-pressed=true] { background: var(--lime); color: var(--dark); }
+.plan-assistant h2 { display: flex; align-items: center; gap: 8px; }
+.plan-ai-stack { display: grid; gap: 19px; }
+.plan-ai-stack[hidden] { display: none; }
+.plan-prompt-card > p { font-size: 1rem; line-height: 1.65; }
+.plan-prompt-intent { justify-self: start; flex-wrap: wrap; }
+.plan-prompt-card label { display: grid; gap: 6px; }
+.plan-prompt-card .prompt-text { margin: 0; min-width: 0; }
+.plan-assistant-feedback { padding: 12px; border-radius: 10px; background: var(--mint); }
+.plan-format-hint { display: grid; gap: 12px; padding: 13px; border: 1px solid var(--stroke); border-radius: 12px; background: #f2f7ed; font-size: 1rem; line-height: 1.6; }
+.plan-format-hint > button { justify-self: start; }
+.plan-assistant-related { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.plan-assistant-related > div { flex: 1; min-width: 180px; }
+.plan-assistant-related p { font-size: .9rem; line-height: 1.6; margin-top: 5px; }
+.plan-import-stack .import-form { margin-top: 0; }
+.plan-import-stack .import-preview { min-width: 0; }
+@media (max-width: 620px) {
+  .plan-prompt-intent { width: 100%; }
+  .plan-assistant .exercise-toolbar { flex-wrap: wrap; }
+  .plan-assistant-related { align-items: start; }
+}
+.plan-draft-progress { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.plan-draft-progress > li { padding: 5px 9px; border-radius: 7px; border: 1px solid var(--stroke); color: var(--muted); font-size: .8rem; }
+.plan-draft-progress > li[aria-current], .plan-draft-progress > li[data-complete] { color: #294025; background: #e6f2d9; }
+.plan-draft-day { display: grid; gap: 5px; border-left: 2px solid var(--stroke); padding-left: 10px; }
+.plan-draft-session summary { cursor: pointer; overflow-wrap: anywhere; padding: 5px 0; }
+.plan-draft-session > div { padding: 7px 0; }
+.plan-draft-session ul { padding-left: 1.4em; margin: 3px 0; }
+.plan-draft-session small { color: var(--muted); }

@@ -1,0 +1,21 @@
+.controls {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.option {
+  width: 100%;
+  min-height: 44px;
+  justify-content: space-between;
+  text-align: start;
+}
+
+.option small {
+  font-size: .8rem;
+  color: var(--muted);
+}
+
+.option:disabled {
+  opacity: .7;
+}
