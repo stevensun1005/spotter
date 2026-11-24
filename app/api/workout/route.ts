@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { getChatGPTUser } from "../../chatgpt-auth";
-import { asDate, planSchema, sessionSchema, sessionTotals, type Entry, type State } from "../../workout";
+import { asDate, draftSessionSchema, planSchema, sessionSchema, sessionTotals, type Entry, type State } from "../../workout";
 
 import { api } from "@/server/http";
 import { dateSchema } from "@/shared/dates";
@@ -17,7 +17,7 @@ const mutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("plans"), skipExisting: z.boolean().optional(), reviseExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema })).min(1).max(20) }),
   z.object({ action: z.literal("move"), id, from: dateSchema, date: dateSchema, shift: z.boolean() }),
   z.object({ action: z.literal("delete"), id, kind: z.enum(["plan", "draft"]) }),
-  z.object({ action: z.literal("draft"), id, data: sessionSchema }),
+  z.object({ action: z.literal("draft"), id, data: draftSessionSchema }),
   z.object({ action: z.literal("log"), id, data: sessionSchema }),
   z.object({ action: z.literal("editLog"), id, data: sessionSchema, revision: z.string().min(1).max(40) }),
   z.object({ action: z.literal("create") }),

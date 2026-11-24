@@ -20,6 +20,25 @@ const training = await import("../features/training/model.ts");
 const { importHeartFile } = await import("../features/heart/file-import.ts");
 const { heartSchema } = await import("../features/heart/model.ts");
 
+test("a workout without a plan can be synced and backed up as an empty draft", async () => {
+  const { backupSchema, emptyBackup } = await import("../features/data/model.ts");
+  const { planSchema } = await import("../features/plans/model.ts");
+  const draft = training.startFreeSession("2026-11-23");
+  assert.equal(draft.planId, "");
+  assert.equal(draft.date, "2026-11-23");
+  assert.equal(draft.clock.runningSince, draft.started);
+  assert.deepEqual(draft.plan.exercises, []);
+  assert.deepEqual(draft.rows, []);
+  assert.deepEqual(training.draftSessionSchema.parse(draft), draft);
+  assert.equal(training.draftSessionSchema.safeParse({ ...draft, planId: "existing-plan" }).success, false);
+  assert.equal(training.draftSessionSchema.safeParse({ ...draft, finishedVideo: true }).success, false);
+  assert.equal(training.sessionSchema.safeParse(draft).success, false);
+  assert.equal(planSchema.safeParse(draft.plan).success, false);
+  const record = { id: "8d19c754-6937-464b-b2ee-3ecf83c5fada", kind: "draft", data: draft };
+  assert.deepEqual(backupSchema.parse({ ...emptyBackup(), training: [record] }).training, [record]);
+  assert.equal(backupSchema.safeParse({ ...emptyBackup(), training: [{ ...record, kind: "log" }] }).success, false);
+});
+
 test("keypad edits survive validation and preserve side loads and unit conversion", () => {
   const plan = {
     title: "力量", date: "2026-11-23", minutes: 30, category: "力量训练", shared: false, video: "",

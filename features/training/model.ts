@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
-import { planSchema, type Plan } from "@/features/plans/model";
+import { planBlank, planSchema, type Plan } from "@/features/plans/model";
 import { maxWorkoutMs } from "./clock";
 import { setVolumeKg } from "./volume";
 
@@ -16,8 +16,8 @@ const sets = z.object({
     reps: z.number().int().min(0).max(999),
   }).optional(),
 });
-export const sessionSchema = z.object({
-  plan: planSchema,
+const sessionFields = z.object({
+  plan: planSchema.innerType(),
   planId: z.string().max(60),
   date: dateSchema,
   started: z.number().int().positive(),
@@ -38,6 +38,10 @@ export const sessionSchema = z.object({
   value.rows.length === value.plan.exercises.length &&
     value.rows.every((row, i) => row.length === value.plan.exercises[i].sets));
 
+export const draftSessionSchema = sessionFields.refine(({ plan, planId, finishedVideo }) =>
+  Boolean(plan.video || plan.exercises.length) || (planId === "" && !finishedVideo));
+export const sessionSchema = sessionFields.refine(({ plan }) => Boolean(plan.video || plan.exercises.length));
+
 export type Session = z.infer<typeof sessionSchema>;
 export type SetLine = z.infer<typeof sets>;
 
@@ -50,6 +54,12 @@ export function startSession(plan: Plan, planId: string, date: string): Session 
       weight: item.weight, reps: item.reps, seconds: item.seconds, done: false,
     }))),
   };
+}
+
+export const freeWorkoutTitle = "自由训练";
+
+export function startFreeSession(date: string): Session {
+  return startSession({ ...planBlank(date), title: freeWorkoutTitle, exercises: [] }, "", date);
 }
 
 export function sessionTotals(session: Session) {

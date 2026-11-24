@@ -6,7 +6,7 @@ import {
   Bookmark, CalendarClock, Copy, Dumbbell, House, LogIn, Menu, Play, Plus, Settings2, Sparkles, Trash2, Utensils, Users,
 } from "lucide-react";
 import {
-  asDate, examples, offsetDate, planBlank, sessionTotals, startSession,
+  asDate, examples, offsetDate, planBlank, sessionTotals, startFreeSession, startSession,
   type Entry, type Plan, type Session, type State,
 } from "./workout";
 import {
@@ -384,10 +384,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     saveTimer.current = setTimeout(() => flushDraft(id, data), 420);
   }
 
-  function begin(item: KeyedPlan) {
-    const existing = drafts.find(([, data]) => data.planId === item.id && data.date === today);
+  function begin(item?: KeyedPlan) {
+    const existing = item && drafts.find(([, data]) => data.planId === item.id && data.date === today);
     const id = existing?.[0] ?? crypto.randomUUID();
-    const data = existing ? resumeClock(refreshDraftPlan(existing[1], item.data)) : startSession(item.data, item.id, today);
+    const data = item
+      ? (existing ? resumeClock(refreshDraftPlan(existing[1], item.data)) : startSession(item.data, item.id, today))
+      : startFreeSession(today);
     if (!existing || data !== existing[1]) upsertLocalDraft(id, data);
     else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
     open({ kind: "session", id, data });
@@ -519,7 +521,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           </div>
           {(view === "today" || view === "plans") && <div className="plan-heading-actions">
             {view === "plans" && viewer && <button className="button outline page-action" disabled={library.loading || Boolean(library.error)} onClick={() => open({ kind: "schedule" })}><Settings2 size={18} /> 个人计划设置</button>}
-            <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>
+            {view === "today"
+              ? <button className="button primary page-action" onClick={() => begin()}><Play size={19} fill="currentColor" /> 开始训练</button>
+              : <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>}
           </div>}
         </div>}
 
@@ -554,7 +558,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                     <span className="hero-tag"><span />{current.id === "example" ? "示例计划" : !canManageToday ? "搭子共享 · " + current.data.category : current.data.category}</span>
                     <h2>{current.data.title}</h2>
                     <div className="hero-meta">{current.data.minutes > 0 && <span><Clock3 size={16} /> {current.data.minutes} 分钟</span>}{current.data.exercises.length > 0 && <span><Dumbbell size={16} /> {current.data.exercises.length} 个动作</span>}{current.data.video && <span><Play size={16} /> 跟练视频</span>}</div>
-                    <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> {current.id === "example" ? "试练示例" : "开始训练"}</button>
+                    <button className="button hero-button" onClick={() => begin(current)}><Play size={17} fill="currentColor" /> {current.id === "example" ? "试练示例" : "开始计划训练"}</button>
                   </div>
                 </div>
                 {canManageToday && <div className="hero-menu" key={current.id}>{planActions(current)}</div>}
@@ -568,7 +572,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 <div className="movement-content"><PlanSequence plan={current.data} onExercise={setExercise} /></div>
               </details>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
-            </> : buddyStatus === "loading" ? null : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3><button className="button outline small" onClick={() => newPlan()}>添加训练</button></section>}
+            </> : buddyStatus === "loading" ? null : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3>{selected !== today && <button className="button outline small" onClick={() => newPlan()}>安排训练</button>}</section>}
           </div>
 
           <aside className="right-column">

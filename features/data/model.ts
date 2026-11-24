@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { sessionSchema, sessionTotals } from "@/features/training/model";
+import { draftSessionSchema, sessionSchema, sessionTotals } from "@/features/training/model";
 import { planSchema } from "@/features/plans/model";
 import { libraryItem, uuid, type LibraryItem } from "@/features/library/model";
 import { heartSchema } from "@/features/heart/model";
@@ -14,7 +14,7 @@ export const scopeNames: Record<DataScope, string> = { all: "全部数据", trai
 
 const backupTraining = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("plan"), id: uuid, data: planSchema }),
-  z.object({ kind: z.literal("draft"), id: uuid, data: sessionSchema }),
+  z.object({ kind: z.literal("draft"), id: uuid, data: draftSessionSchema }),
   z.object({ kind: z.literal("log"), id: uuid, data: sessionSchema }),
 ]);
 export const backupSchema = z.object({

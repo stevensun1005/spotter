@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Pause, Play, ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, Clock3, Dumbbell, Keyboard, Plus } from "lucide-react";
+import { BookOpen, Pause, Play, ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, Clock3, Dumbbell, Keyboard, PencilLine, Plus } from "lucide-react";
 import { Dialog, VideoLink } from "@/shared/ui";
-import { sessionTotals, type Session } from "./model";
+import { freeWorkoutTitle, sessionTotals, type Session } from "./model";
 import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldValue, flipWeightUnit, validNumberText, type NumberField, type SetTarget } from "./set-editor";
 import { fieldLabels, SetRow } from "./set-row";
 import { WorkoutKeypad } from "./workout-keypad";
@@ -64,6 +64,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const done = sessionTotals(data).sets;
   const total = data.rows.flat().length;
   const showFinish = trackProtein && confirmFinish;
+  const emptyWorkout = !total && !plan.video;
 
   function activate(target: SetTarget, session = data) {
     const value = fieldValue(session.rows[target.move][target.row], target.field);
@@ -191,10 +192,16 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
       <button type="submit" className="button outline small">设定</button>
     </form>}
     <div className="dialog-body workout-body">
-      <div className="workout-top"><div><p className="muted">{data.plan.category}</p><h2>{data.plan.title}</h2></div></div>
+      <div className="workout-top">
+        {data.planId === "" ? <label className="workout-title-field">
+          <PencilLine size={18} aria-hidden="true" />
+          <input aria-label="训练标题" placeholder={freeWorkoutTitle} defaultValue={plan.title} maxLength={100} disabled={pending}
+            onChange={(event) => update({ ...data, plan: { ...plan, title: event.target.value.trim() || freeWorkoutTitle } })} />
+        </label> : <div><p className="muted">{plan.category}</p><h2>{plan.title}</h2></div>}
+      </div>
       {data.plan.durationNote && <p className="muted">{data.plan.durationNote}</p>}
-      <div className="workout-progress"><span>{done} / {total} 组完成</span><span>{sync}</span></div>
-      <progress value={done + Number(data.finishedVideo)} max={total + Number(Boolean(data.plan.video))} />
+      <div className="workout-progress">{!emptyWorkout && <span>{done} / {total} 组完成</span>}<span>{sync}</span></div>
+      {!emptyWorkout && <progress value={done + Number(data.finishedVideo)} max={total + Number(Boolean(plan.video))} />}
       <fieldset disabled={pending} className="session-fields">
         {data.plan.video && <div className="video-panel"><VideoLink url={data.plan.video} /><label className="toggle-label"><input type="checkbox" checked={data.finishedVideo} onChange={(e) => update({ ...data, finishedVideo: e.target.checked })} /> 已完成跟练</label></div>}
         {pendingSet && <div className="workout-next" role="status">
@@ -228,7 +235,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
             </details>;
           })}
         </section>)}
-        <button type="button" className="button outline workout-add-exercise" disabled={data.plan.exercises.length >= 30} onClick={() => setPicker(-1)}><Plus size={17} /> 添加动作</button>
+        <button type="button" className={"button workout-add-exercise " + (emptyWorkout ? "primary" : "outline")} disabled={data.plan.exercises.length >= 30} onClick={() => setPicker(-1)}><Plus size={17} /> 添加动作</button>
         <div className="form-fields">
           <label>训练心得<textarea value={data.note} maxLength={1500} onFocus={() => setEdit(null)} onChange={(e) => update({ ...data, note: e.target.value })} placeholder="今天练得怎么样？" rows={3} /></label>
           <label>实际时长（分钟）<input type="number" min={0} max={720} value={data.minutes || ""} onFocus={() => setEdit(null)} placeholder="留空时使用计时" onChange={(e) => update({ ...data, minutes: Math.max(0, Math.min(720, Math.trunc(Number(e.target.value)))) })} /></label>
