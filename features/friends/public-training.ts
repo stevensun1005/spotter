@@ -1,5 +1,6 @@
 import { parsePlanMove } from "@/features/exercises/move-name";
 import { researchedGuide } from "@/features/exercises/guidance";
+import type { Move } from "@/features/plans/model";
 import type { Session } from "@/features/training/model";
 import { isWarmupMove } from "@/features/training/sequence";
 import { isPerSideLoad } from "@/features/training/volume";
@@ -13,6 +14,15 @@ export function completedMoves(data: Session) {
   });
 }
 
+export function publicMoveInfo(move: Move) {
+  const source = move.sourceName && parsePlanMove(move.sourceName).name;
+  return {
+    catalogueId: move.catalogueId,
+    sourceName: source && researchedGuide(source) ? source : undefined,
+    warmup: isWarmupMove(move) ? true as const : undefined,
+  };
+}
+
 export function publicPartnerSession(data: Session, sharedPlanId = ""): Session {
   const moves = completedMoves(data);
   return {
@@ -21,13 +31,12 @@ export function publicPartnerSession(data: Session, sharedPlanId = ""): Session 
     plan: {
       title: data.plan.title, category: data.plan.category, date: data.date, minutes: data.minutes, shared: false, video: "",
       exercises: moves.map(({ move, name, sets }) => {
-        const source = move.sourceName && parsePlanMove(move.sourceName).name;
+        const { warmup, ...info } = publicMoveInfo(move);
         return {
-          name, catalogueId: move.catalogueId, unit: move.unit,
+          name, ...info, unit: move.unit,
           sets: sets.length, weight: sets[0].weight, reps: sets[0].reps, seconds: sets[0].seconds,
           cue: isPerSideLoad(move) ? "每侧重量" : "总重",
-          block: isWarmupMove(move) ? "W" : undefined,
-          sourceName: source && researchedGuide(source) ? source : undefined,
+          block: warmup ? "W" : undefined,
         };
       }),
     },

@@ -63,6 +63,7 @@
 .share-style select { background-color: #f5f2e9; font-weight: 700; }
 .share-state { min-height: 36px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; padding-block: 4px; }
 .share-state .toggle-label { min-height: 36px; }
+.share-figure select { min-height: 36px; font-size: .85rem; }
 .share-state p { flex: 1 0 min(155px, 100%); font-size: .8rem; line-height: 1.35; }
 .share-output { grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid #e8e0d0; padding-top: 9px; }
 .share-output .button {

@@ -1,9 +1,10 @@
 import { HttpError } from "@/server/http";
 import { dateSchema } from "@/shared/dates";
+import { anatomyVariant } from "@/features/body/profile";
 import type { MealEntry } from "@/features/library/model";
 import type { Session } from "@/features/training/model";
 import { activePair } from "@/features/pair/server";
-import { completedMoves } from "./public-training";
+import { completedMoves, publicMoveInfo } from "./public-training";
 import type { Checkin, Person } from "@/shared/state";
 import type { Friend, FriendDay, FriendList, FriendMutation, SharedMeal, SharedWorkout, Sharing } from "./model";
 
@@ -130,7 +131,7 @@ export async function buddyCheckins(db: D1Database, owner: string, friend: strin
 }
 
 function publicWorkout(id: string, data: Session): SharedWorkout {
-  const exercises = completedMoves(data).map(({ move: { unit }, name, sets }) => ({ name, unit, sets }));
+  const exercises = completedMoves(data).map(({ move, name, sets }) => ({ name, unit: move.unit, sets, ...publicMoveInfo(move) }));
   return { id, title: data.plan.title, category: data.plan.category, minutes: data.minutes, finishedVideo: data.finishedVideo,
     sets: exercises.reduce((total, move) => total + move.sets.length, 0), exercises };
 }
@@ -151,14 +152,17 @@ export async function friendDay(db: D1Database, owner: string, id: string, date:
   type Row = { id: string; payload: string };
   const [workedOut, workouts, ate, meals] = await Promise.all([
     db.prepare("SELECT 1" + workoutFilter + checkin.condition + " LIMIT 1").bind(id, date, ...checkin.identifiers).first(),
-    friend.shared.training ? db.prepare("SELECT id, payload" + workoutFilter + training.condition + " ORDER BY updated DESC")
-      .bind(id, date, ...training.identifiers).all<Row>() : null,
+    friend.shared.training ? db.prepare("SELECT id, payload, (SELECT json_extract(p.payload, '$.values.sex') " +
+      "FROM personal_library p WHERE p.owner = entries.owner AND p.kind = 'body-profile') AS variant" +
+      workoutFilter + training.condition + " ORDER BY updated DESC")
+      .bind(id, date, ...training.identifiers).all<Row & { variant: unknown }>() : null,
     friend.shared.nutrition ? db.prepare("SELECT 1" + mealFilter + dietCheckin.condition + " LIMIT 1")
       .bind(id, date, ...dietCheckin.identifiers).first() : null,
     friend.shared.nutritionDetails ? db.prepare("SELECT id, payload" + mealFilter + nutrition.condition + " ORDER BY updated DESC")
       .bind(id, date, ...nutrition.identifiers).all<Row>() : null,
   ]);
   return { friend, date,
+    anatomyVariant: anatomyVariant(workouts?.results[0]?.variant),
     workoutCheckin: Boolean(workedOut), dietCheckin: friend.shared.nutrition ? Boolean(ate) : null,
     training: workouts?.results.map(({ id, payload }) => publicWorkout(id, JSON.parse(payload) as Session)) ?? null,
     nutrition: meals?.results.map(({ id, payload }) => publicMeal(id, (JSON.parse(payload) as { entry: MealEntry }).entry)) ?? null,

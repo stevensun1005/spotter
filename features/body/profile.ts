@@ -10,7 +10,12 @@ export const bodyProfileValues = z.object({
 }).strict().refine(({ age, ageAsOf }) => ageAsOf === undefined || age !== undefined);
 
 export type BodyProfile = z.infer<typeof bodyProfileValues>;
+export type AnatomyVariant = NonNullable<BodyProfile["sex"]>;
 export const bodyProfileItem = z.object({ kind: z.literal("body-profile"), values: bodyProfileValues });
+
+export function anatomyVariant(value: unknown): AnatomyVariant | undefined {
+  return value === "male" || value === "female" ? value : undefined;
+}
 
 type WeightRow = { date: string; updated: string; kg: number };
 

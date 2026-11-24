@@ -4,10 +4,12 @@ import { useState, type FormEvent } from "react";
 import { Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useLibrary } from "@/features/library/use-library";
 import { circumferenceMeasurements, compositionMeasurements, measurements, type BodyMetric } from "./measurements";
-import { readBodyInputs } from "./profile";
+import { readBodyInputs, type AnatomyVariant } from "./profile";
 import { bodyNumber, BodyProfileForm } from "./profile-form";
 
-export function BodyView({ enabled, today }: { enabled: boolean; today: string }) {
+export function BodyView({ enabled, today, onProfileSaved }: {
+  enabled: boolean; today: string; onProfileSaved?: (sex: AnatomyVariant | undefined) => void;
+}) {
   const body = useLibrary(enabled, undefined, true);
   const [metric, setMetric] = useState<BodyMetric>("weight");
   const [date, setDate] = useState(today);
@@ -39,7 +41,10 @@ export function BodyView({ enabled, today }: { enabled: boolean; today: string }
   }
   return <div className="feature-stack">
     <BodyProfileForm {...bodyInputs} today={today} revision={profileRow?.updated} enabled={enabled && !body.loading && !body.error}
-      save={(values) => body.save({ kind: "body-profile", values }, profileRow?.updated ?? null)} />
+      save={async (values) => {
+        await body.save({ kind: "body-profile", values }, profileRow?.updated ?? null);
+        onProfileSaved?.(values.sex);
+      }} />
     <section className="card padded feature-stack">
       <div className="section-head"><h2>记录身体测量</h2></div>
       <form className="form-fields" onSubmit={save}>

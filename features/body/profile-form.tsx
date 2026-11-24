@@ -53,7 +53,7 @@ export function BodyProfileForm({ profile, weightKg, weightDate, today, revision
         <label>年龄（岁）<input name="age" type="number" inputMode="numeric" min="1" max="130" step="1" defaultValue={profile?.age} disabled={!enabled || busy} /></label>
       </div>
       {profile?.ageAsOf && <small className="muted">年龄记录于 {profile.ageAsOf}</small>}
-      <label>性别（用于营养估算）<select name="sex" defaultValue={profile?.sex ?? ""} disabled={!enabled || busy}>
+      <label>性别（用于营养估算和肌群图）<select name="sex" defaultValue={profile?.sex ?? ""} disabled={!enabled || busy}>
         <option value="">未填写</option><option value="male">男</option><option value="female">女</option>
       </select></label>
       <div className="exercise-toolbar"><button className="button primary" disabled={!enabled || busy}>保存身体档案</button></div>

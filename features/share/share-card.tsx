@@ -3,27 +3,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Share2 } from "lucide-react";
 import { Dialog, displayNumber } from "@/shared/ui";
-import { catalogAsset, useCatalogue } from "@/features/exercises/open-gym";
+import type { AnatomyVariant } from "@/features/body/profile";
+import { loadAnatomyGeometry, type AnatomyGeometry } from "@/features/exercises/anatomy-geometry";
+import { useCatalogue } from "@/features/exercises/open-gym";
 import type { HeartData } from "@/features/heart/model";
 import type { TrainingEntry } from "@/shared/state";
 import { shareEntries, shareHeart, shareSummary } from "./model";
 import { muscleNames } from "@/features/exercises/labels";
 import { renderShareCard, shareThemes, type ShareTheme } from "./poster";
-import type { AnatomyGeometry } from "./anatomy-poster";
-
-let geometryRequest: Promise<AnatomyGeometry> | undefined;
-const geometryAsset = () => geometryRequest ??= catalogAsset<AnatomyGeometry>("anatomy.json").catch((reason) => {
-  geometryRequest = undefined;
-  throw reason;
-});
-
-export function ShareCard({ log, logs, name, owner, close }: {
-  log: TrainingEntry; logs: TrainingEntry[]; name: string; owner: string; close: () => void;
+export function ShareCard({ log, logs, name, owner, close, sex }: {
+  log: TrainingEntry; logs: TrainingEntry[]; name: string; owner: string; close: () => void; sex?: AnatomyVariant;
 }) {
   const [details, setDetails] = useState(true);
   const [merge, setMerge] = useState(false);
   const [withHeart, setWithHeart] = useState(false);
   const [theme, setTheme] = useState<ShareTheme>("travel");
+  const [selection, setSelection] = useState<AnatomyVariant>("male");
+  const figure = sex ?? selection;
   const [geometry, setGeometry] = useState<AnatomyGeometry | null>();
   const [heartLoad, setHeartLoad] = useState<{ key: string; values: Record<string, HeartData | null>; trouble: boolean }>();
   const [prepared, setPrepared] = useState<{ options: object; file: File }>();
@@ -38,13 +34,13 @@ export function ShareCard({ log, logs, name, owner, close }: {
   const activeHeart = withHeart && heartLoad?.key === heartIds ? heartLoad : undefined;
   const pendingHeart = withHeart && Boolean(heartIds) && !activeHeart;
   const options = useMemo(() => summary ? {
-    summary, theme, showDetails: details, name, geometry: geometry ?? undefined,
+    summary, theme, showDetails: details, name, geometry: geometry ?? undefined, sex: figure,
     heart: activeHeart ? shareHeart(scope, activeHeart.values) : [],
-  } : null, [summary, theme, details, scope, name, geometry, activeHeart]);
+  } : null, [summary, theme, details, scope, name, geometry, activeHeart, figure]);
 
   useEffect(() => {
     let alive = true;
-    geometryAsset().then((value) => { if (alive) setGeometry(value); }, () => { if (alive) setGeometry(null); });
+    loadAnatomyGeometry().then((value) => { if (alive) setGeometry(value); }, () => { if (alive) setGeometry(null); });
     return () => { alive = false; };
   }, []);
 
@@ -114,7 +110,7 @@ export function ShareCard({ log, logs, name, owner, close }: {
   }).join("。");
   return <Dialog title="训练分享卡" className="share-dialog" onClose={close}>
     <div className="share-preview" role="region" aria-label="可滚动的海报预览" tabIndex={0}>
-      <canvas ref={canvas} hidden={!prepared && loading || drawError} role="img"
+      <canvas ref={canvas} hidden={!prepared && loading || drawError} role="img" data-anatomy-variant={geometry ? figure : undefined}
         aria-label={summary.date + "，" + summary.title + "，" + summary.minutes + " 分钟，" + summary.sets + " 组，训练容量 " + displayNumber(summary.volume) + " kg" + (muscleDescription ? "。肌群颜色越深，相对训练量越高。" + muscleDescription : "")} />
     </div>
     <div className="share-footer">
@@ -133,6 +129,10 @@ export function ShareCard({ log, logs, name, owner, close }: {
         <label className="toggle-label"><input type="checkbox" checked={withHeart} onChange={(event) => {
           setWithHeart(event.target.checked); setHeartLoad(undefined); setMessage("");
         }} /> 附带心率</label>
+        {sex === undefined && geometry && <label className="share-style share-figure"><select aria-label="肌群图体型" value={figure}
+          onChange={(event) => { setSelection(event.target.value === "female" ? "female" : "male"); setMessage(""); }}>
+          <option value="male">男性肌群图</option><option value="female">女性肌群图</option>
+        </select></label>}
         {loading && <p className="muted" role="status">正在生成分享卡…</p>}
         {drawError && <p className="inline-error" role="alert">生成图片失败，请重新打开分享。</p>}
         {activeHeart && (!options?.heart.length || activeHeart.trouble) && <p className="muted" role="status">

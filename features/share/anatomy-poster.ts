@@ -1,43 +1,43 @@
+import type { AnatomyVariant } from "@/features/body/profile";
+import type { AnatomyGeometry } from "@/features/exercises/anatomy-geometry";
 import { muscleBlues, neutralMuscle } from "@/features/exercises/muscle-colors";
 
-export type AnatomyGeometry = Record<string, { viewBox: string; regions: Record<string, string[]> }>;
-
-type Callout = readonly [region: string, name: string, x: number, y: number];
+type Callout = readonly [region: string, name: string, maleX: number, maleY: number, femaleX: number, femaleY: number];
 const quietLabel = "#596a87";
 
 const sides = {
   front: {
     caption: "正面",
     left: [
-      ["upper-chest", "上胸", 307, 341],
-      ["lower-chest", "中下胸", 307, 402],
-      ["serratus", "前锯肌", 275, 431],
-      ["biceps", "二头", 202, 450],
-      ["upper-abs", "腹部", 335, 508],
-      ["outer-quad", "股四", 260, 868],
+      ["upper-chest", "上胸", 307, 341, 276, 326],
+      ["lower-chest", "中下胸", 307, 402, 274, 376],
+      ["serratus", "前锯肌", 275, 431, 248, 484],
+      ["biceps", "二头", 202, 450, 180, 402],
+      ["upper-abs", "腹部", 335, 508, 300, 460],
+      ["outer-quad", "股四", 260, 868, 232, 878],
     ],
     right: [
-      ["front-deltoid", "前束", 481, 339],
-      ["deltoids", "中束", 492, 350],
-      ["forearm", "前臂", 574, 591],
-      ["adductors", "内收肌", 422, 778],
-      ["tibialis", "胫前肌", 450, 1087],
+      ["front-deltoid", "前束", 481, 339, 412, 302],
+      ["deltoids", "中束", 492, 350, 438, 292],
+      ["forearm", "前臂", 574, 591, 516, 558],
+      ["adductors", "内收肌", 422, 778, 366, 770],
+      ["tibialis", "胫前肌", 450, 1087, 390, 1124],
     ],
   },
   back: {
     caption: "背面",
     left: [
-      ["rear-deltoid", "后束", 948, 354],
-      ["triceps", "三头", 940, 481],
-      ["lower-back", "下背", 1049, 563],
-      ["hamstring", "腿后侧", 998, 878],
-      ["calves", "小腿", 987, 1061],
+      ["rear-deltoid", "后束", 948, 354, 1029, 296],
+      ["triceps", "三头", 940, 481, 1019, 438],
+      ["lower-back", "下背", 1049, 563, 1119, 530],
+      ["hamstring", "腿后侧", 998, 878, 1073, 886],
+      ["calves", "小腿", 987, 1061, 1063, 1094],
     ],
     right: [
-      ["trapezius", "斜方肌", 1125, 319],
-      ["upper-back", "上背", 1183, 390],
-      ["lats", "背阔肌", 1152, 493],
-      ["gluteal", "臀肌", 1138, 707],
+      ["trapezius", "斜方肌", 1125, 319, 1191, 290],
+      ["upper-back", "上背", 1183, 390, 1237, 334],
+      ["lats", "背阔肌", 1152, 493, 1211, 450],
+      ["gluteal", "臀肌", 1138, 707, 1199, 694],
     ],
   },
 } as const satisfies Record<"front" | "back", { caption: string; left: readonly Callout[]; right: readonly Callout[] }>;
@@ -52,12 +52,13 @@ export function drawShareAnatomy(
   box: { x: number; y: number; width: number; height: number },
   tile: string,
   font: string,
+  sex: AnatomyVariant = "male",
 ) {
   const half = box.width / 2;
   const score = (region: string) => muscles[region] ?? 0;
 
   for (const [index, side] of (["front", "back"] as const).entries()) {
-    const shape = geometry["male-" + side];
+    const shape = geometry[`${sex}-${side}`];
     if (!shape) continue;
     const [minX, minY, w, h] = shape.viewBox.trim().split(/\s+/).map(Number);
     const scale = Math.min((half - 46) / w, (box.height - 35) / h);
@@ -91,10 +92,12 @@ export function drawShareAnatomy(
       const onLeft = lane === "left";
       const textX = left + (onLeft ? 7 : half - 7);
       const minGap = 15;
-      const entries = sides[side][lane];
+      const entries = sides[side][lane].map(([region, name, maleX, maleY, femaleX, femaleY]) => ({
+        region, name, x: sex === "female" ? femaleX : maleX, y: sex === "female" ? femaleY : maleY,
+      })).sort((a, b) => a.y - b.y);
       let lastY = imageY + 4;
       ctx.textAlign = lane;
-      for (const [position, [region, name, x, y]] of entries.entries()) {
+      for (const [position, { region, name, x, y }] of entries.entries()) {
         const tipX = offsetX + x * scale;
         const tipY = offsetY + y * scale;
         const latestY = imageBottom - 4 - (entries.length - position - 1) * minGap;

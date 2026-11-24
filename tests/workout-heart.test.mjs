@@ -570,6 +570,32 @@ test("share anatomy uses completed working volume, including load on both sides 
   assert.ok(body.muscles.obliques < 35);
 });
 
+test("the share poster uses both anatomy views for the selected subject's figure", async () => {
+  const { drawShareAnatomy } = await import("../features/share/anatomy-poster.ts");
+  const geometry = JSON.parse(readFileSync(new URL("public/open-gym/anatomy.json", root), "utf8"));
+  const drawn = new Set();
+  const noop = () => {};
+  const ctx = { save: noop, restore: noop, translate: noop, scale: noop, stroke: noop,
+    beginPath: noop, moveTo: noop, lineTo: noop, fillText: noop, measureText: () => ({ width: 22 }),
+    fill: (path) => drawn.add(path.source) };
+  const oldPath = globalThis.Path2D;
+  globalThis.Path2D = class { constructor(source) { this.source = source; } };
+  try {
+    for (const sex of ["female", "male"]) {
+      drawn.clear();
+      drawShareAnatomy(ctx, geometry, {}, { x: 0, y: 0, width: 350, height: 260 }, "#fff", "sans-serif", sex);
+      const front = geometry[`${sex}-front`].regions["upper-chest"][0];
+      const back = geometry[`${sex}-back`].regions.lats[0];
+      const other = sex === "female" ? "male" : "female";
+      assert.ok(drawn.has(front) && drawn.has(back));
+      assert.equal(drawn.has(geometry[`${other}-front`].regions["upper-chest"][0]), false);
+    }
+  } finally {
+    if (oldPath === undefined) delete globalThis.Path2D;
+    else globalThis.Path2D = oldPath;
+  }
+});
+
 test("optional protein preferences and check-ins survive private backups", async () => {
   const { withoutProteinShake } = await import("../features/training/protein.ts");
   const { libraryItem } = await import("../features/library/model.ts");

@@ -71,8 +71,17 @@ const disabled = { training: false, nutrition: false, nutritionDetails: false };
 const friendDefaults = { training: true, nutrition: true, nutritionDetails: false };
 const buddyDefaults = { training: true, nutrition: true, nutritionDetails: true };
 
+function seedBodyProfile(db, owner, sex) {
+  const profile = { kind: "body-profile", values: { heightCm: 175, age: 30, sex, ageAsOf: date } };
+  db.sqlite.prepare("INSERT INTO personal_library (owner, id, kind, payload, updated) VALUES (?, 'body-profile', 'body-profile', ?, ?)")
+    .run(owner, JSON.stringify(profile), date);
+}
+
 function seedRecords(db, owner) {
-  const plan = { title: "力量", category: "力量训练", exercises: [{ name: "卧推", unit: "kg" }, { name: "跳过动作", unit: "kg" }] };
+  const plan = { title: "力量", category: "力量训练", exercises: [
+    { name: "卧推", unit: "kg", catalogueId: "0025", sourceSlot: "W1", sourceName: "私人来源", cue: "私人提示" },
+    { name: "跳过动作", unit: "kg" },
+  ] };
   const rows = [[{ done: true, weight: 40, reps: 8, seconds: 0, rpe: 9 }, { done: false, weight: 900, reps: 5, seconds: 0 }],
     [{ done: false, weight: 0, reps: 8, seconds: 0 }]];
   const workout = { date, plan, rows, minutes: 25, note: "只给自己看的备注", proteinShake: true, finishedVideo: false };
@@ -117,6 +126,7 @@ test("a completed workout can be renamed without changing its logged data", asyn
 test("a one-use friend invite shares work and diet status, with food details opt-in", async (t) => {
   const db = fixture(t);
   seedRecords(db, sam.id);
+  seedBodyProfile(db, sam.id, "female");
   await assert.rejects(friendDay(db, alex.id, sam.id, date), { status: 404 });
 
   await changeFriends(db, sam, { action: "invite" });
@@ -130,6 +140,8 @@ test("a one-use friend invite shares work and diet status, with food details opt
   ]);
 
   const defaults = await friendDay(db, alex.id, sam.id, date);
+  assert.equal(defaults.anatomyVariant, "female");
+  assert.doesNotMatch(JSON.stringify(defaults), /heightCm|ageAsOf|"sex"/);
   assert.equal(defaults.workoutCheckin, true);
   assert.equal(defaults.dietCheckin, true);
   assert.equal(defaults.nutrition, null);
@@ -137,8 +149,10 @@ test("a one-use friend invite shares work and diet status, with food details opt
   assert.equal(workout.title, "力量");
   assert.equal(workout.sets, 1);
   assert.equal(workout.exercises.length, 1);
+  assert.equal(workout.exercises[0].catalogueId, "0025");
+  assert.equal(workout.exercises[0].warmup, true);
   assert.equal(workout.exercises[0].sets[0].weight, 40);
-  assert.doesNotMatch(JSON.stringify(workout), /只给自己看的备注|proteinShake|rpe|900|跳过动作/);
+  assert.doesNotMatch(JSON.stringify(workout), /只给自己看的备注|私人来源|私人提示|proteinShake|rpe|900|跳过动作/);
 
   await changeFriends(db, alex, { action: "share", id: sam.id, sharing: disabled });
   assert.equal((await friendDay(db, alex.id, sam.id, date)).training.length, 1);
@@ -147,6 +161,7 @@ test("a one-use friend invite shares work and diet status, with food details opt
   assert.equal(legacyWrite.workoutCheckin, true);
   assert.equal(legacyWrite.dietCheckin, true);
   assert.equal(legacyWrite.training, null);
+  assert.equal(legacyWrite.anatomyVariant, undefined);
   assert.equal(legacyWrite.nutrition, null);
   assert.equal((await friendDay(db, alex.id, sam.id, "2026-11-24")).dietCheckin, false);
 
@@ -234,7 +249,9 @@ test("workout GET serves only performed sets and keeps the same two-sided volume
   runtime.owner = alex.id;
   runtime.env.DB = db;
   t.after(() => { runtime.env.DB = undefined; });
-  pair(db);
+  const connection = pair(db);
+  seedBodyProfile(db, alex.id, "male");
+  seedBodyProfile(db, sam.id, "female");
   const session = {
     plan: {
       title: "正课", category: "力量训练", exercises: [
@@ -267,12 +284,21 @@ test("workout GET serves only performed sets and keeps the same two-sided volume
   const response = await loadWorkout();
   assert.equal(response.status, 200);
   const state = await response.json();
+  assert.equal(state.me.anatomyVariant, "male");
+  assert.equal(state.room.partner.anatomyVariant, "female");
+  assert.doesNotMatch(JSON.stringify(state), /heightCm|ageAsOf|"sex"/);
   assert.deepEqual(state.entries.filter((item) => item.owner === sam.id).map((item) => item.id).sort(), ["completed-shared", "same-id", "shared-plan"]);
   const buddy = state.entries.find((item) => item.owner === sam.id && item.id === "same-id");
   assert.deepEqual(buddy.data, JSON.parse(JSON.stringify(projected)));
   assert.equal(state.entries.find((item) => item.id === "completed-shared").data.planId, "shared-plan");
   assert.equal(state.entries.find((item) => item.owner === alex.id && item.kind === "log").data.note, session.note);
   assert.equal(state.entries.find((item) => item.id === "shared-plan").data.templateId, undefined);
+
+  await disconnectPair(db, alex.id, sam.id, connection);
+  const disconnected = await (await loadWorkout()).json();
+  assert.equal(disconnected.me.anatomyVariant, "male");
+  assert.equal(disconnected.room, null);
+  assert.doesNotMatch(JSON.stringify(disconnected), /female/);
 });
 
 test("disconnect revokes both implicit views and preserves separately configured friendship", async (t) => {

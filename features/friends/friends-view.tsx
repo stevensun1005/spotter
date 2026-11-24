@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Dumbbell, Lock, UserRoundPlus, Users, Utensils } from "lucide-react";
+import { Anatomy } from "@/features/exercises/anatomy";
+import { exerciseMuscles } from "@/features/exercises/guidance";
+import { muscleNames, regionMuscle } from "@/features/exercises/labels";
+import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
 import { errorText } from "@/shared/client";
 import { offsetDate, shortDate } from "@/shared/dates";
 import { avatar, Dialog, displayNumber } from "@/shared/ui";
@@ -74,6 +78,32 @@ function Meals({ meals }: { meals: SharedMeal[] }) {
   })}</div>;
 }
 
+function FriendTrainingMuscles({ workouts, sex }: { workouts: SharedWorkout[]; sex?: FriendDay["anatomyVariant"] }) {
+  const { data: catalogue } = useCatalogue();
+  const weights = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const workout of workouts) {
+      for (const move of workout.exercises) {
+        if (move.warmup) continue;
+        const sets = move.sets.filter((set) => set.kind !== "warmup" && (set.reps > 0 || set.seconds > 0 || (set.right?.reps ?? 0) > 0)).length;
+        if (!sets) continue;
+        const muscles = exerciseMuscles(move.sourceName ?? move.name, fromCatalogue(catalogue, move));
+        for (const [region, activation] of Object.entries(muscles)) {
+          if (activation > 0 && region !== "cardiovascular system" && (muscleNames[region] || muscleNames[regionMuscle(region)])) {
+            counts[region] = (counts[region] ?? 0) + sets;
+          }
+        }
+      }
+    }
+    return counts;
+  }, [catalogue, workouts]);
+  if (!Object.keys(weights).length) return null;
+  return <details className="friend-workout friend-muscles">
+    <summary><strong>肌群分布</strong><ChevronDown size={17} aria-hidden="true" /></summary>
+    <Anatomy weights={weights} showIntensity sex={sex ?? null} />
+  </details>;
+}
+
 function FriendDailyRecords({ data }: { data: FriendDay }) {
   return <>
     <section className="card padded feature-stack">
@@ -82,7 +112,10 @@ function FriendDailyRecords({ data }: { data: FriendDay }) {
       </div>
       {data.training === null
         ? <p className="friend-private"><Lock size={15} aria-hidden="true" /> 对方目前只分享训练打卡状态。</p>
-        : data.training.map((workout, index) => <WorkoutDetails workout={workout} first={index === 0} key={workout.id} />)}
+        : <>
+          {data.training.map((workout, index) => <WorkoutDetails workout={workout} first={index === 0} key={workout.id} />)}
+          {data.training.length > 0 && <FriendTrainingMuscles key={data.friend.id + "/" + data.date} workouts={data.training} sex={data.anatomyVariant} />}
+        </>}
     </section>
     <section className="card padded feature-stack">
       <div className="friend-record-heading"><span className="tile sand"><Utensils size={19} aria-hidden="true" /></span><h2>饮食</h2>

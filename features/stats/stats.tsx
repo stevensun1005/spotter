@@ -3,10 +3,10 @@
 import { useId, useMemo, useState, type CSSProperties } from "react";
 import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Dumbbell, Settings2, UserRound } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Anatomy } from "@/features/exercises/anatomy";
+import { Anatomy, type AnatomyVariant } from "@/features/exercises/anatomy";
 import { muscleBlues, neutralMuscle } from "@/features/exercises/muscle-colors";
 import { type ExerciseChoice, useCatalogue } from "@/features/exercises/open-gym";
-import type { TrainingEntry } from "@/shared/state";
+import type { Person, TrainingEntry } from "@/shared/state";
 import { displayNumber } from "@/shared/ui";
 import { offsetDate } from "@/shared/dates";
 import { ActivityCalendar } from "./activity-calendar";
@@ -60,7 +60,7 @@ function Trend({ selected, set, current, comparison, range, compare }: {
   </section>;
 }
 
-function MusclePanel({ current, loading, error }: { current: StatsSummary; loading: boolean; error: string }) {
+function MusclePanel({ current, loading, error, sex }: { current: StatsSummary; loading: boolean; error: string; sex?: AnatomyVariant | null }) {
   const [layer, setLayer] = useState<"primary" | "secondary">("primary");
   const muscles = current[layer];
   const max = Math.max(1, ...Object.values(muscles.buckets));
@@ -72,7 +72,7 @@ function MusclePanel({ current, loading, error }: { current: StatsSummary; loadi
       <button type="button" aria-pressed={layer === "secondary"} onClick={() => setLayer("secondary")}>辅助参与</button>
     </div>
     {(loading || error) ? <p className="stats-empty">{error || "正在读取肌群标注…"}</p> : <>
-      <Anatomy key={layer} weights={muscles.regions} showIntensity />
+      <Anatomy key={layer} weights={muscles.regions} showIntensity sex={sex} />
       <div className="stats-heat-legend"><span>未训练</span><i style={{ background: neutralMuscle }} /><span>少</span>{muscleBlues.map((blue) => <i key={blue} style={{ background: blue }} />)}<span>多</span></div>
       <div className="stats-muscles" style={{ "--muscle-meter-fill": muscleBlues[3], "--muscle-meter-track": neutralMuscle } as CSSProperties}>{muscleGroups.map(({ id, name }) => {
         const count = muscles.buckets[id] ?? 0;
@@ -132,8 +132,8 @@ function Performance({ current, comparison, onExercise, pinned = defaultPins, sa
 }
 
 export function Stats({ today, logs, self, partner, onExercise, pinned, savePins, maxFormula }: {
-  today: string; logs: TrainingEntry[]; self: string; partner: { id: string; name: string } | null;
-  onExercise: (choice: ExerciseChoice) => void; pinned?: string[]; savePins?: (ids: string[]) => Promise<void>;
+  today: string; logs: TrainingEntry[]; self: string; partner: Person | null;
+  onExercise: (choice: ExerciseChoice, owner: string) => void; pinned?: string[]; savePins?: (ids: string[]) => Promise<void>;
   maxFormula?: import("@/features/exercises/history").MaxFormula;
 }) {
   const [period, setPeriod] = useState<Period>("week");
@@ -217,8 +217,10 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
       </section>
       <Trend selected={trend} set={setTrend} current={current} comparison={former} range={range} compare={compare} />
       <ActivityCalendar key={subject + "/" + activityEnd} logs={logs} owner={subject} end={activityEnd} />
-      <MusclePanel current={current} loading={!data && !error} error={error} />
-      <Performance key={subject} current={current} comparison={former} onExercise={onExercise} pinned={subject === self ? pinned : undefined} savePins={subject === self ? savePins : undefined} />
+      <MusclePanel key={"muscles/" + subject} current={current} loading={!data && !error} error={error}
+        sex={subject === self ? undefined : partner?.anatomyVariant ?? null} />
+      <Performance key={subject} current={current} comparison={former} onExercise={(choice) => onExercise(choice, subject)}
+        pinned={subject === self ? pinned : undefined} savePins={subject === self ? savePins : undefined} />
     </>}
   </div>;
 }

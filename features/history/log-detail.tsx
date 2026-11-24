@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Bookmark, Check, Pencil, Share2 } from "lucide-react";
 import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { shortDate } from "@/shared/dates";
@@ -9,7 +9,9 @@ import { sessionTotals, type Session } from "@/features/training/model";
 import { formatCardioDuration } from "@/features/training/cardio";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
+import { Anatomy, type AnatomyVariant } from "@/features/exercises/anatomy";
 import { exerciseTempo, tempoNotationHint } from "@/features/exercises/tempo";
+import { summarize } from "@/features/stats/model";
 import { EditLog } from "./edit-log";
 import { ShareCard } from "@/features/share/share-card";
 import { HeartPanel } from "@/features/heart/heart-panel";
@@ -18,16 +20,18 @@ import { kindLabels } from "@/features/training/set-row";
 import { ProteinCheck } from "@/features/training/protein-check";
 import type { TrainingEntry } from "@/shared/state";
 
-export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share, trackProtein, pendingSync }: {
+export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share, trackProtein, pendingSync, sex }: {
   log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus; onTemplate?: () => void;
   today?: string; onEdit?: (next: Session) => Promise<void>; trackProtein?: boolean; pendingSync?: boolean;
   share?: { name: string; owner: string; logs: TrainingEntry[] };
+  sex?: AnatomyVariant | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [sharing, setSharing] = useState(false);
   const { data: catalogue } = useCatalogue();
   const { volume, sets } = sessionTotals(log.data);
-  if (sharing && own && share) return <ShareCard log={log} {...share} close={() => setSharing(false)} />;
+  const muscles = useMemo(() => summarize([log], catalogue?.rows ?? [], "all").primary.regions, [catalogue, log]);
+  if (sharing && own && share) return <ShareCard log={log} {...share} sex={sex ?? undefined} close={() => setSharing(false)} />;
   if (editing && onEdit && today) return <Dialog title="编辑训练记录" onClose={() => setEditing(false)}>
     <EditLog original={log.data} today={today} cancel={() => setEditing(false)} save={async (next) => {
       await onEdit(next);
@@ -58,6 +62,9 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
       {log.data.plan.video && <VideoLink url={log.data.plan.video} />}
       {pendingSync && <p className="muted" role="status">已在本机打卡，联网后自动同步</p>}
       {own && !pendingSync && <HeartPanel id={log.id} session={log.data} whoopResult={whoop} />}
+      {Object.keys(muscles).length > 0 && <details className="card padded">
+        <summary>肌群分布</summary><Anatomy weights={muscles} showIntensity sex={sex} />
+      </details>}
       {log.data.plan.exercises.length > 0 && <section className="log-exercises" aria-label="训练动作">
         <h3>训练动作</h3>
         {log.data.plan.exercises.map((item, i) => {

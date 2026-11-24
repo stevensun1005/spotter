@@ -1,7 +1,8 @@
+import type { AnatomyVariant } from "@/features/body/profile";
 import type { Plan } from "@/features/plans/model";
 import type { Session } from "@/features/training/model";
 
-export type Person = { id: string; name: string };
+export type Person = { id: string; name: string; anatomyVariant?: AnatomyVariant };
 export type Checkin = { date: string; count: number };
 export type Pair = { connectionId?: string; invite: string | null; partner: Person | null; partnerCheckins?: Checkin[]; partnerTrainingShared?: boolean };
 type EntryBase = { id: string; owner: string; updated: string };

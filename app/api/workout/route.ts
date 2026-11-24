@@ -14,6 +14,7 @@ import { checkinOwnerMatches, checkinProblem } from "@/features/training/checkin
 import { buddyCheckins } from "@/features/friends/server";
 import { activePair, disconnectPair, membership, sendPairCheer, validTimeZone } from "@/features/pair/server";
 import { publicPartnerSession } from "@/features/friends/public-training";
+import { anatomyVariant } from "@/features/body/profile";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +56,15 @@ export async function GET() {
     "OR (e.kind = 'cheer' AND json_extract(e.payload, '$.connection') = ? AND json_extract(e.payload, '$.recipient') = ?)))" : "";
   const ownCheerArgs = pair ? [pair[0], pair[2], ...pair] : [];
   const partnerArgs = pair ? [pair[2], ...pair, pair[0], me.id] : [];
-  const [rows, partnerCheckins, stillPaired] = await Promise.all([
+  const [rows, partnerCheckins, stillPaired, profiles] = await Promise.all([
     env.DB.prepare("SELECT e.id, e.owner, e.kind, e.payload, e.updated, json_extract(t.payload, '$.plan') AS templatePlan FROM entries e" + ownTemplateJoin +
       "WHERE (e.owner = ? AND (e.kind IN ('plan', 'draft', 'log')" + ownCheer + "))" + partnerFilter + " ORDER BY e.updated DESC")
       .bind(me.id, me.id, ...ownCheerArgs, ...partnerArgs).all<Row>(),
     pair ? buddyCheckins(env.DB, me.id, pair[2], pair[0]) : undefined,
     pair ? env.DB.prepare("SELECT 1 WHERE " + activePair).bind(...pair).first() : undefined,
+    env.DB.prepare("SELECT owner, json_extract(payload, '$.values.sex') AS variant FROM personal_library " +
+      "WHERE kind = 'body-profile' AND (owner = ?" + (pair ? " OR (owner = ? AND " + activePair + ")" : "") + ")")
+      .bind(me.id, ...(pair ? [pair[2], ...pair] : [])).all<{ owner: string; variant: unknown }>(),
   ]);
   const sharedPlanIds = new Set(rows.results.filter((row) => row.owner === partner && row.kind === "plan").map((row) => row.id));
   const entries: Entry[] = rows.results.flatMap(({ payload, templatePlan, ...row }): Entry[] => {
@@ -81,12 +85,13 @@ export async function GET() {
     }
     return [entry];
   });
+  const variants = new Map(profiles.results.map(({ owner, variant }) => [owner, anatomyVariant(variant)]));
   const state: State = {
-    me, entries,
+    me: { ...me, anatomyVariant: variants.get(me.id) }, entries,
     room: member && (!partner || stillPaired) ? {
       connectionId: member.connectionId,
       invite: member.creator === me.id && !partner ? member.invite : null,
-      partner: partner ? { id: partner, name: member.partnerName || "搭子" } : null,
+      partner: partner ? { id: partner, name: member.partnerName || "搭子", anatomyVariant: variants.get(partner) } : null,
       ...(partner ? { partnerCheckins, partnerTrainingShared: true } : {}),
     } : null,
   };

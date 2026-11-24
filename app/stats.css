@@ -47,7 +47,12 @@
   border: 1px solid var(--stroke); border-radius: 9px; background-color: #f8faf7; font-size: .84rem;
 }
 .stats-dates input { width: 100%; }
-.stats-compare-select, .stats-summary-selects { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: var(--stats-muted); font-size: .84rem; }
+.stats-compare-select, .stats-summary-selects { display: flex; align-items: center; gap: 7px; color: var(--stats-muted); font-size: .84rem; }
+.stats-compare-select { flex-wrap: wrap; }
+.stats-summary .stats-section-heading { flex-wrap: nowrap; column-gap: 6px; }
+.stats-summary .stats-section-heading h2 { flex: none; }
+.stats-summary-selects { min-width: 0; max-width: 100%; margin-inline-start: auto; gap: 5px; }
+.stats-summary-selects select { flex: 1 1 auto; width: auto; }
 
 .stats-dashboard .stats-summary-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .stats-dashboard .stats-metric { display: grid; align-content: start; gap: 7px; padding: clamp(11px, 3vw, 16px); }

@@ -1,5 +1,7 @@
-import { drawShareAnatomy, type AnatomyGeometry } from "./anatomy-poster";
+import { drawShareAnatomy } from "./anatomy-poster";
 import { displayNumber } from "@/shared/ui";
+import type { AnatomyVariant } from "@/features/body/profile";
+import type { AnatomyGeometry } from "@/features/exercises/anatomy-geometry";
 import type { ShareHeart, ShareSummary } from "./model";
 
 export const shareThemes = {
@@ -38,10 +40,10 @@ function lines(ctx: CanvasRenderingContext2D, value: string, maxWidth: number, m
 }
 
 export function renderShareCard(canvas: HTMLCanvasElement, {
-  summary, theme, showDetails, heart, geometry, name,
+  summary, theme, showDetails, heart, geometry, name, sex,
 }: {
   summary: ShareSummary; theme: ShareTheme; showDetails: boolean; heart: ShareHeart[];
-  geometry?: AnatomyGeometry; name: string;
+  geometry?: AnatomyGeometry; name: string; sex?: AnatomyVariant;
 }) {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("浏览器暂时无法生成图片。");
@@ -169,7 +171,7 @@ export function renderShareCard(canvas: HTMLCanvasElement, {
       ctx.beginPath(); ctx.roundRect(box.x, box.y, box.width, box.height, [11, 7, 11, 8]);
       ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.stroke();
     } else rule(box.x + box.width + 6, box.y, box.x + box.width + 6, box.y + box.height);
-    drawShareAnatomy(ctx, geometry, summary.muscles, box, c.tile, font);
+    drawShareAnatomy(ctx, geometry, summary.muscles, box, c.tile, font, sex);
   } else {
     text("肌群图暂不可用", edge + 23, y + 163, 12, c.quiet);
   }

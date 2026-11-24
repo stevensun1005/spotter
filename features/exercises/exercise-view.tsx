@@ -9,7 +9,7 @@ import { blankProfile, exerciseName, type ExerciseProfile } from "@/features/lib
 import { guides, exerciseNames } from "./catalog";
 import { exerciseHistory, type MaxFormula } from "./history";
 import { ExerciseProgress } from "./progress";
-import { MuscleBreakdown } from "./anatomy";
+import { MuscleBreakdown, type AnatomyVariant } from "./anatomy";
 import { ExerciseAnimation } from "./exercise-animation";
 import { exerciseDemo } from "./catalogue-demo";
 import { fromCatalogue, useCatalogue, useCatalogDetail, type CatalogEntry, type ExerciseChoice } from "./open-gym";
@@ -31,7 +31,7 @@ const sections = [
 type ExerciseDetailProps = {
   choice: ExerciseChoice; close: () => void; select: (choice: ExerciseChoice) => void; profiles: ExerciseProfile[]; names: string[];
   logs: TrainingEntry[]; owner: string; save: (profile: ExerciseProfile) => Promise<void>; addToPlan?: (choice: ExerciseChoice, row?: CatalogEntry) => void;
-  maxFormula?: MaxFormula;
+  maxFormula?: MaxFormula; sex?: AnatomyVariant | null;
 };
 
 export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
@@ -64,7 +64,7 @@ export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
   </Dialog>;
 }
 
-function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data, maxFormula }: Omit<ExerciseDetailProps, "close"> & {
+function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data, maxFormula, sex }: Omit<ExerciseDetailProps, "close"> & {
   item: CatalogEntry | undefined; data: ReturnType<typeof useCatalogue>["data"];
 }) {
   const { name, catalogueId } = choice;
@@ -150,7 +150,7 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
             {reference?.sourceLabel || (reference ? "动作参考" : "动作参考 · NASM")} <ExternalLink size={14} />
           </a>}
         </section>
-        <MuscleBreakdown weights={weights} emptyLabel={reference && !Object.keys(reference.muscles).length
+        <MuscleBreakdown weights={weights} sex={sex} emptyLabel={reference && !Object.keys(reference.muscles).length
           ? "此动作以放松和呼吸练习为主。" : undefined} />
         {!item && !reference && !guide && <GuideEditor value={profile.guide} busy={busy}
           save={(next) => void update({ ...profile, guide: { ...next, muscles: Object.fromEntries(

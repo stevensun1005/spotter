@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
+import type { AnatomyVariant } from "@/features/body/profile";
 import type { MealEntry } from "@/features/library/model";
 import type { Move, Plan } from "@/features/plans/model";
 import type { SetLine } from "@/features/training/model";
@@ -33,6 +34,9 @@ export type SharedWorkout = {
   finishedVideo: boolean;
   exercises: {
     name: string;
+    catalogueId?: Move["catalogueId"];
+    sourceName?: Move["sourceName"];
+    warmup?: true;
     unit: Move["unit"];
     sets: Pick<SetLine, "weight" | "reps" | "seconds" | "right" | "kind">[];
   }[];
@@ -40,6 +44,7 @@ export type SharedWorkout = {
 export type FriendDay = {
   friend: Friend;
   date: string;
+  anatomyVariant?: AnatomyVariant;
   workoutCheckin: boolean;
   dietCheckin: boolean | null;
   training: SharedWorkout[] | null;

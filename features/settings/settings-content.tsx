@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CalendarDays, ClipboardList, Download, HeartPulse, RefreshCw, ShieldCheck, Users, Watch } from "lucide-react";
+import { CalendarDays, ClipboardList, Download, HeartPulse, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
+import type { AnatomyVariant } from "@/features/body/profile";
 import type { ChangeDisplay, DisplayPreferences } from "./display-preferences";
 import { DisplaySettings } from "./display-settings";
 import { EquipmentSettings } from "./equipment-settings";
@@ -9,9 +10,9 @@ import { ReminderSettings } from "./reminders";
 import { SettingsLink, SettingsRows, type SettingsPage } from "./settings-hub";
 import { WeightEntrySettings, WorkoutSettings } from "./workout-settings";
 
-export function SettingsContent({ page, open, owner, cloud, sync, pair, sharing, coaching, body,
+export function SettingsContent({ page, open, owner, cloud, sex, sync, pair, sharing, coaching, body,
   schedule, programs, plans, importPlans, latestWorkout, display, changeDisplay, protein, data, agent }: {
-  page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string; cloud: string;
+  page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string; cloud: string; sex?: AnatomyVariant;
   sync: () => void; pair: () => void; sharing?: () => void; coaching: () => void; body: () => void;
   schedule: () => void; programs: () => void; plans: () => void; importPlans: () => void; latestWorkout?: () => void;
   display: DisplayPreferences; changeDisplay: ChangeDisplay; protein: ReactNode; data: ReactNode; agent: ReactNode;
@@ -19,6 +20,7 @@ export function SettingsContent({ page, open, owner, cloud, sync, pair, sharing,
   switch (page) {
     case "account": return <>
       <SettingsRows title="账户与同步">
+        {owner && <SettingsLink label="性别" detail={sex === "female" ? "女" : sex === "male" ? "男" : "未填写"} icon={UserRound} onClick={body} />}
         {owner && <SettingsLink label="立即同步" detail={cloud} icon={RefreshCw} onClick={sync} />}
         <a className="settings-row" href={owner ? "/signout-with-chatgpt?return_to=%2F" : "/signin-with-chatgpt?return_to=%2F"} target="_top">
           <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span>

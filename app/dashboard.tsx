@@ -27,6 +27,7 @@ import { WeekCheckins } from "@/features/pair/week-checkins";
 import { PlanAssistant } from "@/features/import/plan-assistant";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
+import { AnatomySubject } from "@/features/exercises/anatomy";
 import { OpenGymCatalogue } from "@/features/exercises/open-gym-catalogue";
 import { defaultCatalogMove } from "@/features/exercises/exercise-picker";
 import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym";
@@ -129,7 +130,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [assistantMode, setAssistantMode] = useState<"import" | "ai">("import");
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
-  const [exercise, setExercise] = useState<ExerciseChoice>();
+  const [exerciseSelection, setExerciseSelection] = useState<{ choice: ExerciseChoice; owner?: string }>();
+  const exercise = exerciseSelection?.choice;
+  const setExercise = (choice?: ExerciseChoice) => setExerciseSelection(choice ? { choice } : undefined);
   const [planPick, setPlanPick] = useState<{ choice: ExerciseChoice; row?: CatalogEntry }>();
   const [targetPlan, setTargetPlan] = useState("");
   const [planTab, setPlanTab] = useState<"个人模板">();
@@ -588,16 +591,19 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     </div>;
   }
 
-  const exerciseDialog = exercise && <ExerciseDetail key={exercise.catalogueId ?? exercise.name} choice={exercise} close={() => setExercise(undefined)} maxFormula={display.maxFormula}
-    select={setExercise} profiles={profiles} names={exerciseNames} logs={logs} owner={me.id}
+  const exerciseOwner = !exerciseSelection?.owner || exerciseSelection.owner === me.id ? me
+    : exerciseSelection.owner === partnerWithDetails?.id ? partnerWithDetails : undefined;
+  const exerciseDialog = exercise && exerciseOwner && <ExerciseDetail key={exerciseOwner.id + ":" + (exercise.catalogueId ?? exercise.name)}
+    choice={exercise} close={() => setExercise(undefined)} maxFormula={display.maxFormula} sex={exerciseOwner.anatomyVariant ?? null}
+    select={(choice) => setExerciseSelection({ choice, owner: exerciseOwner.id })} profiles={profiles} names={exerciseNames} logs={logs} owner={exerciseOwner.id}
     save={(item) => library.save({ kind: "exercise", item })} addToPlan={trainingNav.id ? undefined : planExercise} />;
 
   if (trainingNav.id) {
     if (overlay?.kind === "session" && overlay.id === trainingNav.id && !completedWorkout) {
-      return <><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} trackProtein={trackProtein} close={() => { close(); trainingNav.leave(); }}
+      return <AnatomySubject.Provider value={me.anatomyVariant}><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} trackProtein={trackProtein} close={() => { close(); trainingNav.leave(); }}
         loadHistory={loadHistory}
         update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }}
-        finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />{exerciseDialog}</>;
+        finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />{exerciseDialog}</AnatomySubject.Provider>;
     }
     return <TrainingNotice loading={!draftsReady || cloud === "正在连接" || Boolean(routeDraft)}
       finished={Boolean(completedWorkout)} onBack={trainingNav.leave}
@@ -612,7 +618,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const activeTab = view === "programs" || view === "assistant" ? "plans"
     : view === "coaching" ? "friends" : view === "body" ? "stats" : view;
   const calendarOpen = view === "stats" && statsTab === "history";
-  return <div className={calendarOpen ? "app app-history" : "app"}>
+  return <AnatomySubject.Provider value={me.anatomyVariant}><div className={calendarOpen ? "app app-history" : "app"}>
     <div className="stage">
       {view === "today" && <header className="topbar">
         <div className="topbar-inner">
@@ -687,7 +693,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 <summary className="movement-toggle">
                   <h2><span>动作清单</span><span className="movement-meta"><span className="count-label">{current.data.exercises.length} 个动作</span><ChevronDown size={18} aria-hidden="true" /></span></h2>
                 </summary>
-                <div className="movement-content"><PlanSequence plan={current.data} onExercise={setExercise} /></div>
+                <div className="movement-content"><PlanSequence plan={current.data}
+                  onExercise={(choice) => setExerciseSelection({ choice, owner: current.owner })} /></div>
               </details>}
               {current.data.video && <section className="card padded"><VideoLink url={current.data.video} /></section>}
             </> : buddyStatus === "loading" || selectedPlanCompletions.length > 0 ? null : <section className="card empty-state"><span className="tile mint"><Dumbbell /></span><h3>{myToday.length && selected === today ? "今天已完成打卡" : "这天还没有安排"}</h3>{selected !== today && <button className="button outline small" onClick={() => go("plans")}>去安排训练</button>}</section>}
@@ -723,14 +730,17 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         </section></PlanSections>}
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} onBody={() => go("body")} />}
-        {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
+        {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} onProfileSaved={(sex) => {
+          setState((current) => ({ ...current, me: { ...current.me, anatomyVariant: sex } }));
+          void refresh();
+        }} />}
         <div hidden={view !== "programs"}><ProgramView active={view === "programs"} enabled={Boolean(viewer)} today={today} templates={templates.map((item) => ({ id: item.id, plan: item.plan }))} saved={() => { void refresh(); void library.load(); }} /></div>
         <div hidden={view !== "coaching"}><CoachingView active={view === "coaching"} enabled={Boolean(viewer)} today={today}
           templates={templates.map(({ id, plan }) => ({ id, plan }))}
           plans={pendingPlans.filter((item) => item.owner === me.id).map(({ id, data }) => ({ id, plan: data }))}
           saved={() => { void refresh(); void library.load(); }} /></div>
         {view === "settings" && <SettingsHub page={settingsPage} open={openSetting} close={() => go("today")} name={me.name} cloud={cloud} account={Boolean(viewer)}>
-          <SettingsContent page={settingsPage} open={openSetting} owner={viewer?.id ?? ""} cloud={cloud}
+          <SettingsContent page={settingsPage} open={openSetting} owner={viewer?.id ?? ""} cloud={cloud} sex={me.anatomyVariant}
             sync={() => { void refresh(); void library.load(); }} pair={() => open({ kind: "pair" })}
             sharing={viewer ? () => open({ kind: "friend-sharing" }) : undefined}
             coaching={() => go("coaching")} body={() => go("body")} schedule={() => openScheduleSettings()}
@@ -754,7 +764,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             orderByDay={new Map(library.rows.flatMap((item) => item.kind === "history-order" ? [[item.id, item.entries] as const] : []))}
             saveOrder={viewer ? (date, entries) => library.save({ kind: "history-order", id: date, entries }) : undefined}
             show={(log) => open({ kind: "log", log })} /> :
-            <Stats today={today} self={me.id} partner={partnerWithDetails ?? null} logs={logs} onExercise={setExercise} maxFormula={display.maxFormula}
+            <Stats today={today} self={me.id} partner={partnerWithDetails ?? null} logs={logs} maxFormula={display.maxFormula}
+              onExercise={(choice, owner) => setExerciseSelection({ choice, owner })}
               pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
               savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
         </div>}
@@ -835,7 +846,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         <button className="button primary"><Plus size={17} /> 加入并编辑</button>
       </form>
     </Dialog>}
-    {overlay?.kind === "log" && (overlay.log.owner === me.id || overlay.log.owner === partner?.id) && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today} trackProtein={trackProtein}
+    {overlay?.kind === "log" && (overlay.log.owner === me.id || overlay.log.owner === partnerWithDetails?.id) && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today} trackProtein={trackProtein}
+      sex={(overlay.log.owner === me.id ? me.anatomyVariant : partnerWithDetails?.anatomyVariant) ?? null}
       share={viewer && overlay.log.owner === me.id ? { name: me.name, owner: me.id, logs } : undefined}
       pendingSync={pendingLog}
       onEdit={viewer && overlay.log.owner === me.id && !pendingLog ? (data) => saveLogEdit(overlay.log, data) : undefined}
@@ -862,5 +874,5 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       </div>
     </Dialog>}
     {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
-  </div>;
+  </div></AnatomySubject.Provider>;
 }
