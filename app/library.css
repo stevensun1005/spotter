@@ -49,6 +49,11 @@
 .nutrition-calories strong { font-size: 1.65rem; }
 .nutrition-calories span { font-size: .9rem; color: var(--muted); }
 .nutrition-calories button { margin-left: auto; }
+.nutrition-goal-caption { margin: -4px 0 0; font-size: .84rem; }
+.nutrition-goal-estimator { border: 1px solid var(--stroke); border-radius: 11px; padding: 12px; }
+.nutrition-goal-estimator p { margin: 0; }
+.nutrition-goal-estimator > .button { justify-self: start; }
+.nutrition-goal-estimator select { text-overflow: ellipsis; }
 .nutrition-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; text-align: center; }
 .nutrition-metrics > div > span { font-size: .78rem; color: var(--muted); }
 .nutrition-ring { width: min(100%, 77px); margin: 0 auto 5px; padding: 4px; aspect-ratio: 1; display: grid; border-radius: 50%; background: conic-gradient(var(--ring) var(--percent), #e9eee7 0); }

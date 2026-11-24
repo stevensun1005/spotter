@@ -7,6 +7,7 @@ import { errorText } from "@/shared/client";
 import { useLibrary } from "@/features/library/use-library";
 import { emptyNutrition, mealTypes, type MealEntry, type NutritionValues } from "@/features/library/model";
 import { MealEditor } from "./meal-editor";
+import { NutritionGoalEstimator, nutritionGoalLabels, type NutritionGoalDraft } from "./nutrition-goal-estimator";
 
 const metrics = [
   { id: "calories", label: "热量", unit: "千卡", color: "#79523b" }, { id: "protein", label: "蛋白质", unit: "g", color: "#a45932" },
@@ -16,18 +17,21 @@ const metrics = [
 type Editor = MealEntry["meal"] | "饮水" | "体重" | "每日目标";
 const isMeal = (editor: Editor | undefined): editor is MealEntry["meal"] => mealTypes.some((meal) => meal === editor);
 
-export function NutritionView({ enabled, today }: { enabled: boolean; today: string }) {
+export function NutritionView({ enabled, today, onBody }: { enabled: boolean; today: string; onBody: () => void }) {
   const [date, setDate] = useState(today);
   const [editor, setEditor] = useState<Editor>();
   const [mealToEdit, setMealToEdit] = useState<MealEntry>();
   const [values, setValues] = useState<NutritionValues>(emptyNutrition);
+  const [goalDraft, setGoalDraft] = useState<NutritionGoalDraft>({ goal: "", activity: "", minKg: "", maxKg: "" });
   const [weight, setWeight] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saveId, setSaveId] = useState("");
   const store = useLibrary(enabled, date);
-  const targets = store.rows.find((row) => row.kind === "targets")?.values ?? emptyNutrition;
+  const targetRecord = store.rows.find((row) => row.kind === "targets");
+  const targets = targetRecord?.values ?? emptyNutrition;
+  const preference = targetRecord?.preference;
   const personal = store.rows.filter((row) => row.kind === "food");
   const portions = store.rows.filter((row) => row.kind === "food-portions");
   const rows = store.rows.flatMap((row) => row.kind === "nutrition" && row.entry.type !== "measurement" ? [{ id: row.id, entry: row.entry }] : []);
@@ -42,6 +46,10 @@ export function NutritionView({ enabled, today }: { enabled: boolean; today: str
   function open(next: Editor, previous?: { id: string; entry: MealEntry }) {
     setEditor(next); setMealToEdit(previous?.entry); setWeight(""); setError(""); setConfirm(""); setSaveId(previous?.id ?? crypto.randomUUID());
     setValues(next === "每日目标" ? targets : emptyNutrition);
+    if (next === "每日目标") setGoalDraft({
+      goal: preference?.goal ?? "", activity: preference?.activity ?? "",
+      minKg: String(preference?.weightRange?.minKg ?? ""), maxKg: String(preference?.weightRange?.maxKg ?? ""),
+    });
   }
 
   async function save(event: FormEvent) {
@@ -49,7 +57,11 @@ export function NutritionView({ enabled, today }: { enabled: boolean; today: str
     if (!editor || isMeal(editor) || busy) return;
     setBusy(true); setError("");
     try {
-      if (editor === "每日目标") await store.save({ kind: "targets", values });
+      if (editor === "每日目标") {
+        const { goal, activity, minKg, maxKg } = goalDraft;
+        const weightRange = goal === "recompose" && minKg && maxKg ? { minKg: Number(minKg), maxKg: Number(maxKg) } : undefined;
+        await store.save({ kind: "targets", values, preference: goal && activity ? { goal, activity, weightRange } : undefined });
+      }
       else await store.save({ kind: "nutrition", date, id: saveId, entry:
         editor === "饮水" ? { type: "water", ml: values.water } : { type: "weight", kg: Number(weight) } });
       setEditor(undefined);
@@ -94,6 +106,8 @@ export function NutritionView({ enabled, today }: { enabled: boolean; today: str
       }} /></div>
       <div className="nutrition-calories"><strong>{displayNumber(totals.calories)}</strong><span> {targets.calories ? "/ " + displayNumber(targets.calories) + " " : ""}千卡</span>
         <button className="button outline small" type="button" onClick={() => open("每日目标")} disabled={!enabled || busy || store.loading}>设置目标</button></div>
+      {preference && <p className="muted nutrition-goal-caption">{nutritionGoalLabels[preference.goal]}
+        {preference.weightRange && ` · ${preference.weightRange.minKg}–${preference.weightRange.maxKg} kg`}</p>}
       <div className="nutrition-metrics">{metrics.slice(1).map(({ id, label, unit, color }) => {
         const percent = targets[id] ? Math.round(totals[id] / targets[id] * 100) : null;
         return <div key={id}><div className="nutrition-ring" style={{ "--percent": Math.min(100, percent ?? 0) + "%", "--ring": color } as React.CSSProperties}>
@@ -119,7 +133,9 @@ export function NutritionView({ enabled, today }: { enabled: boolean; today: str
       <h2>{editor === "每日目标" ? "每日目标" : "记录" + editor}</h2>
       <form className="form-fields" onSubmit={save}>
         <fieldset className="form-fields" disabled={busy}>
-          {editor === "体重" ? <label>体重（kg）<input required type="number" step="0.1" min={10} max={700} value={weight} onChange={(event) => setWeight(event.target.value)} /></label> :
+          {editor === "每日目标" && <NutritionGoalEstimator enabled={enabled} today={today} draft={goalDraft} onChange={setGoalDraft}
+            water={values.water} onApply={setValues} onBody={onBody} />}
+          {editor === "体重" ? <label>体重（kg）<input required type="number" inputMode="decimal" step="0.01" min={10} max={700} value={weight} onChange={(event) => setWeight(event.target.value)} /></label> :
             <div className="field-grid">{metrics.filter(({ id }) => editor === "每日目标" || (editor === "饮水" ? id === "water" : id !== "water"))
               .map(({ id, label, unit }) => <label key={id}>{label}（{unit}）<input required={editor === "饮水"} type="number" step="any" min={editor === "饮水" ? 1 : 0} max={20000}
                 placeholder={editor === "每日目标" ? "不设目标" : "0"} value={values[id] || ""} onChange={(event) => setValues({ ...values, [id]: Number(event.target.value) })} /></label>)}</div>}

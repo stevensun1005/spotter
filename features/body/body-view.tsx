@@ -3,8 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useLibrary } from "@/features/library/use-library";
-import { displayNumber } from "@/shared/ui";
-import { measurements, type BodyMetric } from "./measurements";
+import { circumferenceMeasurements, compositionMeasurements, measurements, type BodyMetric } from "./measurements";
+import { readBodyInputs } from "./profile";
+import { bodyNumber, BodyProfileForm } from "./profile-form";
 
 export function BodyView({ enabled, today }: { enabled: boolean; today: string }) {
   const body = useLibrary(enabled, undefined, true);
@@ -14,7 +15,10 @@ export function BodyView({ enabled, today }: { enabled: boolean; today: string }
   const [id, setId] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const profileRow = body.rows.find((row) => row.kind === "body-profile");
+  const bodyInputs = readBodyInputs(body.rows, today);
   const details = measurements[metric];
+  const showValue = (amount: number) => [bodyNumber.format(amount), details.unit].filter(Boolean).join(" ");
   const rows = body.rows.flatMap((row) => {
     if (row.kind !== "nutrition") return [];
     if (row.entry.type === "weight" && metric === "weight") return [{ date: row.date, id: row.id, value: row.entry.kg, updated: row.updated }];
@@ -34,15 +38,19 @@ export function BodyView({ enabled, today }: { enabled: boolean; today: string }
     finally { setBusy(false); }
   }
   return <div className="feature-stack">
+    <BodyProfileForm {...bodyInputs} today={today} revision={profileRow?.updated} enabled={enabled && !body.loading && !body.error}
+      save={(values) => body.save({ kind: "body-profile", values }, profileRow?.updated ?? null)} />
     <section className="card padded feature-stack">
       <div className="section-head"><h2>记录身体测量</h2></div>
       <form className="form-fields" onSubmit={save}>
         <label>测量项目<select value={metric} onChange={(e) => { setMetric(e.target.value as BodyMetric); setValue(""); setId(""); setStatus(""); }}>
-          {(Object.entries(measurements)).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}
+          <option value="weight">{measurements.weight.name}</option>
+          <optgroup label="身体成分">{Object.entries(compositionMeasurements).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}</optgroup>
+          <optgroup label="围度">{Object.entries(circumferenceMeasurements).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}</optgroup>
         </select></label>
         <div className="field-grid">
           <label>测量日期<input type="date" value={date} max={today} required onChange={(e) => setDate(e.target.value)} /></label>
-          <label>{details.name}（{details.unit}）<input type="number" inputMode="decimal" step="0.1" min={details.min} max={details.max} value={value} onChange={(e) => setValue(e.target.value)} required /></label>
+          <label>{details.name}{details.unit && `（${details.unit}）`}<input type="number" inputMode="decimal" step="0.01" min={details.min} max={details.max} value={value} onChange={(e) => setValue(e.target.value)} required /></label>
         </div>
         <div className="exercise-toolbar">
           {id && <button type="button" className="button outline" onClick={() => { setId(""); setValue(""); }}>取消编辑</button>}
@@ -53,7 +61,7 @@ export function BodyView({ enabled, today }: { enabled: boolean; today: string }
       {!enabled && <p className="muted">登录后可以查看和记录身体数据。</p>}
     </section>
     <section className="card padded feature-stack">
-      <div className="section-head"><h2>{details.name}趋势</h2>{latest && <strong>{displayNumber(latest.value)} {details.unit}</strong>}</div>
+      <div className="section-head"><h2>{details.name}趋势</h2>{latest && <strong>{showValue(latest.value)}</strong>}</div>
       {body.error && <button className="button outline" onClick={() => void body.load()}>{body.error}</button>}
       {!rows.length && <p className="stats-empty">{body.loading ? "正在读取…" : "暂无测量记录。"}</p>}
       {rows.length > 0 && <>
@@ -61,12 +69,12 @@ export function BodyView({ enabled, today }: { enabled: boolean; today: string }
           <LineChart data={rows} margin={{ top: 15, right: 13, bottom: 0, left: -12 }}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis dataKey="date" tickFormatter={(value) => value.slice(5)} minTickGap={24} /><YAxis domain={["auto", "auto"]} />
-            <Tooltip formatter={(value) => [value + " " + details.unit, details.name]} />
+            <Tooltip formatter={(value) => [showValue(Number(value)), details.name]} />
             <Line dataKey="value" stroke="#2c6b4a" strokeWidth={2.5} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer></div>
         {[...rows].reverse().slice(0, 30).map((row) => <div key={row.id} className="list-line">
-          <div><strong>{displayNumber(row.value)} {details.unit}</strong><small>{row.date}</small></div>
+          <div><strong>{showValue(row.value)}</strong><small>{row.date}</small></div>
           <button className="button outline small" disabled={busy} onClick={() => { setId(row.id); setDate(row.date); setValue(String(row.value)); setStatus("正在编辑 " + row.date + " 的记录"); }}>编辑</button>
         </div>)}
       </>}

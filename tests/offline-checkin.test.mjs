@@ -270,3 +270,46 @@ test("CSV export is account-scoped, date-filtered and safe for spreadsheets", as
   assert.equal(json.headers.get("content-type"), "application/json; charset=utf-8");
   assert.equal((await json.json()).library.length, 2);
 });
+
+test("private body profile and precise composition records round-trip in their own scope", async (t) => {
+  const { GET, POST } = await import("../app/api/library/route.ts");
+  const { backupSchema, emptyBackup, scopeBackup } = await import("../features/data/model.ts");
+  const { readBodyInputs } = await import("../features/body/profile.ts");
+  const sql = database(t);
+  sql.exec("CREATE TABLE personal_library (owner TEXT, id TEXT, kind TEXT, day TEXT, payload TEXT, updated TEXT, PRIMARY KEY(owner, kind, id))");
+  const root = "https://spotter.example/api/library";
+  const save = (data, revision) => POST(new Request(root, { method: "POST", headers: { "Content-Type": "application/json", Origin: new URL(root).origin },
+    body: JSON.stringify({ action: "save", data, revision }) }));
+  const rows = (query) => GET(new Request(root + query)).then((response) => response.json()).then((result) => result.rows);
+  const date = "2025-06-12";
+  const profile = { kind: "body-profile", values: { heightCm: 167.5, age: 40, sex: "female", ageAsOf: date } };
+  const weight = { kind: "nutrition", id: logId, date, entry: { type: "weight", kg: 71.82 } };
+  const composition = { kind: "nutrition", id: secondId, date, entry: { type: "measurement", metric: "skeletalMuscle", value: 24.73 } };
+  const targets = { kind: "targets", values: { calories: 2400, protein: 129, carbs: 321, fat: 67, water: 2000 },
+    preference: { goal: "recompose", activity: "moderate", weightRange: { minKg: 69, maxKg: 74 } } };
+  worker.owner = owner;
+  assert.equal((await save({ ...profile, values: { ...profile.values, heightCm: 0 } }, null)).status, 400);
+  assert.equal((await save({ ...composition, entry: { ...composition.entry, value: 300 } })).status, 400);
+  const initial = await save(profile, null);
+  assert.equal(initial.status, 200);
+  const { updated } = await initial.json();
+  assert.equal((await save(profile, null)).status, 409);
+  assert.equal((await save({ ...profile, values: { ...profile.values, age: 41 } }, updated)).status, 200);
+  assert.equal((await save(weight)).status, 200);
+  assert.equal((await save(composition)).status, 200);
+  const body = await rows("?section=body");
+  assert.deepEqual(readBodyInputs(body, date), { profile: { ...profile.values, age: 41 }, weightKg: 71.82, weightDate: date });
+  assert.equal(readBodyInputs(body, "2025-06-11").weightKg, undefined);
+  assert.equal(body.find((row) => row.id === secondId)?.entry.value, 24.73);
+  assert.equal((await save(targets)).status, 200);
+  const nutrition = await rows("?date=" + date);
+  assert.equal(nutrition.some((row) => row.kind === "body-profile"), false);
+  assert.deepEqual(nutrition.find((row) => row.kind === "targets")?.preference, targets.preference);
+  worker.owner = another;
+  assert.deepEqual(await rows("?section=body"), []);
+  assert.deepEqual(await rows("?date=" + date), []);
+  worker.owner = owner;
+  const file = backupSchema.parse({ ...emptyBackup(), library: [profile, weight, composition, targets] });
+  assert.deepEqual(scopeBackup(file, "body").library, [profile, weight, composition]);
+  assert.deepEqual(scopeBackup(file, "nutrition").library, [targets]);
+});

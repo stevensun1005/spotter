@@ -2,6 +2,7 @@ import type { DataScope } from "@/features/data/model";
 import type { LibraryItem } from "@/features/library/model";
 import type { Plan } from "@/features/plans/model";
 import { agentPlanningGuide } from "@/features/import/ai-instructions";
+import { measurements, recordedMetrics } from "@/features/body/measurements";
 
 export const agentGuideScopes = [
   ["all", "全部说明"],
@@ -23,8 +24,9 @@ const guideDetails: Record<AgentScope, readonly string[]> = {
   ],
   body: [
     "## 身体",
-    "- 有用户授权的体重、体脂或围度记录，用 import_spotter_records 的 body 类别，写入 backup.library。每条 kind 为 nutrition，给予 UUID id 和 YYYY-MM-DD 日期；体重的 entry.type 为 weight，并使用 kg；身体测量 entry.type 为 measurement，包含 metric 和 value。metric 可用 fat（体脂率 %）、muscle（肌肉量 kg）、waist（腰围）、chest（胸围）、hip（臀围）、neck（颈围）、shoulders（肩宽）、arm（臂围）、thigh（大腿围），围度和肩宽均用 cm。",
-    "- 记录的原始单位需核对。浏览器里从「更多 → 身体数据」打开对应指标，再填写数值和日期。",
+    "- 有用户授权的体重、体脂或围度记录，用 import_spotter_records 的 body 类别，写入 backup.library。测量记录的 kind 为 nutrition，给予 UUID id 和 YYYY-MM-DD 日期。体重的 entry.type 为 weight，使用 kg。其他测量的 entry.type 为 measurement，包含 metric 和 value。",
+    "- 可用的 metric 包括 " + recordedMetrics.map((metric) => metric + "（" + [measurements[metric].name, measurements[metric].unit].filter(Boolean).join(" ") + "）").join("、") + "。保存前核对原始单位。",
+    "- 身高、年龄和用于营养估算的性别属于一个 body-profile 档案，values 支持 heightCm、age、sex（male 或 female）和可选的 ageAsOf（年龄记录日期）。已有档案可在身体数据页更新。",
   ],
   templates: [
     "## 模板",

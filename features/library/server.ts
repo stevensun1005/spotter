@@ -15,7 +15,7 @@ function database() {
 export async function readLibrary(owner: string, day?: string, body = false): Promise<LibraryRow[]> {
   const db = database();
   const statement = body
-    ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind = 'nutrition' AND json_extract(payload, '$.entry.type') IN ('weight','measurement') ORDER BY day ASC, updated DESC").bind(owner)
+    ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind = 'body-profile' OR (kind = 'nutrition' AND json_extract(payload, '$.entry.type') IN ('weight','measurement'))) ORDER BY day ASC, updated DESC").bind(owner)
     : day
     ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind IN ('targets', 'food', 'food-portions') OR (kind = 'nutrition' AND day = ?)) ORDER BY updated DESC").bind(owner, day)
     : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins', 'protein-preference', 'history-order') ORDER BY updated DESC").bind(owner);
@@ -40,7 +40,7 @@ export async function saveLibrary(owner: string, item: LibraryItem, revision?: s
   const id = libraryKey(item);
   const day = item.kind === "nutrition" ? item.date : item.kind === "history-order" ? item.id : null;
   const payload = JSON.stringify(item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item);
-  const protectedWrite = item.kind === "template" || item.kind === "schedule";
+  const protectedWrite = item.kind === "template" || item.kind === "schedule" || item.kind === "body-profile";
   const updated = nextRevision(new Date().toISOString(), protectedWrite ? [revision] : []);
   const db = database();
   const result = protectedWrite && revision ? await db.prepare(
@@ -50,7 +50,10 @@ export async function saveLibrary(owner: string, item: LibraryItem, revision?: s
     "ON CONFLICT (owner, kind, id) " +
     (protectedWrite ? "DO NOTHING" : "DO UPDATE SET day=excluded.day,payload=excluded.payload,updated=excluded.updated")
   ).bind(owner, item.kind, id, day, payload, updated).run();
-  if (protectedWrite && !result.meta.changes) throw staleLibraryItem();
+  if (protectedWrite && !result.meta.changes) {
+    if (item.kind === "body-profile") throw new HttpError(409, "身体档案已在另一处变更，请刷新后重新编辑。");
+    throw staleLibraryItem();
+  }
   return updated;
 }
 

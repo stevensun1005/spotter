@@ -722,7 +722,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             <h3>{planStatus === "completed" ? "还没有已完成的计划" : plans.length ? "没有待训练的计划" : "还没有训练计划"}</h3></div>}
         </section></PlanSections>}
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
-        {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
+        {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} onBody={() => go("body")} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
         <div hidden={view !== "programs"}><ProgramView active={view === "programs"} enabled={Boolean(viewer)} today={today} templates={templates.map((item) => ({ id: item.id, plan: item.plan }))} saved={() => { void refresh(); void library.load(); }} /></div>
         <div hidden={view !== "coaching"}><CoachingView active={view === "coaching"} enabled={Boolean(viewer)} today={today}
