@@ -12,6 +12,7 @@ const pages = {
   advanced: { title: "微调", description: "训练记录的进阶偏好", keywords: "键盘 自动 完成 收起 跳过 advance collapse", icon: Wrench, tone: "slate" },
   alerts: { title: "计时提醒", description: "休息结束时的提示方式", keywords: "休息 音效 声音 震动 振动 闪屏 rest timer sound vibrate", icon: Speaker, tone: "rose" },
   schedule: { title: "计划与日程", description: "休息日、训练周期和计划导入", keywords: "请假 顺延 时间 周 日期 template plan schedule", icon: CalendarDays, tone: "orange" },
+  planImport: { title: "粘贴已有内容", description: "训练文本、视频链接和计划 JSON", keywords: "手动 导入 拷贝 黏贴 上传 训练计划 import paste", icon: ClipboardList, tone: "orange" },
   reminders: { title: "提醒", description: "待训练日程与提醒方式", keywords: "打卡 跳过 通知 提醒 notification reminders", icon: Bell, tone: "red" },
   units: { title: "单位与语言", description: "配重单位和动作名称", keywords: "kg lb 公斤 磅 中文 英文 units language", icon: Ruler, tone: "teal" },
   equipment: { title: "器械", description: "常用器械和 GoodLife 替换条件", keywords: "健身房 哑铃 杠铃 卧推凳 支架 龙门架 gear equipment", icon: Dumbbell, tone: "indigo" },
@@ -64,6 +65,7 @@ export function SettingsHub({ page, open, close, name, cloud, account, children 
     const { title, description, keywords } = pages[key];
     return query.every((term) => (title + " " + description + " " + keywords).toLowerCase().includes(term));
   });
+  const parent = page === "advanced" ? "workout" : page === "planImport" ? "schedule" : undefined;
   function link(id: SettingsPage) {
     const { title, description, icon: Icon, tone } = pages[id];
     return <button type="button" key={id} className="settings-row" onClick={() => open(id)}>
@@ -73,8 +75,8 @@ export function SettingsHub({ page, open, close, name, cloud, account, children 
     </button>;
   }
   return <section className="settings-hub">
-    <button type="button" className="settings-back" onClick={() => page ? open(page === "advanced" ? "workout" : undefined) : close()}>
-      <ArrowLeft size={18} aria-hidden="true" />{page === "advanced" ? "训练" : page ? "设置" : "今日"}
+    <button type="button" className="settings-back" onClick={() => page ? open(parent) : close()}>
+      <ArrowLeft size={18} aria-hidden="true" />{parent ? pages[parent].title : page ? "设置" : "今日"}
     </button>
     <h1 ref={titleRef} tabIndex={-1}>{page ? pages[page].title : "设置"}</h1>
     {page ? <div className="settings-body" key={page}>{children}</div> : <>

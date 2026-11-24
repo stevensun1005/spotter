@@ -88,7 +88,7 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     "",
     "## 使用浏览器操作的 AI",
     "- 能操作浏览器的 AI 可使用用户已经自行登录并授权使用的站点会话。在「更多 → 数据导出与导入 → 其他数据的 AI 写入说明」核对账号标识，再按用户授权通过页面表单保存。",
-    "- 训练计划统一打开「添加计划 → 粘贴已有内容」预览；需要起草或连接 Agent 时使用「添加计划 → 用自己的 AI」。适用的备份仍从「更多 → 数据导出与导入 → 恢复备份」上传并确认。",
+    "- 训练计划从「设置 → 计划与日程 → 粘贴已有内容」预览。起草计划或连接 Agent 时使用「添加计划 → 用自己的 AI」。备份从「设置 → 数据与备份 → 恢复备份」上传并确认。",
     "- 个人账号 Sites 的网站邀请仅提供网站访问权限。训练搭子插件的连接由客户端和账号的权限单独管理。只有文本工具的 AI 可先准备可导入材料，并向用户说明保存状态。",
   ];
   return [...connection, ...scopes.flatMap((item) => item === "training" ? ["", trainingGuide] : ["", ...guideDetails[item], "", ...examples[item].flatMap((part) => ["", part])])].join("\n") + "\n";
