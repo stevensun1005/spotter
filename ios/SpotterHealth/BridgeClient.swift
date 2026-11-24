@@ -8,6 +8,34 @@ struct Connection: Codable, Sendable {
     let token: String
 }
 
+struct ExpectedHealthAccount: Equatable, Sendable {
+    let origin: String
+    let accountId: String
+}
+
+enum HealthAccountError: LocalizedError {
+    case unavailable
+    case changed
+    case mismatch
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: return "请先在训练页面登录，再同步健康数据。"
+        case .changed: return "当前账号或网站已变化，健康同步已暂停。请确认账号后重试。"
+        case .mismatch: return "健康连接与当前训练账号不一致，请用当前账号重新配对。"
+        }
+    }
+}
+
+enum HealthAccountGate {
+    static func permits(expected: ExpectedHealthAccount?, connection: Connection, deviceOwner: String) -> Bool {
+        guard let expected, !expected.accountId.isEmpty,
+              let expectedOrigin = try? BridgeClient.origin(expected.origin),
+              let deviceOrigin = try? BridgeClient.origin(connection.origin) else { return false }
+        return expectedOrigin == deviceOrigin && expected.accountId == deviceOwner
+    }
+}
+
 enum BridgeError: LocalizedError {
     case origin
     case badResponse
@@ -59,6 +87,7 @@ struct BridgeClient {
         let from: Int; let to: Int; let saved: Int; let skipped: Int; let empty: Bool; let selected: [String]; let received: [String]
     }
     private struct Status: Decodable { let connected: Bool }
+    private struct DeviceIdentity: Decodable { let owner: String }
     private struct Problem: Decodable { let error: String }
 
     static func origin(_ input: String) throws -> String {
@@ -78,6 +107,13 @@ struct BridgeClient {
         let server = try origin(input)
         let result: Token = try await call(server, "pair", method: "POST", body: Pair(code: code))
         return Connection(origin: server, token: result.token)
+    }
+
+    func deviceOwner(_ connection: Connection) async throws -> String {
+        let identity: DeviceIdentity = try await Self.call(connection.origin, "device", token: connection.token,
+                                                         method: "GET", body: Optional<Empty>.none, session: session)
+        guard !identity.owner.isEmpty else { throw BridgeError.badResponse }
+        return identity.owner
     }
 
     func workouts(_ connection: Connection, from: Date, to: Date, cursor: String?) async throws -> WorkoutPage {

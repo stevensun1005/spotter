@@ -1,11 +1,13 @@
-# 训练搭子健康配套应用
+# 训练搭子 iPhone App
+
+完整 App 选择 **Spotter** scheme，产品为 `Spotter.app`：主界面复用所选站点的训练业务，Apple 健康继续使用现有原生模块。旧 SpotterHealth scheme 保留为兼容入口。App 打包、最新代码核验和另一台电脑完成后的补齐约定见 [App 说明](../docs/iphone-app.md)。以下说明主要针对健康同步。
 
 现有 iPhone 应用通过 HealthKit 读取已同步到 iPhone「健康」的 Apple Watch 和第三方来源数据。支持 iOS 16 及以上。默认只选择训练心率，其他类型由用户逐项打开并各自请求读取权限，不向 HealthKit 写入数据。
 
 ## 本地构建与合成验证
 
 ```sh
-xcodebuild -project ios/SpotterHealth.xcodeproj -scheme SpotterHealth -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath work/ios-derived CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project ios/SpotterHealth.xcodeproj -scheme Spotter -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath work/ios-derived CODE_SIGNING_ALLOWED=NO build
 mkdir -p work
 swiftc ios/SpotterHealth/HeartPayload.swift ios/SpotterHealth/BridgeClient.swift ios/Tests/NativeSmoke.swift -o work/native-smoke
 work/native-smoke
@@ -19,9 +21,9 @@ npm run test:health-native
 ## 真机安装与验证
 
 1. 在 Mac 的 Xcode 打开 `SpotterHealth.xcodeproj`。项目已声明 **HealthKit** capability、`com.apple.developer.healthkit` entitlement 和读取用途说明，自动签名开启。仓库未固定签名团队；当前默认 Bundle ID 为 `app.spotter.health`。在 Signing & Capabilities 选择有 HealthKit 权限的开发团队，以及该团队可用的唯一 Bundle ID。个人团队及已有证书是否包含所需权限，以 Xcode 实际 provisioning 结果为准。不要将个人配置、Profile 或证书提交到 Git。
-2. 连接并解锁 iPhone，信任此 Mac，按系统要求开启开发者模式。选择 **SpotterHealth** scheme 与该手机，运行调试版。已有证书不能代替匹配 Bundle ID、设备和 HealthKit 的 development provisioning profile。
-3. 准备 iPhone 可访问的独立版 **HTTPS 测试服务**，配置正确的 `SPOTTER_ORIGIN` 和独立测试数据库。App 拒绝 HTTP、路径、查询参数、用户名/密码和重定向，不为本地验证放宽传输安全。没有 HTTPS 环境时先运行上述本地合成与构建验证。
-4. 在测试网页登录自己的测试账号，账号面板生成五分钟有效的一次性配对码。在 App 输入测试 origin 与配对码。配对成功后，由本人在系统健康弹窗选择是否允许读取心率。后续在「选择同步数据」逐项打开体重、系统运动、步数、活跃能量或运动时长，逐项处理系统权限。
+2. 连接并解锁 iPhone，信任此 Mac，按系统要求开启开发者模式。选择 **Spotter** scheme 与该手机，运行调试版。已有证书不能代替匹配 Bundle ID、设备和 HealthKit 的 development provisioning profile。
+3. 准备 iPhone 可访问的独立版 **HTTPS 测试服务**，配置正确的 `SPOTTER_ORIGIN` 和独立测试数据库，在 App「设置」选择该站点。地址拒绝 HTTP、路径、查询参数和用户名/密码，原生设备请求不跟随重定向，不为本地验证放宽传输安全。没有 HTTPS 环境时先运行上述本地合成与构建验证。
+4. 在 App 的训练页面登录测试账号，账号面板生成五分钟有效的一次性配对码。打开原生健康入口并输入配对码；App 核对当前网页账号和设备令牌归属相同才允许读取或上传。配对成功后，由本人在系统健康弹窗选择是否允许读取心率。后续在「选择同步数据」逐项打开体重、系统运动、步数、活跃能量或运动时长，逐项处理系统权限。
 5. 网页完成训练后，等待 Apple Watch 数据出现在 iPhone 健康。App 手动点「同步所选健康数据」，或将 App 打开/回到前台。网页详情检查实际训练时段、来源、曲线和平均/最低/最高心率。使用同一天两次训练核对归属，再重复同步核对幂等；手表迟到样本可再次补同步。
 6. 检查体重进入身体记录、活动进入概览、系统运动只按时间关联已有打卡；不会自动生成第二条训练。分别验证 kg/lb、跨午夜、时区、历史日期、断网重试与恢复。用两组测试账号验证无法互读健康数据。
 7. 从网页断开后旧设备同步应返回失效，App 清理 Keychain 并要求重新配对。App 内断开需要服务端确认成功才移除本地凭据；断网时明确提示重试。重新配对会替换账号的旧凭据；更换账号后同步选项重置为仅心率。

@@ -3,9 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>训练搭子健康</string>
+    <string>训练搭子</string>
     <key>NSHealthShareUsageDescription</key>
     <string>仅按您选择的类型和日期范围，读取训练心率、体重、系统运动、步数、活跃能量或运动时长，私密同步到您配对的训练搭子账号。</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>连接您选择的训练搭子站点，读取和保存训练记录。</string>
     <key>UILaunchScreen</key>
     <dict/>
 </dict>
