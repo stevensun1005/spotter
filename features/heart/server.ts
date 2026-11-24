@@ -27,11 +27,13 @@ export function readHeart(owner: string, id: string) {
 export function saveHeart(owner: string, id: string, data: HeartData, replace = true) {
   const window = requireHeartWorkout(owner, id);
   if (!acceptsHeart(window, data)) throw new HttpError(400, "心率活动与这次训练的时间不吻合。");
-  return database().prepare(
+  const saved = database().prepare(
     "INSERT INTO workout_heart (owner, workout_id, payload) VALUES (?, ?, ?) " +
     (replace ? "ON CONFLICT(owner, workout_id) DO UPDATE SET payload = excluded.payload" :
       "ON CONFLICT(owner, workout_id) DO NOTHING")
   ).run(owner, id, JSON.stringify(data)).changes > 0;
+  if (saved && replace) database().prepare("DELETE FROM apple_heart_sync WHERE owner = ? AND workout_id = ?").run(owner, id);
+  return saved;
 }
 
 export function removeHeart(owner: string, id: string) {

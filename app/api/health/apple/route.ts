@@ -1,10 +1,11 @@
 import { requireAccount } from "@/features/auth/server";
 import { appleConnection, appleControl, disconnectApple, issueAppleCode } from "@/features/heart/apple/server";
 import { api, json, readJson } from "@/server/http";
+import { healthOverview, lastHealthSync } from "@/features/health/server";
 
 export const GET = api(async () => {
   const { id } = await requireAccount();
-  return json({ connected: appleConnection(id) });
+  return json({ connected: appleConnection(id), lastSync: lastHealthSync(id), health: healthOverview(id) });
 });
 
 export const POST = api(async (request) => {

@@ -19,12 +19,18 @@ export const heartSchema = z.object({
   from: timestamp,
   to: timestamp,
   average: bpm.optional(),
+  minimum: bpm.optional(),
   maximum: bpm.optional(),
+  sourceName: z.string().trim().min(1).max(160).optional(),
+  sourceBundleId: z.string().trim().min(1).max(200).optional(),
+  sourceId: z.string().trim().min(1).max(200).optional(),
   samples: z.array(sampleSchema).max(720),
 }).superRefine((value, ctx) => {
   if (value.to < value.from || value.to - value.from > 86_400_000 ||
       (!value.samples.length && value.average === undefined && value.maximum === undefined) ||
       (value.average !== undefined && value.maximum !== undefined && value.average > value.maximum) ||
+      (value.minimum !== undefined && value.maximum !== undefined && value.minimum > value.maximum) ||
+      (value.minimum !== undefined && value.average !== undefined && value.minimum > value.average) ||
       value.samples.some((sample, i) => sample.at < value.from || sample.at > value.to ||
         (i > 0 && sample.at <= value.samples[i - 1].at))) {
     ctx.addIssue({ code: "custom", message: "心率数据范围无效。" });
@@ -56,17 +62,20 @@ export function sampleCollection(window: TimeWindow) {
     if (!sorted.length) return null;
     const toPoint = ([at, bpm]: [number, number]) => ({ at, bpm });
     let sum = 0;
+    let minimum = 301;
     let maximum = 0;
+    let minIndex = 0;
     let maxIndex = 0;
     sorted.forEach(([, rate], index) => {
       sum += rate;
+      if (rate < minimum) { minimum = rate; minIndex = index; }
       if (rate > maximum) { maximum = rate; maxIndex = index; }
     });
-    const indices = new Set<number>([maxIndex]);
-    const size = Math.min(719, sorted.length);
+    const indices = new Set<number>([minIndex, maxIndex]);
+    const size = Math.min(718, sorted.length);
     for (let i = 0; i < size; i++) indices.add(Math.round(i * (sorted.length - 1) / Math.max(1, size - 1)));
     const samples = [...indices].sort((a, b) => a - b).map((i) => toPoint(sorted[i]));
-    return { source, from: sorted[0][0], to: sorted.at(-1)![0], average: Math.round(sum / sorted.length), maximum, samples };
+    return { source, from: sorted[0][0], to: sorted.at(-1)![0], average: Math.round(sum / sorted.length), minimum, maximum, samples };
   }
   return { add, collect };
 }

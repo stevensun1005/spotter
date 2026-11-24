@@ -48,4 +48,34 @@ export const schema = [
     code_expires INTEGER,
     token_hash TEXT UNIQUE
   );`,
+  `CREATE TABLE IF NOT EXISTS health_body_mass (
+    owner TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    sample_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY(owner, sample_id)
+  );
+  CREATE TABLE IF NOT EXISTS health_workout (
+    owner TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    sample_id TEXT NOT NULL,
+    started INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY(owner, sample_id)
+  );
+  CREATE TABLE IF NOT EXISTS health_activity (
+    owner TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY(owner, date)
+  );
+  CREATE TABLE IF NOT EXISTS health_sync_status (
+    owner TEXT PRIMARY KEY NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    payload TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS apple_heart_sync (
+    owner TEXT NOT NULL,
+    workout_id TEXT NOT NULL,
+    PRIMARY KEY(owner, workout_id),
+    FOREIGN KEY(owner, workout_id) REFERENCES workout_heart(owner, workout_id) ON DELETE CASCADE
+  );`,
 ];
