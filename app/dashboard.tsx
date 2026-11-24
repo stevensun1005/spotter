@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cloud,
+  BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3,
   Bookmark, CalendarClock, Copy, Dumbbell, GraduationCap, House, LogIn, Play, Plus, Settings, Sparkles, Trash2, Utensils, Users,
 } from "lucide-react";
 import {
@@ -622,33 +622,29 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       }} />;
   }
 
-  const showPageHeading = view !== "plans" && view !== "stats" && view !== "nutrition" && view !== "settings";
+  const showPageHeading = view !== "today" && view !== "plans" && view !== "stats" && view !== "nutrition" && view !== "settings";
   const heading = pageTitles[view];
   const activeTab = view === "programs" || view === "assistant" ? "plans"
     : view === "coaching" ? "friends" : view === "body" ? "stats" : view;
   const calendarOpen = view === "stats" && statsTab === "history";
   return <AnatomySubject.Provider value={me.anatomyVariant}><div className={calendarOpen ? "app app-history" : "app"}>
     <div className="stage">
-      {view === "today" && <header className="topbar">
-        <div className="topbar-inner">
-          <div className="app-wordmark"><span className="mini-mark"><Dumbbell size={18} aria-hidden="true" /></span><span>训练搭子</span></div>
-          <div className="top-actions">
-            {display.cloud && <span className="cloud-status"><Cloud size={17} aria-hidden="true" />{cloud}</span>}
-            <button className="icon-button home-settings" type="button" onClick={() => go("settings")} aria-label="设置" title="设置"><Settings size={21} aria-hidden="true" /></button>
-          </div>
-        </div>
-      </header>}
       <main className={view === "today" ? "content content-today" : "content"}>
-        {showPageHeading && <div className={view === "today" || view === "friends" ? `page-heading ${view}-heading` : "page-heading"}>
-          <div>{view === "today"
-            ? <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>
-            : <h1>{heading}</h1>}
-            {view === "today" && demo && <p>正在查看示例数据。登录后可同步你们的记录。</p>}
+        {view === "today" && <>
+          <header className="home-toolbar">
+            <button className="button primary" type="button" onClick={() => open({ kind: "launch" })}>
+              <Play size={17} fill="currentColor" aria-hidden="true" /> 训练
+            </button>
+            <button className="icon-button home-settings" type="button" onClick={() => go("settings")} aria-label="设置" title="设置">
+              <Settings size={21} aria-hidden="true" />
+            </button>
+          </header>
+          {demo && <p className="muted home-demo">正在查看示例数据。登录后可同步你们的记录。</p>}
+        </>}
+        {showPageHeading && <div className={view === "friends" ? "page-heading friends-heading" : "page-heading"}>
+          <div><h1>{heading}</h1>
             {view === "assistant" && <p>粘贴已有内容，或用自己的 AI 起草；核对后再排入训练。</p>}
           </div>
-          {view === "today" && <div className="plan-heading-actions">
-            <button className="button primary page-action" onClick={() => open({ kind: "launch" })}><Play size={19} fill="currentColor" /> 开始训练</button>
-          </div>}
           {view === "friends" && <button className="button outline small" type="button" onClick={() => go("coaching")}>
             <GraduationCap size={16} aria-hidden="true" /> 教练与学员
           </button>}

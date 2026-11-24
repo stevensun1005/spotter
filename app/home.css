@@ -29,10 +29,10 @@
 .training-friends.button { flex: none; min-height: 44px; white-space: nowrap; }
 .page-heading.friends-heading { align-items: center; margin-bottom: 12px; }
 .friends-heading > .button { white-space: nowrap; }
-.page-heading.today-heading { align-items: center; }
-.page-heading.today-heading .date-line { margin-block-end: 0; }
-.plan-heading-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 7px; min-width: 0; }
-.plan-heading-actions .page-action { margin-top: 0; }
+.home-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-block-end: 12px; }
+.home-toolbar .home-settings { width: 44px; height: 44px; border-radius: 12px; background: var(--card); color: var(--text); }
+.home-toolbar .home-settings:hover { background: var(--mint); }
+.home-demo { margin-block-end: 12px; }
 .plans-list-heading { flex-wrap: wrap; }
 .plans-list-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-inline-start: auto; }
 .plans-list-actions .button { white-space: nowrap; }
@@ -55,7 +55,7 @@
 .week-checkin-message { padding: 4px 0; }
 @media (max-width: 620px) {
   .hero-duration-note { padding: 11px 14px; font-size: .81rem; }
-  .plan-heading-actions { max-width: 65%; }
+  .content.content-today { padding-block-start: 12px; }
   .content:has(> .training-sections) { padding-block-start: 12px; }
   .training-sections.feature-stack { gap: 9px; }
   .segmented.training-tabs, .segmented.plans-status-tabs { padding: 2px; gap: 2px; border-radius: 10px; }

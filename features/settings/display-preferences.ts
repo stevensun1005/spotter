@@ -12,7 +12,7 @@ export const displayDefaults = {
   firstWeekday: "monday" as "monday" | "sunday",
   weeklyGoal: 0,
   maxFormula: "epley" as MaxFormula,
-  motion: true, cloud: true, weeklyCheckins: true, planShortcuts: true,
+  motion: true, weeklyCheckins: true, planShortcuts: true,
   nutrition: true, social: true,
 };
 export type DisplayPreferences = typeof displayDefaults;
@@ -29,7 +29,7 @@ function readDisplayPreferences(raw: string | null): DisplayPreferences {
       firstWeekday: value.firstWeekday === "sunday" ? "sunday" : "monday",
       weeklyGoal: typeof value.weeklyGoal === "number" && Number.isInteger(value.weeklyGoal) && value.weeklyGoal >= 0 && value.weeklyGoal <= 14 ? value.weeklyGoal : 0,
       maxFormula: value.maxFormula === "brzycki" ? "brzycki" : "epley",
-      motion: value.motion !== false, cloud: value.cloud !== false, weeklyCheckins: value.weeklyCheckins !== false,
+      motion: value.motion !== false, weeklyCheckins: value.weeklyCheckins !== false,
       planShortcuts: value.planShortcuts !== false, nutrition: value.nutrition !== false, social: value.social !== false,
     };
   } catch { return displayDefaults; }

@@ -66,13 +66,13 @@
 :root[data-spotter-theme="dark"] {
   color-scheme: dark; --canvas: #141a17; --card: #1f2823; --text: #e7eee9; --muted: #a6b4a9; --stroke: #39463d;
 }
-:root[data-spotter-theme="dark"] :is(.topbar, .primary-nav, .dialog, .modal, .button.outline, .icon-button, .form-fields input, .form-fields select, .form-fields textarea) {
+:root[data-spotter-theme="dark"] :is(.primary-nav, .dialog, .modal, .button.outline, .icon-button, .form-fields input, .form-fields select, .form-fields textarea) {
   background: var(--card); border-color: var(--stroke); color: var(--text);
 }
 :root[data-spotter-theme="dark"] :is(.button.subtle, .segmented, .workout-preference-group) {
   background: #26332a; border-color: var(--stroke); color: var(--text);
 }
-:root[data-spotter-theme="dark"] :is(.text-button, .date-line, .crumb strong, .section-head h2, .summary-date-label) { color: var(--text); }
+:root[data-spotter-theme="dark"] :is(.text-button, .crumb strong, .section-head h2, .summary-date-label) { color: var(--text); }
 :root[data-spotter-theme="dark"] .segmented button { color: var(--muted); }
 :root[data-spotter-theme="dark"] .segmented [aria-pressed="true"] { background: var(--lime); color: var(--dark); }
 :root[data-spotter-theme="dark"] .primary-nav button.active { background: #354d39; color: var(--text); }

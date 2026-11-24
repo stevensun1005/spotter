@@ -33,7 +33,6 @@ export function DisplaySettings({ display, change, modules }: { display: Display
       <Toggle label="界面过渡动效" checked={display.motion} onChange={(value) => change("motion", value)} />
     </SettingsRows>
     <SettingsRows title="首页">
-      <Toggle label="显示云端连接状态" checked={display.cloud} onChange={(value) => change("cloud", value)} />
       <Toggle label="显示近 7 天打卡" checked={display.weeklyCheckins} onChange={(value) => change("weeklyCheckins", value)} />
       <Toggle label="显示添加计划捷径" checked={display.planShortcuts} onChange={(value) => change("planShortcuts", value)} />
     </SettingsRows>
