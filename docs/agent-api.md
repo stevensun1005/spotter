@@ -1,6 +1,6 @@
 # 用户自己的 AI Agent 接入 Spotter
 
-Spotter 提供工具接口，由用户自己的 AI Agent 负责理解目标、生成和修改计划。站点不调用模型 API，不保存 GPT、Claude、Grok、Muse 等模型服务的密钥。能否接入取决于客户端是否支持目标站点的授权 MCP 或自定义 HTTP 工具；本轮没有把任何品牌客户端列为已在线验证。
+使用外部 Agent 工具接口时，用户自己的 AI Agent 负责理解目标和准备数据，Spotter 校验并处理已授权的请求。可新增计划、训练记录、餐食、常用食物、身体数据和模板。站内对话和拍照识别复用同一套服务，见 [站内 AI 配置](ai-coach.md)。
 
 ## 两种入口
 
@@ -18,6 +18,7 @@ Spotter 提供工具接口，由用户自己的 AI Agent 负责理解目标、�
 - `read:context`：读取自己的动作库、模板、编排规则、周期概要及内置动作搜索。
 - `plans:draft`：提交或读取个人计划、周期草稿，不能自动排入日历。
 - `plans:write`：在用户明确授权并提供确认字段后，将已预览的草稿排入日历。此权限由用户显式勾选，不默认授予。
+- `training:write`、`nutrition:write`、`body:write`、`templates:write`：分别授权新增已完成训练、饮食和水及常用食物、身体数据、个人模板。创建连接时分别勾选。
 
 原始令牌仅在创建响应中展示一次，服务端只保存 SHA-256 哈希。网页列表显示名称、权限、有效期和最近使用时间；可随时撤销。新请求会检查过期和撤销状态；已在处理的请求可能完成。每个令牌每分钟最多 60 个请求，超出返回 429。
 
@@ -93,10 +94,16 @@ Spotter 提供工具接口，由用户自己的 AI Agent 负责理解目标、�
 
 新增工具的输入均要求核对 `profileRef`。旧站点连接由已认证的 Sites 账号确定 owner；API 令牌连接的 owner 由令牌确定，不接收调用者传入 owner。
 
-`/api/agent/mcp` 提供同一套编排工具，按令牌 scope 过滤发现列表，并在实际调用时再次检查权限。支持 JSON Streamable HTTP 的请求/响应子集：`server/discover`、`initialize`、`ping`、`tools/list`、`tools/call` 和通知；没有 SSE 或主动服务器推送。兼容 2026-07-28 的 stateless discovery，以及 2025-11-25、2025-06-18、2025-03-26 的 initialize 入口；参见 [MCP 官方协议版本说明](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)。不要据此声称客户端或协议全功能认证已完成。
+`/api/agent/mcp` 按令牌权限提供编排及新增记录工具，并在调用时再次检查权限。支持 JSON Streamable HTTP 的请求、响应和通知。发现、初始化和工具调用兼容相应协议版本。 [MCP 官方协议版本说明](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)
+
+### 直接添加记录
+
+先读取 `profileRef`。取得本次写入授权后，调用 `/api/agent/records` 或 `import_spotter_records`。单批使用一个 `scope`，填 `training`、`nutrition`、`body` 或 `templates`，带上 `confirmed: true`，并在 `backup` 中提供 1–20 条同类记录。照片由外部 Agent 自己识别时，将用户核对过的食物、份量和营养写成 `kind: "nutrition"` 的 `meal` 条目。`nutrition:write` 还可以调用 `add_spotter_foods` 新增常用食物。
+
+重试需复用 UUID，服务返回实际新增和跳过数量。已保存的条目按追加规则去重。计划和周期使用上述草稿及确认流程。可用请求结构见 `/api/agent/schema`。
 
 ## 验证范围
 
 合成 D1/生产路由测试覆盖：过期、撤销、账号隔离、权限限制、限流、草稿编辑锁、确认幂等、休息日/历史保护；旧 Sites `/mcp` 工具仍可发现，新工具可完成计划及周期的草稿→预览→提交；外部 REST 在无浏览器会话的测试环境按 Bearer 工作。所有样本为合成数据，没有访问真实用户健康记录。
 
-测试不等于私密 Sites dispatch 已允许任意外部 HTTP 客户端；未对每个 GPT/Claude/Grok/Muse 客户端执行真实在线授权。本轮按用户约定不发布正式 Sites，后续上线及真实客户端验证以实际结果为准。
+应用层使用合成账号验证。外部客户端还需完成私密 Sites 的平台授权。

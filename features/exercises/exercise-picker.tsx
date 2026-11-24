@@ -21,9 +21,10 @@ export { defaultCatalogMove } from "./replacements";
 
 const defaultOptions: ReplacementOptions = { sameStationOnly: true, available: [], avoidKneeling: false, avoidJumping: false };
 
-export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlank = true, replacementContext, identityOnly, newMoveDefaults, useLoadHistory }: {
+export function ExercisePicker({ onUse, close, title, prior, profiles, names, allowBlank = true, replacementContext, identityOnly, newMoveDefaults, useLoadHistory }: {
   onUse: (move: Move) => void;
   close: () => void;
+  title?: string;
   prior?: Move;
   profiles?: ExerciseProfile[];
   names?: string[];
@@ -78,7 +79,7 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
     { label: "秒数", key: "seconds", low: 0, high: 18000 },
     { label: "组间休息（秒）", key: "restSeconds", low: 0, high: 600 },
   ] as const;
-  return createPortal(<Dialog title={prior || identityOnly ? "替换动作" : "选择动作"} className="catalogue-picker-dialog" onClose={close}>
+  return createPortal(<Dialog title={title ?? (prior || identityOnly ? "替换动作" : "选择动作")} className="catalogue-picker-dialog" onClose={close}>
     <div className="dialog-body">
       {config ? <form onSubmit={confirm} className="form-fields picker-config">
         <button type="button" className="button subtle small" onClick={() => setConfig(undefined)}><ChevronLeft size={17} /> 返回选动作</button>

@@ -95,7 +95,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
   const openTool = (tool: NutritionTool) => setSheet({ kind: "tool", tool });
   const refresh = async () => { await store.load(); onSaved?.(); };
   async function persist(item: LibraryItem, revision?: string | null) {
-    await store.save(item, revision);
+    await store.save(item, revision, owner);
     onSaved?.();
   }
   function changeDate(next: string) {
@@ -224,10 +224,10 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       </div>}
       <NutritionShortcuts actions={shortcuts} disabled={!enabled || busy} onSelect={open} />
     </div>
-    {sheet?.kind === "record" && (isMeal(sheet.shortcut) ? <MealEditor key={sheet.id} meal={sheet.shortcut}
+    {sheet?.kind === "record" && (isMeal(sheet.shortcut) ? <MealEditor key={sheet.id} owner={owner} meal={sheet.shortcut}
       initial={sheet.initial} initialFood={sheet.food} initialGrams={sheet.grams} initialQuery={sheet.query} initialMode={sheet.mode}
       preferAll={preferences.foodSearch === "all"} personal={personal} recent={store.recentMeals} savedPortions={portions}
-      close={close} onSaveFood={persist} onSavePortions={persist} reloadFoods={() => void refresh()} onLog={async (entry) => {
+      close={close} onSaveFood={persist} onSavePortions={persist} onLog={async (entry) => {
         await persist({ kind: "nutrition", date, id: sheet.id, entry }); close();
       }} /> : <MeasureEditor key={sheet.id} shortcut={sheet.shortcut} close={close} save={async (value) => {
         await persist({ kind: "nutrition", date, id: sheet.id, entry: sheet.shortcut === "饮水" ? { type: "water", ml: value } : { type: "weight", kg: value } });

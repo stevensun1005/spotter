@@ -3,11 +3,14 @@ import { agentPlanWrite } from "@/features/agent/write-model";
 import { profileRefSchema } from "@/features/agent/profile";
 import type { Plan } from "@/features/plans/model";
 
-export const agentScopes = ["read:context", "plans:draft", "plans:write"] as const;
+export const recordWriteScopes = {
+  training: "training:write", nutrition: "nutrition:write", body: "body:write", templates: "templates:write",
+} as const;
+export const agentScopes = ["read:context", "plans:draft", "plans:write", ...Object.values(recordWriteScopes)] as const;
 export type AgentScope = typeof agentScopes[number];
 export const connectionCreate = z.object({
   action: z.literal("create"), name: z.string().trim().min(1).max(60),
-  scopes: z.array(z.enum(agentScopes)).min(1).max(3).refine((v) => new Set(v).size === v.length),
+  scopes: z.array(z.enum(agentScopes)).min(1).max(agentScopes.length).refine((v) => new Set(v).size === v.length),
   expiresInDays: z.number().int().min(1).max(90).default(30),
 }).strict();
 export const connectionMutation = z.union([connectionCreate, z.object({ action: z.literal("revoke"), id: z.string().uuid() }).strict()]);

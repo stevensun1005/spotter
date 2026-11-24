@@ -38,11 +38,11 @@ export function useLibrary(enabled: boolean, date?: string, body = false) {
     return () => abort.abort();
   }, [load]);
 
-  async function save(item: LibraryItem, expected?: string | null) {
+  async function save(item: LibraryItem, expected?: string | null, expectedOwner?: string) {
     if (!enabled) throw new Error("登录后可以保存记录。");
     const valid = libraryItem.safeParse(item);
     if (!valid.success) throw new Error("请检查字段长度、数值或视频链接。");
-    const response = await send("/api/library", { action: "save", data: valid.data, revision: expected });
+    const response = await send("/api/library", { action: "save", data: valid.data, revision: expected, expectedOwner });
     const { updated } = await response.json() as { updated: string };
     revision.current++;
     setState((prev) => ({ url, error: "", recentMeals: prev?.url === url ? prev.recentMeals : undefined, rows: [

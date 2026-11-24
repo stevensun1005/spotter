@@ -20,6 +20,7 @@ const connections = await import("../app/api/agent/connections/route.ts");
 const drafts = await import("../app/api/agent/drafts/route.ts");
 const commit = await import("../app/api/agent/commit/route.ts");
 const profile = await import("../app/api/agent/profile/route.ts");
+const records = await import("../app/api/agent/records/route.ts");
 const { createConnection } = await import("../features/agent-access/store.ts");
 const { agentProfileRef } = await import("../features/agent/profile.ts");
 const { agentApiSchema } = await import("../features/agent-access/schema.ts");
@@ -115,4 +116,74 @@ test("external MCP scope-filtered discovery cannot be bypassed by naming a forbi
   const schema = agentApiSchema(origin);
   assert.ok(schema.paths["/api/agent/profile"].get);
   assert.ok(schema.components.schemas.Program.properties.sessions);
+});
+
+test("external nutrition MCP appends confirmed records for the token owner and skips retries", async (t) => {
+  const db = fixture(t);
+  const owner = globalThis.__spotterAgentUser.userId;
+  const created = await connections.POST(request("/api/agent/connections", { action: "create", name: "Nutrition only", scopes: ["nutrition:write"], expiresInDays: 7 }));
+  assert.equal(created.status, 200);
+  const { token } = await created.json();
+  const reader = await createConnection(db, owner, { name: "Read only", scopes: ["read:context"], expiresInDays: 1 });
+  globalThis.__spotterAgentUser = null;
+  const profileRef = (await (await profile.GET(request("/api/agent/profile", null, token))).json()).profileRef;
+  const methods = await value(await external.POST(request("/api/agent/mcp", rpc("tools/list"), token)));
+  assert.deepEqual(methods.tools.map(({ name }) => name), ["get_spotter_agent_profile", "import_spotter_records", "add_spotter_foods"]);
+  assert.deepEqual(methods.tools[1].inputSchema.properties.scope.enum, ["nutrition"]);
+  const meal = { kind: "nutrition", id: crypto.randomUUID(), date: plan.date, entry: { type: "meal", meal: "午餐", name: "白米饭", grams: 100, calories: 130, protein: 2.7, carbs: 28, fat: 0.3 } };
+  const targets = { kind: "targets", values: { calories: 2000, protein: 130, carbs: 240, fat: 58, water: 2100 } };
+  const backup = { format: "spotter-backup", version: 1, training: [], library: [meal, targets], heart: [] };
+  const args = { profileRef, scope: "nutrition", confirmed: true, backup };
+  const invoke = async (name, arguments_, bearer = token) => value(await external.POST(request("/api/agent/mcp", rpc("tools/call", { name, arguments: arguments_ }), bearer)));
+  const put = (input, bearer) => invoke("import_spotter_records", input, bearer);
+  assert.equal((await put(args, reader.token)).isError, true);
+  assert.equal((await put({ ...args, profileRef: await agentProfileRef("another-owner") })).isError, true);
+  assert.equal((await put({ ...args, confirmed: false })).isError, true);
+  const weight = { ...meal, id: crypto.randomUUID(), entry: { type: "weight", kg: 76 } };
+  assert.equal((await put({ ...args, backup: { ...backup, library: [meal, weight] } })).isError, true);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM personal_library").get().n, 0);
+  const outcome = async (result) => JSON.parse((await result).content[0].text);
+  assert.deepEqual(await outcome(put(args)), { scope: "饮食", added: 2, skipped: 0 });
+  assert.deepEqual(await outcome(put(args)), { scope: "饮食", added: 0, skipped: 2 });
+  const changedMeal = { ...meal, entry: { ...meal.entry, grams: 200 } };
+  assert.deepEqual(await outcome(put({ ...args, backup: { ...backup, library: [changedMeal] } })), { scope: "饮食", added: 0, skipped: 1 });
+  const foodArgs = { profileRef, confirmed: true, foods: [{ name: "常用燕麦", per100g: { calories: 380, protein: 13, carbs: 65, fat: 8 } }] };
+  assert.deepEqual(await outcome(invoke("add_spotter_foods", foodArgs)), { added: 1, skipped: 0 });
+  assert.deepEqual(await outcome(invoke("add_spotter_foods", foodArgs)), { added: 0, skipped: 1 });
+  assert.deepEqual(db.sqlite.prepare("SELECT DISTINCT owner FROM personal_library").all().map((row) => row.owner), [owner]);
+  const storedMeal = db.sqlite.prepare("SELECT payload FROM personal_library WHERE id = ?").get(meal.id);
+  assert.equal(JSON.parse(storedMeal.payload).entry.grams, 100);
+});
+
+test("external record REST uses the same grants and keeps plans on the existing staged route", async (t) => {
+  const db = fixture(t);
+  const owner = globalThis.__spotterAgentUser.userId;
+  const { token } = await createConnection(db, owner, { name: "Body and training", scopes: ["body:write", "training:write", "templates:write"], expiresInDays: 1 });
+  const profileRef = await agentProfileRef(owner);
+  const date = plan.date;
+  const weight = { kind: "nutrition", id: crypto.randomUUID(), date, entry: { type: "weight", kg: 76 } };
+  const backup = { format: "spotter-backup", version: 1, training: [], library: [weight], heart: [] };
+  const body = { profileRef, scope: "body", confirmed: true, backup };
+  const append = (input, bearer) => records.POST(request("/api/agent/records", input, bearer));
+  assert.equal((await append(body)).status, 401);
+  globalThis.__spotterAgentUser = null;
+  assert.equal((await append({ ...body, scope: "nutrition" }, token)).status, 403);
+  const saved = await append(body, token);
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { scope: "身体", added: 1, skipped: 0 });
+  const template = { kind: "template", id: crypto.randomUUID(), plan };
+  const savedTemplate = await append({ ...body, scope: "templates", backup: { ...backup, library: [template] } }, token);
+  assert.equal((await savedTemplate.json()).added, 1);
+  const directPlan = { kind: "plan", id: crypto.randomUUID(), data: plan };
+  assert.equal((await append({ ...body, scope: "training", backup: { ...backup, library: [], training: [directPlan] } }, token)).status, 400);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM entries").get().n, 0);
+  const started = Date.parse(date + "T13:00:00Z");
+  const log = { kind: "log", id: crypto.randomUUID(), data: {
+    plan, planId: "", date, started, ended: started + 1_800_000, minutes: 30, note: "", finishedVideo: false,
+    rows: [Array.from({ length: 3 }, () => ({ reps: 8, weight: 15, seconds: 0, done: true }))],
+  } };
+  const savedLog = await append({ ...body, scope: "training", backup: { ...backup, library: [], training: [log] } }, token);
+  assert.deepEqual(await savedLog.json(), { scope: "训练", added: 1, skipped: 0 });
+  assert.equal(db.sqlite.prepare("SELECT kind FROM entries WHERE owner = ? AND id = ?").get(owner, log.id).kind, "log");
+  assert.ok(agentApiSchema(origin).paths["/api/agent/records"].post);
 });

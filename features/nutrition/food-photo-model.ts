@@ -21,7 +21,7 @@ export const mealPhotoPrompt = [
 ].join("\n");
 
 const amount = (max: number) => z.number().finite().min(0).max(max);
-const draftSchema = z.object({
+export const foodPhotoDraftSchema = z.object({
   name: z.string().trim().min(1).max(100),
   per100g: z.object({
     calories: amount(1000),
@@ -30,24 +30,24 @@ const draftSchema = z.object({
     fat: amount(100),
   }).strict(),
 }).strict();
-const mealDraftSchema = z.object({
+export const mealPhotoDraftSchema = z.object({
   name: z.string().trim().min(1).max(100),
   grams: z.number().finite().min(0.1).max(maxFoodGrams).optional(),
   calories: amount(maxFoodGrams * 10), protein: amount(20000), carbs: amount(20000), fat: amount(20000),
 }).strict();
-const needsSchema = z.object({
+export const photoNeedsSchema = z.object({
   needs: z.array(z.string().trim().min(1).max(100)).min(1).max(6),
 }).strict();
 
-export type FoodPhotoDraft = z.infer<typeof draftSchema>;
-export type MealPhotoDraft = z.infer<typeof mealDraftSchema>;
+export type FoodPhotoDraft = z.infer<typeof foodPhotoDraftSchema>;
+export type MealPhotoDraft = z.infer<typeof mealPhotoDraftSchema>;
 
 export function parseFoodPhotoResult(input: string): { draft: FoodPhotoDraft } | { error: string } {
-  return parsePhotoResult(input, draftSchema, "请让 AI 按提示词返回食品名称和每 100 克的四项有效营养数值。");
+  return parsePhotoResult(input, foodPhotoDraftSchema, "请让 AI 按提示词返回食品名称和每 100 克的四项有效营养数值。");
 }
 
 export function parseMealPhotoResult(input: string): { draft: MealPhotoDraft } | { error: string } {
-  return parsePhotoResult(input, mealDraftSchema, "请让 AI 按提示词返回餐食名称和这一份的四项有效营养数值。");
+  return parsePhotoResult(input, mealPhotoDraftSchema, "请让 AI 按提示词返回餐食名称和这一份的四项有效营养数值。");
 }
 
 function parsePhotoResult<T>(input: string, schema: z.ZodType<T>, invalid: string): { draft: T } | { error: string } {
@@ -62,7 +62,7 @@ function parsePhotoResult<T>(input: string, schema: z.ZodType<T>, invalid: strin
   }
   const draft = schema.safeParse(parsed);
   if (draft.success) return { draft: draft.data };
-  const needs = needsSchema.safeParse(parsed);
+  const needs = photoNeedsSchema.safeParse(parsed);
   if (needs.success) return { error: "还需补拍或确认" + needs.data.needs.join("、") + "。" };
   return { error: invalid };
 }

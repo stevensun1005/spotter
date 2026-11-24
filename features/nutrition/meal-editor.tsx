@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ArrowLeft, Camera, Plus, Search } from "lucide-react";
+import { ArrowLeft, Camera, Plus, Search, WandSparkles } from "lucide-react";
 import { Dialog, displayNumber } from "@/shared/ui";
 import { errorText } from "@/shared/client";
 import type { FoodPortions, MealEntry, PersonalFood } from "@/features/library/model";
@@ -20,8 +20,9 @@ const nutrients = [
 type Mode = "lookup" | "manual" | "personal" | "photo" | "meal-photo";
 type Values = Food["per100g"];
 
-export function MealEditor({ meal, initial, initialFood, initialGrams, initialQuery = "", initialMode, preferAll = false,
-  personal, recent, savedPortions, close, onLog, onSaveFood, onSavePortions, reloadFoods }: {
+export function MealEditor({ owner, meal, initial, initialFood, initialGrams, initialQuery = "", initialMode, preferAll = false,
+  personal, recent, savedPortions, close, onLog, onSaveFood, onSavePortions }: {
+  owner: string;
   meal: MealEntry["meal"];
   initial?: MealEntry;
   initialFood?: Food;
@@ -36,7 +37,6 @@ export function MealEditor({ meal, initial, initialFood, initialGrams, initialQu
   onLog: (entry: MealEntry) => Promise<void>;
   onSaveFood: (food: PersonalFood) => Promise<void>;
   onSavePortions: (item: FoodPortions) => Promise<void>;
-  reloadFoods: () => void;
 }) {
   const myFoods: Food[] = personal.map(({ id, name, per100g }) => ({ id, name, per100g, aliases: [] }));
   const choices = [...myFoods, ...foods];
@@ -51,6 +51,7 @@ export function MealEditor({ meal, initial, initialFood, initialGrams, initialQu
     initial ? { calories: initial.calories, protein: initial.protein, carbs: initial.carbs, fat: initial.fat } : {});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [reviewingPhoto, setReviewingPhoto] = useState(false);
 
   const available = savedPortions.find(({ id }) => id === selected?.id)?.portions ?? [];
   const portion = available.find(({ name }) => portionKey(name) === unit);
@@ -67,6 +68,7 @@ export function MealEditor({ meal, initial, initialFood, initialGrams, initialQu
 
   function setManual(next: "manual" | "personal") {
     setMode(next);
+    setReviewingPhoto(false);
     setName(foodQuery.slice(0, 100));
     setValues({});
     setAmount(queryGrams ?? "");
@@ -75,6 +77,7 @@ export function MealEditor({ meal, initial, initialFood, initialGrams, initialQu
 
   function choose(food: Food, lastGrams?: number) {
     setSelected(food);
+    setReviewingPhoto(false);
     setUnit("");
     setAmount(queryGrams ?? (lastGrams === undefined ? "" : String(lastGrams)));
     setError("");
@@ -86,6 +89,9 @@ export function MealEditor({ meal, initial, initialFood, initialGrams, initialQu
     const nutrition = { calories: values.calories ?? 0, protein: values.protein ?? 0, carbs: values.carbs ?? 0, fat: values.fat ?? 0 };
     if (mode === "lookup" && (!selected || !computed)) return setError("请输入有效的食物克数。");
     if (mode !== "lookup" && !name.trim()) return setError("请输入食物名称。");
+    if (reviewingPhoto && (nutrients.some(({ key }) => values[key] === undefined) || (mode === "manual" && grams === undefined))) {
+      return setError("请核对并填写完整的份量和营养数值。");
+    }
     setBusy(true);
     setError("");
     try {
@@ -119,21 +125,19 @@ export function MealEditor({ meal, initial, initialFood, initialGrams, initialQu
     className="food-dialog" onClose={() => { if (!busy) close(); }}>
     <form onSubmit={save}>
       <div className="dialog-body feature-stack">
-        {photo ? <FoodPhoto onBack={() => setMode("lookup")} onReload={() => {
-          reloadFoods();
-          setMode("lookup");
-          setQuery("");
-          setShowAll(true);
-        }} onMeal={mode === "meal-photo" ? (draft) => {
+        {photo ? <FoodPhoto owner={owner} onBack={() => setMode("lookup")}
+          onManual={() => setManual(mode === "meal-photo" ? "manual" : "personal")} onMeal={mode === "meal-photo" ? (draft) => {
           setName(draft.name.slice(0, 96) + "（估算）");
           setAmount(String(draft.grams ?? ""));
           setValues({ calories: draft.calories, protein: draft.protein, carbs: draft.carbs, fat: draft.fat });
           setError("");
+          setReviewingPhoto(true);
           setMode("manual");
         } : undefined} onApply={(draft) => {
           setName(draft.name);
           setValues(draft.per100g);
           setError("");
+          setReviewingPhoto(true);
           setMode("personal");
         }} /> : choosing ? <>
           <label className="food-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="搜索食物"
@@ -152,12 +156,14 @@ export function MealEditor({ meal, initial, initialFood, initialGrams, initialQu
               <strong>{food.name}</strong><small>{displayNumber(food.per100g.calories)} 千卡／100 g{lastGrams === undefined ? "" : " · 上次 " + displayNumber(lastGrams) + " g"}</small>
             </button>)}</div> : <p className="empty-copy">未找到这个食物。可以按包装营养标签新增。</p>}
           <div className="food-alternatives">
+            <button className="button outline" type="button" onClick={() => setMode("meal-photo")}><WandSparkles size={16} aria-hidden="true" /> 拍照识别餐食</button>
             <button className="button outline" type="button" onClick={() => setMode("photo")}><Camera size={16} /> 拍照加常用食物</button>
             <button className="button outline" type="button" onClick={() => setManual("personal")}><Plus size={16} /> 新增自定义食物</button>
             <button className="text-button" type="button" onClick={() => setManual("manual")}>手动记录</button>
           </div>
         </> : <fieldset className="form-fields" disabled={busy}>
-          <button type="button" className="text-button food-back" onClick={() => { setSelected(undefined); setMode("lookup"); setError(""); }}><ArrowLeft size={17} /> 返回食物库</button>
+          <button type="button" className="text-button food-back"
+            onClick={() => { setSelected(undefined); setReviewingPhoto(false); setMode("lookup"); setError(""); }}><ArrowLeft size={17} /> 返回食物库</button>
           {mode === "lookup" && selected ? <>
             <div className="food-selected"><div><h3>{selected.name}</h3><small>{displayNumber(selected.per100g.calories)} 千卡／100 g</small></div>
               {selected.source ? <a className="text-button" href={selected.source} target="_blank" rel="noopener noreferrer">USDA 数据来源</a> : <small>我的食物</small>}</div>
@@ -184,12 +190,14 @@ export function MealEditor({ meal, initial, initialFood, initialGrams, initialQu
               </div>)}
             </div>
           </> : <>
+            {reviewingPhoto && <p className="muted" role="status">{mode === "personal" ? "AI 已填入。请按包装核对每 100 克的营养数值。" : "AI 已填入估算。请核对食物、份量和营养后保存。"}</p>}
             <label>食物名称<input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder={mode === "personal" ? "例如 原味燕麦片（品牌）" : undefined} /></label>
-            {mode === "manual" && weightInput(false)}
+            {mode === "manual" && weightInput(reviewingPhoto)}
             <h3>{mode === "personal" ? "每 100 g 营养" : "本份营养"}</h3>
             <div className="field-grid">{nutrients.map(({ key, label, unit }) =>
               <label key={key}>{label}（{unit}）<input type="number" inputMode="decimal" step="any" min={0}
-                max={mode === "personal" ? key === "calories" ? 1000 : 100 : 20000} required={mode === "personal"}
+                max={mode === "personal" ? key === "calories" ? 1000 : 100 : key === "calories" ? maxFoodGrams * 10 : 20000}
+                required={mode === "personal" || reviewingPhoto}
                 value={values[key] ?? ""} onChange={(event) => setValues({ ...values, [key]: event.target.value === "" ? undefined : Number(event.target.value) })}
                 placeholder={mode === "manual" ? "0" : undefined} /></label>)}</div>
           </>}

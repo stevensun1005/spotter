@@ -1,10 +1,28 @@
 .plan-assistant { min-width: 0; }
-.plan-assistant-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.plan-assistant-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .plan-assistant-tabs > button { display: flex; align-items: center; gap: 12px; padding: 17px 18px; min-width: 0; text-align: left; border: 1px solid var(--stroke); border-radius: 15px; color: var(--text); background: var(--card); }
 .plan-assistant-tabs > button > svg { flex: none; }
 .plan-assistant-tabs > button > span { display: grid; gap: 5px; font-weight: 700; }
 .plan-assistant-tabs small { font-size: .875rem; color: var(--muted); line-height: 1.5; font-weight: 400; }
-.plan-assistant-tabs > button[aria-pressed=true] { background: var(--lime); border-color: #b1d865; }
+.plan-assistant-tabs > button[aria-pressed=true] { background: var(--lime); color: var(--dark); border-color: #b1d865; }
+.plan-assistant-tabs > button[aria-pressed=true] small { color: #395436; }
+.content.content-coach { max-width: 800px; }
+.page-heading.coach-page-heading { align-items: center; margin-bottom: 14px; }
+.coach-page-title { display: flex; align-items: center; gap: 12px; }
+.coach-page-heading h1 { font-size: clamp(1.55rem, 3.15vw, 2rem); letter-spacing: -.04em; }
+.coach-back.icon-button { width: 44px; height: 44px; border-radius: 13px; background: var(--card); }
+.coach-plan-menu { position: relative; z-index: 5; }
+.coach-plan-menu summary { cursor: pointer; list-style: none; }
+.coach-plan-menu summary::-webkit-details-marker { display: none; }
+.coach-plan-menu-items {
+  position: absolute; inset: calc(100% + 6px) 0 auto auto; display: grid; gap: 3px;
+  padding: 4px; min-width: 148px; background: var(--card); border: 1px solid var(--stroke); border-radius: 13px;
+  box-shadow: 0 8px 22px #17251918;
+}
+.coach-plan-menu-items button {
+  border: 0; min-height: 44px; text-align: left; padding: 5px 10px; border-radius: 9px; background: transparent; color: var(--text);
+}
+.coach-plan-menu-items button:hover { background: var(--mint); }
 .plan-assistant h2 { display: flex; align-items: center; gap: 8px; }
 .plan-ai-stack { display: grid; gap: 19px; }
 .plan-ai-stack[hidden] { display: none; }
@@ -21,16 +39,16 @@
 .plan-assistant-related p { font-size: .9rem; line-height: 1.6; margin-top: 5px; }
 .plan-import-stack .import-form { margin-top: 0; }
 .plan-import-stack .import-preview { min-width: 0; }
+.coach-review { scroll-margin-top: 8px; }
 @media (max-width: 620px) {
   .plan-assistant-tabs { gap: 8px; }
-  .plan-assistant-tabs > button { padding: 13px 11px; gap: 8px; align-items: start; }
-  .plan-assistant-tabs > button > span { font-size: .95rem; }
-  .plan-assistant-tabs small { font-size: .875rem; }
+  .plan-assistant-tabs > button { padding: 9px 4px; gap: 6px; flex-direction: column; justify-content: center; text-align: center; }
+  .plan-assistant-tabs > button > span { font-size: .85rem; }
+  .plan-assistant-tabs small { display: none; }
   .plan-prompt-intent { width: 100%; }
   .plan-assistant .exercise-toolbar { flex-wrap: wrap; }
   .plan-assistant-related { align-items: start; }
 }
-@media (max-width: 360px) { .plan-assistant-tabs { grid-template-columns: minmax(0, 1fr); } }
 .plan-draft-progress { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .plan-draft-progress > li { padding: 5px 9px; border-radius: 7px; border: 1px solid var(--stroke); color: var(--muted); font-size: .8rem; }
 .plan-draft-progress > li[aria-current], .plan-draft-progress > li[data-complete] { color: #294025; background: #e6f2d9; }

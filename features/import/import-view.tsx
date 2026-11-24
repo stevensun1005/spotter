@@ -3,38 +3,32 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Check, ClipboardList, Sparkles, Upload } from "lucide-react";
 import { PlanFields } from "@/features/plans/plan-fields";
-import type { PlannedWorkout } from "@/features/plans/model";
+import type { Plan, PlannedWorkout } from "@/features/plans/model";
 import { errorText } from "@/shared/client";
 import { detectImportFormat, parseImport } from "./parse";
 import { DraftDayPreview, DraftProgress } from "./draft-preview";
 
+type SavePlans = (plans: PlannedWorkout[], revise: boolean) => Promise<void>;
+
 export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, onData, focusRequest = 0 }: {
-  today: string; save: (plans: PlannedWorkout[], revise: boolean) => Promise<void>; saved: () => void; notify?: (text: string) => void; canRevise: boolean;
+  today: string; save: SavePlans; saved: () => void; canRevise: boolean;
   helpAI?: () => void; onPrograms?: () => void; onData?: () => void; focusRequest?: number;
 }) {
   const [source, setSource] = useState("");
   const [imported, setImported] = useState<PlannedWorkout[]>([]);
-  const [index, setIndex] = useState(0);
   const [parseError, setParseError] = useState("");
-  const [saveError, setSaveError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [revise, setRevise] = useState(false);
   const [reading, setReading] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const format = detectImportFormat(source);
   useEffect(() => { if (focusRequest > 0) input.current?.focus(); }, [focusRequest]);
-  useEffect(() => {
-    if (!source.trim() && !imported.length) return;
-    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
-    window.addEventListener("beforeunload", guard);
-    return () => window.removeEventListener("beforeunload", guard);
-  }, [source, imported.length]);
+  useUnsavedImport(Boolean(source.trim()));
 
   function changeSource(value: string) {
-    setSource(value); setImported([]); setIndex(0); setParseError(""); setSaveError(""); setRevise(false);
+    setSource(value); setImported([]); setParseError("");
   }
   async function readFile(file: File) {
-    setImported([]); setIndex(0); setParseError(""); setSaveError(""); setRevise(false);
+    setImported([]); setParseError("");
     if (file.size > 450000) { setParseError("文件太大，请分批导入；完整周期请使用训练周期入口。"); return; }
     setReading(true);
     try { changeSource((await file.text()).replace(/^\uFEFF/, "")); }
@@ -42,8 +36,8 @@ export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, 
     finally { setReading(false); }
   }
   const preview = (event: FormEvent) => {
-    event.preventDefault(); setParseError(""); setSaveError(""); setImported([]);
-    try { setImported(parseImport(source, today).map((data) => ({ id: crypto.randomUUID(), data }))); setIndex(0); }
+    event.preventDefault(); setParseError(""); setImported([]);
+    try { setImported(parseImport(source, today).map((data) => ({ id: crypto.randomUUID(), data }))); }
     catch (reason) { setParseError(errorText(reason, "导入失败，请检查内容。")); }
   };
   return <div className="plan-import-stack feature-stack">
@@ -63,20 +57,60 @@ export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, 
       </form>
       {helpAI && <div className="plan-import-help"><p className="muted">还需要从目标起草，或让 AI 整理复杂内容？</p><button className="button subtle small" type="button" onClick={helpAI}><Sparkles size={16} />用自己的 AI</button></div>}
     </section>
-    {imported.length > 0 && <section className="card padded import-preview"><div className="section-head"><h2>校验并保存</h2><span className="count-label">{imported.length} 个计划</span></div>
+    {imported.length > 0 && <PlanImportReview key={imported[0].id} plans={imported} save={save} busyChanged={setBusy} canRevise={canRevise}
+      saved={() => { setImported([]); setSource(""); saved(); }} />}
+  </div>;
+}
+
+function useUnsavedImport(hasEdits: boolean) {
+  useEffect(() => {
+    if (!hasEdits) return;
+    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [hasEdits]);
+}
+
+export function PlanImportReview({ plans, save, saved, busyChanged, canRevise = false, aiDraft = false }: {
+  plans: PlannedWorkout[]; save: SavePlans; saved: () => void; busyChanged?: (busy: boolean) => void;
+  canRevise?: boolean; aiDraft?: boolean;
+}) {
+  const [imported, setImported] = useState(plans);
+  const [index, setIndex] = useState(0);
+  const [saveError, setSaveError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [revise, setRevise] = useState(false);
+  const saving = useRef(false);
+  useUnsavedImport(aiDraft);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving.current) return;
+    saving.current = true;
+    setBusy(true);
+    busyChanged?.(true);
+    setSaveError("");
+    try { await save(imported, revise); saved(); }
+    catch (reason) { setSaveError(errorText(reason)); }
+    finally {
+      saving.current = false;
+      setBusy(false);
+      busyChanged?.(false);
+    }
+  }
+
+  function edit(data: Plan) {
+    setImported((current) => current.map((row, i) => i === index ? { ...row, data } : row));
+  }
+
+  return <section className="card padded import-preview"><div className="section-head"><h2>{aiDraft ? "核对 AI 训练草稿" : "校验并保存"}</h2><span className="count-label">{imported.length} 个计划</span></div>
       <DraftDayPreview plans={imported.map(({ data }) => data)} select={setIndex} />
       {imported.length > 1 && <div className="import-tabs">{imported.map(({ id, data }, i) => <button className="button small outline" type="button" aria-pressed={index === i} key={id} disabled={busy} onClick={() => setIndex(i)}>{data.title || "训练 " + (i + 1)}</button>)}</div>}
-      <form onSubmit={async (event) => {
-        event.preventDefault(); setBusy(true); setSaveError("");
-        try { await save(imported, revise); setImported([]); setSource(""); setRevise(false); setIndex(0); saved(); }
-        catch (reason) { setSaveError(errorText(reason)); }
-        finally { setBusy(false); }
-      }}>
-        <fieldset className="feature-fields" disabled={busy}><PlanFields value={imported[index].data} change={(data) => setImported(imported.map((row, i) => i === index ? { ...row, data } : row))} /></fieldset>
+      <form onSubmit={submit}>
+        <fieldset className="feature-fields" disabled={busy}><PlanFields value={imported[index].data} change={edit} allowSharing={!aiDraft} /></fieldset>
         {canRevise && <label className="toggle-label"><input type="checkbox" checked={revise} disabled={busy} onChange={(event) => setRevise(event.target.checked)} /> 按相同名称更新我的现有计划，保留日期和分享设置</label>}
         {saveError && <p className="inline-error" role="alert">{saveError}</p>}
         <button className="button primary" disabled={busy}><Check size={18} />{busy ? "正在保存…" : (revise ? "更新 " : "保存 ") + imported.length + " 个计划"}</button>
       </form>
-    </section>}
-  </div>;
+    </section>;
 }

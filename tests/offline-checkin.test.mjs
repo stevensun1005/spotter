@@ -85,6 +85,16 @@ function request(body) {
   });
 }
 
+test("a stale plan review cannot save to the newly signed-in account", async (t) => {
+  const sql = database(t);
+  worker.owner = another;
+  const response = await POST(request({ action: "plans", expectedOwner: owner, skipExisting: true,
+    items: [{ id: logId, data: plan }] }));
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, "account_mismatch");
+  assert.equal(sql.prepare("SELECT COUNT(*) AS count FROM entries").get().count, 0);
+});
+
 test("queued check-ins keep tap-time date, duration and distinct keys for same-browser accounts", () => {
   const storage = memoryStorage();
   const receipt = finalizeCheckin(workout(), end);

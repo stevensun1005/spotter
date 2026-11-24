@@ -235,3 +235,9 @@ export const coachingLessons = sqliteTable("coaching_lessons", {
   uniqueIndex("coaching_lessons_reversal").on(table.linkId, table.reverses),
   check("coaching_lessons_delta", sql`${table.delta} BETWEEN -1000 AND 1000 AND ${table.delta} != 0`),
 ]);
+
+export const aiCoachQuota = sqliteTable("ai_coach_quota", {
+  day: integer().notNull(),
+  owner: text().notNull(),
+  requests: integer().notNull(),
+}, (table) => [primaryKey({ columns: [table.day, table.owner] })]);

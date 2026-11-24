@@ -19,7 +19,7 @@ const pages = {
   modules: { title: "模块", description: "选择底栏显示的功能", keywords: "导航 底栏 隐藏 功能 tabs modules", icon: Grid2X2, tone: "blue" },
   watches: { title: "手表与健康", description: "Apple Watch、Garmin 和 WHOOP", keywords: "苹果 健康 心率 FIT TCX 快捷指令 wearables health", icon: Watch, tone: "slate" },
   integrations: { title: "集成", description: "健康数据、AI 工具和文件导入", keywords: "数据 接口 下载 mcp api integrations", icon: Plug, tone: "indigo" },
-  ai: { title: "AI 教练", description: "导入计划和管理 Agent 连接", keywords: "GPT Claude AI 权限 账号识别码 Token 训练草稿", icon: Sparkles, tone: "green" },
+  ai: { title: "AI 教练", description: "训练对话、计划草稿与 Agent 连接", keywords: "GPT Claude AI Haiku Sonnet 权限 账号识别码 Token 训练草稿", icon: Sparkles, tone: "green" },
   data: { title: "数据与备份", description: "导入、恢复及导出个人数据", keywords: "JSON CSV Excel 上传 导入 保存 backup export", icon: FolderArchive, tone: "blue" },
   about: { title: "关于与更新", description: "刷新网站和添加到主屏幕", keywords: "安装 更新 版本 about update", icon: Info, tone: "slate" },
 } as const;
