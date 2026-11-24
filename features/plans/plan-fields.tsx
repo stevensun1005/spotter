@@ -108,7 +108,7 @@ export function PlanFields({ value, change, template = false, templates, allowSh
           <button className="text-button" type="button" onClick={() => editMove(index, setMovePhase(item, phase === "warmup" ? "work" : "warmup"))}>
             {phase === "warmup" ? "转为正式动作" : "设为热身"}
           </button>
-          {ownExercises && <button className="text-button" type="button" aria-label={"替换动作 " + (index + 1)} onClick={() => setPicker(index)}>从动作库替换</button>}
+          {(template || ownExercises) && <button className="text-button" type="button" aria-label={"替换动作 " + (index + 1)} onClick={() => setPicker(index)}>从动作库替换</button>}
         </div>
         <div className="field-grid">
           <label>动作备注<input aria-label={"动作 " + (index + 1) + " 备注"} maxLength={220} value={item.cue ?? ""} onChange={(e) => editMove(index, { cue: e.target.value || undefined })} /></label>
