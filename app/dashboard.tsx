@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cloud,
-  Bookmark, CalendarClock, Copy, Dumbbell, House, LogIn, Menu, Play, Plus, Settings2, Sparkles, Trash2, Utensils, Users,
+  Bookmark, CalendarClock, Copy, Dumbbell, GraduationCap, House, LogIn, Menu, Play, Plus, Settings2, Sparkles, Trash2, Utensils, Users,
 } from "lucide-react";
 import {
   asDate, examples, offsetDate, planBlank, sessionTotals, startFreeSession, startSession,
@@ -46,9 +46,10 @@ import { BodyView } from "@/features/body/body-view";
 import { DataView } from "@/features/data/data-view";
 import { ProgramView } from "@/features/programs/program-view";
 import { AgentAccessPanel } from "@/features/agent-access/access-panel";
+import { CoachingView } from "@/features/coaching/coaching-view";
 import { HardDriveDownload, Ruler } from "lucide-react";
 
-type View = "today" | "plans" | "programs" | "agents" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "settings" | "more";
+type View = "today" | "plans" | "programs" | "agents" | "coaching" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "settings" | "more";
 type KeyedPlan = { id: string; data: Plan };
 type Overlay = { kind: "pair" | "launch" | "friend-sharing" } | { kind: "schedule"; restDay?: string } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
@@ -60,6 +61,7 @@ const navigation = [
   { id: "nutrition", title: "饮食记录", mobile: "饮食", icon: Utensils },
   { id: "stats", title: "统计", mobile: "统计", icon: BarChart3 },
   { id: "friends", title: "好友", mobile: "好友", icon: Users },
+  { id: "coaching", title: "教练与学员", mobile: "", icon: GraduationCap },
   { id: "body", title: "身体数据", mobile: "", icon: Ruler },
   { id: "data", title: "数据导出与导入", mobile: "", icon: HardDriveDownload },
   { id: "import", title: "导入计划", mobile: "", icon: Sparkles },
@@ -636,6 +638,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "data" && <DataView enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
         <div hidden={view !== "programs"}><ProgramView active={view === "programs"} enabled={Boolean(viewer)} today={today} templates={templates.map((item) => ({ id: item.id, plan: item.plan }))} saved={() => { void refresh(); void library.load(); }} /></div>
         {view === "agents" && <AgentAccessPanel enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} />}
+        <div hidden={view !== "coaching"}><CoachingView active={view === "coaching"} enabled={Boolean(viewer)} today={today}
+          templates={templates.map(({ id, plan }) => ({ id, plan }))}
+          plans={pendingPlans.filter((item) => item.owner === me.id).map(({ id, data }) => ({ id, plan: data }))}
+          saved={() => { void refresh(); void library.load(); }} /></div>
         {view === "settings" && <div className="feature-stack">
           <section className="card padded feature-stack">
             <h2>训练偏好</h2>
@@ -669,8 +675,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
               savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
         </div>}
-        {view === "friends" && <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
-          today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} />}
+        {view === "friends" && <div className="feature-stack">
+          <div className="exercise-toolbar"><button className="button outline" type="button" onClick={() => go("coaching")}><GraduationCap size={18} /> 教练与学员 · 下发训练计划</button></div>
+          <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
+            today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} />
+        </div>}
 
         <div hidden={view !== "import"}><ImportView today={today} save={importPlans} canRevise={Boolean(viewer)} saved={() => go("plans")} notify={setToast} /></div>
       </main>
