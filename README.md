@@ -8,6 +8,8 @@
 - WHOOP 在线同步需要在 WHOOP 开发者应用登记 `https://<本站域名>/api/health/whoop/callback`，并为 Sites 设置 `WHOOP_CLIENT_ID` 和 `WHOOP_CLIENT_SECRET` 两个运行时值。启用后可授权同步匹配训练的平均和最高心率。
 - iPhone 在 Safari 的打卡详情选择「从 iPhone 健康读取」。按页面配置一次快捷指令后，直接从 iPhone 健康读取训练时段的心率。完成预览后在网页保存。也可导入 Apple 健康导出文件。
 - 动作库含原创建议、部位图示和卧推示范。动作备注、视频、版本、个人模板与饮食记录均按账号存储。
+- 「训练周期」支持多周、阶段、模板快照、复制周、明确进阶与减量；保存私人草稿后预览并确认排入日历，保留已完成、进行中和手工修改的训练。动作可设置手填 1RM 百分比和目标 RPE，实际训练记录仍独立填写。
+- 「AI 连接」让用户自己的 Agent 通过既有 Sites MCP 或个人 API 读取编排资料、起草、预览并按授权保存。Spotter 不调用模型，不保存模型 API key；个人连接默认只有读取与草稿权限。详见 [接入说明](docs/agent-api.md) 和 [本轮功能与验证](docs/relay-planning.md)。
 
 # vinext-starter
 

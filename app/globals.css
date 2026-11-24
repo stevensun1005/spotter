@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "./workout.css";
+@import "./programs.css";
+@import "./agent-access.css";
 @import "./training-launch.css";
 @import "./heart.css";
 @import "./library.css";

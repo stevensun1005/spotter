@@ -44,7 +44,7 @@ export function AgentPack({ profileRef }: { profileRef?: string }) {
   return <section className="card padded feature-stack">
     <div className="section-head"><h2>我的 AI 写入说明</h2></div>
     {profileRef ? <>
-      <p className="muted">把说明发给你的 AI。已连接训练搭子插件的 ChatGPT 或 Codex 可以按你的授权写入。能操作浏览器的 AI 也可使用你已登录的网站。</p>
+      <p className="muted">把说明发给你的 AI。支持训练搭子工具的客户端可按授权写入；支持自定义 HTTP 工具的 Agent 可在「AI 连接」建立个人连接并取得接口说明。能操作浏览器的 AI 也可使用你已登录的网站。</p>
       <div className="feature-stack">
         <p className="muted">个人账号标识</p>
         <code className="break-all text-sm">{profileRef}</code>

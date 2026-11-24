@@ -44,15 +44,19 @@ import { parsePlanMove } from "@/features/exercises/move-name";
 import { PlanSequence } from "@/features/training/plan-sequence";
 import { BodyView } from "@/features/body/body-view";
 import { DataView } from "@/features/data/data-view";
+import { ProgramView } from "@/features/programs/program-view";
+import { AgentAccessPanel } from "@/features/agent-access/access-panel";
 import { HardDriveDownload, Ruler } from "lucide-react";
 
-type View = "today" | "plans" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "settings" | "more";
+type View = "today" | "plans" | "programs" | "agents" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "settings" | "more";
 type KeyedPlan = { id: string; data: Plan };
 type Overlay = { kind: "pair" | "launch" | "friend-sharing" } | { kind: "schedule"; restDay?: string } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
 const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
   { id: "plans", title: "训练", mobile: "训练", icon: Dumbbell },
+  { id: "programs", title: "训练周期", mobile: "", icon: CalendarClock },
+  { id: "agents", title: "AI 连接", mobile: "", icon: Sparkles },
   { id: "nutrition", title: "饮食记录", mobile: "饮食", icon: Utensils },
   { id: "stats", title: "统计", mobile: "统计", icon: BarChart3 },
   { id: "friends", title: "好友", mobile: "好友", icon: Users },
@@ -614,6 +618,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           <div className="section-head plans-list-heading">
             <h2>全部计划</h2>
             <div className="plans-list-actions">
+              <button className="button outline small" type="button" onClick={() => go("programs")}><CalendarClock size={17} /> 训练周期</button>
               <button className="button subtle small" type="button" onClick={() => go("import")}><Sparkles size={17} /> 导入计划</button>
               <button className="button primary small" type="button" onClick={() => newPlan()}><Plus size={17} /> 新建计划</button>
             </div>
@@ -629,6 +634,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
         {view === "data" && <DataView enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
+        <div hidden={view !== "programs"}><ProgramView active={view === "programs"} enabled={Boolean(viewer)} today={today} templates={templates.map((item) => ({ id: item.id, plan: item.plan }))} saved={() => { void refresh(); void library.load(); }} /></div>
+        {view === "agents" && <AgentAccessPanel enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} />}
         {view === "settings" && <div className="feature-stack">
           <section className="card padded feature-stack">
             <h2>训练偏好</h2>
