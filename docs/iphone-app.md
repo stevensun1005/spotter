@@ -1,12 +1,12 @@
 # 训练搭子 iPhone App 开发版
 
-本轮 App 为 1.0（构建 4），默认连接由 Sites 第 78 版移植的 [Cloudflare 独立试用版](https://spotter-free.couple-ledger-service.workers.dev)。站点设置显示原生构建号和打包时核对的网页版本，构建清单记录两边的源码。
+本轮 App 为 1.0（构建 5），默认连接 [Cloudflare 独立试用版](https://spotter-free.couple-ledger-service.workers.dev)。站点设置显示原生构建号和打包时核对的网页版本，构建清单记录两边的源码。
 
-## 第 78 版核对
+## 网页版本核对
 
-- Sites 第 78 版发布源码为 `056647b6c9b1c3e5dbf456e19ceb6c8a699f1407`。GitHub 快照 `origin/sites/source-2026-11-24-v78` 的提交 `f700b279160af034ef0bc79acb10b05ca8b6a47f` 与发布源码逐一核对了 3,486 个路径，差异仅为 `.openai/hosting.json` 中的项目 ID。
-- Cloudflare 部署源码为 `origin/codex/cloudflare-free` 的提交 `6ab7514d1d3fc86f2914d191b602c6b3dff96f68`。使用独立 D1 及邮箱访问码登录，AI 运行时密钥单独保存在 Cloudflare。
-- 第 78 版包含另一台电脑已推送的计划导入和「用自己的 AI」更新，以及右侧 AI 入口、半屏对话、推荐回复和拖动全屏。AI 对话、自动生成计划和照片识别共用 Sites 的 Haiku 5.5 medium 配置。
+- Cloudflare 源码以 Sites 第 78 版的 GitHub 快照为基础，合入第 79、80 版的新版对话教练及蛋白粉仓库。上游快照为 `origin/sites/source-2026-11-24` 的 `ca08816e42daed46139018f0617eac92eaa9d3d8`。具体 Cloudflare 部署提交记录在 `SpotterWebRelease`。
+- 新版对话支持查询训练统计、记录体重和拍照录餐，训练草稿可逐堂预览和修改，对话用卡片显示相关结果。蛋白粉仓库可维护产品，训练后的蛋白粉记录可写入饮食日记。
+- Cloudflare 使用独立 D1 与邮箱访问码登录，AI 运行时密钥保存在 Cloudflare。所有已登录的 Spotter 账号均可使用 Haiku 5.5 medium，每个账号每个 UTC 自然月限 US$10，适用于模型对话、计划生成和照片识别。首次发送给 Anthropic 前需要用户明确允许。
 - App 给默认站点的四个左侧底栏入口增加半透明玻璃底座和随选择滑动的高光。WebKit 在主页面的隔离脚本中加载样式，复用原有按钮及其无障碍状态。右侧 AI 按钮有独立入口。支持深色主题以及减少动态效果和降低透明度的偏好。
 - 原生 App 补充了餐食拍照和饮食语音录入的系统用途说明。相机和语音识别由系统权限与 WebKit 功能决定，真机授权和实际录入仍待验证。
 
@@ -47,6 +47,8 @@ npm run ios:package
 打包工具在构建前后各拉取并核对 `origin/main`、`origin/codex/health-device-sync`、`origin/codex/spotter-iphone-app` 是否都已包含在当前 HEAD 中。存在未提交源码、远端遗漏或构建期间发生变化时拒绝打包；它不自动合并或覆盖源码。
 
 产物是被 Git 忽略的 `outputs/Spotter-Simulator-<commit>.zip` 和同名 JSON 记录，包含构建 commit、分支和核验的远端 SHA。打包还核验 App 内的 `SpotterWebRelease` 和拉取到的 GitHub 网页部署分支或快照。托管发布状态由发布记录另行核对。网页加载实时站点，构建记录中的版本用于追溯。**这是 iOS 模拟器开发包，不能直接安装到真实 iPhone。**
+
+TestFlight 使用相同的 `Spotter` scheme 做 Release 归档。归档使用 Apple Developer 团队签名，分发选择 App Store Connect。App Store Connect 的应用记录使用 Bundle ID `app.spotter.health`。
 
 ## 已运行的验证
 
