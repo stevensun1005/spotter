@@ -72,3 +72,6 @@
   .nutrition-date-nav .nutrition-current-date { padding-inline: 5px; }
   .nutrition-shortcuts button { font-size: .7rem; }
 }
+.coach-meal-photo { overflow: hidden; }
+.coach-meal-photo .dialog-heading { flex-wrap: wrap; gap: 8px 12px; }
+.coach-meal-photo .dialog-footer { position: static; }

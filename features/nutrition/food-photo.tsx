@@ -34,7 +34,7 @@ function encodePhoto(photo: HTMLImageElement) {
 export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
   owner: string;
   onApply: (draft: FoodPhotoDraft) => void;
-  onBack: () => void;
+  onBack?: () => void;
   onManual: () => void;
   onMeal?: (draft: MealPhotoDraft) => void;
 }) {
@@ -130,7 +130,7 @@ export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
   }
 
   return <div className="form-fields">
-    <button className="text-button food-back" type="button" onClick={onBack}><ArrowLeft size={17} aria-hidden="true" /> 返回食物库</button>
+    {onBack && <button className="text-button food-back" type="button" onClick={onBack}><ArrowLeft size={17} aria-hidden="true" /> 返回食物库</button>}
     <p className="muted">{onMeal ? "拍下整份餐食。站内 AI 会估算食物、份量和营养，核对后即可保存。" : "拍清楚包装品名和营养表。站内 AI 会读取每 100 克的营养，核对后可存入食物库。"}</p>
     {!configuration && <p role="status" className="muted">正在检查站内 AI…</p>}
     {configuration?.enabled ? <>

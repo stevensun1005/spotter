@@ -22,7 +22,7 @@ import { NutritionStats } from "./nutrition-stats";
 import { NutritionTools, type NutritionTool } from "./nutrition-tools";
 import { NutritionVoice } from "./nutrition-voice";
 
-type RecordOptions = { initial?: MealEntry; food?: Food; grams?: number; query?: string; mode?: "meal-photo" };
+type RecordOptions = { initial?: MealEntry; food?: Food; grams?: number; query?: string };
 type RecordSheet = { kind: "record"; shortcut: NutritionShortcut; id: string } & RecordOptions;
 type Sheet = RecordSheet | { kind: "settings"; page: "menu" | "goals" } | { kind: "tool"; tool: NutritionTool }
   | { kind: "stats" } | { kind: "voice" };
@@ -65,11 +65,12 @@ function MeasureEditor({ shortcut, save, close }: {
   </Dialog>;
 }
 
-export function NutritionView({ enabled, today, owner = "", records = [], initialShortcut, onBack, onBody, onDevices, onSaved }: {
-  enabled: boolean; today: string; owner?: string; records?: TrainingEntry[]; initialShortcut?: NutritionShortcut;
+export function NutritionView({ enabled, today, owner = "", records = [], initialDate = today, initialShortcut, onBack, onBody, onDevices, onSaved, onMealPhoto }: {
+  enabled: boolean; today: string; owner?: string; records?: TrainingEntry[]; initialDate?: string; initialShortcut?: NutritionShortcut;
   onBack: () => void; onBody: () => void; onDevices?: () => void; onSaved?: () => void;
+  onMealPhoto: (date: string, meal: MealEntry["meal"]) => void;
 }) {
-  const [date, setDate] = useState(today);
+  const [date, setDate] = useState(initialDate);
   const [sheet, setSheet] = useState<Sheet | undefined>(() => initialShortcut ? { kind: "record", shortcut: initialShortcut, id: crypto.randomUUID() } : undefined);
   const [toolsExpanded, setToolsExpanded] = useState(true);
   const [chooseDate, setChooseDate] = useState(false);
@@ -214,7 +215,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       {preferences.showToolbar && <div className="nutrition-toolstrip" aria-label="快捷工具栏">
         {toolsExpanded && <>
           <button type="button" disabled={!enabled} onClick={() => setSheet({ kind: "stats" })}><BarChart3 size={17} aria-hidden="true" />统计</button>
-          <button type="button" disabled={!enabled} onClick={() => open(mealForNow(), { mode: "meal-photo" })}><WandSparkles size={17} aria-hidden="true" />AI 识别</button>
+          <button type="button" disabled={!enabled} onClick={() => onMealPhoto(date, mealForNow())}><WandSparkles size={17} aria-hidden="true" />AI 识别</button>
           <button type="button" disabled={!enabled} onClick={() => setSheet({ kind: "voice" })}><Mic size={17} aria-hidden="true" />语音</button>
         </>}
         <button className="icon-button" type="button" onClick={() => setToolsExpanded(!toolsExpanded)} aria-expanded={toolsExpanded}
@@ -225,7 +226,8 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       <NutritionShortcuts actions={shortcuts} disabled={!enabled || busy} onSelect={open} />
     </div>
     {sheet?.kind === "record" && (isMeal(sheet.shortcut) ? <MealEditor key={sheet.id} owner={owner} meal={sheet.shortcut}
-      initial={sheet.initial} initialFood={sheet.food} initialGrams={sheet.grams} initialQuery={sheet.query} initialMode={sheet.mode}
+      initial={sheet.initial} initialFood={sheet.food} initialGrams={sheet.grams} initialQuery={sheet.query}
+      onMealPhoto={sheet.initial ? undefined : () => { if (isMeal(sheet.shortcut)) onMealPhoto(date, sheet.shortcut); }}
       preferAll={preferences.foodSearch === "all"} personal={personal} recent={store.recentMeals} savedPortions={portions}
       close={close} onSaveFood={persist} onSavePortions={persist} onLog={async (entry) => {
         await persist({ kind: "nutrition", date, id: sheet.id, entry }); close();

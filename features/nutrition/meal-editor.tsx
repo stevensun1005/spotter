@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Camera, Plus, Search, WandSparkles } from "lucide-react";
 import { Dialog, displayNumber } from "@/shared/ui";
 import { errorText } from "@/shared/client";
 import type { FoodPortions, MealEntry, PersonalFood } from "@/features/library/model";
+import { useLibrary } from "@/features/library/use-library";
 import { foods, maxFoodGrams, scaleNutrition, searchFoods, type Food } from "./foods";
 import { FoodPhoto } from "./food-photo";
 import { commonMealFoods, splitFoodQuery, type RecentMealFood } from "./recent-foods";
@@ -20,15 +21,15 @@ const nutrients = [
 type Mode = "lookup" | "manual" | "personal" | "photo" | "meal-photo";
 type Values = Food["per100g"];
 
-export function MealEditor({ owner, meal, initial, initialFood, initialGrams, initialQuery = "", initialMode, preferAll = false,
-  personal, recent, savedPortions, close, onLog, onSaveFood, onSavePortions }: {
+export function MealEditor({ owner, meal, initial, initialFood, initialGrams, initialQuery = "", coachDate, preferAll = false,
+  personal, recent, savedPortions, close, onLog, onSaveFood, onSavePortions, onMealPhoto }: {
   owner: string;
   meal: MealEntry["meal"];
   initial?: MealEntry;
   initialFood?: Food;
   initialGrams?: number;
   initialQuery?: string;
-  initialMode?: "meal-photo";
+  coachDate?: string;
   preferAll?: boolean;
   personal: PersonalFood[];
   recent: RecentMealFood[];
@@ -37,11 +38,12 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
   onLog: (entry: MealEntry) => Promise<void>;
   onSaveFood: (food: PersonalFood) => Promise<void>;
   onSavePortions: (item: FoodPortions) => Promise<void>;
+  onMealPhoto?: () => void;
 }) {
   const myFoods: Food[] = personal.map(({ id, name, per100g }) => ({ id, name, per100g, aliases: [] }));
   const choices = [...myFoods, ...foods];
   const [selected, setSelected] = useState<Food | undefined>(() => initialFood ?? choices.find((food) => food.id === initial?.foodId));
-  const [mode, setMode] = useState<Mode>(() => initialMode ?? (initial && !selected ? "manual" : "lookup"));
+  const [mode, setMode] = useState<Mode>(() => coachDate ? "meal-photo" : initial && !selected ? "manual" : "lookup");
   const [query, setQuery] = useState(initialQuery);
   const [showAll, setShowAll] = useState(preferAll);
   const [name, setName] = useState(initial?.name ?? "");
@@ -52,6 +54,9 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reviewingPhoto, setReviewingPhoto] = useState(false);
+  const coachHeading = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => { coachHeading.current?.focus({ preventScroll: true }); }, []);
 
   const available = savedPortions.find(({ id }) => id === selected?.id)?.portions ?? [];
   const portion = available.find(({ name }) => portionKey(name) === unit);
@@ -121,11 +126,9 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
   const weightInput = (required: boolean) => <label>吃了多少（g）<input type="number" inputMode="decimal" required={required}
     min="0.1" step="any" max={maxFoodGrams} value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={required ? "例如 40" : "选填"} /></label>;
 
-  return <Dialog title={mode === "meal-photo" ? "AI 识别 · " + meal : photo ? "拍照加常用食物" : (initial ? "编辑" : "添加") + meal}
-    className="food-dialog" onClose={() => { if (!busy) close(); }}>
-    <form onSubmit={save}>
+  const form = <form onSubmit={save}>
       <div className="dialog-body feature-stack">
-        {photo ? <FoodPhoto owner={owner} onBack={() => setMode("lookup")}
+        {photo ? <FoodPhoto owner={owner} onBack={coachDate ? undefined : () => setMode("lookup")}
           onManual={() => setManual(mode === "meal-photo" ? "manual" : "personal")} onMeal={mode === "meal-photo" ? (draft) => {
           setName(draft.name.slice(0, 96) + "（估算）");
           setAmount(String(draft.grams ?? ""));
@@ -156,14 +159,15 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
               <strong>{food.name}</strong><small>{displayNumber(food.per100g.calories)} 千卡／100 g{lastGrams === undefined ? "" : " · 上次 " + displayNumber(lastGrams) + " g"}</small>
             </button>)}</div> : <p className="empty-copy">未找到这个食物。可以按包装营养标签新增。</p>}
           <div className="food-alternatives">
-            <button className="button outline" type="button" onClick={() => setMode("meal-photo")}><WandSparkles size={16} aria-hidden="true" /> 拍照识别餐食</button>
+            {onMealPhoto && <button className="button outline" type="button" onClick={onMealPhoto}><WandSparkles size={16} aria-hidden="true" /> 拍照识别餐食</button>}
             <button className="button outline" type="button" onClick={() => setMode("photo")}><Camera size={16} /> 拍照加常用食物</button>
             <button className="button outline" type="button" onClick={() => setManual("personal")}><Plus size={16} /> 新增自定义食物</button>
             <button className="text-button" type="button" onClick={() => setManual("manual")}>手动记录</button>
           </div>
         </> : <fieldset className="form-fields" disabled={busy}>
           <button type="button" className="text-button food-back"
-            onClick={() => { setSelected(undefined); setReviewingPhoto(false); setMode("lookup"); setError(""); }}><ArrowLeft size={17} /> 返回食物库</button>
+            onClick={() => { setSelected(undefined); setReviewingPhoto(false); setMode(coachDate ? "meal-photo" : "lookup"); setError(""); }}>
+            <ArrowLeft size={17} />{coachDate ? "返回拍照" : "返回食物库"}</button>
           {mode === "lookup" && selected ? <>
             <div className="food-selected"><div><h3>{selected.name}</h3><small>{displayNumber(selected.per100g.calories)} 千卡／100 g</small></div>
               {selected.source ? <a className="text-button" href={selected.source} target="_blank" rel="noopener noreferrer">USDA 数据来源</a> : <small>我的食物</small>}</div>
@@ -209,6 +213,33 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
           {busy ? "保存中…" : mode === "personal" ? "保存到食物库" : initial ? "保存修改" : "添加到" + meal}
         </button>
       </div>}
-    </form>
-  </Dialog>;
+    </form>;
+  if (coachDate) {
+    return <section className="card coach-meal-photo" aria-labelledby="coach-meal-title">
+      <div className="dialog-heading"><h2 id="coach-meal-title" ref={coachHeading} tabIndex={-1}>拍照识别餐食</h2><span className="muted">{coachDate} · {meal}</span></div>
+      {form}
+    </section>;
+  }
+  return <Dialog title={photo ? "拍照加常用食物" : (initial ? "编辑" : "添加") + meal}
+    className="food-dialog" onClose={() => { if (!busy) close(); }}>{form}</Dialog>;
+}
+
+export type CoachMealRequest = { owner: string; id: string; date: string; meal: MealEntry["meal"] };
+
+export function CoachMealPhoto({ request: { owner, id, date, meal }, close }: { request: CoachMealRequest; close: () => void }) {
+  const store = useLibrary(true, date);
+  const save = (item: PersonalFood | FoodPortions) => store.save(item, undefined, owner);
+  const active = useRef(false);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
+
+  return <MealEditor owner={owner} meal={meal} coachDate={date} close={close}
+    personal={store.rows.filter((item) => item.kind === "food")} recent={store.recentMeals}
+    savedPortions={store.rows.filter((item) => item.kind === "food-portions")} onSaveFood={save} onSavePortions={save}
+    onLog={async (entry) => {
+      await store.save({ kind: "nutrition", date, id, entry }, undefined, owner);
+      if (active.current) close();
+    }} />;
 }

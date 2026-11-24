@@ -32,6 +32,7 @@ import { OpenGymCatalogue } from "@/features/exercises/open-gym-catalogue";
 import { defaultCatalogMove } from "@/features/exercises/exercise-picker";
 import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym";
 import { NutritionView } from "@/features/nutrition/nutrition-view";
+import { CoachMealPhoto, type CoachMealRequest } from "@/features/nutrition/meal-editor";
 import { HomeNutrition } from "@/features/nutrition/home-nutrition";
 import { useNutritionPreferences } from "@/features/nutrition/nutrition-preferences";
 import type { NutritionShortcut } from "@/features/nutrition/nutrition-summary";
@@ -133,9 +134,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const orderedNutritionShortcuts: NutritionShortcut[] = [...nutritionPreferences.mealOrder, "饮水", "体重"];
   const homeNutritionShortcuts = orderedNutritionShortcuts.filter((shortcut) => nutritionPreferences.homeShortcuts.includes(shortcut));
   const [nutritionShortcut, setNutritionShortcut] = useState<NutritionShortcut>();
+  const [nutritionStartDate, setNutritionStartDate] = useState<string>();
   const nutritionToggle = useRef<HTMLButtonElement>(null);
   const focusNutritionToggle = useRef(false);
   const [assistantMode, setAssistantMode] = useState<PlanAssistantMode>("import");
+  const [assistantMeal, setAssistantMeal] = useState<CoachMealRequest>();
   const assistantOrigin = useRef<{ view: View; setting?: SettingsPage }>({ view: "plans" });
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
@@ -346,6 +349,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const latestOwnWorkout = logs.find((item) => item.owner === me.id && item.data.date <= today);
 
   const go = (next: View) => {
+    setAssistantMeal(undefined);
     setView(next === "data" ? "settings" : next);
     if (next === "settings" || next === "data") setSettingsPage(next === "data" ? "data" : undefined);
     setPlanTab(undefined);
@@ -361,6 +365,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   }
   function openNutrition(shortcut?: NutritionShortcut) {
     setNutritionShortcut(shortcut);
+    setNutritionStartDate(undefined);
     go("nutrition");
   }
   function toggleNutrition(collapsed: boolean) {
@@ -371,6 +376,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     if (view !== "assistant") assistantOrigin.current = { view, setting: settingsPage };
     setAssistantMode(mode);
     go("assistant");
+  }
+  function openMealPhoto(date: string, meal: CoachMealRequest["meal"]) {
+    if (!viewer) return;
+    setNutritionStartDate(date);
+    setNutritionShortcut(undefined);
+    openPlanAssistant("coach");
+    setAssistantMeal({ date, meal, owner: viewer.id, id: crypto.randomUUID() });
   }
   function leavePlanAssistant() {
     const { view: previous, setting } = assistantOrigin.current;
@@ -655,6 +667,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   const showPageHeading = view !== "today" && view !== "plans" && view !== "stats" && view !== "nutrition" && view !== "settings";
   const coachPage = view === "assistant" && assistantMode === "coach";
+  const coachMeal = coachPage && assistantMeal?.owner === viewer?.id ? assistantMeal : undefined;
   const heading = coachPage ? "AI 教练" : pageTitles[view];
   const activeTab = view === "programs" || view === "assistant" ? "plans"
     : view === "coaching" ? "friends" : view === "body" ? "stats" : view;
@@ -686,12 +699,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         </>}
         {showPageHeading && <div className={view === "friends" ? "page-heading friends-heading" : coachPage ? "page-heading coach-page-heading" : "page-heading"}>
           {coachPage ? <div className="coach-page-title">
-            <button className="icon-button coach-back" type="button" onClick={leavePlanAssistant} aria-label="返回">
+            <button className="icon-button coach-back" type="button" onClick={leavePlanAssistant} aria-label={coachMeal ? "返回饮食记录" : "返回"}>
               <ChevronLeft size={21} aria-hidden="true" />
             </button>
             <h1>{heading}</h1>
           </div> : <h1>{heading}</h1>}
-          {coachPage && <details className="coach-plan-menu">
+          {coachPage && !coachMeal && <details className="coach-plan-menu">
             <summary className="icon-button coach-back" aria-label="其他添加计划方式"><Ellipsis size={22} aria-hidden="true" /></summary>
             <div className="coach-plan-menu-items">
               <button type="button" onClick={() => setAssistantMode("import")}>粘贴已有计划</button>
@@ -794,7 +807,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         </section></PlanSections>}
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView key={viewer?.id ?? "guest"} enabled={Boolean(viewer)} owner={viewer?.id} today={today}
-          records={ownNutritionLogs} initialShortcut={nutritionShortcut} onBack={() => go("today")} onBody={() => go("body")}
+          records={ownNutritionLogs} initialDate={nutritionStartDate} initialShortcut={nutritionShortcut} onMealPhoto={openMealPhoto}
+          onBack={() => go("today")} onBody={() => go("body")}
           onDevices={() => { go("settings"); openSetting("watches"); }} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} onProfileSaved={(sex) => {
           setState((current) => ({ ...current, me: { ...current.me, anatomyVariant: sex } }));
@@ -841,11 +855,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "friends" && <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
           today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()} />}
 
-        <div hidden={view !== "assistant"}><PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} save={importPlans} owner={viewer?.id} profileRef={profileRef}
-          active={view === "assistant"} mode={assistantMode} onModeChange={setAssistantMode}
+        {coachMeal && <CoachMealPhoto key={coachMeal.id} request={coachMeal} close={leavePlanAssistant} />}
+        <div hidden={view !== "assistant" || Boolean(coachMeal)}><PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} save={importPlans} owner={viewer?.id} profileRef={profileRef}
+          active={view === "assistant" && !coachMeal} mode={assistantMode} onModeChange={setAssistantMode}
           onPrograms={() => go("programs")} onData={() => go("data")}
           coachShortcuts={{
-            logMeal: display.nutrition ? () => go("nutrition") : undefined,
+            logMeal: display.nutrition ? () => openNutrition() : undefined,
             trainingStats: () => go("stats"),
             logWeight: () => go("body"),
             startWorkout: () => open({ kind: "launch" }),
