@@ -37,6 +37,10 @@
 
 打开 `ios/SpotterHealth.xcodeproj`，选择 **Spotter** scheme。App 默认连接 [Cloudflare 独立试用版](https://spotter-free.couple-ledger-service.workers.dev)，并包含原生健康模块。构建、模拟器开发包和跨电脑更新流程见 [iPhone App 说明](docs/iphone-app.md)。
 
+### Cloudflare 网页与 App
+
+Cloudflare 网页源码在 [`cloudflare/`](cloudflare/)。iPhone App 的默认站点与网页使用同一个 Worker 和 D1，同一训练搭子账号的记录可以跨端读取和保存。Apple 和 Google 的控制台、回调地址及账号绑定步骤见 [登录配置](docs/cloudflare-login.md)。
+
 ### Sites 试用版里可以这样用
 
 **训练和搭子。** 多周训练周期可以按模板排程，临时有事可调整日期。训练中可以按超级组轮换、设置休息计时，离线完成的打卡会在联网后同步。好友与搭子的分享范围可在设置里查看。
