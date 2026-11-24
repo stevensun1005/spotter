@@ -42,6 +42,7 @@ export function buildProgram(input: BuildProgramInput): Program {
         reps: move.seconds > 0 ? move.reps : Math.max(0, move.reps + progression.repsPerWeek * (week - 1)),
         ...(move.repsMax === undefined || move.seconds > 0 ? {} : { repsMax: Math.max(1, move.repsMax + progression.repsPerWeek * (week - 1)) }),
         ...((progression.weightPerWeek !== 0 && week > 1) || factor !== 1 ? { loadPercent: undefined } : {}),
+        ...(move.weight > 0 && (progression.weightPerWeek !== 0 || factor !== 1) ? { fixedLoad: true as const } : {}),
       })) };
       return { id: sessionId, week, day, phaseId, plan: snapshot(changed, id, sessionId, phaseId, date, week, day) };
     });

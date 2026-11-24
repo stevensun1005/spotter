@@ -88,6 +88,10 @@
 .workout-next { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 9px; background: #e5f0da; color: #294b2b; padding: 10px; border-radius: 10px; font-size: .86rem; }
 .workout-next strong { flex: 1 1 auto; }
 .workout-next-set { border-radius: 11px; outline: 2px solid #a0c587; outline-offset: 1px; margin: 3px 2px; scroll-margin-block: 8px; }
+.workout-load-suggestion { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 8px; border-radius: 8px; color: var(--muted); font-size: .79rem; font-variant-numeric: tabular-nums; }
+.workout-load-suggestion[data-reason=increase] { color: #35562e; background: #eef5e5; }
+.workout-load-suggestion[data-reason=backoff] { color: #6f4b20; background: #faf3e6; }
+.workout-load-suggestion .text-button { padding: 0 5px; min-height: 40px; flex: none; white-space: nowrap; font-size: inherit; }
 .edit-log-move { border: 1px solid var(--stroke); border-radius: 12px; padding: 8px 10px; }
 .edit-log-move summary { cursor: pointer; min-height: 42px; align-content: center; }
 .edit-log-motion-name { margin: 6px 0 10px; }

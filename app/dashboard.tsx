@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock3, Cloud,
   Bookmark, CalendarClock, Copy, Dumbbell, GraduationCap, House, LogIn, Play, Plus, Settings, Sparkles, Trash2, Utensils, Users,
@@ -16,6 +16,8 @@ import {
 import { useTrainingNavigation } from "@/features/training/navigation";
 import { TrainingNotice } from "@/features/training/training-notice";
 import { Workout } from "@/features/training/workout";
+import { buildLoadHistory } from "@/features/training/load-progression";
+import { seedSessionLoads } from "@/features/training/workout-loads";
 import { TrainingLaunch } from "@/features/training/training-launch";
 import type { FreeWorkoutKind } from "@/features/training/model";
 import { ProteinCheck } from "@/features/training/protein-check";
@@ -256,7 +258,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   }, [toast]);
 
   const { me, room } = state;
-  const entries = mergePendingCheckins(state.entries, pendingCheckins, me.id);
+  const entries = useMemo(() => mergePendingCheckins(state.entries, pendingCheckins, me.id), [state.entries, pendingCheckins, me.id]);
   const pendingLog = overlay?.kind === "log" && pendingCheckins.some((item) => item.owner === overlay.log.owner && item.id === overlay.log.id);
   useEffect(() => {
     if (!returnToLog || cloud !== "云端已连接") return;
@@ -269,7 +271,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const partner = room?.partner;
   const partnerWithDetails = room?.partnerTrainingShared === false ? null : partner;
   const demo = !viewer;
-  const logs = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "log");
+  const logs = useMemo(() => entries.filter(draftsOrLogs).filter((entry) => entry.kind === "log"), [entries]);
+  const loadDate = overlay?.kind === "session" ? overlay.data.date : today;
+  const loadHistory = useMemo(() => buildLoadHistory(logs.filter((log) => log.data.date <= loadDate), me.id), [logs, loadDate, me.id]);
   const plans = entries.filter((entry): entry is PlanEntry => entry.kind === "plan");
   const completions = planCompletions(logs);
   const completionFor = (item: PlanEntry) => completions.get(item.owner)?.get(item.id);
@@ -472,7 +476,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     const existing = item && drafts.find(([, data]) => data.planId === item.id && data.date === today);
     const id = existing?.[0] ?? crypto.randomUUID();
     const data = item
-      ? (existing ? resumeClock(refreshDraftPlan(existing[1], item.data)) : startSession({ ...item.data, title: planDisplayTitle(item.data) }, item.id, today))
+      ? existing
+        ? resumeClock(refreshDraftPlan(existing[1], item.data))
+        : seedSessionLoads(startSession({ ...item.data, title: planDisplayTitle(item.data) }, item.id, today), loadHistory)
       : startFreeSession(today, kind);
     if (!existing || data !== existing[1]) upsertLocalDraft(id, data);
     else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
@@ -589,6 +595,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   if (trainingNav.id) {
     if (overlay?.kind === "session" && overlay.id === trainingNav.id && !completedWorkout) {
       return <><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} trackProtein={trackProtein} close={() => { close(); trainingNav.leave(); }}
+        loadHistory={loadHistory}
         update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }}
         finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />{exerciseDialog}</>;
     }

@@ -21,7 +21,7 @@ export { defaultCatalogMove } from "./replacements";
 
 const defaultOptions: ReplacementOptions = { sameStationOnly: true, available: [], avoidKneeling: false, avoidJumping: false };
 
-export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlank = true, replacementContext, identityOnly, newMoveDefaults }: {
+export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlank = true, replacementContext, identityOnly, newMoveDefaults, useLoadHistory }: {
   onUse: (move: Move) => void;
   close: () => void;
   prior?: Move;
@@ -31,6 +31,7 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
   replacementContext?: ReplacementContext;
   identityOnly?: boolean;
   newMoveDefaults?: Pick<Move, "sets" | "reps" | "unit">;
+  useLoadHistory?: boolean;
 }) {
   const catalogue = useCatalogue();
   const [config, setConfig] = useState<{ move: Move; item?: CatalogEntry; station?: "same" | "changed" | "unknown" }>();
@@ -83,7 +84,7 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
         <button type="button" className="button subtle small" onClick={() => setConfig(undefined)}><ChevronLeft size={17} /> 返回选动作</button>
         {config.item ? <><h3>{config.move.name}</h3><p className="muted">{replacementEquipment(config.item).map(replacementGearLabel).join("、") || label(config.item.equipment)} · {label(config.item.type)}{config.item.distance ? " · 原动作按距离完成" : ""}</p></> :
           <label>动作名称<input required maxLength={100} value={config.move.name} onChange={(event) => setConfig({ ...config, move: { ...config.move, name: event.target.value } })} /></label>}
-        {prior && <p className="muted">{config.station === "same" ? "可沿用原站器械。" : config.station === "changed" ? "这项动作可能需要换站，请确认器械。" : "这项动作的器械未核对。"}新动作的重量从零开始记录。</p>}
+        {prior && <p className="muted">{config.station === "same" ? "可沿用原站器械。" : config.station === "changed" ? "这项动作可能需要换站，请确认器械。" : "这项动作的器械未核对。"}{useLoadHistory ? "如果有同一动作的有效记录，会沿用上次重量。" : "新动作的重量从零开始记录。"}</p>}
         <div className="field-grid">{fields.map(({ label, key, low, high }) => <label key={key}>{label}
           <input type="number" min={low} max={high} required={key === "sets"} value={config.move[key] ?? ""}
             onChange={(event) => setConfig({ ...config, move: { ...config.move, [key]: key === "restSeconds" && !event.target.value

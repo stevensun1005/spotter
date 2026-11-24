@@ -32,6 +32,7 @@ const move = z.object({
   repsMax: z.number().int().min(1).max(999).optional(),
   targetRpe: z.number().min(1).max(10).multipleOf(0.5).optional(),
   loadPercent: loadPercentSchema.optional(),
+  fixedLoad: z.literal(true).optional(),
 }).refine(({ reps, repsMax }) => repsMax === undefined || reps > 0 && repsMax >= reps)
   .transform((item, context) => {
     if (!item.loadPercent) return item;

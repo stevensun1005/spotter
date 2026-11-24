@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Dumbbell, Keyboard, Minimize2, MoreHorizontal, NotebookPen, Pause, PencilLine, Play, Plus } from "lucide-react";
 import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { freeWorkoutTitle, sessionTotals, type Session } from "./model";
@@ -23,14 +23,18 @@ import { cardioSeconds } from "./cardio";
 import { useRestReminder } from "./use-rest-reminder";
 import { useWorkoutWakeLock } from "./use-wake-lock";
 import { saveWorkoutPreferences, useWorkoutPreferences } from "@/features/settings/workout-prefs";
+import { applyLoadSuggestion, recommendLoads, type LoadHistory } from "./load-progression";
+import { LoadSuggestion } from "./load-suggestions";
+import { adaptsWorkoutLoads, seedMoveLoads } from "./workout-loads";
 
 const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, "0")).join(":");
 
 type Edit = SetTarget & { text: string; pristine: boolean };
 
-export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein }: {
+export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein, loadHistory }: {
   data: Session; update: (next: Session) => void; finish: () => void; close: () => void;
   pending: boolean; error: string; sync: string; onExercise?: (choice: ExerciseChoice) => void; trackProtein?: boolean;
+  loadHistory: LoadHistory;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [edit, setEdit] = useState<Edit | null>(null);
@@ -64,6 +68,10 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
 
   const plan = data.plan;
   const prefs = useWorkoutPreferences();
+  const adaptLoads = adaptsWorkoutLoads(plan);
+  const loadSuggestions = useMemo(() => adaptLoads ? data.rows.map((rows, index) =>
+    recommendLoads(plan.exercises[index], rows, loadHistory, prefs.weightStep)) : [],
+  [adaptLoads, data.rows, loadHistory, plan.exercises, prefs.weightStep]);
   const effortLabel = prefs.effortScale.toUpperCase();
   const blocks = trainingBlocks(plan.exercises);
   const { data: catalogue } = useCatalogue();
@@ -210,7 +218,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
     const exercises = [...data.plan.exercises];
     const next = [...data.rows];
     exercises[index] = { ...move, name: parsePlanMove(move.name).name };
-    next[index] = rows;
+    next[index] = adaptLoads ? seedMoveLoads(exercises[index], rows, loadHistory) : rows;
     setEdit(null); setOpenedMove(index); setPicker(undefined);
     if (prefs.layout === "list") setListOpen((previous) => ({ ...previous, [index]: true }));
     update({ ...data, plan: { ...data.plan, exercises }, rows: next });
@@ -306,10 +314,23 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
             {onExercise && <button type="button" className="button subtle" onClick={() => onExercise({ ...move, trainingCategory: plan.category })}><BookOpen size={16} /> 查看动作详情</button>}
             <button type="button" className="button subtle" disabled={data.rows[i].some((line) => line.done)} onClick={() => setPicker(i)}>替换动作</button>
           </div>
-          {data.rows[i].map((line, j) => <div id={"workout-set-" + i + "-" + j} key={j} className={pendingSet?.move === i && pendingSet.row === j ? "workout-next-set" : undefined}><SetRow move={move} line={line} index={j}
-            selected={edit?.move === i && edit.row === j ? edit.field : undefined}
-            edit={(field) => activate({ move: i, row: j, field })} showEffort={prefs.showEffort} effortScale={prefs.effortScale}
-            toggle={() => toggleSet(i, j)} /></div>)}
+          {data.rows[i].map((line, j) => {
+            const suggestion = loadSuggestions[i]?.[j];
+            const canApply = suggestion && (line.weight !== suggestion.weight || (line.right
+              ? line.right.weight !== (suggestion.rightWeight ?? suggestion.weight) : suggestion.rightWeight !== undefined));
+            const showSuggestion = !line.done && suggestion && suggestion.reason !== "history" && (canApply || suggestion.reason === "backoff");
+            return <div id={"workout-set-" + i + "-" + j} key={j} className={pendingSet?.move === i && pendingSet.row === j ? "workout-next-set" : undefined}>
+              <SetRow move={move} line={line} index={j}
+                selected={edit?.move === i && edit.row === j ? edit.field : undefined}
+                edit={(field) => activate({ move: i, row: j, field })} showEffort={prefs.showEffort} effortScale={prefs.effortScale}
+                toggle={() => toggleSet(i, j)} />
+              {showSuggestion && <LoadSuggestion {...suggestion} unit={move.unit} onApply={canApply ? () => {
+                const next = changeSet(data, i, j, (value) => applyLoadSuggestion(value, suggestion));
+                update(next);
+                if (edit?.move === i && edit.row === j) activate(edit, next);
+              } : undefined} />}
+            </div>;
+          })}
             </details>;
           })}
         </section>)}
@@ -365,7 +386,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
         <button className="button primary" type="button" disabled={pending} onClick={finish}><Check size={18} /> {pending ? "正在保存" : "保存打卡"}</button>
       </div>
     </Dialog>}
-    {picker !== undefined && <ExercisePicker allowBlank={false} prior={data.plan.exercises[picker]} names={data.plan.exercises.map((move) => move.name)}
+    {picker !== undefined && <ExercisePicker allowBlank={false} prior={data.plan.exercises[picker]} names={data.plan.exercises.map((move) => move.name)} useLoadHistory={adaptLoads}
       newMoveDefaults={picker < 0 ? { sets: prefs.newSets, reps: prefs.newReps, unit: prefs.defaultUnit } : undefined}
       replacementContext={{ plan: data.plan, index: picker, defaultRestOverride: restSeconds }}
       close={() => setPicker(undefined)} onUse={useExercise} />}
