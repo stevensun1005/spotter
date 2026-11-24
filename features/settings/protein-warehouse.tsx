@@ -4,10 +4,12 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Camera, Droplet, Package, Pencil, Plus, Scale } from "lucide-react";
 import type { PersonalFood } from "@/features/library/model";
 import { FoodPhoto } from "@/features/nutrition/food-photo";
-import type { FoodPhotoDraft } from "@/features/nutrition/food-photo-model";
+import type { ProteinPhotoProduct } from "@/features/nutrition/food-photo-model";
 import { maxProteinProducts, proteinProductSchema, proteinServingNutrition, type ProteinNutrition, type ProteinProduct } from "@/features/training/protein";
 import { errorText } from "@/shared/client";
 import { displayNumber } from "@/shared/ui";
+import { editProteinProduct, findProteinProduct, mergeProteinPhotoIntoEditor, nutritionFields,
+  type NutritionFields, type ProteinEditor } from "./protein-warehouse-editor";
 import styles from "./protein-warehouse.module.css";
 
 const nutrients = [
@@ -16,20 +18,8 @@ const nutrients = [
   { id: "carbs", name: "碳水", unit: "g", max: 100 },
   { id: "fat", name: "脂肪", unit: "g", max: 100 },
 ] as const;
-type NutritionFields = Record<keyof ProteinNutrition, string>;
 const blankNutrition: NutritionFields = { calories: "", protein: "", carbs: "", fat: "" };
 const commonMixers = ["全脂牛奶", "低脂牛奶", "脱脂牛奶", "无糖豆奶", "燕麦奶", "杏仁奶", "椰子水"];
-type ProteinEditor = {
-  id: string; editing: boolean;
-  name: string; scoopGrams: string; cupMl: string;
-  powder?: NutritionFields;
-  mixer?: { name: string; per100ml: NutritionFields };
-};
-
-function nutritionFields(nutrition: ProteinNutrition): NutritionFields {
-  const { calories, protein, carbs, fat } = nutrition;
-  return { calories: String(calories), protein: String(protein), carbs: String(carbs), fat: String(fat) };
-}
 
 function toNutrition(fields: NutritionFields): ProteinNutrition {
   const { calories, protein, carbs, fat } = fields;
@@ -50,10 +40,11 @@ function NutritionInputs({ values, change, disabled }: {
   </div>;
 }
 
-export function ProteinWarehouse({ products, owner, personalFoods = [], disabled = false, save, onUseAgent }: {
+export function ProteinWarehouse({ products, owner, personalFoods = [], defaultProductId, disabled = false, save, onUseAgent }: {
   products: readonly ProteinProduct[];
   owner: string;
   personalFoods?: readonly PersonalFood[];
+  defaultProductId?: string;
   disabled?: boolean;
   save: (products: ProteinProduct[]) => Promise<void>;
   onUseAgent?: () => void;
@@ -78,11 +69,7 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
   }, [photo, photoReturn]);
 
   function open(product?: ProteinProduct, usePhoto = false) {
-    setEditor(product ? {
-      id: product.id, editing: true, name: product.name, scoopGrams: String(product.scoopGrams), cupMl: String(product.cupMl),
-      powder: product.powder && nutritionFields(product.powder),
-      mixer: product.mixer && { name: product.mixer.name, per100ml: nutritionFields(product.mixer.per100ml) },
-    } : {
+    setEditor(product ? editProteinProduct(product) : {
       id: crypto.randomUUID(), editing: false, name: "", scoopGrams: "", cupMl: "",
     });
     setError("");
@@ -100,8 +87,8 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
     setPhotoReturn(undefined);
   }
 
-  function editAfterPhoto(draft?: FoodPhotoDraft) {
-    if (draft) setEditor((current) => current && { ...current, name: draft.name, powder: nutritionFields(draft.per100g) });
+  function editAfterPhoto(draft?: ProteinPhotoProduct) {
+    if (draft) setEditor((current) => current && mergeProteinPhotoIntoEditor(current, draft, products));
     setPhotoReturn(draft ? "recognized" : "manual");
     setError("");
     setPhoto(false);
@@ -127,18 +114,29 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
     const candidate = proteinProductSchema.safeParse({
       id: editor.id, name: editor.name, scoopGrams: Number(editor.scoopGrams), cupMl: Number(editor.cupMl),
       powder: editor.powder && toNutrition(editor.powder),
+      powderEstimated: editor.powderEstimated, scoopEstimated: editor.scoopEstimated,
       mixer: editor.mixer && { name: editor.mixer.name, per100ml: toNutrition(editor.mixer.per100ml) },
     });
     if (!candidate.success) {
-      setError("请核对产品名称、粉量、杯量及已选择填写的营养数据。");
+      const field = candidate.error.issues[0]?.path[0];
+      if (field === "name") setError("请填写产品名称。");
+      else if (field === "scoopGrams") setError("请填写一勺粉量，范围为 0.1–250 g。");
+      else if (field === "cupMl") setError("请填写一杯容量，范围为 1–2000 mL。");
+      else if (field === "powder") setError("请补齐已开启的营养值，或先取消「填写每 100 g 营养」。");
+      else if (field === "mixer") setError("请补齐冲泡液体的名称和每 100 mL 营养。");
+      else setError("请核对产品资料。");
+      const input = event.currentTarget.querySelector<HTMLElement>(`[name="protein-${field}"]`);
+      input?.focus();
     } else if (editor.editing && !products.some(({ id }) => id === editor.id)) {
       setError("这款蛋白粉已从仓库移除。你可以关闭编辑后重新添加。");
+    } else if (findProteinProduct(products.filter(({ id }) => id !== editor.id), candidate.data.name)) {
+      setError("仓库里已有同名产品。请取消本次添加，再编辑已保存的那一款。");
     } else if (!editor.editing && atLimit) {
       setError(`最多可保存 ${maxProteinProducts} 款蛋白粉。`);
     } else {
       const next = editor.editing ? products.map((product) => product.id === editor.id ? candidate.data : product)
         : [...products, candidate.data];
-      void persist(next, editor.editing ? "已更新蛋白粉。" : "已添加蛋白粉。");
+      void persist(next, editor.editing ? `已更新「${candidate.data.name}」。` : `已将「${candidate.data.name}」添加到仓库。`);
     }
   }
 
@@ -157,41 +155,45 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
     {!owner && <p className={styles.notice}>登录后可保存蛋白粉和冲泡设置。</p>}
     {atLimit && <p className={styles.notice}>仓库已保存 {maxProteinProducts} 款，可移除旧款后添加新款。</p>}
 
-    {editor && <form className={`card form-fields ${styles.editor}`} key={editor.id} onSubmit={submit}>
+    {editor && <form className={`card form-fields ${styles.editor}`} key={editor.id} onSubmit={submit} noValidate>
       <h2 ref={editorHeading} tabIndex={-1}>{photo ? "识别蛋白粉包装" : editor.editing ? "编辑蛋白粉" : "添加蛋白粉"}</h2>
       {photo ? <>
-        <FoodPhoto owner={owner} destination="protein" onApply={editAfterPhoto} />
+        <FoodPhoto owner={owner} onProtein={editAfterPhoto} />
         <div className={styles.photoFallback}>
-          <p className={styles.notice}>营养表看不清时，可以先填产品名称、一勺粉量和杯量，之后再补营养。</p>
-          <button type="button" className="button outline small" disabled={locked} onClick={() => editAfterPhoto()}>
-            {editor.editing ? "返回编辑产品" : "填写产品并添加"}
-          </button>
+          <p className={styles.notice}>填好产品名、每勺重量和杯量就能保存。营养表可以之后再补。</p>
         </div>
         {onUseAgent && <p className={styles.notice}>也可以请自己的 AI 读取标签并存到我的食物库，再回仓库从食物库带入。</p>}
-        <div className={styles.actions}>
-          {onUseAgent && <button type="button" className="button outline small" onClick={onUseAgent}>用自己的 AI</button>}
-          <button type="button" className="button outline small" onClick={close}>{editor.editing ? "取消编辑" : "取消添加"}</button>
+        <div className={styles.commitActions}>
+          <div className={styles.actions}>
+            {onUseAgent && <button type="button" className="button outline small" onClick={onUseAgent}>用自己的 AI</button>}
+            <button type="button" className="button outline small" onClick={close}>{editor.editing ? "取消编辑" : "取消添加"}</button>
+            <button type="button" className="button primary small" disabled={locked} onClick={() => editAfterPhoto()}>
+              {editor.editing ? "返回产品并确认" : "填写产品并确认"}
+            </button>
+          </div>
         </div>
       </> : !confirmRemove ? <>
-        {reviewPhoto && editor.powder && <p className={styles.notice} role="status">已填入包装名称和每 100 g 营养。请核对标签，再填写一勺的粉量和杯量。</p>}
-        <label>产品名称<input autoFocus={!photoReturn} required maxLength={100} value={editor.name} disabled={locked}
+        {reviewPhoto && <p className={styles.notice} role="status">已填入照片中读到的资料。核对产品名称、每勺重量和杯量后即可保存。营养可稍后补。</p>}
+        <label>产品名称<input autoFocus={!photoReturn} name="protein-name" required maxLength={100} value={editor.name} disabled={locked}
           onChange={(event) => setEditor({ ...editor, name: event.target.value })} /></label>
         <div className={styles.amounts}>
           <label>一勺粉量
-            <span className={styles.field}><input type="number" inputMode="decimal" step="any" min={0.1} max={250} required aria-label="一勺粉量（克）" value={editor.scoopGrams}
-              disabled={locked} onChange={(event) => setEditor({ ...editor, scoopGrams: event.target.value })} /><span aria-hidden="true">g</span></span>
+            <span className={styles.field}><input type="number" inputMode="decimal" step="any" min={0.1} max={250} name="protein-scoopGrams" required aria-label="一勺粉量（克）" value={editor.scoopGrams}
+              disabled={locked} onChange={(event) => setEditor({ ...editor, scoopGrams: event.target.value, scoopEstimated: undefined })} /><span aria-hidden="true">g</span></span>
           </label>
           <label>一杯容量
-            <span className={styles.field}><input type="number" inputMode="decimal" step="any" min={1} max={2000} required aria-label="一杯容量（毫升）" value={editor.cupMl}
+            <span className={styles.field}><input type="number" inputMode="decimal" step="any" min={1} max={2000} name="protein-cupMl" required aria-label="一杯容量（毫升）" value={editor.cupMl}
               disabled={locked} onChange={(event) => setEditor({ ...editor, cupMl: event.target.value })} /><span aria-hidden="true">mL</span></span>
           </label>
         </div>
+        {editor.scoopEstimated && <p className={styles.notice}>每勺重量为估算。知道标签重量后可以更新。</p>}
         <fieldset className={styles.group}>
           <legend>蛋白粉营养</legend>
           <label className="toggle-label"><input type="checkbox" checked={Boolean(editor.powder)} disabled={locked}
-            onChange={(event) => setEditor({ ...editor, powder: event.target.checked ? blankNutrition : undefined })} />填写每 100 g 营养</label>
+            onChange={(event) => setEditor({ ...editor, powder: event.target.checked ? blankNutrition : undefined, powderEstimated: undefined })} />填写每 100 g 营养</label>
           {!editor.powder && <p className={styles.notice}>填写后可以按粉量和冲泡液体计算整杯营养。</p>}
-          {editor.powder && <NutritionInputs values={editor.powder} disabled={locked} change={(powder) => setEditor({ ...editor, powder })} />}
+          {editor.powderEstimated && <p className={styles.notice}>当前蛋白粉营养为估算。可用包装营养表更新。</p>}
+          {editor.powder && <NutritionInputs values={editor.powder} disabled={locked} change={(powder) => setEditor({ ...editor, powder, powderEstimated: undefined })} />}
           <button className="button outline small" type="button" disabled={locked}
             onClick={() => setPhoto(true)}><Camera size={16} aria-hidden="true" />{reviewPhoto ? "重新识别包装" : "识别包装营养表"}</button>
           {(personalFoods.length > 0 || onUseAgent) && <details className={styles.foodImport}>
@@ -203,7 +205,7 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
                 if (!food) return;
                 setError("");
                 setPhotoReturn(undefined);
-                setEditor({ ...editor, name: food.name, powder: nutritionFields(food.per100g) });
+                setEditor({ ...editor, name: food.name, powder: nutritionFields(food.per100g), powderEstimated: undefined });
               }}>
                 <option value="" disabled>从我的食物库选择</option>
                 {personalFoods.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
@@ -229,13 +231,16 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
               change={(per100ml) => setEditor({ ...editor, mixer: { ...mixer, per100ml } })} />
           </>}
         </fieldset>
-        <div className={`${styles.actions} ${styles.commitActions}`}>
-          {editor.editing && <button type="button" className={styles.remove} disabled={locked}
-            onClick={() => { setError(""); setConfirmRemove(true); }}>移除</button>}
-          <button type="button" className="button outline small" disabled={pending} onClick={close}>取消</button>
-          <button type="submit" className="button primary small" disabled={locked}>
-            {pending ? "保存中…" : editor.editing ? "保存修改" : "添加到仓库"}
-          </button>
+        <div className={styles.commitActions}>
+          {error && <p className="inline-error" role="alert">{error}</p>}
+          <div className={styles.actions}>
+            {editor.editing && <button type="button" className={styles.remove} disabled={locked}
+              onClick={() => { setError(""); setConfirmRemove(true); }}>移除</button>}
+            <button type="button" className="button outline small" disabled={pending} onClick={close}>取消</button>
+            <button type="submit" className="button primary small" disabled={locked}>
+              {pending ? "保存中…" : editor.editing ? "保存修改" : "确认添加到仓库"}
+            </button>
+          </div>
         </div>
       </> : <>
         <p>从仓库移除「{editor.name}」？之前的训练记录会保留。</p>
@@ -246,7 +251,7 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
             onClick={() => void persist(products.filter(({ id }) => id !== editor.id), "已从仓库移除。")}>{pending ? "移除中…" : "确认移除"}</button>
         </div>
       </>}
-      {error && <p className="inline-error" role="alert">{error}</p>}
+      {confirmRemove && error && <p className="inline-error" role="alert">{error}</p>}
     </form>}
 
     {notice && <p className={styles.notice} role="status">{notice}</p>}
@@ -255,16 +260,19 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
       return <li className={`card ${styles.product}`} key={product.id}>
         <span className={styles.icon}><Package size={21} aria-hidden="true" /></span>
         <div>
-          <strong>{product.name}</strong>
+          <div className={styles.productTitle}>
+            <strong>{product.name}</strong>
+            {product.id === defaultProductId && <span className={styles.defaultBadge}>训练后默认</span>}
+          </div>
           <dl className={styles.metrics}>
-            <div><dt><Scale size={13} aria-hidden="true" />一勺</dt><dd>{product.scoopGrams} g</dd></div>
+            <div><dt><Scale size={13} aria-hidden="true" />一勺</dt><dd>{product.scoopEstimated ? "约 " : ""}{product.scoopGrams} g</dd></div>
             <div><dt><Droplet size={13} aria-hidden="true" />一杯</dt><dd>{product.cupMl} mL {product.mixer?.name ?? "清水"}</dd></div>
           </dl>
         </div>
         <button type="button" className={`icon-button ${styles.edit}`} aria-label={`编辑${product.name}`}
           disabled={locked || Boolean(editor)} onClick={() => open(product)}><Pencil size={17} aria-hidden="true" /></button>
         {serving && <div className={styles.serving}>
-          <p>每杯营养</p>
+          <p>{product.scoopEstimated || product.powderEstimated ? "每杯营养估算" : "每杯营养"}</p>
           <dl aria-label="每杯营养">{nutrients.map(({ id, name, unit }) =>
             <div key={id}><dt>{name}</dt><dd>{displayNumber(serving[id])} <span>{unit}</span></dd></div>
           )}</dl>

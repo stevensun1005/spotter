@@ -32,10 +32,12 @@ const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].m
 
 type Edit = SetTarget & { text: string; pristine: boolean };
 
-export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein, proteinProducts, loadHistory }: {
+export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein,
+  proteinProducts, defaultProteinProductId, loadHistory }: {
   data: Session; update: (next: Session) => void; finish: () => void; close: () => void;
   pending: boolean; error: string; sync: string; onExercise?: (choice: ExerciseChoice) => void; trackProtein?: boolean;
   proteinProducts?: readonly ProteinProduct[];
+  defaultProteinProductId?: string;
   loadHistory: LoadHistory;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -398,6 +400,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
     {showFinish && <Dialog title="完成训练" onClose={() => { if (!pending) setConfirmFinish(false); }}>
       <div className="dialog-body">
         <ProteinCheck checked={data.proteinShake === true} disabled={pending} product={data.proteinProduct} products={proteinProducts}
+          defaultProteinProductId={defaultProteinProductId}
           save={(proteinShake, proteinProduct) => update({ ...data, proteinShake, proteinProduct })} />
         {error && <p className="inline-error" role="alert">{error}</p>}
       </div>

@@ -98,17 +98,27 @@ function request(body) {
 }
 
 test("checked protein serving syncs one snack, including the mixer, through retries and workout edits", async (t) => {
-  const { withoutProteinShake, proteinProductSchema } = await import("../features/training/protein.ts");
+  const { defaultWorkoutProteinProduct, proteinPreference, withoutProteinShake, proteinProductSchema } =
+    await import("../features/training/protein.ts");
   const { publicPartnerSession } = await import("../features/friends/public-training.ts");
   const sql = database(t);
   sql.exec("CREATE TABLE personal_library (owner TEXT, kind TEXT, id TEXT, day TEXT, payload TEXT, updated TEXT, PRIMARY KEY(owner, kind, id))");
   worker.owner = owner;
   const product = proteinProductSchema.parse({
-    id: secondId, name: "合成试验乳清", scoopGrams: 30, cupMl: 250,
+    id: secondId, name: "合成试验乳清", scoopGrams: 30, cupMl: 600, scoopEstimated: true, powderEstimated: true,
     powder: { calories: 400, protein: 75, carbs: 8, fat: 7 },
     mixer: { name: "试验牛奶", per100ml: { calories: 48, protein: 3.4, carbs: 5, fat: 1.5 } },
   });
-  const { data } = finalizeCheckin({ ...workout(), proteinShake: true, proteinProduct: product }, end);
+  const otherProduct = { ...product, id: logId, name: "另一款乳清" };
+  const incomplete = { ...otherProduct, powder: undefined };
+  assert.equal(defaultWorkoutProteinProduct([otherProduct, product]), undefined);
+  assert.equal(defaultWorkoutProteinProduct([incomplete, product]), product);
+  assert.equal(defaultWorkoutProteinProduct([incomplete, product], incomplete.id), undefined);
+  assert.equal(proteinPreference.safeParse({ kind: "protein-preference", enabled: true }).success, true);
+  const preference = proteinPreference.parse({ kind: "protein-preference", enabled: true, defaultProductId: product.id });
+  const selected = defaultWorkoutProteinProduct([otherProduct, product], preference.defaultProductId);
+  assert.equal(selected, product);
+  const { data } = finalizeCheckin({ ...workout(), proteinShake: true, proteinProduct: selected }, end);
   assert.deepEqual(sessionSchema.parse(data).proteinProduct, product);
   assert.equal(sessionSchema.safeParse({ ...data, proteinShake: false }).success, false);
   assert.equal(withoutProteinShake(data).proteinProduct, undefined);
@@ -123,7 +133,7 @@ test("checked protein serving syncs one snack, including the mixer, through retr
   assert.equal(original.length, 1);
   assert.equal(original[0].sourceWorkoutId, logId);
   assert.deepEqual(original[0].entry, {
-    type: "meal", meal: "加餐", name: product.name, grams: 30, calories: 240, protein: 31, carbs: 14.9, fat: 5.85,
+    type: "meal", meal: "加餐", name: product.name + "（估算）", grams: 630, calories: 408, protein: 42.9, carbs: 32.4, fat: 11.1,
   });
 
   const retry = await postLog({ ...data, proteinProduct: { ...product, cupMl: 300 } });

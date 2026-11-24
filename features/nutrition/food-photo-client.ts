@@ -1,4 +1,5 @@
-import { foodPhotoDraftSchema, mealPhotoDraftSchema, photoNeedsSchema, type FoodPhotoDraft, type MealPhotoDraft } from "./food-photo-model";
+import { foodPhotoDraftSchema, mealPhotoDraftSchema, photoNeedsSchema, proteinPhotoProductSchema,
+  type FoodPhotoDraft, type MealPhotoDraft, type ProteinPhotoProduct } from "./food-photo-model";
 import { maxPhotoBase64Length, type FoodPhotoRequest } from "./food-photo-request";
 
 const photoEndpoint = "/api/food-photo";
@@ -84,9 +85,9 @@ async function postPhoto(source: PhotoSource, notes: string, owner: string, mode
   signal.throwIfAborted();
   const response = await fetch(photoEndpoint, {
     method: "POST", headers: { "Content-Type": "application/json" }, signal,
-    body: JSON.stringify({ expectedOwner: owner, mode, image, notes: notes.trim() }),
+    body: JSON.stringify({ expectedOwner: owner, mode, image, notes: mode === "protein" ? undefined : notes.trim() }),
   });
-  const result = await response.json().catch(() => null) as { draft?: unknown; needs?: string[]; error?: string } | null;
+  const result = await response.json().catch(() => null) as { draft?: unknown; product?: unknown; needs?: string[]; error?: string } | null;
   signal.throwIfAborted();
   if (!response.ok) throw new Error(result?.error || photoRetryMessage);
   return result;
@@ -108,4 +109,13 @@ export async function recognizeLabelPhoto(source: PhotoSource, notes: string, ow
   const parsed = foodPhotoDraftSchema.safeParse(result?.draft);
   if (!parsed.success) throw new Error("无法从图片读取完整的营养表，请对准包装标签重拍。");
   return { kind: "draft", draft: parsed.data };
+}
+
+export async function recognizeProteinPhoto(source: PhotoSource, owner: string, signal: AbortSignal): Promise<PhotoNeeds | { kind: "product"; product: ProteinPhotoProduct }> {
+  const result = await postPhoto(source, "", owner, "protein", signal);
+  const details = photoNeedsSchema.safeParse(result);
+  if (details.success) return { kind: "needs", needs: details.data.needs };
+  const parsed = proteinPhotoProductSchema.safeParse(result?.product);
+  if (!parsed.success) throw new Error("无法读取蛋白粉包装，请重拍或补充产品信息。");
+  return { kind: "product", product: parsed.data };
 }

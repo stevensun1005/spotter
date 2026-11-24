@@ -21,6 +21,7 @@ import { seedSessionLoads } from "@/features/training/workout-loads";
 import { TrainingLaunch } from "@/features/training/training-launch";
 import type { FreeWorkoutKind } from "@/features/training/model";
 import { ProteinCheck } from "@/features/training/protein-check";
+import { defaultWorkoutProteinProduct } from "@/features/training/protein";
 import type { ProteinProduct } from "@/features/training/protein";
 import { PairToday } from "@/features/pair/pair-today";
 import { DisconnectPair } from "@/features/pair/disconnect-pair";
@@ -40,6 +41,7 @@ import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym
 import { NutritionView, mealForNow } from "@/features/nutrition/nutrition-view";
 import { CoachMealPhoto, type CoachMealRequest } from "@/features/nutrition/meal-editor";
 import { saveCoachMeal } from "@/features/nutrition/coach-meal-save";
+import { saveCoachProtein } from "@/features/nutrition/coach-protein-save";
 import { HomeNutrition } from "@/features/nutrition/home-nutrition";
 import { useNutritionPreferences } from "@/features/nutrition/nutrition-preferences";
 import type { NutritionShortcut } from "@/features/nutrition/nutrition-summary";
@@ -340,9 +342,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const completedWorkout = logs.find((log) => log.owner === me.id && log.id === trainingNav.id);
   const profiles = library.rows.filter((item) => item.kind === "exercise").map(({ item }) => item);
   const templates = library.rows.filter((item) => item.kind === "template");
-  const trackProtein = Boolean(viewer && library.rows.find((item) => item.kind === "protein-preference")?.enabled);
+  const proteinPreference = viewer ? library.rows.find((item) => item.kind === "protein-preference") : undefined;
   const proteinWarehouse = viewer ? library.rows.find((item) => item.kind === "protein-warehouse") : undefined;
   const proteinProducts = proteinWarehouse?.products ?? [];
+  const defaultProteinProductId = proteinPreference?.defaultProductId;
+  const trackProtein = Boolean(viewer && (proteinPreference?.enabled ?? proteinProducts.length > 0));
   const scheduleRow = library.rows.find((item) => item.kind === "schedule");
   const schedule = scheduleRow?.values ?? openSchedule;
   const exerciseNames = [
@@ -615,7 +619,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   async function finishSession(id: string, data: Session) {
     await act(async () => {
-      const receipt = finalizeCheckin(liveClocks.restore(id, pendingRef.current[id] ?? data));
+      const latest = liveClocks.restore(id, pendingRef.current[id] ?? data);
+      const proteinProduct = trackProtein && latest.proteinShake && !latest.proteinProduct
+        ? defaultWorkoutProteinProduct(proteinProducts, defaultProteinProductId) : undefined;
+      const receipt = finalizeCheckin(proteinProduct ? { ...latest, proteinProduct } : latest);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       let record: QueuedCheckin = { id, owner: me.id, kind: "log", ...receipt };
       let queued = false;
@@ -705,7 +712,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   if (trainingNav.id) {
     if (overlay?.kind === "session" && overlay.id === trainingNav.id && !completedWorkout) {
       return <AnatomySubject.Provider value={me.anatomyVariant}><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} trackProtein={trackProtein}
-        proteinProducts={proteinProducts} close={() => { close(); trainingNav.leave(); }}
+        proteinProducts={proteinProducts} defaultProteinProductId={defaultProteinProductId} close={() => { close(); trainingNav.leave(); }}
         loadHistory={loadHistory}
         update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }}
         finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />{exerciseDialog}</AnatomySubject.Provider>;
@@ -872,9 +879,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             latestWorkout={viewer && latestOwnWorkout ? () => open({ kind: "log", log: latestOwnWorkout }) : undefined}
             display={display} changeDisplay={changeDisplay}
             protein={<section className="card padded feature-stack"><ProteinCheck label="显示蛋白粉打卡" checked={trackProtein}
-              disabled={!viewer || library.loading || Boolean(library.error)} save={(enabled) => library.save({ kind: "protein-preference", enabled }, undefined, viewer?.id)} />
+              disabled={!viewer || library.loading || Boolean(library.error)}
+              save={(enabled) => library.save({ kind: "protein-preference", enabled, defaultProductId: defaultProteinProductId }, undefined, viewer?.id)} />
               <p className="muted">开启后可在结束训练时记录蛋白粉。</p></section>}
             proteinWarehouse={<ProteinWarehouse owner={viewer?.id ?? ""} products={proteinProducts}
+              defaultProductId={defaultProteinProductId}
               disabled={!viewer || library.loading || Boolean(library.error)} save={saveProteinProducts}
               personalFoods={viewer ? proteinFoods.rows.filter((item) => item.kind === "food") : []}
               onUseAgent={() => openPlanAssistant("ai")} />}
@@ -923,6 +932,15 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               logMeal: viewer && display.nutrition ? (meal) => openMealPhoto(undefined, meal) : undefined,
               photoMeal: viewer && display.nutrition ? {
                 currentMeal: mealForNow,
+                proteinProducts,
+                defaultProteinProductId: proteinPreference?.enabled ? defaultProteinProductId : undefined,
+                proteinWarehouseStatus: library.loading ? "loading" : library.error ? "error" : "ready",
+                saveProtein: async (submission) => {
+                  const receipt = await saveCoachProtein(submission);
+                  await reloadLibrary();
+                  return receipt;
+                },
+                viewWarehouse: () => { go("settings"); openSetting("proteinWarehouse"); },
                 save: async (submission) => {
                   const meal = await saveCoachMeal(submission);
                   void reloadLibrary();
@@ -1021,7 +1039,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     </Dialog>}
     {overlay?.kind === "log" && (overlay.log.owner === me.id || (overlay.log.owner === partnerWithDetails?.id &&
       logs.some(({ owner, id }) => owner === partnerWithDetails.id && id === overlay.log.id))) && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today} trackProtein={trackProtein}
-      proteinProducts={proteinProducts}
+      proteinProducts={proteinProducts} defaultProteinProductId={defaultProteinProductId}
       sex={(overlay.log.owner === me.id ? me.anatomyVariant : partnerWithDetails?.anatomyVariant) ?? null}
       share={viewer && overlay.log.owner === me.id ? { name: me.name, owner: me.id, logs } : undefined}
       pendingSync={pendingLog}

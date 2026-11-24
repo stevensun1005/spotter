@@ -10,14 +10,18 @@ export type CoachMealSubmission = {
   draft: MealPhotoDraft;
 };
 
-export async function saveCoachMeal({ owner, id, date, meal, draft }: CoachMealSubmission): Promise<MealEntry> {
+export function estimatedCoachMeal(meal: MealEntry["meal"], draft: MealPhotoDraft): MealEntry {
   const parsed = mealPhotoDraftSchema.safeParse(draft);
   if (!parsed.success) throw new Error("请核对食物名称、份量和营养数值。");
   const { name, grams, calories, protein, carbs, fat } = parsed.data;
   if (grams === undefined || protein + carbs + fat > grams + 3 || calories > grams * 10) {
     throw new Error("请核对食物份量和营养数值。");
   }
-  const entry: MealEntry = { type: "meal", meal, name: name.slice(0, 96) + "（估算）", grams, calories, protein, carbs, fat };
+  return { type: "meal", meal, name: name.slice(0, 96) + "（估算）", grams, calories, protein, carbs, fat };
+}
+
+export async function saveCoachMeal({ owner, id, date, meal, draft }: CoachMealSubmission): Promise<MealEntry> {
+  const entry = estimatedCoachMeal(meal, draft);
   const mutation = libraryMutation.safeParse({
     action: "save", data: { kind: "nutrition", id, date, entry }, revision: null, expectedOwner: owner,
   });

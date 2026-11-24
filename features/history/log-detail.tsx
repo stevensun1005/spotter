@@ -21,10 +21,12 @@ import { ProteinCheck, ProteinProductSummary } from "@/features/training/protein
 import type { ProteinProduct } from "@/features/training/protein";
 import type { TrainingEntry } from "@/shared/state";
 
-export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share, trackProtein, proteinProducts, pendingSync, sex }: {
+export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share, trackProtein,
+  proteinProducts, defaultProteinProductId, pendingSync, sex }: {
   log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus; onTemplate?: () => void;
   today?: string; onEdit?: (next: Session) => Promise<void>; trackProtein?: boolean; pendingSync?: boolean;
   proteinProducts?: readonly ProteinProduct[];
+  defaultProteinProductId?: string;
   share?: { name: string; owner: string; logs: TrainingEntry[] };
   sex?: AnatomyVariant | null;
 }) {
@@ -60,6 +62,7 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
       </header>
       {own && (trackProtein && onEdit && !pendingSync
         ? <ProteinCheck checked={log.data.proteinShake === true} product={log.data.proteinProduct} products={proteinProducts}
+          defaultProteinProductId={defaultProteinProductId}
           save={(proteinShake, proteinProduct) => onEdit({ ...log.data, proteinShake, proteinProduct })} />
         : log.data.proteinShake && log.data.proteinProduct && <ProteinProductSummary product={log.data.proteinProduct} />)}
       {log.data.note && <p className="note">{log.data.note}</p>}

@@ -8,8 +8,11 @@ import { errorText } from "@/shared/client";
 import type { PlannedWorkout } from "@/features/plans/model";
 import type { MealEntry } from "@/features/library/model";
 import type { CoachMealSubmission } from "@/features/nutrition/coach-meal-save";
+import type { CoachProteinReceipt, CoachProteinSubmission } from "@/features/nutrition/coach-protein-save";
 import { maxPhotoNoteLength } from "@/features/nutrition/food-photo-request";
-import { recognizeMealPhoto, validatePhotoFile } from "@/features/nutrition/food-photo-client";
+import { recognizeMealPhoto, recognizeProteinPhoto, validatePhotoFile } from "@/features/nutrition/food-photo-client";
+import type { ProteinPhotoProduct } from "@/features/nutrition/food-photo-model";
+import type { ProteinProduct } from "@/features/training/protein";
 import type { ActivitySummary } from "./activity-summary";
 import { ChatTrainingDraft } from "./chat-draft";
 import { CoachReplyCard, type CoachReplyKind } from "./reply-card";
@@ -18,6 +21,8 @@ import { asksToReviseDraft, draftWindowFor, type DraftWindow } from "./plan-conv
 import { weightDialogue, type PendingWeight } from "./weight-dialogue";
 import { useAnthropicSharing } from "./sharing-consent";
 import { CoachPhotoAttachment, CoachPhotoPickers } from "./coach-photo-attachment";
+import { asksProteinWarehouseStatus, confirmsSameProteinProduct, parseProteinPhotoIntent } from "./protein-photo-intent";
+import { addMilkToPowderEstimate, combineProteinLabels, estimatedPowderPer100g, multiplyProteinDrink, prepareProteinPhoto, type ProteinRecipe } from "./protein-photo-workflow";
 import { coachModel, maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
   type CoachConfig, type CoachRequest, type CoachResponse } from "./model";
 
@@ -27,7 +32,12 @@ export type CoachActions = {
   photoMeal?: {
     currentMeal: () => MealEntry["meal"];
     save: (submission: CoachMealSubmission) => Promise<MealEntry>;
+    saveProtein: (submission: CoachProteinSubmission) => Promise<CoachProteinReceipt>;
+    proteinProducts: readonly ProteinProduct[];
+    defaultProteinProductId?: string;
+    proteinWarehouseStatus: "ready" | "loading" | "error";
     view: (date: string) => void;
+    viewWarehouse: () => void;
   };
   trainingStats?: (message: string, date: string) => ActivitySummary | string | undefined;
   saveWeight?: (record: WeightRecord) => Promise<void>;
@@ -47,6 +57,8 @@ type Turn = {
   weight?: WeightRecord;
   unsavedMeal?: CoachMealSubmission;
   savedMealDate?: string;
+  proteinFollowup?: "scoop" | "nutrition";
+  openWarehouse?: boolean;
   window?: DraftWindow;
   items?: (PlannedWorkout & { todayId: string })[];
   saved?: boolean;
@@ -57,7 +69,8 @@ type Turn = {
 };
 type Availability = CoachConfig | { error: string };
 type BeginCoachRequest = () => { receive: (result: CoachResponse) => void; showError: (message: string) => void };
-type PhotoAttachment = { id: string; file: File; date: string; meal: MealEntry["meal"]; notes: string };
+type PhotoAttachment = { id: string; file: File; date: string; meal: MealEntry["meal"]; mealChosen?: boolean; notes: string };
+type ProteinFlow = ProteinRecipe & { date: string; reference?: File; candidate?: ProteinPhotoProduct; retry?: CoachProteinSubmission };
 
 const endpoint = "/api/ai-coach";
 const planRequest = "帮我制定训练计划";
@@ -128,6 +141,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   const [revisionTarget, setRevisionTarget] = useState<string>();
   const [weightPrompt, setWeightPrompt] = useState<PendingWeight>();
   const [photo, setPhoto] = useState<PhotoAttachment>();
+  const [protein, setProtein] = useState<ProteinFlow>();
+  const lastProtein = useRef<{ flow: ProteinFlow; saved: ProteinProduct; receipt: CoachProteinReceipt }>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const requestedMeal = useRef<MealEntry["meal"] | undefined>(undefined);
   const request = useRef<AbortController>(null);
@@ -145,7 +160,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   const available = !!owner && availability && "enabled" in availability && availability.enabled;
   const chatDate = includePlans ? contextDate ?? selectedDate : selectedDate;
   const lastTurn = turns.at(-1);
-  const showSuggestions = Boolean(compact && !waiting && !lastTurn && !mealPhoto && !photo && !optionsOpen);
+  const showSuggestions = Boolean(compact && !waiting && !lastTurn && !mealPhoto && !photo && !protein && !optionsOpen);
 
   useEffect(() => {
     if (!active || !owner) return;
@@ -195,6 +210,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     setTurns([]);
     setInput("");
     setPhoto(undefined);
+    setProtein(undefined);
+    lastProtein.current = null;
     requestedMeal.current = undefined;
     setError("");
     setRevisionTarget(undefined);
@@ -244,8 +261,18 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
 
   function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const question = input.trim();
+    if (asksProteinWarehouseStatus(question)) {
+      answerWarehouseStatus(question);
+      return;
+    }
+    if (protein) {
+      replyToProtein(question);
+      return;
+    }
+    if (photo && replyToProtein(question)) return;
+    if (!photo && addLastProteinToWarehouse(question)) return;
     if (photo) {
-      const question = input.trim();
       const notes = [photo.notes, question].filter(Boolean).join("\n");
       if (!owner || !available || !actions?.photoMeal || waiting) return;
       if (notes.length > maxPhotoNoteLength) {
@@ -258,15 +285,180 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     submitQuestion(input);
   }
 
+  function answerWarehouseStatus(question: string) {
+    if (waiting) return;
+    const config = actions?.photoMeal;
+    const recent = lastProtein.current;
+    const product = recent && config?.proteinProducts.find(({ id, name }) => id === recent.saved.id || name === recent.saved.name);
+    const confirmed = config?.proteinWarehouseStatus === "ready" ? product : recent?.receipt.warehouse;
+    const names = config?.proteinProducts.slice(0, 4).map(({ name }) => `「${name}」`).join("、");
+    const preferred = config?.proteinProducts.find(({ id }) => id === config.defaultProteinProductId)?.name
+      ?? (config?.proteinWarehouseStatus !== "ready" && recent?.receipt.defaultProductId ? recent.saved.name : undefined);
+    const summary = confirmed && recent ? `「${product?.name ?? recent.saved.name}」已在蛋白粉仓库。`
+      : recent && config?.proteinWarehouseStatus === "ready" ? `最近这杯「${recent.saved.name}」还没进仓库。你可以说「只加入仓库并设为训练后默认」。`
+      : names ? `仓库里有 ${names}。`
+      : config?.proteinWarehouseStatus === "ready" ? "你的蛋白粉仓库现在是空的。"
+      : "目前还没读到仓库。等同步后，你可以再问一次。";
+    setInput("");
+    addTurn("local", question, { replyKind: "meal", localReply: summary + (preferred ? `训练后默认用「${preferred}」。` : ""),
+      openWarehouse: Boolean(config) });
+  }
+
+  function addLastProteinToWarehouse(question: string) {
+    const recent = lastProtein.current;
+    if (!recent || !owner || waiting || !actions?.photoMeal) return false;
+    const intent = parseProteinPhotoIntent(question, recent.flow.date, {
+      ...recent.flow.intent, warehouse: false, logRequested: false, servings: [],
+    });
+    if (!intent?.warehouse || intent.logRequested) return false;
+    const product = recent.saved;
+    void recordProtein({ ...recent.flow, intent, retry: { owner, product, addToWarehouse: true, records: [] } }, question, owner);
+    return true;
+  }
+
+  function replyToProtein(question: string) {
+    const date = protein?.date ?? photo?.date;
+    if (!date || !owner || !actions?.photoMeal || request.current || writing.current) return false;
+    if (protein && /^(?:取消|取消本次|不用记了|先不记了|算了)[。！!]?$/.test(question)) {
+      setProtein(undefined);
+      setPhoto(undefined);
+      setInput("");
+      addTurn("local", question, { replyKind: "meal", localReply: "已取消这次蛋白粉记录。" });
+      return true;
+    }
+    const intent = parseProteinPhotoIntent(question, date, protein?.intent);
+    const needsProteinFlow = intent && (intent.warehouse || intent.logRequested &&
+      (!intent.servings.length || intent.servings.some((item) => item.date !== date)));
+    if (!protein && !needsProteinFlow) return false;
+    if (!intent || !protein && !photo) return false;
+    const flow: ProteinFlow = protein ? { ...protein, intent } : {
+      id: crypto.randomUUID(), date, meal: photo?.mealChosen ? photo.meal : "加餐", intent,
+    };
+    if (flow.candidate && confirmsSameProteinProduct(question)) {
+      flow.product = combineProteinLabels(flow.product, flow.candidate, true);
+      flow.candidate = undefined;
+    }
+    if (photo?.mealChosen && !flow.retry) flow.meal = photo.meal;
+    if (photo || intent.nutritionEstimated && flow.reference && !flow.retry) {
+      if (!available) { setError(status); return true; }
+      withConsent(() => { void recordProtein(flow, question, owner, photo); });
+    } else {
+      void recordProtein(flow, question, owner);
+    }
+    return true;
+  }
+
+  async function recordProtein(initial: ProteinFlow, question: string, expectedOwner: string, attachment?: PhotoAttachment) {
+    const photoMeal = actions?.photoMeal;
+    if (!photoMeal || request.current || writing.current) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setWaiting(true);
+    setInput("");
+    setError("");
+    let flow = initial;
+    setProtein(flow);
+    const turnId = addTurn("local", attachment && question ? "照片 · " + question : question,
+      { replyKind: "loading", localReply: attachment ? "正在读蛋白粉包装…" : "正在核对这次记录…" });
+    try {
+      if (attachment && !flow.retry) {
+        const result = await recognizeProteinPhoto(attachment.file, expectedOwner, controller.signal);
+        if (controller.signal.aborted) return;
+        setPhoto(undefined);
+        if (result.kind === "product") {
+          let product: ProteinPhotoProduct;
+          try {
+            product = combineProteinLabels(flow.product, result.product);
+          } catch (reason) {
+            setProtein({ ...flow, candidate: result.product });
+            updateTurn(turnId, { replyKind: "meal", localReply: errorText(reason) });
+            return;
+          }
+          flow = { ...flow, reference: flow.reference ?? attachment.file, product, candidate: undefined };
+          setProtein(flow);
+        } else {
+          updateTurn(turnId, { replyKind: "meal", localReply: result.needs.join("\n") });
+          return;
+        }
+      }
+      if (!flow.retry) {
+        if (flow.candidate) {
+          updateTurn(turnId, { replyKind: "meal", localReply: "背标我已保留。如果确实是同一款，点「确认是同一款」继续。" });
+          return;
+        }
+        const prepared = prepareProteinPhoto(flow, photoMeal.proteinProducts);
+        let warehouseProduct = prepared.warehouseProduct;
+        let draft = "draft" in prepared ? prepared.draft : undefined;
+        if (prepared.question) {
+          const estimate = "estimate" in prepared ? prepared.estimate : undefined;
+          if (!estimate || !flow.intent.nutritionEstimated || !flow.reference) {
+            const { scoopsPerCup, milkMl, milkFatPercent, servings } = flow.intent;
+            const known = [
+              scoopsPerCup && milkMl ? `每杯 ${scoopsPerCup} 勺，加 ${milkMl} mL${milkFatPercent === undefined ? "" : " " + milkFatPercent + "%"} 牛奶` : "",
+              ...servings.map(({ date, cups }) => date + (cups ? ` ${cups} 杯` : "")),
+            ].filter(Boolean).join(" · ");
+            updateTurn(turnId, { replyKind: "meal", localReply: (known ? `已记住 ${known}。\n` : "") + prepared.question,
+              proteinFollowup: estimate && flow.reference ? "nutrition" : prepared.question.startsWith("内置") ? "scoop" : undefined });
+            return;
+          }
+          const notes = `只按该类型蛋白粉的通用参考值估算 ${estimate.powderGrams} 克的总营养。这部分只有蛋白粉，牛奶另外算。使用通用估算，不要当成品牌营养表。`;
+          const result = await recognizeMealPhoto(flow.reference, notes, expectedOwner, controller.signal);
+          if (controller.signal.aborted) return;
+          draft = result.kind === "draft" ? addMilkToPowderEstimate(result.draft, estimate) : undefined;
+          const powder = result.kind === "draft" ? estimatedPowderPer100g(result.draft, estimate.powderGrams) : undefined;
+          if (!draft || !powder || !warehouseProduct) {
+            updateTurn(turnId, { replyKind: "meal", localReply: "现在还算不出这杯的营养。请补拍背面的营养表。" });
+            return;
+          }
+          warehouseProduct = { ...warehouseProduct, powder, powderEstimated: true };
+        }
+        if (!warehouseProduct || !prepared.servings || prepared.servings.length && !draft) {
+          throw new Error("还缺少这杯的份量或营养，暂未记入。");
+        }
+        const submission: CoachProteinSubmission = {
+          owner: expectedOwner, product: warehouseProduct, addToWarehouse: flow.intent.warehouse,
+          records: prepared.servings.map(({ date, cups }) =>
+            ({ id: crypto.randomUUID(), date, meal: flow.meal, draft: draft && multiplyProteinDrink(draft, cups) })),
+        };
+        flow = { ...flow, retry: submission };
+        setProtein(flow);
+      }
+      const submission = flow.retry;
+      if (!submission) return;
+      const receipt = await photoMeal.saveProtein(submission);
+      if (controller.signal.aborted) return;
+      lastProtein.current = { flow: { ...flow, reference: undefined, candidate: undefined, retry: undefined }, saved: submission.product, receipt };
+      const confirmed = submission.records.map(({ date }) => date).join("、");
+      const warehouse = receipt.warehouse === "added" ? `已把「${submission.product.name}」加到蛋白粉仓库。`
+        : receipt.warehouse === "existing" ? `「${submission.product.name}」已在蛋白粉仓库。` : "";
+      const diary = receipt.recorded ? `已记入 ${confirmed} 的${submission.records[0].meal}。` : "";
+      const workout = receipt.defaultProductId ? "训练结束勾选「已喝蛋白粉」，会按仓库配方记入饮食。" : "";
+      updateTurn(turnId, { replyKind: "saved", localReply: [warehouse, diary, workout].filter(Boolean).join("\n"),
+        savedMealDate: submission.records.at(-1)?.date, openWarehouse: Boolean(receipt.warehouse) });
+      setProtein(undefined);
+      setPhoto(undefined);
+    } catch (reason) {
+      if (!controller.signal.aborted) updateTurn(turnId, {
+        localReply: undefined, error: errorText(reason, "这次蛋白粉记录暂未完成，请重试。"),
+      });
+    } finally {
+      if (request.current === controller) {
+        request.current = null;
+        if (!controller.signal.aborted) setWaiting(false);
+      }
+    }
+  }
+
   function attachPhoto(file: File) {
     const photoMeal = actions?.photoMeal;
     if (!photoMeal || waiting) return;
-    const meal = requestedMeal.current ?? photoMeal.currentMeal();
+    const choice = requestedMeal.current;
+    const meal = choice ?? protein?.meal ?? photoMeal.currentMeal();
     requestedMeal.current = undefined;
     try {
       validatePhotoFile(file);
       setPhoto((previous) => previous ? { ...previous, file }
-        : { id: crypto.randomUUID(), file, date: asDate(), meal, notes: "" });
+        : { id: crypto.randomUUID(), file, date: asDate(), meal, mealChosen: choice !== undefined, notes: "" });
       setError("");
       setOptionsOpen(false);
       onExpand?.();
@@ -500,6 +692,16 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
                   onClick={actions.startWorkout}><Dumbbell size={16} aria-hidden="true" />选择训练</button>}
                 {savedMealDate && actions?.photoMeal && <button className="button outline small coach-reply-action" type="button"
                   onClick={() => actions.photoMeal?.view(savedMealDate)}>查看饮食记录</button>}
+                {turn.openWarehouse && actions?.photoMeal && <button className="button outline small coach-reply-action" type="button"
+                  onClick={actions.photoMeal.viewWarehouse}>打开蛋白粉仓库</button>}
+                {protein?.candidate && id === lastTurn?.id && <button className="button primary small coach-reply-action"
+                  type="button" disabled={waiting} onClick={() => replyToProtein("确认是同一款")}>确认是同一款</button>}
+                {protein && id === lastTurn?.id && turn.proteinFollowup && <button className="button outline small coach-reply-action"
+                  type="button" disabled={waiting} onClick={() => replyToProtein(turn.proteinFollowup === "scoop" ? "按 30 克估" : "先按估算记")}>
+                  {turn.proteinFollowup === "scoop" ? "按 30 g 估" : "采用估算营养"}
+                </button>}
+                {protein && id === lastTurn?.id && turn.proteinFollowup && <button className="button outline small coach-reply-action"
+                  type="button" disabled={waiting || !available} onClick={() => cameraInput.current?.click()}>拍营养表</button>}
                 {draft && actions?.saveDraft && <ChatTrainingDraft draft={draft} today={today} saved={Boolean(turn.saved)} busy={waiting}
                   addedToday={turn.addedToday} error={turn.saveError} superseded={turn.superseded}
                   onSave={() => void saveDraft(turn)} onAddToday={(index) => void saveDraft(turn, index)}
@@ -510,6 +712,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
                   type="button" disabled={waiting} onClick={() => { if (turn.weight) void recordWeight(id, turn.weight); }}>重试保存</button>}
                 {turn.unsavedMeal && <button className="button primary small coach-reply-action" type="button" disabled={waiting}
                   onClick={() => { if (turn.unsavedMeal) void savePhotoMeal(id, turn.unsavedMeal); }}>添加到{turn.unsavedMeal.meal}</button>}
+                {protein?.retry && id === lastTurn?.id && <button className="button primary small coach-reply-action"
+                  type="button" disabled={waiting} onClick={() => replyToProtein("重试保存")}>重试保存</button>}
               </CoachReplyCard>}
               {kind !== "local" && !response && !turn.error && <CoachReplyCard kind="loading" reply="教练正在回复" />}
             </li>;
@@ -530,12 +734,12 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       <div className="coach-quick-actions">
         {actions?.photoMeal && <CoachPhotoPickers cameraInput={cameraInput} disabled={waiting || !available}
           onPick={() => { requestedMeal.current = undefined; }} onFile={attachPhoto} />}
-        {available && !photo && !revisionTarget && <button className="coach-quick-button" type="button" disabled={waiting} aria-expanded={optionsOpen}
+        {available && !photo && !protein && !revisionTarget && <button className="coach-quick-button" type="button" disabled={waiting} aria-expanded={optionsOpen}
           aria-controls="coach-context" onClick={() => setOptionsOpen(!optionsOpen)}>
           <SlidersHorizontal size={15} aria-hidden="true" />{includePlans ? "已附上训练安排" : "对话选项"}
         </button>}
       </div>
-      {optionsOpen && available && !photo && !revisionTarget && <div className="coach-context-options form-fields" id="coach-context">
+      {optionsOpen && available && !photo && !protein && !revisionTarget && <div className="coach-context-options form-fields" id="coach-context">
         <label className="toggle-label"><input type="checkbox" checked={includePlans} disabled={waiting}
           onChange={(event) => setIncludePlans(event.target.checked)} />附上个人训练安排</label>
         {includePlans && <div className="coach-context-fields">
@@ -549,14 +753,18 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       {revisionTarget && <div className="coach-revision-note">
         <span>正在调整选中的训练草稿</span><button type="button" className="text-button" disabled={waiting} onClick={() => setRevisionTarget(undefined)}>取消</button>
       </div>}
+      {protein && <div className="coach-revision-note">
+        <span>正在补充蛋白粉记录</span><button type="button" className="text-button" disabled={waiting}
+          onClick={() => replyToProtein("取消本次")}>取消本次</button>
+      </div>}
       {photo && <CoachPhotoAttachment file={photo.file} meal={photo.meal} active={active} disabled={waiting}
-        onMeal={(meal) => setPhoto({ ...photo, meal })} onRemove={() => { setPhoto(undefined); setError(""); }}
+        onMeal={(meal) => setPhoto({ ...photo, meal, mealChosen: true })} onRemove={() => { setPhoto(undefined); setError(""); }}
         onDictate={(text) => setInput((current) => [current.trim(), text].filter(Boolean).join(" ").slice(0, maxPhotoNoteLength))}
         onFocus={() => composer.current?.focus()} />}
       <form className="coach-composer-field" onSubmit={send} aria-busy={waiting}>
         <label className="sr-only" htmlFor="coach-chat-input">给 AI 教练发消息</label>
         <textarea id="coach-chat-input" rows={1} ref={composer} maxLength={photo ? maxPhotoNoteLength : maxCoachMessageLength} value={input} disabled={waiting}
-          aria-describedby="coach-composer-notice" placeholder={photo ? photo.notes ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
+          aria-describedby="coach-composer-notice" placeholder={protein ? "继续补充这杯的资料…" : photo ? photo.notes ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
             : weightPrompt ? "例如 80.5 kg" : revisionTarget ? "想怎么调整这份草稿？" : "问问 Spotter 教练…"}
           onChange={(event) => { setInput(event.target.value); setError(""); }}
           onKeyDown={(event) => {

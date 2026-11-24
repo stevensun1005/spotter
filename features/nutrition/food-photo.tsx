@@ -4,26 +4,32 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Camera, ImageUp, WandSparkles } from "lucide-react";
 import { useAnthropicSharing } from "@/features/ai-coach/sharing-consent";
 import { errorText } from "@/shared/client";
-import { fetchFoodPhotoConfiguration, photoRetryMessage, recognizeLabelPhoto, recognizeMealPhoto, validatePhotoFile } from "./food-photo-client";
-import type { FoodPhotoDraft, MealPhotoDraft } from "./food-photo-model";
+import { fetchFoodPhotoConfiguration, photoRetryMessage, recognizeLabelPhoto, recognizeMealPhoto, recognizeProteinPhoto,
+  validatePhotoFile } from "./food-photo-client";
+import type { FoodPhotoDraft, MealPhotoDraft, ProteinPhotoProduct } from "./food-photo-model";
 import { maxPhotoNoteLength } from "./food-photo-request";
 
 const unavailable = "这个账号暂未启用站内 AI 识别，可以直接手动记录。";
 
 type FoodPhotoProps = {
   owner: string;
-  onApply: (draft: FoodPhotoDraft) => void;
   onBack?: () => void;
   onManual?: () => void;
+} & ({
+  onApply: (draft: FoodPhotoDraft) => void;
   onMeal?: (draft: MealPhotoDraft) => void;
-  destination?: "protein";
-};
+  onProtein?: never;
+} | {
+  onApply?: never;
+  onMeal?: never;
+  onProtein: (product: ProteinPhotoProduct) => void;
+});
 
 export function FoodPhoto(props: FoodPhotoProps) {
   return <FoodPhotoForm key={props.owner} {...props} />;
 }
 
-function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, destination }: FoodPhotoProps) {
+function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: FoodPhotoProps) {
   const [photo, setPhoto] = useState<string>();
   const [ready, setReady] = useState(false);
   const [notes, setNotes] = useState("");
@@ -82,6 +88,10 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, destination }
         const result = await recognizeMealPhoto(picture, notes, owner, controller.signal);
         if (result.kind === "needs") setNeeds(result.needs);
         else onMeal(result.draft);
+      } else if (onProtein) {
+        const result = await recognizeProteinPhoto(picture, owner, controller.signal);
+        if (result.kind === "needs") setNeeds(result.needs);
+        else onProtein(result.product);
       } else {
         const result = await recognizeLabelPhoto(picture, notes, owner, controller.signal);
         if (result.kind === "needs") setNeeds(result.needs);
@@ -117,28 +127,29 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, destination }
   return <div className="form-fields">
     {onBack && <button className="text-button food-back" type="button" onClick={onBack}><ArrowLeft size={17} aria-hidden="true" /> 返回食物库</button>}
     <p className="muted">{onMeal ? "拍下整份餐食。站内 AI 会估算食物、份量和营养，核对后即可保存。"
-      : destination === "protein" ? "拍清楚蛋白粉品名和营养表。站内 AI 会填入名称和每 100 克的营养，方便核对后保存。"
+      : onProtein ? "可先拍包装正面读取品名，也可拍背面的营养表和每勺重量。"
       : "拍清楚包装品名和营养表。站内 AI 会读取每 100 克的营养，核对后可存入食物库。"}</p>
     {!configuration && <p role="status" className="muted">正在检查站内 AI…</p>}
     {configuration?.enabled ? <>
       {!needs.length && pickers}
       {photo && <img key={photo} className="food-photo-preview" ref={preview} src={photo} alt={onMeal ? "待识别的餐食照片" : "待识别的包装照片"}
         onLoad={() => setReady(true)} onError={() => { setReady(false); setError("这张照片无法读取，可以重拍或选择另一张。"); }} />}
-      {(onMeal || needs.length > 0) && <label>{onMeal ? "补充份量（选填）" : "补充包装信息（选填）"}
+      {!onProtein && (onMeal || needs.length > 0) && <label>{onMeal ? "补充份量（选填）" : "补充包装信息（选填）"}
         <textarea rows={2} maxLength={maxPhotoNoteLength} disabled={busy} value={notes}
           placeholder={onMeal ? "如米饭约 150 克，吃了照片里的半份" : "如每份 30 克"}
           onChange={(event) => setNotes(event.currentTarget.value)} />
       </label>}
       {needs.length > 0 && <>
         <div className="muted" role="status">
-          <strong>{destination === "protein" ? "从这张照片还读不到完整营养表" : "还需补充信息或重拍"}</strong>
+          <strong>{onProtein ? "请换一张更清楚的包装照片，或直接填写" : "还需补充信息或重拍"}</strong>
           <ul>{needs.map((item, index) => <li key={index}>{item}</li>)}</ul>
         </div>
         {pickers}
       </>}
       {busy && <p className="sr-only" role="status">正在识别照片。</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <p className="muted">点击识别后，AI 教练使用的 Claude 服务只会收到这张照片和你填写的备注。</p>
+      <p className="muted">{onProtein ? "点击识别后，Claude 只会收到这张包装照片。"
+        : "点击识别后，AI 教练使用的 Claude 服务只会收到这张照片和你填写的备注。"}</p>
       <div className="food-alternatives">
         <button className="button primary" type="button" disabled={!ready || busy} onClick={recognize}>
           <WandSparkles size={17} aria-hidden="true" /> {busy ? "正在识别…" : needs.length ? "重新识别" : "识别照片"}

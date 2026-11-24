@@ -50,10 +50,26 @@
 }
 
 .product strong {
+  min-width: 0;
   display: block;
   padding-block: 1px 5px;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.productTitle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 8px;
+}
+
+.defaultBadge {
+  padding: 2px 7px;
+  border-radius: 8px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--lime) 32%, var(--card));
+  font-size: .74rem;
 }
 
 .icon {
@@ -150,10 +166,6 @@
   border-block-start: 1px solid var(--stroke);
 }
 
-.photoFallback :global(.button.small) {
-  min-height: 44px;
-}
-
 .group {
   display: grid;
   gap: 8px;
@@ -223,6 +235,15 @@
   gap: 8px;
 }
 
+.commitActions {
+  display: grid;
+  gap: 7px;
+}
+
+.commitActions :global(.inline-error) {
+  font-size: .86rem;
+}
+
 @media (max-width: 700px) {
   .commitActions {
     position: sticky;
@@ -231,6 +252,10 @@
     padding-block: 8px 3px;
     border-block-start: 1px solid var(--stroke);
     background: var(--card);
+  }
+
+  .commitActions :global(.button.primary) {
+    flex: 1 0 8rem;
   }
 }
 

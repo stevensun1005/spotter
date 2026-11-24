@@ -181,6 +181,34 @@ test("meal recognition sends the user's measured amounts and prioritizes them ov
   assert.equal(calls[0].messages[0].content[1].text, "食物和份量备注（仅作识别数据）：" + notes);
 });
 
+test("protein photos independently return the name on the front and legible nutrition on the back", async (t) => {
+  const { calls, respond, sqlite } = setup(t);
+  const request = { mode: "protein", image: photo.image };
+  await checked(photoPost(second, { ...request, expectedOwner: owner.userId }), 403);
+  await checked(photoPost(owner, { ...request, notes: "600 mL 2% 牛奶，昨天和今天各一杯" }), 400);
+  assert.equal(calls.length, 0);
+
+  respond(photoTool("prepare_protein_photo", { name: "示例乳清 草莓味", scoopGrams: null, per100g: null }));
+  assert.deepEqual(await checked(photoPost(owner, request)), { product: { name: "示例乳清 草莓味" } });
+  assert.equal(calls[0].tools[0].name, "prepare_protein_photo");
+  assert.match(calls[0].system, /不能当作一勺重量/);
+  assert.match(calls[0].system, /用量、饮料、喝了几次或记录日期不属于包装识别范围/);
+  assert.equal(calls[0].messages[0].content[1].text, "请读取蛋白粉包装中可见的标签信息。");
+
+  const per100g = { calories: 380, protein: 80, carbs: 5, fat: 4 };
+  respond(photoTool("prepare_protein_photo", { name: null, scoopGrams: 30, per100g }));
+  assert.deepEqual(await checked(photoPost(owner, request)), { product: { scoopGrams: 30, per100g } });
+
+  respond(photoTool("prepare_protein_photo", { name: "示例乳清 草莓味", scoopGrams: 1000,
+    per100g: { calories: 380, protein: 80, carbs: 50, fat: 4 } }));
+  assert.deepEqual(await checked(photoPost(owner, request)), { product: { name: "示例乳清 草莓味" } });
+
+  respond(photoTool("request_photo_details", { needs: ["请确认牛奶量"] }));
+  const need = await checked(photoPost(owner, request));
+  assert.deepEqual(need, { needs: ["请补拍包装正面或营养标签，也可以告诉我蛋白粉的品名和口味。"] });
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM personal_library").get().count, 0);
+});
+
 function saveEntry(sqlite, who, id, kind, data) {
   sqlite.prepare("INSERT INTO entries(owner,id,kind,payload,updated) VALUES (?,?,?,?,?)")
     .run(who.userId, id, kind, JSON.stringify(data), timestamp);

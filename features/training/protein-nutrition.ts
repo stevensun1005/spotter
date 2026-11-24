@@ -1,12 +1,13 @@
 import type { LibraryItem } from "@/features/library/model";
 import type { Session } from "./model";
-import { proteinServingNutrition, type ProteinProduct } from "./protein";
+import { proteinServingGrams, proteinServingNutrition, type ProteinProduct } from "./protein";
 
 export function proteinMeal(product: ProteinProduct, date: string, id: string): Extract<LibraryItem, { kind: "nutrition" }> | undefined {
   const nutrients = proteinServingNutrition(product);
   if (!nutrients) return;
+  const name = product.powderEstimated || product.scoopEstimated ? product.name.slice(0, 96) + "（估算）" : product.name;
   return { kind: "nutrition", id, date, entry: {
-    type: "meal", meal: "加餐", name: product.name, grams: product.scoopGrams, ...nutrients,
+    type: "meal", meal: "加餐", name, grams: proteinServingGrams(product), ...nutrients,
   } };
 }
 

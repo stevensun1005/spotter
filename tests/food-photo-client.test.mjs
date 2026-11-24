@@ -8,7 +8,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
   return next(specifier, context);
 } });
-const { fetchFoodPhotoConfiguration, recognizeMealPhoto, validatePhotoFile } = await import("../features/nutrition/food-photo-client.ts");
+const { fetchFoodPhotoConfiguration, recognizeMealPhoto, recognizeProteinPhoto, validatePhotoFile } = await import("../features/nutrition/food-photo-client.ts");
 const imageFile = new File(["original pixels plus metadata"], "private-name.jpg", { type: "image/jpeg" });
 
 function mockImageBrowser(t, completeLoad = true) {
@@ -84,4 +84,24 @@ test("photo capability and missing-portion replies remain bound to the requested
   });
   const invalid = new File(["other data"], "document.txt", { type: "text/plain" });
   assert.throws(() => validatePhotoFile(invalid), /请选择 24 MB 以内的图片/);
+});
+
+test("protein photo recognition accepts a front-only name and a later back label without sharing meal details", async (t) => {
+  mockImageBrowser(t);
+  let product = { name: "示例乳清" };
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    assert.equal(url, "/api/food-photo");
+    assert.deepEqual(JSON.parse(options.body), {
+      expectedOwner: "coach-account",
+      mode: "protein",
+      image: { mediaType: "image/jpeg", base64: "/9j/AAAAAAAAAAAA" },
+    });
+    return Response.json({ product });
+  });
+  const controller = new AbortController();
+  assert.deepEqual(await recognizeProteinPhoto(imageFile, "coach-account", controller.signal), { kind: "product", product });
+  product = { scoopGrams: 30 };
+  assert.deepEqual(await recognizeProteinPhoto(imageFile, "coach-account", controller.signal), { kind: "product", product });
+  product = {};
+  await assert.rejects(recognizeProteinPhoto(imageFile, "coach-account", controller.signal), /无法读取蛋白粉包装/);
 });
