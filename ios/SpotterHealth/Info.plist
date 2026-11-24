@@ -22,7 +22,7 @@
     <key>NSCameraUsageDescription</key>
     <string>当你选择拍照记录饮食时，使用相机拍摄本次餐食，供你预览和识别。</string>
     <key>NSHealthShareUsageDescription</key>
-    <string>仅按您选择的类型和日期范围，读取训练心率、体重、系统运动、步数、活跃能量或运动时长，私密同步到您配对的训练搭子账号。</string>
+    <string>按您选择的数据类型和时间范围读取 Apple 健康数据，供您在 App 查看，并把您确认的训练心率或体重同步到当前训练搭子账号。</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>训练搭子通过只读授权同步您选择的 Apple 健康数据，训练记录保存在您的训练搭子账号中。</string>
     <key>NSLocalNetworkUsageDescription</key>
@@ -40,11 +40,11 @@
         <key>version</key>
         <integer>83</integer>
         <key>sourceCommit</key>
-        <string>1f99664b07e4ed75085857b8810daa6c128273c7</string>
+        <string>ccbc6fa12bca9eecc556ca23e36a3560f7fc9e2d</string>
         <key>exportRef</key>
         <string>origin/codex/cloudflare-free</string>
         <key>exportCommit</key>
-        <string>1f99664b07e4ed75085857b8810daa6c128273c7</string>
+        <string>ccbc6fa12bca9eecc556ca23e36a3560f7fc9e2d</string>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>

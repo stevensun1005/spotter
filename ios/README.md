@@ -1,6 +1,6 @@
 # 训练搭子 iPhone App
 
-完整 App 选择 **Spotter** scheme，产品为 `Spotter.app`：主界面复用所选站点的训练业务，Apple 健康继续使用现有原生模块。旧 SpotterHealth scheme 保留为兼容入口。App 打包、最新代码核验和另一台电脑完成后的补齐约定见 [App 说明](../docs/iphone-app.md)。以下说明主要针对健康同步。
+完整 App 选择 **Spotter** scheme，产品为 `Spotter.app`。SwiftUI 界面使用 Cloudflare 账号和 API。旧 SpotterHealth scheme 仍构建同一产品。Cloudflare App 的现有功能和打包流程见 [App 说明](../docs/iphone-app.md)。以下说明针对独立 Node 服务的设备同步协议。
 
 现有 iPhone 应用通过 HealthKit 读取已同步到 iPhone「健康」的 Apple Watch 和第三方来源数据。支持 iOS 16 及以上。默认只选择训练心率，其他类型由用户逐项打开并各自请求读取权限，不向 HealthKit 写入数据。
 

@@ -3,11 +3,6 @@ import Foundation
 @main
 struct AppPolicySmoke {
     static func main() throws {
-        let arguments = CommandLine.arguments
-        if arguments.count == 3, arguments[1] == "--appearance-script" {
-            print(SpotterWebAppearance.liquidGlassScript(trustedOrigin: arguments[2]))
-            return
-        }
         func expect(_ value: @autoclosure () -> Bool, _ description: String) { precondition(value(), description) }
         let app = try AppConfiguration(origin: " https://EXAMPLE.com:443/ ")
         expect(app.origin == "https://example.com", "Canonical HTTPS origin")

@@ -64,7 +64,7 @@ try {
     commit: after.head, branch: after.branch, baselines: after.upstreams,
     sourceFreshness: after.freshness, platform: "iOS Simulator", signedForPhysicalDevice: false,
     webRelease,
-    webDelivery: "Loads the selected HTTPS site's published code; web business modules are not copied into this binary.",
+    webDelivery: "Uses the verified Cloudflare HTTPS API. App views are implemented in SwiftUI.",
     latestScope: "Includes only commits fetched into the declared baselines at packaging time. Other-computer unpublished work must be integrated after the user supplies it.",
   };
   await writeFile(join(root, "outputs", name + ".json"), JSON.stringify(manifest, null, 2) + "\n");
