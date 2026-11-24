@@ -49,8 +49,16 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [picker, setPicker] = useState<number>();
   useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
+    const refresh = () => setNow(Date.now());
+    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    const tick = setInterval(refresh, 1000);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", refresh);
+    return () => {
+      clearInterval(tick);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", refresh);
+    };
   }, []);
   const editedMove = edit?.move;
   const editedRow = edit?.row;

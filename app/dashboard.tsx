@@ -52,7 +52,7 @@ import { useLibrary } from "@/features/library/use-library";
 import { PlanActions } from "@/features/plans/plan-actions";
 import { MovePlan, ScheduleSettings } from "@/features/plans/schedule-view";
 import { blocked, openSchedule, type MovePreview, type Schedule } from "@/features/plans/schedule";
-import { pauseClock, resumeClock } from "@/features/training/clock";
+import { makeWorkoutTabClocks, pauseClock, resumeClock } from "@/features/training/clock";
 import { finalizeCheckin, mergePendingCheckins, type CheckinReceipt, type CheckinUpload, type QueuedCheckin } from "@/features/training/checkin-outbox";
 import { useCheckinOutbox } from "@/features/training/use-checkin-outbox";
 import { refreshDraftPlan } from "@/features/training/refresh-plan";
@@ -179,6 +179,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const queue = useRef(Promise.resolve());
   const refreshId = useRef(0);
   const draftKey = "spotter-drafts:" + (viewer?.id ?? "demo");
+  const liveClocks = useMemo(() => makeWorkoutTabClocks("spotter-workout-clocks:" + (viewer?.id ?? "demo")), [viewer?.id]);
   const [sync, setSync] = useState("正在保存");
 
   useEffect(() => {
@@ -199,7 +200,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const setPending = useCallback((next: Record<string, Session>) => {
     pendingRef.current = next;
     setPendingDrafts(next);
-    try { localStorage.setItem(draftKey, JSON.stringify(next)); } catch { /* Browser storage may be disabled. */ }
+    try {
+      const now = Date.now();
+      const snapshots = Object.fromEntries(Object.entries(next).map(([id, data]) => [id, pauseClock(data, now)]));
+      localStorage.setItem(draftKey, JSON.stringify(snapshots));
+    } catch { /* Browser storage may be disabled. */ }
   }, [draftKey]);
 
   const refresh = useCallback(async () => {
@@ -236,11 +241,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   const flushDraft = useCallback((id: string, data: Session) => {
     if (!viewer) { setSync("本机草稿"); return; }
+    const snapshot = pauseClock(data);
     queue.current = queue.current.then(async () => {
       if (!navigator.onLine || hasQueuedCheckin(id) || deletedDrafts.current.has(id) || pendingRef.current[id] !== data) return;
       setSync("正在保存");
       try {
-        await post({ action: "draft", id, data, expectedOwner: viewer.id });
+        await post({ action: "draft", id, data: snapshot, expectedOwner: viewer.id });
         if (pendingRef.current[id] === data) {
           const next = { ...pendingRef.current };
           delete next[id];
@@ -249,11 +255,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         }
         setState((current) => {
           if (current.entries.some((entry) => entry.id === id && entry.owner === viewer.id && entry.kind === "log")) return current;
-          const entry: Entry = { id, data, owner: viewer.id, kind: "draft", updated: new Date().toISOString() };
+          const entry: Entry = { id, data: snapshot, owner: viewer.id, kind: "draft", updated: new Date().toISOString() };
           return { ...current, entries: [entry, ...current.entries.filter((row) => row.id !== id || row.owner !== viewer.id)] };
         });
       } catch (reason) {
         if ((reason as { status?: number })?.status === 409) {
+          liveClocks.forget(id);
           const next = { ...pendingRef.current };
           delete next[id];
           setPending(next);
@@ -262,7 +269,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         } else setSync("草稿待同步");
       }
     });
-  }, [viewer, setPending, refresh, hasQueuedCheckin]);
+  }, [viewer, setPending, refresh, hasQueuedCheckin, liveClocks]);
 
   useEffect(() => {
     let drafts: Record<string, Session> = {};
@@ -323,9 +330,11 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const visiblePlans = planStatus === "completed"
     ? completedPlans.sort((a, b) => (completionFor(b)?.data.date ?? b.data.date).localeCompare(completionFor(a)?.data.date ?? a.data.date))
     : [...pendingPlans].sort((a, b) => a.data.date.localeCompare(b.data.date));
-  const myDrafts = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "draft" && entry.owner === me.id);
-  const drafts = [...Object.entries(pendingDrafts), ...myDrafts.filter((item) => !pendingDrafts[item.id]).map((item) => [item.id, item.data] as const)]
-    .filter(([id]) => !logs.some((log) => log.owner === me.id && log.id === id));
+  const drafts = useMemo(() => {
+    const ownDrafts = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "draft" && entry.owner === me.id);
+    return [...Object.entries(pendingDrafts), ...ownDrafts.filter((item) => !pendingDrafts[item.id]).map((item) => [item.id, item.data] as const)]
+      .filter(([id]) => !logs.some((log) => log.owner === me.id && log.id === id));
+  }, [entries, logs, me.id, pendingDrafts]);
   const routeDraft = drafts.find(([id]) => id === trainingNav.id);
   const completedWorkout = logs.find((log) => log.owner === me.id && log.id === trainingNav.id);
   const profiles = library.rows.filter((item) => item.kind === "exercise").map(({ item }) => item);
@@ -419,49 +428,56 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const open = (next: Overlay) => { setWarning(""); setOverlay(next); };
   const openScheduleSettings = (restDay?: string) =>
     open({ kind: "schedule", restDay, settings: schedule, revision: scheduleRow?.updated ?? null });
-  const parkWorkout = useCallback((id: string, data: Session) => {
-    const latest = pendingRef.current[id] ?? data;
-    const paused = pauseClock(latest);
-    if (paused !== latest) {
-      setPending({ ...pendingRef.current, [id]: paused });
-      setOverlay((value) => value?.kind === "session" && value.id === id ? { ...value, data: paused } : value);
+  const checkpointWorkouts = useCallback((workouts: ReadonlyMap<string, Session>) => {
+    const next = { ...pendingRef.current };
+    let changed = false;
+    for (const [id, data] of workouts) {
+      if (!liveClocks.has(id)) continue;
+      const live = liveClocks.restore(id, next[id] ?? data);
+      if (live.clock?.runningSince != null) {
+        next[id] = { ...live };
+        changed = true;
+      }
     }
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    if (pendingRef.current[id]) void flushDraft(id, pendingRef.current[id]);
-  }, [setPending, flushDraft]);
+    if (changed) setPending(next);
+    for (const id of workouts.keys()) if (next[id]) void flushDraft(id, next[id]);
+  }, [liveClocks, setPending, flushDraft]);
 
   useEffect(() => {
-    if (overlay?.kind !== "session" || busy) return;
-    const { id, data } = overlay;
-    const park = () => parkWorkout(id, data);
-    const onVisibility = () => { if (document.visibilityState === "hidden") park(); };
+    if (busy) return;
+    const checkpoint = () => {
+      const workouts = new Map(drafts.filter(([id]) => liveClocks.has(id)));
+      if (overlay?.kind === "session") workouts.set(overlay.id, overlay.data);
+      checkpointWorkouts(workouts);
+    };
+    const onVisibility = () => { if (document.visibilityState === "hidden") checkpoint(); };
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", park);
+    window.addEventListener("pagehide", checkpoint);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", park);
+      window.removeEventListener("pagehide", checkpoint);
     };
-  }, [overlay, busy, parkWorkout]);
+  }, [overlay, busy, drafts, liveClocks, checkpointWorkouts]);
 
   const close = useCallback(() => {
     if (busy) return;
-    if (overlay?.kind === "session") parkWorkout(overlay.id, overlay.data);
+    if (overlay?.kind === "session") checkpointWorkouts(new Map([[overlay.id, overlay.data]]));
     setOverlay(null); setWarning("");
-  }, [busy, overlay, parkWorkout]);
+  }, [busy, overlay, checkpointWorkouts]);
 
   const activeSessionId = overlay?.kind === "session" ? overlay.id : null;
 
   useEffect(() => {
     if (trainingNav.id && routeDraft && activeSessionId !== trainingNav.id) {
       const [id, draft] = routeDraft;
-      const data = refreshDraftPlan(draft, plans.find((plan) => plan.id === draft.planId)?.data);
+      const data = liveClocks.restore(id, refreshDraftPlan(draft, plans.find((plan) => plan.id === draft.planId)?.data));
       setWarning("");
       setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
       setOverlay({ kind: "session", id, data });
     } else if (!trainingNav.id && activeSessionId) {
       close();
     }
-  }, [trainingNav.id, routeDraft, activeSessionId, close, demo, pendingDrafts, plans]);
+  }, [trainingNav.id, routeDraft, activeSessionId, close, demo, pendingDrafts, plans, liveClocks]);
 
   async function act(action: () => Promise<void>) {
     if (busy) return;
@@ -538,6 +554,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   }
 
   function upsertLocalDraft(id: string, data: Session) {
+    liveClocks.remember(id, data);
     setPending({ ...pendingRef.current, [id]: data });
     setSync(demo ? "本机草稿" : "草稿待同步");
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -554,7 +571,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     const id = existing?.[0] ?? crypto.randomUUID();
     const data = item
       ? existing
-        ? resumeClock(refreshDraftPlan(existing[1], item.data))
+        ? resumeClock(liveClocks.restore(id, refreshDraftPlan(existing[1], item.data)))
         : seedSessionLoads(startSession({ ...item.data, title: planDisplayTitle(item.data) }, item.id, today), loadHistory)
       : startFreeSession(today, kind);
     if (!existing || data !== existing[1]) upsertLocalDraft(id, data);
@@ -565,7 +582,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   function resumeDraft(id: string, data: Session) {
     const latest = plans.find((plan) => plan.id === data.planId && plan.owner === me.id);
-    const next = resumeClock(refreshDraftPlan(data, latest?.data));
+    const next = resumeClock(liveClocks.restore(id, refreshDraftPlan(data, latest?.data)));
     if (next !== data) upsertLocalDraft(id, next);
     else setSync(demo ? "本机草稿" : pendingDrafts[id] ? "草稿待同步" : "云端已保存");
     open({ kind: "session", id, data: next });
@@ -581,6 +598,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       try {
         if (viewer) await post({ action: "delete", id, kind, revision });
         if (kind === "draft") {
+          liveClocks.forget(id);
           const next = { ...pendingRef.current };
           delete next[id]; setPending(next);
         }
@@ -596,7 +614,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   async function finishSession(id: string, data: Session) {
     await act(async () => {
-      const receipt = finalizeCheckin(pendingRef.current[id] ?? data);
+      const receipt = finalizeCheckin(liveClocks.restore(id, pendingRef.current[id] ?? data));
       if (saveTimer.current) clearTimeout(saveTimer.current);
       let record: QueuedCheckin = { id, owner: me.id, kind: "log", ...receipt };
       let queued = false;
@@ -610,6 +628,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           record = { ...record, ...saved };
         }
       }
+      liveClocks.forget(id);
       const next = { ...pendingRef.current };
       delete next[id];
       setPending(next);
