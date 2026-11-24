@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft, Bell, CalendarDays, ChevronRight, CircleUserRound, ClipboardList, Dumbbell, FolderArchive,
-  Grid2X2, Info, Palette, Plug, Ruler, Search, Sparkles, Speaker, Watch, Wrench, X,
+  Grid2X2, Info, Package, Palette, Plug, Ruler, Search, Sparkles, Speaker, Watch, Wrench, X,
 } from "lucide-react";
 
 const pages = {
   account: { title: "账号", description: "个人资料、云端同步和隐私", keywords: "性别 肌群图 登录 退出 搭子 好友 分享 教练 sync account", icon: CircleUserRound, tone: "slate" },
   workout: { title: "训练", description: "记录方式、默认值和训练画面", keywords: "屏幕常亮 组间休息 动画 蛋白粉 RPE workout", icon: Dumbbell, tone: "green" },
+  proteinWarehouse: { title: "蛋白粉仓库", description: "常喝的蛋白粉、一勺粉量和杯量", keywords: "品牌 补剂 乳清 奶昔 克 毫升 protein powder", icon: Package, tone: "teal" },
   advanced: { title: "微调", description: "训练记录的进阶偏好", keywords: "键盘 自动 完成 收起 跳过 advance collapse", icon: Wrench, tone: "slate" },
   alerts: { title: "计时提醒", description: "休息结束时的提示方式", keywords: "休息 音效 声音 震动 振动 闪屏 rest timer sound vibrate", icon: Speaker, tone: "rose" },
   schedule: { title: "计划与日程", description: "休息日、训练周期和计划导入", keywords: "请假 顺延 时间 周 日期 template plan schedule", icon: CalendarDays, tone: "orange" },
@@ -26,7 +27,7 @@ const pages = {
 } as const;
 export type SettingsPage = keyof typeof pages;
 export const settingsGroups: { title?: string; ids: SettingsPage[] }[] = [
-  { title: "训练", ids: ["workout", "alerts", "schedule", "reminders"] },
+  { title: "训练", ids: ["workout", "proteinWarehouse", "alerts", "schedule", "reminders"] },
   { title: "首选项", ids: ["units", "equipment", "appearance", "modules"] },
   { title: "连接", ids: ["watches", "integrations", "ai"] },
   { ids: ["data", "about"] },

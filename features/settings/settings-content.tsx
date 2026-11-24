@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CalendarDays, ClipboardList, Download, HeartPulse, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
+import { CalendarDays, ClipboardList, Download, HeartPulse, Package, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
 import type { AnatomyVariant } from "@/features/body/profile";
 import type { ChangeDisplay, DisplayPreferences } from "./display-preferences";
 import { DisplaySettings } from "./display-settings";
@@ -11,11 +11,11 @@ import { SettingsLink, SettingsRows, type SettingsPage } from "./settings-hub";
 import { WeightEntrySettings, WorkoutSettings } from "./workout-settings";
 
 export function SettingsContent({ page, open, owner, cloud, sex, sync, pair, sharing, coaching, body,
-  schedule, programs, plans, planImport, latestWorkout, display, changeDisplay, protein, data, agent }: {
+  schedule, programs, plans, planImport, latestWorkout, display, changeDisplay, protein, proteinWarehouse, data, agent }: {
   page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string; cloud: string; sex?: AnatomyVariant;
   sync: () => void; pair: () => void; sharing?: () => void; coaching: () => void; body: () => void;
   schedule: () => void; programs: () => void; plans: () => void; planImport: ReactNode; latestWorkout?: () => void;
-  display: DisplayPreferences; changeDisplay: ChangeDisplay; protein: ReactNode; data: ReactNode; agent: ReactNode;
+  display: DisplayPreferences; changeDisplay: ChangeDisplay; protein: ReactNode; proteinWarehouse: ReactNode; data: ReactNode; agent: ReactNode;
 }) {
   switch (page) {
     case "account": return <>
@@ -36,8 +36,12 @@ export function SettingsContent({ page, open, owner, cloud, sex, sync, pair, sha
     case "workout":
     case "advanced":
     case "alerts": return <WorkoutSettings page={page} navigate={open}>
-      {page === "workout" && protein}
+      {page === "workout" && <>
+        {protein}
+        <SettingsRows><SettingsLink label="蛋白粉仓库" detail="管理训练打卡可选的款式" icon={Package} onClick={() => open("proteinWarehouse")} /></SettingsRows>
+      </>}
     </WorkoutSettings>;
+    case "proteinWarehouse": return proteinWarehouse;
     case "schedule": return <>
       <SettingsRows title="排程">
         {owner && <SettingsLink label="个人计划设置" detail="每周休息日和临时休息日期" onClick={schedule} icon={CalendarDays} />}

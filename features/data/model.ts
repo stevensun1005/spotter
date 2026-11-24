@@ -44,8 +44,13 @@ export function libraryScope(item: LibraryItem): DataScope {
 
 export function scopeBackup(file: Backup, scope: DataScope): Backup {
   if (scope === "all") return file;
+  const library = file.library.filter((item) => libraryScope(item) === scope).map((item) => {
+    if (item.kind !== "nutrition" || !item.sourceWorkoutId) return item;
+    const { sourceWorkoutId: _sourceWorkoutId, ...copy } = item;
+    return copy;
+  });
   return { ...file, training: scope === "training" ? file.training : [],
-    library: file.library.filter((item) => libraryScope(item) === scope), heart: scope === "training" ? file.heart : [] };
+    library, heart: scope === "training" ? file.heart : [] };
 }
 
 export const emptyBackup = (): Backup => ({ format: backingFormat, version: 1, training: [], library: [], heart: [] });

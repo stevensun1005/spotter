@@ -11,6 +11,7 @@ import { resolvePlanTemplate } from "@/features/plans/template-link";
 import { ownTemplateJoin } from "@/features/plans/template-server";
 import { updateLog } from "@/features/history/update-log";
 import { checkinOwnerMatches, checkinProblem } from "@/features/training/checkin-outbox";
+import { syncWorkoutProteinMeal } from "@/features/training/protein-nutrition";
 import { buddyCheckins, friendCurrentDay, friendDateLimited, friendDateVisible } from "@/features/friends/server";
 import { activePair, disconnectPair, joinPair, membership, sendPairCheer, validTimeZone } from "@/features/pair/server";
 import { publicPartnerSession } from "@/features/friends/public-training";
@@ -167,7 +168,10 @@ export const POST = api(async (request) => {
     } else if (body.data.finishedVideo && !body.data.plan.video) {
       return reply({ error: "这次训练没有视频链接。" }, 400);
     }
-    const saved = await save(body.id, body.action, body.data).run();
+    const write = save(body.id, body.action, body.data);
+    const saved = body.action === "log" && body.data.proteinProduct
+      ? (await db.batch([write, syncWorkoutProteinMeal(db, owner, body.id, body.data, now)]))[0]
+      : await write.run();
     if (!saved.meta.changes && body.action === "draft") return reply({ error: "此训练已打卡，草稿不能继续修改。" }, 409);
     if (body.action === "log") {
       if (saved.meta.changes) return reply({ data: body.data, updated: now });

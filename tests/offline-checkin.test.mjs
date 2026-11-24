@@ -64,6 +64,18 @@ function database(t) {
   const sql = new DatabaseSync(":memory:");
   sql.exec("CREATE TABLE entries (owner TEXT, id TEXT, kind TEXT, payload TEXT, updated TEXT, PRIMARY KEY(owner, id))");
   worker.env.DB = {
+    async batch(statements) {
+      sql.exec("BEGIN");
+      try {
+        const outputs = [];
+        for (const statement of statements) outputs.push(await statement.run());
+        sql.exec("COMMIT");
+        return outputs;
+      } catch (reason) {
+        sql.exec("ROLLBACK");
+        throw reason;
+      }
+    },
     prepare(query) {
       const statement = sql.prepare(query);
       let values = [];
@@ -84,6 +96,48 @@ function request(body) {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
 }
+
+test("checked protein serving syncs one snack, including the mixer, through retries and workout edits", async (t) => {
+  const { withoutProteinShake, proteinProductSchema } = await import("../features/training/protein.ts");
+  const { publicPartnerSession } = await import("../features/friends/public-training.ts");
+  const sql = database(t);
+  sql.exec("CREATE TABLE personal_library (owner TEXT, kind TEXT, id TEXT, day TEXT, payload TEXT, updated TEXT, PRIMARY KEY(owner, kind, id))");
+  worker.owner = owner;
+  const product = proteinProductSchema.parse({
+    id: secondId, name: "合成试验乳清", scoopGrams: 30, cupMl: 250,
+    powder: { calories: 400, protein: 75, carbs: 8, fat: 7 },
+    mixer: { name: "试验牛奶", per100ml: { calories: 48, protein: 3.4, carbs: 5, fat: 1.5 } },
+  });
+  const { data } = finalizeCheckin({ ...workout(), proteinShake: true, proteinProduct: product }, end);
+  assert.deepEqual(sessionSchema.parse(data).proteinProduct, product);
+  assert.equal(sessionSchema.safeParse({ ...data, proteinShake: false }).success, false);
+  assert.equal(withoutProteinShake(data).proteinProduct, undefined);
+  assert.equal(publicPartnerSession(data, "").proteinProduct, undefined);
+  const postLog = (checked) => POST(request({ action: "log", expectedOwner: owner, id: logId, data: checked }));
+  const first = await postLog(data);
+  assert.equal(first.status, 200);
+  const { updated } = await first.json();
+  const meal = () => sql.prepare("SELECT payload FROM personal_library WHERE owner = ? AND kind = 'nutrition'").all(owner)
+    .map(({ payload }) => JSON.parse(payload));
+  const original = meal();
+  assert.equal(original.length, 1);
+  assert.equal(original[0].sourceWorkoutId, logId);
+  assert.deepEqual(original[0].entry, {
+    type: "meal", meal: "加餐", name: product.name, grams: 30, calories: 240, protein: 31, carbs: 14.9, fat: 5.85,
+  });
+
+  const retry = await postLog({ ...data, proteinProduct: { ...product, cupMl: 300 } });
+  assert.equal(retry.status, 200);
+  assert.deepEqual(meal(), original);
+  const moved = { ...data, date: "2026-11-25" };
+  const edited = await POST(request({ action: "editLog", id: logId, revision: updated, data: moved }));
+  assert.equal(edited.status, 200);
+  assert.equal(meal()[0].date, moved.date);
+  const cleared = await POST(request({ action: "editLog", id: logId, revision: (await edited.json()).updated,
+    data: { ...moved, proteinShake: false, proteinProduct: undefined } }));
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(meal(), []);
+});
 
 test("a stale plan review cannot save to the newly signed-in account", async (t) => {
   const sql = database(t);

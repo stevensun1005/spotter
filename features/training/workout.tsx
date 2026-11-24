@@ -8,6 +8,7 @@ import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldV
 import { fieldLabels, SetRow } from "./set-row";
 import { WorkoutKeypad } from "./workout-keypad";
 import { ProteinCheck } from "./protein-check";
+import type { ProteinProduct } from "./protein";
 import { ExercisePicker } from "@/features/exercises/exercise-picker";
 import type { Move } from "@/features/plans/model";
 import { prescriptionText } from "@/features/plans/prescription";
@@ -31,9 +32,10 @@ const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].m
 
 type Edit = SetTarget & { text: string; pristine: boolean };
 
-export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein, loadHistory }: {
+export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein, proteinProducts, loadHistory }: {
   data: Session; update: (next: Session) => void; finish: () => void; close: () => void;
   pending: boolean; error: string; sync: string; onExercise?: (choice: ExerciseChoice) => void; trackProtein?: boolean;
+  proteinProducts?: readonly ProteinProduct[];
   loadHistory: LoadHistory;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -387,7 +389,8 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
     </Dialog>}
     {showFinish && <Dialog title="完成训练" onClose={() => { if (!pending) setConfirmFinish(false); }}>
       <div className="dialog-body">
-        <ProteinCheck checked={data.proteinShake === true} disabled={pending} save={(proteinShake) => update({ ...data, proteinShake })} />
+        <ProteinCheck checked={data.proteinShake === true} disabled={pending} product={data.proteinProduct} products={proteinProducts}
+          save={(proteinShake, proteinProduct) => update({ ...data, proteinShake, proteinProduct })} />
         {error && <p className="inline-error" role="alert">{error}</p>}
       </div>
       <div className="dialog-footer">

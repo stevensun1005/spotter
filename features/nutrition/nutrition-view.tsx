@@ -21,11 +21,13 @@ import { NutritionShortcuts, NutritionSummary, nutritionTotals } from "./nutriti
 import { NutritionStats } from "./nutrition-stats";
 import { NutritionTools, type NutritionTool } from "./nutrition-tools";
 import { NutritionVoice } from "./nutrition-voice";
+import { ProteinDrink } from "./protein-drink";
+import type { ProteinProduct } from "@/features/training/protein";
 
 type RecordOptions = { initial?: MealEntry; food?: Food; grams?: number; query?: string };
 type RecordSheet = { kind: "record"; shortcut: NutritionShortcut; id: string } & RecordOptions;
 type Sheet = RecordSheet | { kind: "settings"; page: "menu" | "goals" } | { kind: "tool"; tool: NutritionTool }
-  | { kind: "stats" } | { kind: "voice" };
+  | { kind: "stats" } | { kind: "voice" } | { kind: "protein" };
 const isMeal = (shortcut: NutritionShortcut): shortcut is MealEntry["meal"] => shortcut !== "饮水" && shortcut !== "体重";
 const minDate = "1900-01-01";
 const maxDate = "2100-12-31";
@@ -65,10 +67,12 @@ function MeasureEditor({ shortcut, save, close }: {
   </Dialog>;
 }
 
-export function NutritionView({ enabled, today, owner = "", records = [], initialDate = today, initialShortcut, onBack, onBody, onDevices, onSaved, onMealPhoto }: {
+export function NutritionView({ enabled, today, owner = "", records = [], initialDate = today, initialShortcut, onBack, onBody, onDevices, onSaved, onMealPhoto,
+  proteinProducts = [], onProteinWarehouse }: {
   enabled: boolean; today: string; owner?: string; records?: TrainingEntry[]; initialDate?: string; initialShortcut?: NutritionShortcut;
   onBack: () => void; onBody: () => void; onDevices?: () => void; onSaved?: () => void;
   onMealPhoto: (date: string, meal: MealEntry["meal"]) => void;
+  proteinProducts?: readonly ProteinProduct[]; onProteinWarehouse?: () => void;
 }) {
   const [date, setDate] = useState(initialDate);
   const [sheet, setSheet] = useState<Sheet | undefined>(() => initialShortcut ? { kind: "record", shortcut: initialShortcut, id: crypto.randomUUID() } : undefined);
@@ -85,7 +89,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
   const personal = store.rows.filter((row) => row.kind === "food");
   const portions = store.rows.filter((row) => row.kind === "food-portions");
   const rows = displayedRows.flatMap((row) => row.kind === "nutrition" && row.date === date && row.entry.type !== "measurement"
-    ? [{ id: row.id, entry: row.entry }] : []);
+    ? [{ id: row.id, entry: row.entry, sourceWorkoutId: row.sourceWorkoutId }] : []);
   const totals = nutritionTotals(displayedRows, date);
   const shortcuts = [...preferences.mealOrder, ...nutritionShortcuts.filter((shortcut) => !isMeal(shortcut))];
 
@@ -133,7 +137,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
     link.href = href; link.download = date + "-饮食记录.txt"; link.click();
     window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
   }
-  function renderRecord({ id, entry }: typeof rows[number]) {
+  function renderRecord({ id, entry, sourceWorkoutId }: typeof rows[number]) {
     const name = entry.type === "meal" ? entry.name : entry.type === "water" ? "饮水" : "体重";
     const Icon = entry.type === "meal" ? Apple : entry.type === "water" ? CupSoda : Scale;
     const detail = entry.type === "meal" ? [
@@ -143,8 +147,8 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
     ].filter(Boolean).join(" · ") : entry.type === "water" ? displayNumber(entry.ml) + " ml" : displayNumber(entry.kg) + " kg";
     return <div className="list-line nutrition-row" key={id}>
       <span className="tile mint"><Icon size={18} aria-hidden="true" /></span>
-      <div><strong>{name}</strong><small>{detail}</small></div>
-      {!cached && <div className="nutrition-row-actions">{confirm === id ? <>
+      <div><strong>{name}</strong><small>{detail}</small>{sourceWorkoutId && <small>训练打卡同步</small>}</div>
+      {!cached && !sourceWorkoutId && <div className="nutrition-row-actions">{confirm === id ? <>
         <button className="button outline small" type="button" disabled={busy} onClick={() => void remove(id)}>确认删除</button>
         <button className="button subtle small" type="button" disabled={busy} onClick={() => setConfirm("")}>取消</button>
       </> : <>
@@ -186,6 +190,9 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       <button className="button outline small" type="button" disabled={!enabled} onClick={() => openTool("carbCycle")}>碳循环设置</button>
       <button className="button outline small" type="button" disabled={!enabled} onClick={() => openTool("recipes")}>智能食谱</button>
       <button className="button outline small" type="button" disabled={!enabled} onClick={() => openTool("recommendations")}>食物推荐</button>
+      <button className="button outline small" type="button" disabled={!enabled} onClick={() => setSheet({ kind: "protein" })}>
+        <CupSoda size={16} aria-hidden="true" />记蛋白粉
+      </button>
     </div>
     {!enabled && <p className="muted">登录后可以保存饮食记录。</p>}
     {store.loading && <p className="muted" role="status">正在读取记录…</p>}
@@ -244,5 +251,6 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       save={persist} close={close} reload={() => void refresh()} openFood={(food, meal, grams) => open(meal, { food, grams })} />}
     {sheet?.kind === "stats" && <NutritionStats date={date} close={close} />}
     {sheet?.kind === "voice" && <NutritionVoice close={close} initialMeal={mealForNow()} openSearch={(meal, query) => open(meal, { query })} />}
+    {sheet?.kind === "protein" && <ProteinDrink products={proteinProducts} date={date} close={close} warehouse={onProteinWarehouse} save={persist} />}
   </div>;
 }

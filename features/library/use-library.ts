@@ -8,6 +8,7 @@ import type { RecentMealFood } from "@/features/nutrition/recent-foods";
 function matches(a: LibraryItem, b: LibraryItem) {
   if (a.kind !== b.kind) return false;
   if (a.kind === "exercise" && b.kind === "exercise") return a.item.name === b.item.name;
+  if (a.kind === "protein-warehouse") return true;
   if (a.kind === "targets" || a.kind === "nutrition-plan" || a.kind === "schedule" || a.kind === "stats-pins" || a.kind === "protein-preference" || a.kind === "body-profile") return true;
   return "id" in a && "id" in b && a.id === b.id;
 }
