@@ -1,6 +1,6 @@
 # 用户自己的 AI Agent 接入 Spotter
 
-Spotter 提供工具接口，由用户自己的 AI Agent 负责理解目标、生成和修改计划。站点不调用模型 API，不保存 GPT、Claude、Grok、Muse 等模型服务的密钥。能否接入取决于客户端是否支持目标站点的授权 MCP 或自定义 HTTP 工具；本轮没有把任何品牌客户端列为已在线验证。
+使用外部 Agent 工具接口时，用户自己的 AI Agent 负责理解目标、生成和修改计划，Spotter 只校验和处理工具请求。能否接入取决于客户端是否支持目标站点的授权 MCP 或自定义 HTTP 工具。站内 Claude 对话由站点管理员单独配置，见 [AI 教练配置](ai-coach.md)。
 
 ## 两种入口
 
