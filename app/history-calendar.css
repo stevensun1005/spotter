@@ -122,6 +122,7 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
   }
+  .app-history .stage { grid-template-rows: minmax(0, 1fr); }
   .app-history .mobile-nav { position: static; }
   .app-history .content { padding-block: 8px; }
 }

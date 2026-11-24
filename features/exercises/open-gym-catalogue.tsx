@@ -50,6 +50,7 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const [useGear, setUseGear] = useState(true);
   const catalogueId = useId();
   const searchLine = useRef<HTMLDivElement>(null);
+  const results = useRef<HTMLDivElement>(null);
   const [visibleBySection, setVisibleBySection] = useState<Record<string, number>>({});
   useEffect(() => {
     try { setCards(localStorage.getItem(viewKey) !== "list"); setGear(JSON.parse(localStorage.getItem(gearKey) ?? "[]")); }
@@ -95,7 +96,7 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const equipmentAll = useMemo(() => equipmentOptions(data?.rows ?? []), [data]);
   const equipmentChips = [...primaryEquipment.filter((key) => filters.equipmentList.includes(key)),
     ...filters.equipmentList.filter((key) => !primaryEquipment.includes(key))];
-  const activeOptions = Number(Boolean(filters.activeType)) + Number(Boolean(filters.activeEquipment));
+  const activeOptions = Number(Boolean(filters.activeType)) + Number(Boolean(filters.activeEquipment)) + Number(byMuscle);
   const familyKey = (id: string) => families.get(id)?.id ?? id;
   const featured = !search && !scope && area !== "custom" && !byMuscle && !filters.activeType && !filters.activeEquipment
     ? [...new Set([
@@ -106,20 +107,32 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const parsedCustom = exerciseName.safeParse(customName === undefined ? undefined : canonicalMoveName(customName.trim()));
   const customExists = (name: string) => known.has(normalizeSearch(name)) || personal.some((item) => normalizeSearch(item) === normalizeSearch(name));
   const selectedWeights = Object.fromEntries(terms.flatMap(termMuscles).map((key) => [key, 100]));
-  const show = (change: () => void) => { change(); setVisibleBySection({}); };
+  function resultsPane() {
+    const element = results.current;
+    return element && getComputedStyle(element).overflowY === "auto" ? element : undefined;
+  }
+  const show = (change: () => void) => {
+    change();
+    setVisibleBySection({});
+    const pane = resultsPane();
+    if (pane) pane.scrollTop = 0;
+  };
   function pickArea(id: string) {
     show(() => {
       setArea(id);
       if (id === "custom") { setType(""); setEquipment(""); setByMuscle(false); }
     });
     const start = searchLine.current;
-    if (start && start.getBoundingClientRect().top < 0) start.scrollIntoView({ block: "start", inline: "nearest" });
+    if (!resultsPane() && start && start.getBoundingClientRect().top < 0) start.scrollIntoView({ block: "start", inline: "nearest" });
   }
 
   function jumpTo(id: string) {
     const target = document.getElementById(catalogueId + "-" + id);
-    target?.focus({ preventScroll: true });
-    target?.scrollIntoView({ block: "start", inline: "nearest" });
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    const pane = resultsPane();
+    if (pane) pane.scrollTop += target.getBoundingClientRect().top - pane.getBoundingClientRect().top - 4;
+    else target.scrollIntoView({ block: "start", inline: "nearest" });
   }
   const pickTerm = (key: string) => show(() => setTerms((items) => items.includes(key) ? items.filter((item) => item !== key) : [...items, key]));
   const searchName = exerciseName.safeParse(canonicalMoveName(query.trim()));
@@ -199,16 +212,6 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
         onClick={() => picker && quick ? quick({ name: "" }) : setCustomName("")}><Plus size={21} /></button>
     </div>
     {error && <div className="inline-error">{error} <button type="button" className="button outline small" onClick={reload}>重试</button></div>}
-    {byMuscle && <div className="card padded feature-stack">
-      <Anatomy weights={selectedWeights} onPick={pickTerm} />
-      <div className="catalogue-chip-row wraps" aria-label="肌群选择">{groups.map((group) => <button className="catalogue-chip" type="button" key={group.id}
-        aria-pressed={terms.includes("group:" + group.id)} onClick={() => pickTerm("group:" + group.id)}>{group.title}</button>)}</div>
-      <div className="catalogue-chip-row wraps" aria-label="单独肌肉选择">{groups.flatMap((group) => group.muscles).map((muscle) =>
-        <button className="catalogue-chip" key={muscle} type="button" aria-pressed={terms.includes(muscle)} onClick={() => pickTerm(muscle)}>{muscleNames[muscle]}</button>)}</div>
-      <div className="segmented"><button type="button" aria-pressed={!any} onClick={() => show(() => setAny(false))}>同时命中</button>
-        <button type="button" aria-pressed={any} onClick={() => show(() => setAny(true))}>任意命中</button>
-        <button type="button" onClick={() => show(() => setTerms([]))}>清除肌肉</button></div>
-    </div>}
     <div className="catalogue-layout">
       <div className="catalogue-rail" role="group" aria-label="部位筛选">
         {catalogueAreas.map(({ id, title, children }) => {
@@ -226,55 +229,59 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
         })}
       </div>
       <div className="catalogue-main">
-        <div className="catalogue-chip-row catalogue-equipment" role="group" aria-label="器械快捷筛选">
-          <button type="button" className="catalogue-chip" aria-pressed={scope === "favorites"} onClick={() => changeScope("favorites")}><Star size={14} /> 置顶</button>
-          {equipmentChips.map((key) => <button type="button" className="catalogue-chip" key={key}
-            aria-pressed={filters.activeEquipment === key} onClick={() => show(() => setEquipment(equipment === key ? "" : key))}>{label(key)}</button>)}
-        </div>
-        <div className="catalogue-tools">
-          <div className="catalogue-scope" role="group" aria-label="动作范围">
-            <button type="button" aria-pressed={scope !== "chosen"} onClick={() => show(() => setScope(""))}>精选动作</button>
-            <button type="button" aria-pressed={scope === "chosen"} onClick={() => changeScope("chosen")}>{picker ? "已选动作" : "常用动作"}</button>
+        <div className="catalogue-controls">
+          <div className="catalogue-chip-row catalogue-equipment" role="group" aria-label="器械快捷筛选">
+            <button type="button" className="catalogue-chip" aria-pressed={scope === "favorites"} onClick={() => changeScope("favorites")}><Star size={14} /> 置顶</button>
+            {equipmentChips.map((key) => <button type="button" className="catalogue-chip" key={key}
+              aria-pressed={filters.activeEquipment === key} onClick={() => show(() => setEquipment(equipment === key ? "" : key))}>{label(key)}</button>)}
           </div>
-          <button type="button" className="icon-button catalogue-filter" aria-label={activeOptions ? "筛选，已选 " + activeOptions + " 项" : "筛选"}
-            aria-haspopup="dialog" onClick={() => setShowFilters(true)}><SlidersHorizontal size={17} /></button>
+          <div className="catalogue-tools">
+            <div className="catalogue-scope" role="group" aria-label="动作范围">
+              <button type="button" aria-pressed={scope !== "chosen"} onClick={() => show(() => setScope(""))}>精选动作</button>
+              <button type="button" aria-pressed={scope === "chosen"} onClick={() => changeScope("chosen")}>{picker ? "已选动作" : "常用动作"}</button>
+            </div>
+            <button type="button" className="icon-button catalogue-filter" aria-label={activeOptions ? "筛选，已选 " + activeOptions + " 项" : "筛选"}
+              aria-haspopup="dialog" onClick={() => setShowFilters(true)}><SlidersHorizontal size={17} /></button>
+          </div>
+          <div className="catalogue-context">
+            {data ? <p className="muted catalogue-match" role="status">{rows.length + custom.length} 个结果</p> :
+              !error && <p className="muted catalogue-match" role="status">正在加载动作…</p>}
+            {gear.length > 0 && <button type="button" className="catalogue-text-button" onClick={() => show(() => setUseGear(!useGear))}>{useGear ? "显示所有器械" : "只显示我的器械"}</button>}
+          </div>
         </div>
-        <div className="catalogue-context">
-          {data ? <p className="muted catalogue-match" role="status">{rows.length + custom.length} 个结果</p> :
-            !error && <p className="muted catalogue-match" role="status">正在加载动作…</p>}
-          {gear.length > 0 && <button type="button" className="catalogue-text-button" onClick={() => show(() => setUseGear(!useGear))}>{useGear ? "显示所有器械" : "只显示我的器械"}</button>}
-        </div>
-        {featured.length > 0 && <div className="catalogue-featured" role="group" aria-label="精选推荐">
-          {featured.map((row) => renderExercise(row.name, row))}
-        </div>}
-        {searchName.success && !customExists(searchName.data) &&
-          <button className="button outline small catalogue-create-result" type="button" onClick={() => choose({ name: searchName.data })}><Plus size={16} /> 创建「{searchName.data}」</button>}
-        {rows.length + custom.length > 0 && <div className={"catalogue-sections-layout" + (showJumpRail ? " has-jumps" : "")}>
-          <div className="catalogue-sections">
-            {sections.map(({ id, title, rows, customNames }) => {
-              const size = searching ? searchPageSize : sectionPageSize;
-              const limit = visibleBySection[id] ?? size;
-              const count = rows.length + customNames.length;
-              return <section className="catalogue-section" key={id} id={catalogueId + "-" + id}
-                tabIndex={-1} aria-label={title}>
-                <div className="catalogue-section-heading"><h3 className="catalogue-section-title">{title}</h3><span>{count} 个</span></div>
-                <div className={"catalogue-results" + (cards ? " catalogue-cards" : "")}>
-                  {customNames.slice(0, limit).map((name) => renderExercise(name))}
-                  {rows.slice(0, Math.max(0, limit - customNames.length)).map((row) => renderExercise(row.name, row))}
-                </div>
-                {count > limit && <button className="button outline catalogue-section-more" type="button"
-                  aria-label={"显示更多 " + title} onClick={() => setVisibleBySection((previous) => ({ ...previous, [id]: limit + size }))}>显示更多</button>}
-              </section>;
-            })}
+        <div className={"catalogue-sections-layout" + (showJumpRail ? " has-jumps" : "")}>
+          <div className="catalogue-scroll" ref={results} role="region" aria-label="动作列表" tabIndex={picker ? undefined : 0}>
+            {featured.length > 0 && <div className="catalogue-featured" role="group" aria-label="精选推荐">
+              {featured.map((row) => renderExercise(row.name, row))}
+            </div>}
+            {searchName.success && !customExists(searchName.data) &&
+              <button className="button outline small catalogue-create-result" type="button" onClick={() => choose({ name: searchName.data })}><Plus size={16} /> 创建「{searchName.data}」</button>}
+            {sections.length > 0 && <div className="catalogue-sections">
+              {sections.map(({ id, title, rows, customNames }) => {
+                const size = searching ? searchPageSize : sectionPageSize;
+                const limit = visibleBySection[id] ?? size;
+                const count = rows.length + customNames.length;
+                return <section className="catalogue-section" key={id} id={catalogueId + "-" + id}
+                  tabIndex={-1} aria-label={title}>
+                  <div className="catalogue-section-heading"><h3 className="catalogue-section-title">{title}</h3><span>{count} 个</span></div>
+                  <div className={"catalogue-results" + (cards ? " catalogue-cards" : "")}>
+                    {customNames.slice(0, limit).map((name) => renderExercise(name))}
+                    {rows.slice(0, Math.max(0, limit - customNames.length)).map((row) => renderExercise(row.name, row))}
+                  </div>
+                  {count > limit && <button className="button outline catalogue-section-more" type="button"
+                    aria-label={"显示更多 " + title} onClick={() => setVisibleBySection((previous) => ({ ...previous, [id]: limit + size }))}>显示更多</button>}
+                </section>;
+              })}
+            </div>}
+            {data && rows.length === 0 && custom.length === 0 && <p className="empty-copy">
+              {scope === "favorites" ? "暂无符合条件的置顶动作。" : scope === "chosen" ? "暂无符合条件的动作。" : "当前搜索和筛选条件下没有动作。"}</p>}
+            {!picker && <p className="catalogue-attribution"><a href="/open-gym/NOTICE.txt" target="_blank" rel="noreferrer">动作库授权和来源</a> · <a href="/open-gym/catalogue-source.zip" download>下载目录源文件</a></p>}
           </div>
           {showJumpRail && <nav className="catalogue-jumps" aria-label="器械分区导航">
             {sections.map(({ id, title, jumpLabel }) => <button key={id} type="button" title={title}
               aria-label={"跳到 " + title} onClick={() => jumpTo(id)}>{jumpLabel}</button>)}
           </nav>}
-        </div>}
-        {data && rows.length === 0 && custom.length === 0 && <p className="empty-copy">
-          {scope === "favorites" ? "暂无符合条件的置顶动作。" : scope === "chosen" ? "暂无符合条件的动作。" : "当前搜索和筛选条件下没有动作。"}</p>}
-        {!picker && <p className="catalogue-attribution"><a href="/open-gym/NOTICE.txt" target="_blank" rel="noreferrer">动作库授权和来源</a> · <a href="/open-gym/catalogue-source.zip" download>下载目录源文件</a></p>}
+        </div>
       </div>
     </div>
     {customName !== undefined && <Dialog title="新建自定义动作" onClose={() => setCustomName(undefined)}>
@@ -288,8 +295,18 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     {showFilters && <Dialog title="筛选" className="catalogue-filter-dialog" onClose={() => setShowFilters(false)}>
       <div className="dialog-body feature-stack">
         <button type="button" className="button outline small" aria-pressed={byMuscle}
-          onClick={() => { show(() => { setByMuscle(!byMuscle); if (area === "custom") setArea(""); }); setShowFilters(false); }}>
+          onClick={() => show(() => { setByMuscle(!byMuscle); if (area === "custom") setArea(""); })}>
           {byMuscle ? "关闭肌肉图筛选" : "按肌肉图筛选"}</button>
+        {byMuscle && <div className="card padded feature-stack">
+          <Anatomy weights={selectedWeights} onPick={pickTerm} />
+          <div className="catalogue-chip-row wraps" aria-label="肌群选择">{groups.map((group) => <button className="catalogue-chip" type="button" key={group.id}
+            aria-pressed={terms.includes("group:" + group.id)} onClick={() => pickTerm("group:" + group.id)}>{group.title}</button>)}</div>
+          <div className="catalogue-chip-row wraps" aria-label="单独肌肉选择">{groups.flatMap((group) => group.muscles).map((muscle) =>
+            <button className="catalogue-chip" key={muscle} type="button" aria-pressed={terms.includes(muscle)} onClick={() => pickTerm(muscle)}>{muscleNames[muscle]}</button>)}</div>
+          <div className="segmented"><button type="button" aria-pressed={!any} onClick={() => show(() => setAny(false))}>同时命中</button>
+            <button type="button" aria-pressed={any} onClick={() => show(() => setAny(true))}>任意命中</button>
+            <button type="button" onClick={() => show(() => setTerms([]))}>清除肌肉</button></div>
+        </div>}
         <h3>动作类型</h3><div className="catalogue-chip-row wraps">
           <button type="button" className="catalogue-chip" aria-pressed={!filters.activeType} onClick={() => show(() => setType(""))}>全部类型</button>
           {filters.typeOptions.map((key) => <button key={key} type="button" className="catalogue-chip" aria-pressed={filters.activeType === key} onClick={() => show(() => setType(key))}>{label(key)}</button>)}

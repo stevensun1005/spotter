@@ -251,6 +251,7 @@ progress::-moz-progress-bar { background: #8fbc60; border-radius: 10px; }
   .mobile-nav button.active { color: #254322; background: #e5f1d6; }
   .content { padding-bottom: calc(82px + env(safe-area-inset-bottom)); }
   .topbar { min-height: 60px; padding-inline: 17px; }
+  .topbar.topbar-secondary { display: none; }
   .crumb { gap: 8px; font-weight: 760; color: #26392a; font-size: .95rem; }
   .crumb strong, .crumb-slash { display: none; }
   .mini-mark { display: grid; width: 33px; height: 33px; border-radius: 10px; }

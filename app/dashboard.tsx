@@ -535,7 +535,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       <div className="sidebar-footer"><span className="avatar lime">{avatar(me.name)}</span><div><strong>{me.name}</strong><small>{demo ? "演示账号" : "个人账号"}</small></div></div>
     </aside>
     <div className="stage">
-      <header className="topbar">
+      <header className={view === "today" ? "topbar" : "topbar topbar-secondary"}>
         <div className="crumb"><span className="mini-mark"><Dumbbell size={18} /></span><span>训练搭子</span><span className="crumb-slash">/</span><strong>{navigation.find((item) => item.id === view)?.title}</strong></div>
         <div className="top-actions"><span className="cloud-status"><Cloud size={17} />{cloud}</span><button className="top-profile" onClick={() => open({ kind: "pair" })} aria-label="账号与搭子空间"><span className="avatar lime">{avatar(me.name)}</span><ChevronDown size={15} /></button></div>
       </header>
