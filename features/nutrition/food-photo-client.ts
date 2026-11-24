@@ -77,8 +77,9 @@ export async function fetchFoodPhotoConfiguration(owner: string, signal: AbortSi
   return Boolean(owner && result.enabled === true);
 }
 
-async function postPhoto(source: PhotoSource, notes: string, owner: string, mode: FoodPhotoRequest["mode"], signal: AbortSignal) {
+async function postPhoto(source: PhotoSource, notes: string, owner: string, mode: FoodPhotoRequest["mode"], cancel: AbortSignal) {
   if (!owner) throw new Error("请先登录训练搭子。");
+  const signal = AbortSignal.any([cancel, AbortSignal.timeout(45_000)]);
   const image = await encodeSource(source, signal);
   signal.throwIfAborted();
   const response = await fetch(photoEndpoint, {
