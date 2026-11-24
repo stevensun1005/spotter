@@ -67,7 +67,9 @@
   .plans-list-card .plan-line .tile svg { width: 16px; height: 16px; }
   .plans-list-card .plan-line strong { font-size: .89rem; line-height: 1.28; }
   .plans-list-card .plan-line small { margin-top: 2px; font-size: .75rem; line-height: 1.3; }
-  .plans-list-card .plan-actions, .plans-list-card .plans-list-actions { gap: 4px; }
+  .plans-list-card .plan-actions { gap: 8px; }
+  .plans-list-card .plan-actions .button:focus-visible { outline-offset: 2px; }
+  .plans-list-card .plans-list-actions { gap: 4px; }
   .plans-list-card .plan-actions .button.small,
   .plans-list-card .plans-list-actions .button.small {
     min-height: 35px; padding-inline: 7px; gap: 4px; border-radius: 8px; font-size: .79rem; white-space: nowrap;

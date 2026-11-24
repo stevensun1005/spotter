@@ -13,6 +13,9 @@
 @import "./home.css";
 @import "./friends.css";
 
+/* Outlined buttons use the .button.outline border and the shared keyboard focus style. */
+@source not inline("outline");
+
 :root {
   color-scheme: light;
   --canvas: #f2f4ee;
