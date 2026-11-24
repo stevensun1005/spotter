@@ -10,6 +10,7 @@ import { WorkoutKeypad } from "./workout-keypad";
 import { ProteinCheck } from "./protein-check";
 import { ExercisePicker } from "@/features/exercises/exercise-picker";
 import type { Move } from "@/features/plans/model";
+import { prescriptionText } from "@/features/plans/prescription";
 import { pauseClock, resumeClock, workoutElapsed } from "./clock";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import { fromCatalogue, useCatalogue, type ExerciseChoice } from "@/features/exercises/open-gym";
@@ -232,6 +233,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
             <strong>{move.name}</strong><span className="set-summary"><span className="muted">{data.rows[i].filter((line) => line.done).length}/{move.sets} 组</span><ChevronDown size={16} /></span>
           </summary>
           {move.cue && <p className="muted set-prescription">{move.cue}</p>}
+          {prescriptionText(move) && <p className="muted set-prescription">{prescriptionText(move)} · 实际 RPE 在组记录中填写</p>}
           <p className="muted set-prescription" title={tempo.numeric ? tempoNotationHint : undefined}>{tempo.label} {tempo.text}</p>
           {(move.repsMax || move.restSeconds) && <p className="muted set-prescription">{move.seconds ? move.seconds + " 秒／组" : move.reps + (move.repsMax && move.repsMax > move.reps ? "–" + move.repsMax : "") + " 次／组"}
             {move.restSeconds !== undefined ? " · " + (block.moves.length > 1 ? "轮间" : "组间") + "休息 " + move.restSeconds + " 秒" : ""}</p>}

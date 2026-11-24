@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Bookmark, Check, Pencil, Share2 } from "lucide-react";
 import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { shortDate } from "@/shared/dates";
+import { prescriptionText } from "@/features/plans/prescription";
 import { sessionTotals, type Session } from "@/features/training/model";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
@@ -55,6 +56,7 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
           const choice = { ...item, name, cue: item.cue ?? cue };
           const tempo = exerciseTempo(choice, fromCatalogue(catalogue, choice), log.data.plan.category);
           return <div className="log-move" key={i}><strong>{name}</strong>
+            {prescriptionText(item) && <p className="muted"><small>计划处方：{prescriptionText(item)}</small></p>}
             <p className="muted" title={tempo.numeric ? tempoNotationHint : undefined}><small>{tempo.label} {tempo.text}</small></p>
             {log.data.rows[i].map((line, j) => line.done && <div key={j}>
               <span>第 {j + 1} 组{line.kind ? " · " + kindLabels[line.kind] : ""}</span>

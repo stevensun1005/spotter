@@ -5,6 +5,15 @@ import { normalizeTempo, tempoMaxLength } from "@/features/exercises/tempo";
 
 export const categories = ["力量训练", "有氧训练", "拉伸恢复", "跟练视频", "其他"] as const;
 const text = (max: number) => z.string().trim().min(1).max(max);
+export const loadPercentSchema = z.object({
+  percent: z.number().finite().min(1).max(150),
+  reference: z.number().finite().positive().max(2000),
+  unit: z.enum(["kg", "lb"]),
+}).strict();
+export function prescribedWeight(load: z.infer<typeof loadPercentSchema>, unit: "kg" | "lb") {
+  const converted = load.reference * (load.unit === unit ? 1 : load.unit === "lb" ? 0.45359237 : 1 / 0.45359237);
+  return Math.round(converted * load.percent / 100 * 100) / 100;
+}
 const move = z.object({
   name: text(100).transform(canonicalMoveName),
   catalogueId: z.string().regex(/^\d{4,6}$/).transform(canonicalCatalogueId).optional(),
@@ -21,7 +30,18 @@ const move = z.object({
   seconds: z.number().int().min(0).max(18000),
   restSeconds: z.number().int().min(0).max(600).optional(),
   repsMax: z.number().int().min(1).max(999).optional(),
-}).refine(({ reps, repsMax }) => repsMax === undefined || reps > 0 && repsMax >= reps);
+  targetRpe: z.number().min(1).max(10).multipleOf(0.5).optional(),
+  loadPercent: loadPercentSchema.optional(),
+}).refine(({ reps, repsMax }) => repsMax === undefined || reps > 0 && repsMax >= reps)
+  .transform((item, context) => {
+    if (!item.loadPercent) return item;
+    const weight = prescribedWeight(item.loadPercent, item.unit);
+    if (weight > 2000) {
+      context.addIssue({ code: "custom", message: "百分比处方换算后的重量超出允许范围。" });
+      return z.NEVER;
+    }
+    return { ...item, weight };
+  });
 export const videoUrl = z.string().max(1200).refine((value) => {
   if (!value) return true;
   try {
@@ -36,6 +56,9 @@ export const planSchema = z.object({
   title: text(100),
   date: dateSchema,
   templateId: z.string().uuid().optional(),
+  programId: z.string().uuid().optional(),
+  programSessionId: z.string().uuid().optional(),
+  phaseId: z.string().uuid().optional(),
   week: z.number().int().min(1).max(104).optional(),
   day: z.number().int().min(1).max(7).optional(),
   category: z.enum(categories),

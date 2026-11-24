@@ -6,11 +6,11 @@ import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
 import { exerciseTempo, tempoMaxLength, tempoNotationHint } from "@/features/exercises/tempo";
 import { Plus, Trash2 } from "lucide-react";
 import { defaultRest } from "@/features/training/sequence";
-import { categories, type Move, type Plan } from "./model";
+import { categories, prescribedWeight, type Move, type Plan } from "./model";
 import { resolvePlanTemplate } from "./template-link";
 
-export function PlanFields({ value, change, template = false, templates }: {
-  value: Plan; change: (plan: Plan) => void; template?: boolean; templates?: readonly { id: string; plan: Plan }[];
+export function PlanFields({ value, change, template = false, templates, allowSharing = true }: {
+  value: Plan; change: (plan: Plan) => void; template?: boolean; templates?: readonly { id: string; plan: Plan }[]; allowSharing?: boolean;
 }) {
   const [picker, setPicker] = useState(false);
   const { data: catalogue } = useCatalogue();
@@ -18,8 +18,15 @@ export function PlanFields({ value, change, template = false, templates }: {
   const selected = templates?.find((item) => item.id === value.templateId);
   const resolved = linked ? resolvePlanTemplate(value, selected?.plan) : value;
   const edit = (key: keyof Plan, next: Plan[keyof Plan]) => change({ ...value, [key]: next });
-  const editMove = (index: number, next: Partial<Move>) => edit("exercises", value.exercises.map((item, i) => i === index ? { ...item, ...next } : item));
-  const share = !template && <label className="toggle-label"><input type="checkbox" checked={value.shared}
+  const editMove = (index: number, next: Partial<Move>) => edit("exercises", value.exercises.map((item, i) => {
+    if (i !== index) return item;
+    const changed = { ...item, ...next };
+    if (changed.loadPercent && changed.loadPercent.percent > 0 && changed.loadPercent.reference > 0) {
+      changed.weight = prescribedWeight(changed.loadPercent, changed.unit);
+    }
+    return changed;
+  }));
+  const share = !template && allowSharing && <label className="toggle-label"><input type="checkbox" checked={value.shared}
     onChange={(event) => edit("shared", event.target.checked)} /> 与搭子共享计划</label>;
 
   function selectTemplate(id: string) {
@@ -87,7 +94,7 @@ export function PlanFields({ value, change, template = false, templates }: {
         <div className="move-grid">
           <label>组数<input aria-label={"动作 " + (index + 1) + " 组数"} type="number" min={1} max={30} value={item.sets || ""} onChange={(e) => editMove(index, { sets: Number(e.target.value) })} /></label>
           <label>次数<input aria-label={"动作 " + (index + 1) + " 次数"} type="number" min={0} max={999} value={item.reps} onChange={(e) => editMove(index, { reps: Number(e.target.value), repsMax: item.repsMax && item.repsMax >= Number(e.target.value) && Number(e.target.value) > 0 ? item.repsMax : undefined })} /></label>
-          <label>重量<input aria-label={"动作 " + (index + 1) + " 重量"} type="number" min={0} max={2000} step="any" value={item.weight} onChange={(e) => editMove(index, { weight: Number(e.target.value) })} /></label>
+          <label>重量<input aria-label={"动作 " + (index + 1) + " 重量"} type="number" min={0} max={2000} step="any" value={item.weight} disabled={Boolean(item.loadPercent)} onChange={(e) => editMove(index, { weight: Number(e.target.value) })} /></label>
           <label>单位<select value={item.unit} onChange={(e) => editMove(index, { unit: e.target.value as Move["unit"] })}><option>kg</option><option>lb</option></select></label>
           <label>秒数<input aria-label={"动作 " + (index + 1) + " 秒数"} type="number" min={0} max={18000} value={item.seconds} onChange={(e) => editMove(index, { seconds: Number(e.target.value) })} /></label>
         </div>
@@ -95,6 +102,12 @@ export function PlanFields({ value, change, template = false, templates }: {
           <label>次数上限（可选）<input type="number" min={Math.max(1, item.reps)} max={999} value={item.repsMax ?? ""} disabled={!item.reps} onChange={(event) => editMove(index, { repsMax: Number(event.target.value) || undefined })} /></label>
           <label>组间／轮间休息（秒）<input type="number" min={0} max={600} value={item.restSeconds ?? ""} onChange={(event) => editMove(index, { restSeconds: event.target.value ? Number(event.target.value) : undefined })} /></label>
         </div>
+        <details className="prescription-fields"><summary>负荷方式与目标 RPE</summary><div className="form-fields">
+          <div className="field-grid"><label>负荷方式<select value={item.loadPercent ? "percent" : "absolute"} onChange={(event) => editMove(index, { loadPercent: event.target.value === "percent" ? { percent: 0, reference: 0, unit: item.unit } : undefined })}><option value="absolute">直接填写重量</option><option value="percent">手填 1RM 的百分比</option></select></label>
+            <label>目标 RPE（可选）<input type="number" min={1} max={10} step={0.5} value={item.targetRpe ?? ""} placeholder="训练时另记实际 RPE" onChange={(event) => editMove(index, { targetRpe: event.target.value ? Number(event.target.value) : undefined })} /></label></div>
+          {item.loadPercent && <><div className="field-grid"><label>1RM 百分比 %<input type="number" min={1} max={150} step="any" required value={item.loadPercent.percent || ""} onChange={(event) => editMove(index, { loadPercent: { ...item.loadPercent!, percent: Number(event.target.value) } })} /></label><label>已确认的 1RM 参考重量<input type="number" min={0.01} max={2000} step="any" required value={item.loadPercent.reference || ""} onChange={(event) => editMove(index, { loadPercent: { ...item.loadPercent!, reference: Number(event.target.value) } })} /></label></div>
+            <div className="field-grid"><label>参考重量单位<select value={item.loadPercent.unit} onChange={(event) => editMove(index, { loadPercent: { ...item.loadPercent!, unit: event.target.value as "kg" | "lb" } })}><option value="kg">kg</option><option value="lb">lb</option></select></label><p className="muted">处方重量 {item.weight} {item.unit}</p></div><p className="muted">填入你确认的参考值，不自动采用历史估算 1RM。按原单位的周进阶或减量会改为直接重量。</p></>}
+        </div></details>
       </div>)}
       {picker && <ExercisePicker names={value.exercises.map((item) => item.name)} close={() => setPicker(false)} onUse={(move) => {
         edit("exercises", [...value.exercises, move]); setPicker(false);

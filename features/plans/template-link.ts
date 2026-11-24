@@ -1,6 +1,6 @@
 import type { Plan } from "./model";
 
-export function withoutTemplateLink({ templateId: _templateId, week: _week, day: _day, ...plan }: Plan): Plan {
+export function withoutTemplateLink({ templateId: _templateId, week: _week, day: _day, programId: _programId, programSessionId: _programSessionId, phaseId: _phaseId, ...plan }: Plan): Plan {
   return plan;
 }
 
