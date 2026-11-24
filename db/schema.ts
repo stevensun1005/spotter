@@ -274,6 +274,7 @@ export const spotterOAuthIdentities = sqliteTable("spotter_oauth_identities", {
   provider: text().notNull(),
   subject: text().notNull(),
   accountId: text("account_id").notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  appleCredential: text("apple_credential"),
 }, (table) => [
   primaryKey({ columns: [table.provider, table.subject] }),
   uniqueIndex("spotter_oauth_account_provider").on(table.accountId, table.provider),
@@ -303,5 +304,6 @@ export const spotterOAuthGrants = sqliteTable("spotter_oauth_grants", {
   subject: text().notNull(),
   email: text(),
   displayName: text("display_name"),
+  appleCredential: text("apple_credential"),
   expiresAt: integer("expires_at").notNull(),
 }, (table) => [index("spotter_oauth_grant_expiry").on(table.expiresAt)]);

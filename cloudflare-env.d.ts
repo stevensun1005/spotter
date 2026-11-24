@@ -13,5 +13,6 @@ declare namespace Cloudflare {
     APPLE_OAUTH_TEAM_ID?: string;
     APPLE_OAUTH_KEY_ID?: string;
     APPLE_OAUTH_PRIVATE_KEY?: string;
+    SPOTTER_APPLE_TOKEN_KEY?: string;
   }
 }

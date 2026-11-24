@@ -10,7 +10,7 @@ export type OAuthConfig = CommonConfig & (
   { provider: "google"; clientSecret: string } |
   { provider: "apple"; teamId: string; keyId: string; privateKey: string }
 );
-export type ProviderIdentity = { subject: string; email?: string; displayName?: string };
+export type ProviderIdentity = { subject: string; email?: string; displayName?: string; appleCredential?: string };
 
 const googleIssuer = "https://accounts.google.com";
 const appleIssuer = "https://appleid.apple.com";
@@ -90,6 +90,56 @@ async function appleClientSecret(config: Extract<OAuthConfig, { provider: "apple
   return parts + "." + base64Url(new Uint8Array(signature));
 }
 
+type AppleCredentialType = "refresh_token" | "access_token";
+const appleCredentialData = (clientId: string, subject: string, type: AppleCredentialType) =>
+  encoder.encode(JSON.stringify(["spotter-apple-credential/v1", clientId, subject, type]));
+
+async function appleCredentialKey(secret: string) {
+  const bytes = decodeBase64Url(secret.trim());
+  if (bytes.byteLength !== 32) throw new Error("Invalid Apple credential key");
+  return crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+async function protectAppleCredential(secret: string, clientId: string, subject: string,
+  type: AppleCredentialType, token: string) {
+  try {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt({
+      name: "AES-GCM", iv, additionalData: appleCredentialData(clientId, subject, type),
+    }, await appleCredentialKey(secret), encoder.encode(token));
+    const prefix = type === "refresh_token" ? "r" : "a";
+    return `v1.${prefix}.${base64Url(iv)}.${base64Url(new Uint8Array(encrypted))}`;
+  } catch {
+    // A missing or unusable storage key must not prevent sign-in or linking.
+    return undefined;
+  }
+}
+
+export async function revokeAppleAuthorization(config: OAuthConfig | undefined, secret: string | undefined,
+  subject: string, credential: string | null) {
+  if (config?.provider !== "apple" || !secret || !credential) return false;
+  try {
+    const [version, hint, encodedIv, encrypted, extra] = credential.split(".");
+    if (version !== "v1" || (hint !== "r" && hint !== "a") || !encodedIv || !encrypted || extra !== undefined) return false;
+    const type: AppleCredentialType = hint === "r" ? "refresh_token" : "access_token";
+    const iv = decodeBase64Url(encodedIv);
+    if (iv.byteLength !== 12) return false;
+    const payload = await crypto.subtle.decrypt({
+      name: "AES-GCM", iv, additionalData: appleCredentialData(config.clientId, subject, type),
+    }, await appleCredentialKey(secret), decodeBase64Url(encrypted));
+    const body = new URLSearchParams({ client_id: config.clientId, client_secret: await appleClientSecret(config),
+      token: new TextDecoder().decode(payload), token_type_hint: type });
+    const response = await fetch(`${appleIssuer}/auth/revoke`, {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body,
+      redirect: "manual", signal: AbortSignal.timeout(8_000),
+    });
+    return response.ok;
+  } catch {
+    // The user can revoke in Apple Settings if Apple cannot be reached or the token cannot be read.
+    return false;
+  }
+}
+
 const jwtHeader = z.object({ alg: z.literal("RS256"), kid: z.string().min(1).max(100) });
 const jwtClaims = z.object({
   iss: z.string(), aud: z.union([z.string(), z.tuple([z.string()])]), azp: z.string().optional(),
@@ -141,7 +191,12 @@ async function verifyProviderToken(config: OAuthConfig, token: string, nonce: st
   return { subject: claims.sub, email: email?.success ? email.data : undefined, displayName: displayName || undefined };
 }
 
-export async function exchangeAuthorizationCode(config: OAuthConfig, code: string, nonce: string, pkce?: string) {
+const providerToken = z.string().min(1).max(8192).optional().catch(undefined);
+const tokenReply = z.object({ id_token: z.string().min(10).max(16_000),
+  refresh_token: providerToken, access_token: providerToken });
+
+export async function exchangeAuthorizationCode(config: OAuthConfig, code: string, nonce: string, pkce?: string,
+  appleTokenKey?: string): Promise<ProviderIdentity> {
   const secret = config.provider === "apple" ? await appleClientSecret(config) : config.clientSecret;
   const params = new URLSearchParams({
     grant_type: "authorization_code", code, client_id: config.clientId, client_secret: secret, redirect_uri: callbackUrl(config),
@@ -151,8 +206,14 @@ export async function exchangeAuthorizationCode(config: OAuthConfig, code: strin
     params.set("code_verifier", pkce);
   }
   const endpoint = config.provider === "apple" ? `${appleIssuer}/auth/token` : "https://oauth2.googleapis.com/token";
-  const { id_token } = z.object({ id_token: z.string().min(10).max(16_000) }).parse(await providerJson(endpoint, {
+  const { id_token, refresh_token, access_token } = tokenReply.parse(await providerJson(endpoint, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: params,
   }));
-  return verifyProviderToken(config, id_token, nonce);
+  const identity = await verifyProviderToken(config, id_token, nonce);
+  const token = refresh_token ?? access_token;
+  if (config.provider === "apple" && appleTokenKey && token) {
+    identity.appleCredential = await protectAppleCredential(appleTokenKey, config.clientId, identity.subject,
+      refresh_token ? "refresh_token" : "access_token", token);
+  }
+  return identity;
 }

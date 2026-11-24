@@ -11,6 +11,12 @@ export const signInInput = z.object({
 
 type Account = { id: string; email: string; display_name: string };
 
+export function readCookie(request: Request, key: string) {
+  const matches = request.headers.get("cookie")?.split(";")
+    .map((part) => part.trim()).filter((part) => part.startsWith(key + "="));
+  return matches?.length === 1 ? matches[0].slice(key.length + 1) : undefined;
+}
+
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 const toHex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 const hash = async (value: string) => toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value))));

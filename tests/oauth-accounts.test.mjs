@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -20,6 +20,7 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 
 const auth = await import("../features/auth/oauth-routes.ts");
+const { POST: deleteAccount } = await import("../app/api/auth/delete-account/route.ts");
 const { readSession, startAccountSession } = await import("../features/auth/server.ts");
 const origin = "https://oauth.synthetic.invalid";
 const sessionPrefix = "__Host-spotter_session=";
@@ -34,8 +35,8 @@ const seconds = () => Math.floor(Date.now() / 1000);
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("PRAGMA foreign_keys=ON");
-  for (const name of ["0011_spotter_access", "0013_spotter_oauth"]) {
-    sqlite.exec(readFileSync(new URL(`drizzle/${name}.sql`, root), "utf8"));
+  for (const name of readdirSync(new URL("drizzle/", root)).filter((name) => name.endsWith(".sql")).sort()) {
+    sqlite.exec(readFileSync(new URL(`drizzle/${name}`, root), "utf8"));
   }
   for (const account of ["one", "two"]) {
     sqlite.prepare("INSERT INTO spotter_access_accounts (id,email,display_name,access_hash) VALUES (?,?,?,?)")
@@ -48,14 +49,19 @@ function fixture(t) {
         return { bind(...args) { return {
           async first() { return statement.get(...args) ?? null; },
           async all() { return { results: statement.all(...args) }; },
-          async run() { return { meta: { changes: Number(statement.run(...args).changes) } }; },
+          async run() {
+            if (sql.startsWith("SELECT")) return { results: statement.all(...args), meta: { changes: 0 } };
+            return { meta: { changes: Number(statement.run(...args).changes) } };
+          },
         }; } };
       },
       async batch(statements) {
         sqlite.exec("BEGIN");
         try {
-          for (const statement of statements) await statement.run();
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
           sqlite.exec("COMMIT");
+          return results;
         } catch (error) {
           sqlite.exec("ROLLBACK");
           throw error;
@@ -90,7 +96,7 @@ async function begin(input, cookie) {
   };
 }
 
-function mockProvider(t, provider, authorize, claims = {}, forgeSignature = false) {
+function mockProvider(t, provider, authorize, claims = {}, forgeSignature = false, tokens = {}) {
   const apple = provider === "apple";
   const clientId = apple ? appleId : googleId;
   const issuer = apple ? "https://appleid.apple.com" : "https://accounts.google.com";
@@ -127,7 +133,7 @@ function mockProvider(t, provider, authorize, claims = {}, forgeSignature = fals
         assert.equal(authorize.searchParams.get("code_challenge_method"), "S256");
         assert.equal(urlHash(form.get("code_verifier")), authorize.searchParams.get("code_challenge"));
       }
-      return Response.json({ id_token: parts + "." + signature });
+      return Response.json({ ...tokens, id_token: parts + "." + signature });
     }
     assert.equal(url, keyUrl);
     return Response.json({ keys: [{ ...providerKey.publicKey.export({ format: "jwk" }), kid: "synthetic-key", alg: "RS256", use: "sig" }] });
@@ -252,4 +258,163 @@ test("invalid provider issuer, audience, expiry, nonce and signature cannot issu
   }
   assert.equal(db.prepare("SELECT count(*) AS total FROM spotter_oauth_grants").get().total, 0);
   assert.equal(db.prepare("SELECT count(*) AS total FROM spotter_oauth_identities").get().total, 0);
+});
+
+const deletionPath = "/api/auth/delete-account";
+const confirmation = { expectedOwner: "one", confirm: true };
+
+function seedAccountData(db) {
+  for (const owner of ["one", "two"]) {
+    db.prepare("INSERT INTO entries (owner,id,kind,payload,updated) VALUES (?,'workout','log','{}','now')").run(owner);
+    db.prepare("INSERT INTO workout_heart (owner,workout_id,payload) VALUES (?,'workout','{}')").run(owner);
+    db.prepare("INSERT INTO personal_library (owner,kind,id,payload,updated) VALUES (?,'body','weight','{}','now')").run(owner);
+    db.prepare("INSERT INTO training_programs (owner,id,payload,revision,updated_at) VALUES (?,'program','{}','rev','now')").run(owner);
+    db.prepare("INSERT INTO program_plan_links (owner,program_id,session_id,payload) VALUES (?,'program','session','{}')").run(owner);
+    db.prepare("INSERT INTO program_commits (owner,program_id,revision,preview_token,payload) VALUES (?,'program','rev','preview','{}')").run(owner);
+    db.prepare("INSERT INTO program_rules (owner,payload,revision,updated_at) VALUES (?,'{}','rev','now')").run(owner);
+    db.prepare("INSERT INTO agent_connections (id,owner,name,token_hash,scopes,created_at,expires_at) " +
+      "VALUES (?,?,'agent',?,'[]','now','later')").run(owner, owner, urlHash(owner));
+    db.prepare("INSERT INTO agent_rate_windows (connection_id,window,requests) VALUES (?,0,1)").run(owner);
+    db.prepare("INSERT INTO agent_plan_drafts (owner,id,title,payload,content_hash,created_at,expires_at) " +
+      "VALUES (?,'draft','title','{}','hash','now','later')").run(owner);
+    db.prepare("INSERT INTO agent_draft_items (owner,draft_id,plan_id,was_added) VALUES (?,'draft','plan',1)").run(owner);
+    db.prepare("INSERT INTO ai_coach_quota (day,owner,requests) VALUES (1,?,3)").run(owner);
+    db.prepare("INSERT INTO ai_coach_budget (month,owner,charged_nanos) VALUES ('2026-11',?,5)").run(owner);
+    db.prepare("INSERT INTO friend_invites (owner,name,code,expires_at) VALUES (?,?,?,'later')").run(owner, owner, owner);
+    db.prepare("INSERT INTO friend_profiles (owner,name,search_name) VALUES (?,?,?)").run(owner, owner, owner);
+  }
+  db.exec(`
+    INSERT INTO rooms (id,invite,owner) VALUES ('shared','shared','one'),('unrelated','other-invite','two');
+    INSERT INTO members (user,room,name) VALUES ('one','shared','First'),('two','shared','Second');
+    INSERT INTO entries VALUES ('two','cheer','cheer','{"recipient":"one"}','now');
+    INSERT INTO friend_links (first_id,second_id,first_name,second_name) VALUES ('one','two','First','Second');
+    INSERT INTO friend_requests (id,first_id,second_id,sender,receiver,sender_name,receiver_name,created_at)
+      VALUES ('request','one','two','one','two','First','Second','now');
+    INSERT INTO coaching_invites (coach_id,coach_name,code_hash,expires_at,claimed_by)
+      VALUES ('two','Second','claim','later','one'),('one','First','invite','later',NULL);
+    INSERT INTO coaching_links (id,coach_id,coach_name,student_id,student_name,created_at)
+      VALUES ('coaching','one','First','two','Second','now');
+    INSERT INTO coaching_assignments (id,link_id,coach_id,student_id,request_hash,kind,payload,revision,program_id,created_at)
+      VALUES ('assignment','coaching','one','two','hash','plan','{}','rev','imported','now');
+    INSERT INTO coaching_lessons (id,link_id,delta,note,created_at) VALUES ('lesson','coaching',1,'private note','now');
+  `);
+}
+
+test("account deletion revokes the encrypted Apple token and clears the account without affecting another user's records", async (t) => {
+  const db = fixture(t);
+  seedAccountData(db);
+  const access = await startAccountSession(runtime.env.DB, "one");
+  const secondDevice = await startAccountSession(runtime.env.DB, "one");
+  const other = await startAccountSession(runtime.env.DB, "two");
+  const cookie = sessionPrefix + access;
+  runtime.env.SPOTTER_APPLE_TOKEN_KEY = randomBytes(32).toString("base64url");
+  const refreshToken = "synthetic-apple-refresh";
+  const appleSubject = "synthetic-apple-subject";
+  const start = await begin({ provider: "apple", mode: "link", expectedOwner: "one" }, cookie);
+  const provider = mockProvider(t, "apple", start.url, { sub: appleSubject }, false,
+    { refresh_token: refreshToken, access_token: "synthetic-apple-access" });
+  const location = (await callback("apple", start.url)).headers.get("Location");
+  const grant = db.prepare("SELECT apple_credential FROM spotter_oauth_grants").get().apple_credential;
+  assert.match(grant, /^v1\.r\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  assert.doesNotMatch(grant, /synthetic-apple/);
+  assert.equal((await completeWeb(location, cookie + "; " + start.browserProof)).headers.get("Location"), "/?auth=linked");
+  assert.equal(db.prepare("SELECT apple_credential FROM spotter_oauth_identities WHERE provider='apple'").get().apple_credential, grant);
+  provider.mock.restore();
+
+  const login = await begin({ provider: "apple", mode: "login" });
+  const loginProvider = mockProvider(t, "apple", login.url, { sub: appleSubject }, false,
+    { access_token: "synthetic-new-access-only" });
+  const loginCallback = (await callback("apple", login.url)).headers.get("Location");
+  assert.equal((await completeWeb(loginCallback, login.browserProof)).headers.get("Location"), "/?auth=signed-in");
+  assert.equal(db.prepare("SELECT apple_credential FROM spotter_oauth_identities WHERE provider='apple'").get().apple_credential, grant);
+  loginProvider.mock.restore();
+
+  db.prepare("INSERT INTO spotter_oauth_identities (provider,subject,account_id) VALUES ('google','g1','one'),('google','g2','two')").run();
+  await begin({ provider: "apple", mode: "link", expectedOwner: "two" }, sessionPrefix + other);
+  const pending = await begin({ provider: "apple", mode: "login" });
+  const pendingProvider = mockProvider(t, "apple", pending.url, { sub: appleSubject });
+  await callback("apple", pending.url);
+  pendingProvider.mock.restore();
+  assert.equal(db.prepare("SELECT count(*) AS count FROM spotter_oauth_grants").get().count, 1);
+
+  const result = t.mock.method(globalThis, "fetch", async (url, options) => {
+    assert.equal(url, "https://appleid.apple.com/auth/revoke");
+    assert.equal(options.redirect, "manual");
+    assert.equal(options.body.get("client_id"), appleId);
+    assert.equal(options.body.get("token"), refreshToken);
+    assert.equal(options.body.get("token_type_hint"), "refresh_token");
+    assert.equal(db.prepare("SELECT count(*) AS count FROM spotter_access_accounts WHERE id='one'").get().count, 0);
+    return new Response(null, { status: 200 });
+  });
+  assert.equal((await deleteAccount(post(deletionPath, confirmation, sessionPrefix + other))).status, 403);
+  assert.equal((await deleteAccount(post(deletionPath, confirmation, cookie, "https://outside.invalid"))).status, 403);
+  assert.equal((await deleteAccount(post(deletionPath, { expectedOwner: "one" }, cookie))).status, 400);
+  assert.equal((await deleteAccount(post(deletionPath, confirmation, cookie + "; " + cookie))).status, 401);
+  assert.equal(result.mock.callCount(), 0);
+  const deleted = await deleteAccount(post(deletionPath, confirmation, cookie));
+  assert.equal(deleted.status, 200);
+  assert.deepEqual(await deleted.json(), { deleted: true, appleRevocation: "revoked" });
+  assert.match(deleted.headers.get("Set-Cookie"), /Max-Age=0; Path=\/; HttpOnly; Secure; SameSite=Lax/);
+  assert.equal((await deleteAccount(post(deletionPath, confirmation, cookie))).status, 401);
+  assert.equal(result.mock.callCount(), 1);
+  assert.equal(await readSession(runtime.env.DB, access), null);
+  assert.equal(await readSession(runtime.env.DB, secondDevice), null);
+  assert.equal((await readSession(runtime.env.DB, other)).userId, "two");
+
+  const owned = ["entries", "workout_heart", "personal_library", "agent_connections", "agent_plan_drafts",
+    "agent_draft_items", "training_programs", "program_rules", "program_plan_links", "program_commits",
+    "friend_profiles", "friend_invites", "ai_coach_quota", "ai_coach_budget"];
+  for (const table of owned) assert.deepEqual(db.prepare(`SELECT owner FROM ${table}`).all().map((row) => row.owner), ["two"], table);
+  const removes = ["friend_links", "friend_requests", "members", "coaching_invites", "coaching_assignments",
+    "coaching_links", "coaching_lessons", "spotter_oauth_grants"];
+  for (const table of removes) assert.equal(db.prepare(`SELECT count(*) AS count FROM ${table}`).get().count, 0, table);
+  assert.equal(db.prepare("SELECT id FROM rooms").get().id, "unrelated");
+  assert.equal(db.prepare("SELECT account_id FROM spotter_oauth_identities").get().account_id, "two");
+  assert.equal(db.prepare("SELECT account_id FROM spotter_oauth_flows").get().account_id, "two");
+  assert.equal(db.prepare("SELECT connection_id FROM agent_rate_windows").get().connection_id, "two");
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
+
+test("account deletion keeps data and authorization on a failed transaction, then supports manual Apple revocation", async (t) => {
+  const db = fixture(t);
+  seedAccountData(db);
+  const token = await startAccountSession(runtime.env.DB, "one");
+  const cookie = sessionPrefix + token;
+  db.exec("INSERT INTO spotter_oauth_identities (provider,subject,account_id) VALUES ('apple','legacy-apple','one')");
+  db.exec("CREATE TRIGGER simulated_failure BEFORE DELETE ON rooms BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;");
+  const failures = t.mock.method(console, "error", () => {});
+  const outgoing = t.mock.method(globalThis, "fetch", async () => { throw new Error("unexpected revocation"); });
+  assert.equal((await deleteAccount(post(deletionPath, confirmation, cookie))).status, 503);
+  assert.equal((await readSession(runtime.env.DB, token)).userId, "one");
+  assert.equal(db.prepare("SELECT count(*) AS count FROM workout_heart").get().count, 2);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM personal_library").get().count, 2);
+  assert.equal(db.prepare("SELECT account_id FROM spotter_oauth_identities").get().account_id, "one");
+  assert.equal(failures.mock.calls[0].arguments.length, 1);
+  db.exec("DROP TRIGGER simulated_failure");
+  const deleted = await deleteAccount(post(deletionPath, confirmation, cookie));
+  assert.deepEqual(await deleted.json(), { deleted: true, appleRevocation: "manual" });
+  assert.equal(await readSession(runtime.env.DB, token), null);
+  assert.equal(outgoing.mock.callCount(), 0);
+
+  const other = sessionPrefix + await startAccountSession(runtime.env.DB, "two");
+  const noApple = await deleteAccount(post(deletionPath, { expectedOwner: "two", confirm: true }, other));
+  assert.deepEqual(await noApple.json(), { deleted: true, appleRevocation: "not-required" });
+  assert.equal(outgoing.mock.callCount(), 0);
+});
+
+test("deletion rechecks the specific session as part of the same data transaction", async (t) => {
+  const db = fixture(t);
+  seedAccountData(db);
+  const token = await startAccountSession(runtime.env.DB, "one");
+  const survivingSession = await startAccountSession(runtime.env.DB, "one");
+  const batch = runtime.env.DB.batch;
+  runtime.env.DB.batch = (statements) => {
+    db.prepare("DELETE FROM spotter_access_sessions WHERE token_hash=?")
+      .run(createHash("sha256").update(token).digest("hex"));
+    return batch(statements);
+  };
+  assert.equal((await deleteAccount(post(deletionPath, confirmation, sessionPrefix + token))).status, 401);
+  assert.equal((await readSession(runtime.env.DB, survivingSession)).userId, "one");
+  assert.equal(db.prepare("SELECT count(*) AS count FROM entries WHERE owner='one'").get().count, 1);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM friend_links").get().count, 1);
 });
