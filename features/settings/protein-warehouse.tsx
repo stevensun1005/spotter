@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Camera, Droplet, Package, Pencil, Plus, Scale } from "lucide-react";
 import type { PersonalFood } from "@/features/library/model";
 import { FoodPhoto } from "@/features/nutrition/food-photo";
+import type { FoodPhotoDraft } from "@/features/nutrition/food-photo-model";
 import { maxProteinProducts, proteinProductSchema, proteinServingNutrition, type ProteinNutrition, type ProteinProduct } from "@/features/training/protein";
 import { errorText } from "@/shared/client";
 import { displayNumber } from "@/shared/ui";
@@ -63,10 +64,18 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [photo, setPhoto] = useState(false);
-  const [reviewPhoto, setReviewPhoto] = useState(false);
+  const [photoReturn, setPhotoReturn] = useState<"recognized" | "manual">();
+  const editorHeading = useRef<HTMLHeadingElement>(null);
   const locked = disabled || !owner || pending;
   const atLimit = products.length >= maxProteinProducts;
   const mixer = editor?.mixer;
+  const reviewPhoto = photoReturn === "recognized";
+
+  useEffect(() => {
+    if (photo || !photoReturn) return;
+    editorHeading.current?.focus({ preventScroll: true });
+    editorHeading.current?.scrollIntoView({ block: "start" });
+  }, [photo, photoReturn]);
 
   function open(product?: ProteinProduct, usePhoto = false) {
     setEditor(product ? {
@@ -80,7 +89,7 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
     setNotice("");
     setConfirmRemove(false);
     setPhoto(usePhoto);
-    setReviewPhoto(false);
+    setPhotoReturn(undefined);
   }
 
   function close() {
@@ -88,7 +97,14 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
     setError("");
     setConfirmRemove(false);
     setPhoto(false);
-    setReviewPhoto(false);
+    setPhotoReturn(undefined);
+  }
+
+  function editAfterPhoto(draft?: FoodPhotoDraft) {
+    if (draft) setEditor((current) => current && { ...current, name: draft.name, powder: nutritionFields(draft.per100g) });
+    setPhotoReturn(draft ? "recognized" : "manual");
+    setError("");
+    setPhoto(false);
   }
 
   async function persist(next: ProteinProduct[], success: string) {
@@ -142,13 +158,15 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
     {atLimit && <p className={styles.notice}>仓库已保存 {maxProteinProducts} 款，可移除旧款后添加新款。</p>}
 
     {editor && <form className={`card form-fields ${styles.editor}`} key={editor.id} onSubmit={submit}>
-      <h2>{photo ? "识别蛋白粉包装" : editor.editing ? "编辑蛋白粉" : "添加蛋白粉"}</h2>
+      <h2 ref={editorHeading} tabIndex={-1}>{photo ? "识别蛋白粉包装" : editor.editing ? "编辑蛋白粉" : "添加蛋白粉"}</h2>
       {photo ? <>
-        <FoodPhoto owner={owner} destination="protein" onManual={() => setPhoto(false)} onApply={(draft) => {
-          setEditor({ ...editor, name: draft.name, powder: nutritionFields(draft.per100g) });
-          setReviewPhoto(true);
-          setPhoto(false);
-        }} />
+        <FoodPhoto owner={owner} destination="protein" onApply={editAfterPhoto} />
+        <div className={styles.photoFallback}>
+          <p className={styles.notice}>营养表看不清时，可以先填产品名称、一勺粉量和杯量，之后再补营养。</p>
+          <button type="button" className="button outline small" disabled={locked} onClick={() => editAfterPhoto()}>
+            {editor.editing ? "返回编辑产品" : "填写产品并添加"}
+          </button>
+        </div>
         {onUseAgent && <p className={styles.notice}>也可以请自己的 AI 读取标签并存到我的食物库，再回仓库从食物库带入。</p>}
         <div className={styles.actions}>
           {onUseAgent && <button type="button" className="button outline small" onClick={onUseAgent}>用自己的 AI</button>}
@@ -156,7 +174,7 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
         </div>
       </> : !confirmRemove ? <>
         {reviewPhoto && editor.powder && <p className={styles.notice} role="status">已填入包装名称和每 100 g 营养。请核对标签，再填写一勺的粉量和杯量。</p>}
-        <label>产品名称<input autoFocus required maxLength={100} value={editor.name} disabled={locked}
+        <label>产品名称<input autoFocus={!photoReturn} required maxLength={100} value={editor.name} disabled={locked}
           onChange={(event) => setEditor({ ...editor, name: event.target.value })} /></label>
         <div className={styles.amounts}>
           <label>一勺粉量
@@ -184,7 +202,7 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
                 const food = personalFoods.find(({ id }) => id === event.target.value);
                 if (!food) return;
                 setError("");
-                setReviewPhoto(false);
+                setPhotoReturn(undefined);
                 setEditor({ ...editor, name: food.name, powder: nutritionFields(food.per100g) });
               }}>
                 <option value="" disabled>从我的食物库选择</option>
@@ -211,11 +229,13 @@ export function ProteinWarehouse({ products, owner, personalFoods = [], disabled
               change={(per100ml) => setEditor({ ...editor, mixer: { ...mixer, per100ml } })} />
           </>}
         </fieldset>
-        <div className={styles.actions}>
+        <div className={`${styles.actions} ${styles.commitActions}`}>
           {editor.editing && <button type="button" className={styles.remove} disabled={locked}
             onClick={() => { setError(""); setConfirmRemove(true); }}>移除</button>}
           <button type="button" className="button outline small" disabled={pending} onClick={close}>取消</button>
-          <button type="submit" className="button primary small" disabled={locked}>{pending ? "保存中…" : "保存"}</button>
+          <button type="submit" className="button primary small" disabled={locked}>
+            {pending ? "保存中…" : editor.editing ? "保存修改" : "添加到仓库"}
+          </button>
         </div>
       </> : <>
         <p>从仓库移除「{editor.name}」？之前的训练记录会保留。</p>

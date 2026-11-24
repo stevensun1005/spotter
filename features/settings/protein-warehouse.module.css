@@ -139,6 +139,19 @@
 
 .editor h2 {
   font-size: 1.03rem;
+  scroll-margin-block-start: 12px;
+}
+
+.photoFallback {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--stroke);
+}
+
+.photoFallback :global(.button.small) {
+  min-height: 44px;
 }
 
 .group {
@@ -208,6 +221,17 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+@media (max-width: 700px) {
+  .commitActions {
+    position: sticky;
+    z-index: 1;
+    inset-block-end: calc(var(--primary-nav-space, 0px) + 8px);
+    padding-block: 8px 3px;
+    border-block-start: 1px solid var(--stroke);
+    background: var(--card);
+  }
 }
 
 .actions .remove {
