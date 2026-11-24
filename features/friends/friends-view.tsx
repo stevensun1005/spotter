@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Dumbbell, Lock, UserRoundPlus, Users, Utensils } from "lucide-react";
 import { errorText } from "@/shared/client";
 import { offsetDate, shortDate } from "@/shared/dates";
@@ -141,9 +141,10 @@ function SharingSettings({ friend, busy, save }: {
   </section>;
 }
 
-export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
-  enabled: boolean; today: string; initialFriendId?: string; initialDate?: string;
+export function FriendsView({ enabled, today, initialFriendId, initialDate, sharingOnly = false }: {
+  enabled: boolean; today: string; initialFriendId?: string; initialDate?: string; sharingOnly?: boolean;
 }) {
+  const sharingView = useRef<HTMLDivElement>(null);
   const [friends, setFriends] = useState<FriendList>();
   const [listError, setListError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -158,7 +159,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
   const [status, setStatus] = useState("");
   const friend = friends?.friends.find((item) => item.id === active);
   const invite = friends?.invite;
-  const day = useFriendDay(enabled ? friend?.id : undefined, date, dayRevision);
+  const day = useFriendDay(enabled && !sharingOnly ? friend?.id : undefined, date, dayRevision);
 
   useEffect(() => {
     if (!enabled) return;
@@ -181,19 +182,24 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
     return () => document.removeEventListener("visibilitychange", refresh);
   }, [enabled]);
 
+  function scrollToTop() {
+    if (sharingOnly) sharingView.current?.closest("dialog")?.scrollTo({ top: 0 });
+    else window.scrollTo({ top: 0 });
+  }
+
   function openFriend(item: Friend) {
     setActive(item.id);
     setDate(today);
     setError("");
     setStatus("");
-    window.scrollTo({ top: 0 });
+    scrollToTop();
   }
 
   function back() {
     setActive(undefined);
     setError("");
     setStatus("");
-    window.scrollTo({ top: 0 });
+    scrollToTop();
   }
 
   async function mutate(body: FriendMutation, message: string) {
@@ -242,6 +248,34 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
   const feedback = <>{error && <p className="inline-error" role="alert">{error}</p>}
     {status && <p className="friend-status" role="status">{status}</p>}</>;
 
+  const friendList = <>
+    {!friends && !listError && <p className="muted" role="status">正在读取好友…</p>}
+    {listError && <section className="card padded feature-stack"><p className="inline-error" role="alert">{listError}</p>
+      <button className="button outline" type="button" onClick={() => { setListError(""); setLoadAttempt((value) => value + 1); }}>重试</button></section>}
+    {friends && !friends.friends.length && <p className="empty-copy">
+      {sharingOnly ? "添加好友或连接搭子后，可以在这里设置分享范围。" : "添加好友后，就能在这里点开对方分享的每日记录。"}
+    </p>}
+    {active && friends && !listError && <p className="empty-copy">这位好友目前不可查看。</p>}
+    {Boolean(friends?.friends.length) && <section className="card padded friend-list" aria-label="好友名单">
+      {friends?.friends.map((item) => <button key={item.id} className="list-line friend-row" type="button" onClick={() => openFriend(item)}>
+        <span className={"avatar " + (item.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(item.name)}</span>
+        <span><strong>{item.name}{item.buddy && <span className="state-tag checked">训练搭子</span>}</strong>
+          {!sharingOnly && <small>{["训练打卡", item.shared.training && "训练详情", item.shared.nutritionDetails ? "饮食详情" : item.shared.nutrition && "饮食状态"].filter(Boolean).join(" · ")}</small>}</span>
+        <ChevronRight size={18} aria-hidden="true" />
+      </button>)}
+    </section>}
+  </>;
+
+  if (sharingOnly) return <div className="feature-stack" ref={sharingView}>
+    {friend ? <>
+      <button className="text-button friend-back" type="button" onClick={back} disabled={busy}><ArrowLeft size={17} aria-hidden="true" /> 返回好友名单</button>
+      <SharingSettings key={[friend.id, friend.buddy, friend.sharing.training, friend.sharing.nutrition, friend.sharing.nutritionDetails].join(":")}
+        friend={friend} busy={busy}
+        save={(sharing) => void mutate({ action: "share", id: friend.id, sharing }, "分享范围已保存。")} />
+      {feedback}
+    </> : friendList}
+  </div>;
+
   return <div className="friends-page feature-stack">
     {friend ? <>
       <div className="friend-detail-heading">
@@ -262,9 +296,6 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
           <button className="text-button" type="button" onClick={() => setDayRevision((value) => value + 1)}>重新读取</button></div>}
       </section>
       {day?.data && <FriendDailyRecords data={day.data} />}
-      <SharingSettings key={[friend.id, friend.buddy, friend.sharing.training, friend.sharing.nutrition, friend.sharing.nutritionDetails].join(":")}
-        friend={friend} busy={busy}
-        save={(sharing) => void mutate({ action: "share", id: friend.id, sharing }, "分享范围已保存。")} />
       {!removeOpen && feedback}
       {!friend.buddy && <button className="text-button friend-remove" type="button" disabled={busy}
         onClick={() => { setRemoveOpen(true); setError(""); setStatus(""); }}>移除好友</button>}
@@ -276,24 +307,12 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate }: {
     </> : <>
       <section className="card padded friend-intro">
         <div className="friend-intro-copy"><span className="tile mint" aria-hidden="true"><Users size={22} /></span>
-          <div><h2>我的好友</h2><p className="muted">添加家人和朋友，互相看训练打卡，按人设置详情分享。</p></div></div>
+          <div><h2>我的好友</h2><p className="muted">添加家人和朋友，互相查看训练打卡。</p></div></div>
         <button className="button primary" type="button" disabled={!friends || busy}
           onClick={() => { setInviteOpen(true); setError(""); setStatus(""); }}><UserRoundPlus size={18} aria-hidden="true" /> 添加好友</button>
       </section>
       {!inviteOpen && feedback}
-      {!friends && !listError && <p className="muted" role="status">正在读取好友…</p>}
-      {listError && <section className="card padded feature-stack"><p className="inline-error" role="alert">{listError}</p>
-        <button className="button outline" type="button" onClick={() => { setListError(""); setLoadAttempt((value) => value + 1); }}>重试</button></section>}
-      {friends && !friends.friends.length && <section className="card padded"><p className="empty-copy">添加好友后，就能在这里点开对方分享的每日记录。</p></section>}
-      {active && friends && !listError && <p className="empty-copy">这位好友目前不可查看。</p>}
-      {Boolean(friends?.friends.length) && <section className="card padded friend-list" aria-label="好友名单">
-        {friends?.friends.map((item) => <button key={item.id} className="list-line friend-row" type="button" onClick={() => openFriend(item)}>
-          <span className={"avatar " + (item.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(item.name)}</span>
-          <span><strong>{item.name}{item.buddy && <span className="state-tag checked">训练搭子</span>}</strong>
-            <small>{["训练打卡", item.shared.training && "训练详情", item.shared.nutritionDetails ? "饮食详情" : item.shared.nutrition && "饮食状态"].filter(Boolean).join(" · ")}</small></span>
-          <ChevronRight size={18} aria-hidden="true" />
-        </button>)}
-      </section>}
+      {friendList}
     </>}
     {inviteOpen && <Dialog title="添加好友" onClose={() => { if (!busy) { setInviteOpen(false); setError(""); setStatus(""); } }}>
       <div className="dialog-body feature-stack">

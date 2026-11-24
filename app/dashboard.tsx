@@ -46,7 +46,7 @@ import { HardDriveDownload, Ruler } from "lucide-react";
 
 type View = "today" | "plans" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "settings" | "more";
 type KeyedPlan = { id: string; data: Plan };
-type Overlay = { kind: "pair" | "launch" } | { kind: "schedule"; restDay?: string } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
+type Overlay = { kind: "pair" | "launch" | "friend-sharing" } | { kind: "schedule"; restDay?: string } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
 const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
@@ -595,15 +595,22 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
         {view === "data" && <DataView enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
-        {view === "settings" && <section className="card padded feature-stack">
-          <h2>训练偏好</h2>
-          <ProteinCheck label="显示蛋白粉打卡" checked={trackProtein} disabled={!viewer || library.loading || Boolean(library.error)}
-            save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
-          <p className="muted">{viewer ? "开启后，训练结束时可以勾选是否已喝蛋白粉。" : "登录后可以保存训练偏好。"}</p>
-          {viewer && <button className="list-line" type="button" aria-haspopup="dialog" disabled={library.loading || Boolean(library.error)}
-            onClick={() => open({ kind: "schedule" })}><span className="tile mint"><Settings2 size={18} /></span><strong>个人计划设置</strong><ChevronRight size={16} /></button>}
-          {library.error && <button className="button outline small" type="button" onClick={() => void library.load()}>{library.error}</button>}
-        </section>}
+        {view === "settings" && <div className="feature-stack">
+          <section className="card padded feature-stack">
+            <h2>训练偏好</h2>
+            <ProteinCheck label="显示蛋白粉打卡" checked={trackProtein} disabled={!viewer || library.loading || Boolean(library.error)}
+              save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
+            <p className="muted">{viewer ? "开启后，训练结束时可以勾选是否已喝蛋白粉。" : "登录后可以保存训练偏好。"}</p>
+            {viewer && <button className="list-line" type="button" aria-haspopup="dialog" disabled={library.loading || Boolean(library.error)}
+              onClick={() => open({ kind: "schedule" })}><span className="tile mint"><Settings2 size={18} /></span><strong>个人计划设置</strong><ChevronRight size={16} /></button>}
+            {library.error && <button className="button outline small" type="button" onClick={() => void library.load()}>{library.error}</button>}
+          </section>
+          {viewer && <section className="card padded">
+            <button className="list-line" type="button" aria-haspopup="dialog" onClick={() => open({ kind: "friend-sharing" })}>
+              <span className="tile lilac"><Users size={18} /></span><strong>好友分享设置</strong><ChevronRight size={16} />
+            </button>
+          </section>}
+        </div>}
         {view === "more" && <section className="card padded feature-stack">
           {navigation.filter((item) => !item.mobile).map(({ id, icon: Icon, title }) =>
             <button key={id} className="list-line" type="button" onClick={() => go(id)}><span className="tile mint"><Icon size={18} /></span><strong>{title}</strong><ChevronRight size={16} /></button>)}
@@ -637,6 +644,9 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     {overlay?.kind === "launch" && <TrainingLaunch close={close} start={(kind) => begin(undefined, kind)}
       rest={viewer && !library.loading && !library.error ? () => open({ kind: "schedule", restDay: today }) : undefined}
       body={() => { close(); go("body"); }} />}
+    {overlay?.kind === "friend-sharing" && <Dialog title="好友分享设置" className="friend-settings-dialog" onClose={close}>
+      <div className="dialog-body"><FriendsView enabled={Boolean(viewer)} today={today} sharingOnly /></div>
+    </Dialog>}
     {overlay?.kind === "schedule" && <ScheduleSettings
       settings={schedule} restDay={overlay.restDay} close={close} save={async (values) => {
       await library.save({ kind: "schedule", values }); setToast("计划设置已保存");
@@ -685,13 +695,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       onTemplate={viewer && overlay.log.owner === me.id ? () => openTemplate(overlay.log.data.plan) : undefined} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
-        {viewer && !partner && <p className="muted">配对后，双方始终可以查看彼此的训练打卡和训练详情。饮食记录默认共享，可在「好友」里关闭。</p>}
+        {viewer && !partner && <p className="muted">配对后，双方始终可以查看彼此的训练打卡和训练详情。饮食记录默认共享，可在「设置 → 好友分享设置」里关闭。</p>}
         {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :
           partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partner.name}</strong><small>可以查看彼此的打卡和训练详情。</small></div><span className="state-tag checked">已连接</span></div> :
           room?.invite ? <><p className="muted">把邀请码发给搭子。对方需要先有网站访问权限，再登录并输入邀请码。</p><input aria-label="搭子邀请码" value={room.invite} readOnly onFocus={(e) => e.target.select()} /><button className="button primary" onClick={() => void copy(room.invite!, "已复制邀请码")}><Copy size={17} /> 复制邀请码</button></> :
           <><button className="button primary" disabled={busy} onClick={() => void act(async () => { await post({ action: "create" }); await refresh(); })}><Users size={18} /> 创建搭子空间</button>
             <form className="form-fields join-form" onSubmit={(e) => { e.preventDefault(); void act(async () => { await post({ action: "join", invite: invite.trim().toLowerCase() }); await refresh(); setInvite(""); setToast("搭子已连接"); }); }}><label>已有邀请码<input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="粘贴搭子的邀请码" autoCapitalize="none" spellCheck={false} /></label><button className="button outline" disabled={busy || !/^[a-fA-F0-9]{32}$/.test(invite.trim())}>加入搭子空间</button></form></>}
-        {partner && !demo && <button className="button outline" type="button" onClick={() => { close(); showBuddy(); }}>查看搭子和分享设置</button>}
+        {partner && !demo && <button className="button outline" type="button" onClick={() => { close(); showBuddy(); }}>查看搭子记录</button>}
         {warning && <p className="inline-error" role="alert">{warning}</p>}
         {viewer && <a className="text-button sign-out" href="/signout-with-chatgpt?return_to=%2F" target="_top">退出 {me.name} 的账号</a>}
       </div>

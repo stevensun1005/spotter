@@ -39,6 +39,7 @@
 .friend-share-option strong { font-weight: 720; }
 .friend-share-option small { color: var(--muted); }
 .friend-sharing .button, .friend-remove { justify-self: start; }
+.friend-settings-dialog :is(.friend-list, .friend-sharing) { padding: 0; border: 0; box-shadow: none; }
 .friend-remove { color: #9d352e; min-height: 44px; }
 .friend-invite-consent { display: grid; gap: 5px; padding: 11px 13px; border-radius: 10px; background: var(--mint); color: #385139; }
 .friend-invite-consent p { font-size: .88rem; line-height: 1.45; }
