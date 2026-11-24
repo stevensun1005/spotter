@@ -14,8 +14,11 @@ function checkedWebRelease(plist) {
   }));
   const url = new URL(release?.origin);
   const sha = /^[a-f0-9]{40}$/;
+  const sitesSnapshot = /^origin\/sites\/[a-zA-Z0-9._-]+$/.test(release.exportRef);
+  const cloudflareSource = release.hosting === "cloudflare" && release.exportRef === "origin/codex/cloudflare-free" &&
+      release.exportCommit === release.sourceCommit;
   if (url.protocol !== "https:" || url.origin !== release.origin || !Number.isSafeInteger(release.version) || release.version < 1 ||
-      !/^origin\/sites\/[a-zA-Z0-9._-]+$/.test(release.exportRef) || !sha.test(release.sourceCommit) || !sha.test(release.exportCommit)) {
+      !(sitesSnapshot || cloudflareSource) || !sha.test(release.sourceCommit) || !sha.test(release.exportCommit)) {
     throw new Error("请在 Info.plist 核对默认站点的已发布版本和源码快照。");
   }
   let remoteCommit;

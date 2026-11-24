@@ -15,7 +15,7 @@ enum AppNavigationPolicy: Equatable {
 /// The web app remains the source of training features; this value identifies its trusted origin.
 struct AppConfiguration: Equatable, Sendable {
     private static var webRelease: [String: Any]? { Bundle.main.object(forInfoDictionaryKey: "SpotterWebRelease") as? [String: Any] }
-    static var defaultOrigin: String { webRelease?["origin"] as? String ?? "https://spotter-duo.stezero.chatgpt.site" }
+    static var defaultOrigin: String { webRelease?["origin"] as? String ?? "https://spotter-free.couple-ledger-service.workers.dev" }
     let origin: String
     var url: URL { URL(string: origin)! }
 

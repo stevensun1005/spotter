@@ -17,15 +17,17 @@
     <key>SpotterWebRelease</key>
     <dict>
         <key>origin</key>
-        <string>https://spotter-duo.stezero.chatgpt.site</string>
+        <string>https://spotter-free.couple-ledger-service.workers.dev</string>
+        <key>hosting</key>
+        <string>cloudflare</string>
         <key>version</key>
         <integer>78</integer>
         <key>sourceCommit</key>
-        <string>056647b6c9b1c3e5dbf456e19ceb6c8a699f1407</string>
+        <string>6ab7514d1d3fc86f2914d191b602c6b3dff96f68</string>
         <key>exportRef</key>
-        <string>origin/sites/source-2026-11-24-v78</string>
+        <string>origin/codex/cloudflare-free</string>
         <key>exportCommit</key>
-        <string>f700b279160af034ef0bc79acb10b05ca8b6a47f</string>
+        <string>6ab7514d1d3fc86f2914d191b602c6b3dff96f68</string>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>

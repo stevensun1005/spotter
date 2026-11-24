@@ -1,10 +1,11 @@
 # 训练搭子 iPhone App 开发版
 
-本轮 App 为 1.0（构建 3），连接私密 Sites 已发布的第 78 版。App 的站点设置显示原生构建号和打包时核对的网页版本，构建清单记录原生和网页的源码。
+本轮 App 为 1.0（构建 4），默认连接由 Sites 第 78 版移植的 [Cloudflare 独立试用版](https://spotter-free.couple-ledger-service.workers.dev)。站点设置显示原生构建号和打包时核对的网页版本，构建清单记录两边的源码。
 
 ## 第 78 版核对
 
 - Sites 第 78 版发布源码为 `056647b6c9b1c3e5dbf456e19ceb6c8a699f1407`。GitHub 快照 `origin/sites/source-2026-11-24-v78` 的提交 `f700b279160af034ef0bc79acb10b05ca8b6a47f` 与发布源码逐一核对了 3,486 个路径，差异仅为 `.openai/hosting.json` 中的项目 ID。
+- Cloudflare 部署源码为 `origin/codex/cloudflare-free` 的提交 `6ab7514d1d3fc86f2914d191b602c6b3dff96f68`。使用独立 D1 及邮箱访问码登录，AI 运行时密钥单独保存在 Cloudflare。
 - 第 78 版包含另一台电脑已推送的计划导入和「用自己的 AI」更新，以及右侧 AI 入口、半屏对话、推荐回复和拖动全屏。AI 对话、自动生成计划和照片识别共用 Sites 的 Haiku 5.5 medium 配置。
 - App 给默认站点的四个左侧底栏入口增加半透明玻璃底座和随选择滑动的高光。WebKit 在主页面的隔离脚本中加载样式，复用原有按钮及其无障碍状态。右侧 AI 按钮有独立入口。支持深色主题以及减少动态效果和降低透明度的偏好。
 - 原生 App 补充了餐食拍照和饮食语音录入的系统用途说明。相机和语音识别由系统权限与 WebKit 功能决定，真机授权和实际录入仍待验证。
@@ -13,7 +14,7 @@
 
 - 现有 `ios/SpotterHealth.xcodeproj` 增加 **Spotter** scheme，产品为 **Spotter.app**，显示名称为「训练搭子」。旧 SpotterHealth scheme 继续可构建同一产品。
 - 训练、计划、逐组记录、历史、统计和搭子功能复用所选站点的网页代码，由 WKWebView 加载；没有复制一份冻结的 React 页面。这是混合 App，仍需要服务端，不能称为全部离线或纯 Swift 原生重写。
-- 默认打开现有私密 Sites。原有登录与数据仍受该站点的权限控制，App 不会为其生成绕过登录的令牌，也不会迁移、发布或修改其数据。
+- 默认打开 Cloudflare 试用站。之前的私密 Sites 可在站点设置选择，两站使用各自的登录会话和数据。
 - 网站可在 App 的设置中改为其他 HTTPS origin。地址不接受 HTTP、路径、账号或查询参数。网页 Cookie/草稿使用持久 WebKit 数据存储；设备健康令牌继续在 Keychain，两者不混用。
 - 原生顶部提供健康入口、刷新和设置；站内导航保留在 App，普通视频外链交给系统浏览器。同源导出文件通过系统分享面板交付，临时文件在分享结束后清理。
 - 加载失败有重试入口。训练页的草稿沿用原有网页规则；没有承诺首次离线启动、离线查看全部历史或脱网云端打卡。
@@ -26,7 +27,7 @@ WebView 只由原生向可信同源主页面发起 `/api/state` 读取，传出�
 
 新增 `GET /api/health/apple/device`，仅接受既有设备 Bearer 令牌，返回该令牌绑定的账号。客户端不能用 query 或 body 选择 owner。这个接口只存在于本轮独立版源码，不能据此声称当前 Sites 已有原生健康接口。
 
-当前 Sites 仍使用快捷指令链路；Sites 平台登录在 WKWebView 中的实际闭环、原生健康接入、Apple Watch 授权和真机安装仍需后续验收。有效的 development provisioning profile、签名团队/Bundle ID 和可由手机访问的测试服务仍是设备验收条件，详见 [健康交接](health-device-sync.md)。
+Cloudflare 试用站支持 `/api/state` 的账号核对。原生 Apple Health 配对和同步需要独立 Node 服务的接口。Apple Watch 授权、真机安装与同步仍需签名和可由手机访问的测试服务验收，详见 [健康交接](health-device-sync.md)。
 
 ## 本地构建与打包
 
@@ -45,7 +46,7 @@ npm run ios:package
 
 打包工具在构建前后各拉取并核对 `origin/main`、`origin/codex/health-device-sync`、`origin/codex/spotter-iphone-app` 是否都已包含在当前 HEAD 中。存在未提交源码、远端遗漏或构建期间发生变化时拒绝打包；它不自动合并或覆盖源码。
 
-产物是被 Git 忽略的 `outputs/Spotter-Simulator-<commit>.zip` 和同名 JSON 记录，包含构建 commit、分支和核验的远端 SHA。打包还核验 App 内的 `SpotterWebRelease` 和拉取到的 GitHub 网页快照。Sites 的发布状态由发布记录另行核对。网页加载实时站点，构建记录中的版本用于追溯。**这是 iOS 模拟器开发包，不能直接安装到真实 iPhone。**
+产物是被 Git 忽略的 `outputs/Spotter-Simulator-<commit>.zip` 和同名 JSON 记录，包含构建 commit、分支和核验的远端 SHA。打包还核验 App 内的 `SpotterWebRelease` 和拉取到的 GitHub 网页部署分支或快照。托管发布状态由发布记录另行核对。网页加载实时站点，构建记录中的版本用于追溯。**这是 iOS 模拟器开发包，不能直接安装到真实 iPhone。**
 
 ## 已运行的验证
 
