@@ -31,7 +31,7 @@ import type { PlanAssistantMode } from "@/features/ai-coach/mode-tabs";
 import { readActivitySummary } from "@/features/ai-coach/activity-summary";
 import { CoachSheet, type CoachSheetSize } from "@/features/ai-coach/coach-sheet";
 import { ImportView } from "@/features/import/import-view";
-import { signInPath } from "@/features/auth/paths";
+import { appSessionRecoveryPath, signInPath } from "@/features/auth/paths";
 import type { OAuthNotice } from "@/features/auth/oauth-ui";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
@@ -133,9 +133,9 @@ async function uploadCheckin(body: CheckinUpload): Promise<CheckinReceipt> {
 const message = (reason: unknown, fallback: string) =>
   reason instanceof Error && reason.name === "Error" ? reason.message : fallback;
 
-export default function Dashboard({ viewer, initialDate, initialWorkoutId, heartReturn, profileRef, authNotice }: {
+export default function Dashboard({ viewer, requiresSignIn, initialDate, initialWorkoutId, heartReturn, profileRef, authNotice }: {
   viewer: State["me"] | null; initialDate: string; initialWorkoutId?: string; heartReturn?: { id: string; result: WhoopStatus }; profileRef?: string;
-  authNotice?: OAuthNotice;
+  authNotice?: OAuthNotice; requiresSignIn: boolean;
 }) {
   const [today, setToday] = useState(initialDate);
   const [selected, setSelected] = useState(initialDate);
@@ -189,6 +189,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queue = useRef(Promise.resolve());
   const refreshId = useRef(0);
+  const [sessionRedirect, setSessionRedirect] = useState(false);
+  const redirecting = useRef(false);
   const draftKey = "spotter-drafts:" + (viewer?.id ?? "demo");
   const liveClocks = useMemo(() => makeWorkoutTabClocks("spotter-workout-clocks:" + (viewer?.id ?? "demo")), [viewer?.id]);
   const [sync, setSync] = useState("正在保存");
@@ -218,15 +220,28 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     } catch { /* Browser storage may be disabled. */ }
   }, [draftKey]);
 
+  const recoverSession = useCallback((status: "expired" | "account-changed") => {
+    const { pathname, search, hash } = window.location;
+    const destination = appSessionRecoveryPath(requiresSignIn, status, pathname + search + hash);
+    if (!destination || redirecting.current) return;
+    redirecting.current = true;
+    ++refreshId.current;
+    setSessionRedirect(true);
+    window.location.replace(destination);
+  }, [requiresSignIn]);
+
   const refresh = useCallback(async () => {
-    if (!viewer) return;
+    if (!viewer || redirecting.current) return;
     const generation = ++refreshId.current;
     try {
       const response = await fetch("/api/workout", { cache: "no-store", signal: AbortSignal.timeout(10000) });
+      if (generation !== refreshId.current) return;
+      if (response.status === 401 && requiresSignIn) { recoverSession("expired"); return; }
       if (!response.ok) throw new Error();
       const next: State = await response.json();
       if (generation !== refreshId.current) return;
       if (next.me.id !== viewer.id) {
+        if (requiresSignIn) { recoverSession("account-changed"); return; }
         setCloud("登录账号已切换");
         return;
       }
@@ -235,7 +250,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     } catch {
       if (generation === refreshId.current) setCloud("云端连接异常");
     }
-  }, [viewer]);
+  }, [viewer, requiresSignIn, recoverSession]);
 
   const receiveCheckin = useCallback((record: QueuedCheckin) => {
     if (record.owner !== viewer?.id) return;
@@ -254,7 +269,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     if (!viewer) { setSync("本机草稿"); return; }
     const snapshot = pauseClock(data);
     queue.current = queue.current.then(async () => {
-      if (!navigator.onLine || hasQueuedCheckin(id) || deletedDrafts.current.has(id) || pendingRef.current[id] !== data) return;
+      if (redirecting.current || !navigator.onLine || hasQueuedCheckin(id) || deletedDrafts.current.has(id) || pendingRef.current[id] !== data) return;
       setSync("正在保存");
       try {
         await post({ action: "draft", id, data: snapshot, expectedOwner: viewer.id });
@@ -270,17 +285,21 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           return { ...current, entries: [entry, ...current.entries.filter((row) => row.id !== id || row.owner !== viewer.id)] };
         });
       } catch (reason) {
-        if ((reason as { status?: number })?.status === 409) {
+        const status = (reason as { status?: number })?.status;
+        if (status === 409) {
           liveClocks.forget(id);
           const next = { ...pendingRef.current };
           delete next[id];
           setPending(next);
           setSync("已在其他设备打卡");
           void refresh();
-        } else setSync("草稿待同步");
+        } else {
+          setSync("草稿待同步");
+          if (requiresSignIn && (status === 401 || status === 403)) void refresh();
+        }
       }
     });
-  }, [viewer, setPending, refresh, hasQueuedCheckin, liveClocks]);
+  }, [viewer, setPending, refresh, hasQueuedCheckin, liveClocks, requiresSignIn]);
 
   useEffect(() => {
     let drafts: Record<string, Session> = {};
@@ -299,15 +318,17 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     const regainVisibility = () => { if (document.visibilityState === "visible") wake(); };
     window.addEventListener("online", wake);
     window.addEventListener("focus", wake);
+    if (requiresSignIn) window.addEventListener("pageshow", regainVisibility);
     document.addEventListener("visibilitychange", regainVisibility);
     return () => {
       clearInterval(timer);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       window.removeEventListener("online", wake);
       window.removeEventListener("focus", wake);
+      window.removeEventListener("pageshow", regainVisibility);
       document.removeEventListener("visibilitychange", regainVisibility);
     };
-  }, [draftKey, flushDraft, refresh, reloadLibrary, setPending]);
+  }, [draftKey, flushDraft, refresh, reloadLibrary, setPending, requiresSignIn]);
 
   useEffect(() => {
     if (!toast) return;
@@ -716,6 +737,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     choice={exercise} close={() => setExercise(undefined)} maxFormula={display.maxFormula} sex={exerciseOwner.anatomyVariant ?? null}
     select={(choice) => setExerciseSelection({ choice, owner: exerciseOwner.id })} profiles={profiles} names={exerciseNames} logs={logs} owner={exerciseOwner.id}
     save={(item) => library.save({ kind: "exercise", item })} addToPlan={trainingNav.id ? undefined : planExercise} />;
+
+  if (sessionRedirect) return <main className="content" role="status">正在验证登录状态…</main>;
 
   if (trainingNav.id) {
     if (overlay?.kind === "session" && overlay.id === trainingNav.id && !completedWorkout) {
