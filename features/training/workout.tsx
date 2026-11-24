@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BookOpen, Pause, Play, ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, Clock3, Dumbbell, Keyboard, Plus } from "lucide-react";
-import { VideoLink } from "@/shared/ui";
+import { Dialog, VideoLink } from "@/shared/ui";
 import { sessionTotals, type Session } from "./model";
 import { appendSet, changeNumber, changeSet, copySetNumber, decimalField, fieldValue, flipWeightUnit, validNumberText, type NumberField, type SetTarget } from "./set-editor";
 import { fieldLabels, SetRow } from "./set-row";
@@ -29,6 +29,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const [focusSet, setFocusSet] = useState<SetPosition>();
   const movedFocus = useRef<SetPosition>(undefined);
   const [restSetting, setRestSetting] = useState(false);
+  const [confirmFinish, setConfirmFinish] = useState(false);
   const [picker, setPicker] = useState<number>();
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
@@ -62,6 +63,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const restSeconds = data.defaultRestOverride ?? defaultRest(plan);
   const done = sessionTotals(data).sets;
   const total = data.rows.flat().length;
+  const showFinish = trackProtein && confirmFinish;
 
   function activate(target: SetTarget, session = data) {
     const value = fieldValue(session.rows[target.move][target.row], target.field);
@@ -232,16 +234,24 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
           <label>实际时长（分钟）<input type="number" min={0} max={720} value={data.minutes || ""} onFocus={() => setEdit(null)} placeholder="留空时使用计时" onChange={(e) => update({ ...data, minutes: Math.max(0, Math.min(720, Math.trunc(Number(e.target.value)))) })} /></label>
         </div>
       </fieldset>
-      {error && <p className="inline-error" role="alert">{error}</p>}
+      {error && !showFinish && <p className="inline-error" role="alert">{error}</p>}
     </div>
-    {trackProtein && !edit && <div className="protein-workout">
-      <ProteinCheck checked={data.proteinShake === true} disabled={pending} save={(proteinShake) => update({ ...data, proteinShake })} />
-    </div>}
     {edit ? renderPad() : <div className="training-footer">
       {total > 0 && <button className="button outline" onClick={openKeypad} disabled={pending}><Keyboard size={18} /> 数字键盘</button>}
-      <button className="button primary" disabled={pending || (!done && !data.finishedVideo)} onClick={finish}><Check size={18} /> {pending ? "正在保存" : "完成打卡"}</button>
+      <button className="button primary" disabled={pending || (!done && !data.finishedVideo)}
+        onClick={() => { if (trackProtein) setConfirmFinish(true); else finish(); }}><Check size={18} /> {pending ? "正在保存" : "完成打卡"}</button>
     </div>}
     </div>
+    {showFinish && <Dialog title="完成训练" onClose={() => { if (!pending) setConfirmFinish(false); }}>
+      <div className="dialog-body">
+        <ProteinCheck checked={data.proteinShake === true} disabled={pending} save={(proteinShake) => update({ ...data, proteinShake })} />
+        {error && <p className="inline-error" role="alert">{error}</p>}
+      </div>
+      <div className="dialog-footer">
+        <button className="button outline" type="button" disabled={pending} onClick={() => setConfirmFinish(false)}>返回训练</button>
+        <button className="button primary" type="button" disabled={pending} onClick={finish}><Check size={18} /> {pending ? "正在保存" : "保存打卡"}</button>
+      </div>
+    </Dialog>}
     {picker !== undefined && <ExercisePicker allowBlank={false} prior={data.plan.exercises[picker]} names={data.plan.exercises.map((move) => move.name)} close={() => setPicker(undefined)} onUse={useExercise} />}
   </main>;
 }

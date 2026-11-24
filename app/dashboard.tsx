@@ -42,7 +42,7 @@ import { BodyView } from "@/features/body/body-view";
 import { DataView } from "@/features/data/data-view";
 import { HardDriveDownload, Ruler } from "lucide-react";
 
-type View = "today" | "plans" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "more";
+type View = "today" | "plans" | "stats" | "friends" | "import" | "nutrition" | "body" | "data" | "settings" | "more";
 type KeyedPlan = { id: string; data: Plan };
 type Overlay = { kind: "pair" | "schedule" } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
@@ -55,6 +55,7 @@ const navigation = [
   { id: "body", title: "身体数据", mobile: "", icon: Ruler },
   { id: "data", title: "数据导出与导入", mobile: "", icon: HardDriveDownload },
   { id: "import", title: "导入计划", mobile: "", icon: Sparkles },
+  { id: "settings", title: "设置", mobile: "", icon: Settings2 },
   { id: "more", title: "更多功能", mobile: "更多", icon: Menu },
 ] as const;
 const demoUser = { id: "demo", name: "我" };
@@ -546,14 +547,6 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             <div className="section-head section-break"><h2>{selected === today ? "今日训练" : shortDate(selected) + "的训练"}</h2><button className="text-button" onClick={() => go("plans")}>全部计划 <ChevronRight size={15} /></button></div>
             {selected === today && drafts.length > 0 && <section className="card plan-list">{drafts.map(([id, data]) => <div className="plan-line" key={id}><span className="tile mint"><Clock3 size={19} /></span><div><strong>{data.plan.title}</strong><small>{sessionTotals(data).sets} 组完成 · {pendingDrafts[id] && !demo ? "待同步" : "训练草稿"}</small></div><div className="plan-actions"><button className="button outline small" onClick={() => resumeDraft(id, data)}>继续</button>
               <button className="icon-button" aria-label={"删除草稿 " + data.plan.title} onClick={() => open({ kind: "delete", itemId: id, label: data.plan.title, type: "draft" })}><Trash2 size={16} /></button></div></div>)}</section>}
-            {trackProtein && selected === today && myToday.length > 0 && <section className="card padded">
-              <h3>今日打卡</h3>
-              {myToday.map((log) => <div className="protein-record" key={log.id}>
-                <button className="text-button" type="button" onClick={() => open({ kind: "log", log })}>{log.data.plan.title}</button>
-                <ProteinCheck checked={log.data.proteinShake === true}
-                  save={(proteinShake) => saveLogEdit(log, { ...log.data, proteinShake })} />
-              </div>)}
-            </section>}
             {current ? <>
               <section className={"card today-workout-card" + (current.data.durationNote ? " has-estimate" : "")}>
                 <div className="hero">
@@ -595,6 +588,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "nutrition" && <NutritionView enabled={Boolean(viewer)} today={today} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} />}
         {view === "data" && <DataView enabled={Boolean(viewer)} profileRef={profileRef} saved={() => { void refresh(); void library.load(); }} importPlans={() => go("import")} />}
+        {view === "settings" && <section className="card padded feature-stack">
+          <h2>训练偏好</h2>
+          <ProteinCheck label="显示蛋白粉打卡" checked={trackProtein} disabled={!viewer || library.loading || Boolean(library.error)}
+            save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
+          <p className="muted">{viewer ? "开启后，训练结束时可以勾选是否已喝蛋白粉。" : "登录后可以保存训练偏好。"}</p>
+          {library.error && <button className="button outline small" type="button" onClick={() => void library.load()}>{library.error}</button>}
+        </section>}
         {view === "more" && <section className="card padded feature-stack">
           {navigation.filter((item) => !item.mobile).map(({ id, icon: Icon, title }) =>
             <button key={id} className="list-line" type="button" onClick={() => go(id)}><span className="tile mint"><Icon size={18} /></span><strong>{title}</strong><ChevronRight size={16} /></button>)}
@@ -680,8 +680,6 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             <form className="form-fields join-form" onSubmit={(e) => { e.preventDefault(); void act(async () => { await post({ action: "join", invite: invite.trim().toLowerCase() }); await refresh(); setInvite(""); setToast("搭子已连接"); }); }}><label>已有邀请码<input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="粘贴搭子的邀请码" autoCapitalize="none" spellCheck={false} /></label><button className="button outline" disabled={busy || !/^[a-fA-F0-9]{32}$/.test(invite.trim())}>加入搭子空间</button></form></>}
         {partner && !demo && <button className="button outline" type="button" onClick={() => { close(); showBuddy(); }}>查看搭子和分享设置</button>}
         {warning && <p className="inline-error" role="alert">{warning}</p>}
-        {viewer && <ProteinCheck label="显示蛋白粉打卡" checked={trackProtein}
-          disabled={library.loading} save={(enabled) => library.save({ kind: "protein-preference", enabled })} />}
         {viewer && <a className="text-button sign-out" href="/signout-with-chatgpt?return_to=%2F" target="_top">退出 {me.name} 的账号</a>}
       </div>
     </Dialog>}
