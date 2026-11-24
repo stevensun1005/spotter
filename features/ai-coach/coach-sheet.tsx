@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from "react";
-import { Sparkles, X } from "lucide-react";
+import { X } from "lucide-react";
+import { CoachModeTabs, type PlanAssistantMode } from "./mode-tabs";
 
 export type CoachSheetSize = "half" | "full";
 
@@ -14,9 +15,11 @@ function isBackdrop(event: PointerEvent<HTMLDialogElement>) {
   return event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom;
 }
 
-export function CoachSheet({ size, inlineOpen, onResize, onClose, children }: {
+export function CoachSheet({ size, inlineOpen, mode, onModeChange, onResize, onClose, children }: {
   size?: CoachSheetSize;
   inlineOpen: boolean;
+  mode: PlanAssistantMode;
+  onModeChange: (mode: PlanAssistantMode) => void;
   onResize: (size: CoachSheetSize) => void;
   onClose: () => void;
   children: ReactNode;
@@ -129,7 +132,7 @@ export function CoachSheet({ size, inlineOpen, onResize, onClose, children }: {
       backdropClick.current = false;
     }}>
     {modal && <header className="coach-sheet-header">
-      <h1 className="coach-sheet-title"><Sparkles size={19} aria-hidden="true" />AI 教练</h1>
+      <h1 className="sr-only">AI 教练</h1>
       <button className="coach-sheet-handle" type="button" aria-label={resizeLabel} aria-expanded={size === "full"} title={resizeLabel}
         onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={finishDrag}
         onPointerCancel={cancelDrag} onLostPointerCapture={cancelDrag}
@@ -140,6 +143,7 @@ export function CoachSheet({ size, inlineOpen, onResize, onClose, children }: {
           }
           onResize(size === "full" ? "half" : "full");
         }}><span aria-hidden="true" /></button>
+      <CoachModeTabs mode={mode} onChange={onModeChange} />
       <button className="coach-sheet-close" type="button" aria-label="关闭 AI 教练" title="关闭 AI 教练" onClick={onClose}>
         <X size={19} aria-hidden="true" />
       </button>

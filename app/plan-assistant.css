@@ -32,7 +32,6 @@
 .plan-assistant-related p { font-size: .9rem; line-height: 1.6; margin-top: 5px; }
 .plan-import-stack .import-form { margin-top: 0; }
 .plan-import-stack .import-preview { min-width: 0; }
-.coach-review { scroll-margin-top: calc(60px + env(safe-area-inset-top)); }
 @media (max-width: 620px) {
   .plan-prompt-intent { width: 100%; }
   .plan-assistant .exercise-toolbar { flex-wrap: wrap; }

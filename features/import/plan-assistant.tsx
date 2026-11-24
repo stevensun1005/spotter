@@ -1,46 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CalendarClock, ChevronLeft, Clipboard, Sparkles } from "lucide-react";
 import { AgentAccessPanel } from "@/features/agent-access/access-panel";
-import { AiCoachPanel, type CoachShortcuts } from "@/features/ai-coach/chat-panel";
-import type { Plan, PlannedWorkout } from "@/features/plans/model";
-import { PlanImportReview } from "./import-view";
+import { AiCoachPanel, type CoachActions } from "@/features/ai-coach/chat-panel";
+import { CoachModeTabs, type PlanAssistantMode } from "@/features/ai-coach/mode-tabs";
 import { planAiPrompt, type PlanAiIntent } from "./ai-instructions";
 
-export type PlanAssistantMode = "coach" | "ai";
-
-export function PlanAssistant({ today, selectedDate, save, saved, owner, profileRef, active, mode, onModeChange, onBack, backLabel,
-  mealPhoto, onPrograms, onData, coachShortcuts, inSheet, compact, onExpandCoach }: {
-  today: string; selectedDate: string; save: (plans: PlannedWorkout[], revise: boolean) => Promise<void>; saved: () => void;
+export function PlanAssistant({ today, selectedDate, saved, owner, profileRef, active, mode, onModeChange, onBack, backLabel,
+  mealPhoto, mealPhotoId, mealResult, onDismissMeal, onPrograms, onData, coachActions, inSheet, compact, onExpandCoach }: {
+  today: string; selectedDate: string; saved: () => void;
   owner?: string; profileRef?: string; active: boolean;
   mode: PlanAssistantMode; onModeChange: (mode: PlanAssistantMode) => void; onPrograms: () => void; onData: () => void;
-  onBack: () => void; backLabel: string; mealPhoto?: ReactNode;
-  coachShortcuts?: CoachShortcuts; inSheet?: boolean; compact?: boolean; onExpandCoach?: () => void;
+  onBack: () => void; backLabel: string; mealPhoto?: ReactNode; mealPhotoId?: string;
+  mealResult?: { id: string; message: string }; onDismissMeal?: () => void;
+  coachActions?: CoachActions; inSheet?: boolean; compact?: boolean; onExpandCoach?: () => void;
 }) {
   const [intent, setIntent] = useState<PlanAiIntent>("create");
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptMessage, setPromptMessage] = useState("");
-  const [review, setReview] = useState<{ source: Plan[]; plans: PlannedWorkout[] }>();
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [savedDrafts, setSavedDrafts] = useState(() => new Set<Plan[]>());
-  const [savingDraft, setSavingDraft] = useState(false);
-  const reviewTarget = useRef<HTMLDivElement>(null);
-  const hasMealPhoto = Boolean(mealPhoto) && !inSheet;
-  useEffect(() => {
-    if (!active || mode !== "coach" || hasMealPhoto || !reviewOpen) return;
-    reviewTarget.current?.scrollIntoView({ block: "start" });
-    reviewTarget.current?.focus({ preventScroll: true });
-  }, [active, mode, hasMealPhoto, reviewOpen]);
   const prompt = planAiPrompt(today, intent);
-  function openReview() {
-    onExpandCoach?.();
-    setReviewOpen(true);
-  }
-  function reviewDraft(plans: Plan[]) {
-    setReview({ source: plans, plans: plans.map((data) => ({ id: crypto.randomUUID(), data: { ...data, shared: false } })) });
-    openReview();
-  }
   async function copyPrompt() {
     try { await navigator.clipboard.writeText(prompt); setPromptMessage("已复制计划提示词。生成 JSON 后，到设置里的「粘贴已有内容」预览。"); }
     catch { setShowPrompt(true); setPromptMessage("可以在下方选中并复制提示词。"); }
@@ -50,27 +29,12 @@ export function PlanAssistant({ today, selectedDate, save, saved, owner, profile
     {!inSheet && <header className="ai-assistant-header">
       <h1 className="sr-only">AI 教练</h1>
       <button className="icon-button ai-assistant-back" type="button" onClick={onBack} aria-label={backLabel}><ChevronLeft size={20} aria-hidden="true" /></button>
-      <div className="ai-assistant-tabs" role="group" aria-label="选择 AI">
-        <button type="button" aria-pressed={mode === "coach"} onClick={() => onModeChange("coach")}>站内 AI</button>
-        <button type="button" aria-pressed={mode === "ai"} onClick={() => onModeChange("ai")}>用自己的 AI</button>
-      </div>
+      <CoachModeTabs mode={mode} onChange={onModeChange} />
     </header>}
-    {mealPhoto && <div hidden={mode !== "coach" || inSheet}>{mealPhoto}</div>}
-    <div hidden={mode !== "coach" || hasMealPhoto}>
-      <div hidden={reviewOpen}><AiCoachPanel active={active && mode === "coach" && !hasMealPhoto && !reviewOpen} owner={owner} selectedDate={selectedDate}
-        compact={compact} onExpand={onExpandCoach} onReview={reviewDraft} shortcuts={coachShortcuts}
-        savedDrafts={savedDrafts} resumeReview={review ? openReview : undefined} /></div>
-      {review && <div className="coach-review" hidden={!reviewOpen} tabIndex={-1} ref={reviewTarget}>
-        <div className="feature-stack">
-          <div className="exercise-toolbar">
-            <button type="button" className="button outline small" disabled={savingDraft} onClick={() => setReviewOpen(false)}>返回 AI 教练</button>
-            <button type="button" className="button subtle small" disabled={savingDraft} onClick={() => { setReview(undefined); setReviewOpen(false); }}>取消核对</button>
-          </div>
-          <PlanImportReview plans={review.plans} save={save} busyChanged={setSavingDraft} aiDraft saved={() => {
-            setSavedDrafts((previous) => new Set(previous).add(review.source)); setReview(undefined); setReviewOpen(false); saved();
-          }} />
-        </div>
-      </div>}
+    <div hidden={mode !== "coach"}>
+      <AiCoachPanel active={active && mode === "coach"} owner={owner} today={today} selectedDate={selectedDate}
+        compact={compact} onExpand={onExpandCoach} actions={coachActions} mealPhoto={mealPhoto}
+        mealPhotoId={mealPhotoId} mealResult={mealResult} onDismissMeal={onDismissMeal} />
     </div>
     <div hidden={mode !== "ai"} className="plan-ai-stack">
       <section className="card padded feature-stack plan-prompt-card">

@@ -53,28 +53,13 @@
 
 .coach-sheet-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 350px) 44px;
+  justify-content: space-between;
   align-items: center;
+  column-gap: 5px;
   min-block-size: 53px;
   padding: 4px max(var(--coach-sheet-inset), env(safe-area-inset-right, 0px)) 4px max(var(--coach-sheet-inset), env(safe-area-inset-left, 0px));
   border-block-end: 1px solid #b6d2b022;
-}
-.coach-sheet-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: .95rem;
-  font-weight: 760;
-  line-height: 1.18;
-  white-space: nowrap;
-}
-.coach-sheet-title svg {
-  inline-size: 29px;
-  block-size: 29px;
-  padding: 6px;
-  border-radius: 9px;
-  background: var(--lime);
-  color: var(--dark);
 }
 .coach-sheet-handle, .coach-sheet-close {
   display: grid;
@@ -94,7 +79,7 @@
   cursor: grab;
 }
 .coach-sheet[data-dragging] .coach-sheet-handle { cursor: grabbing; }
-.coach-sheet-handle > span { inline-size: 39px; block-size: 5px; border-radius: 99px; background: #adc4b2; }
+.coach-sheet-handle > span { inline-size: 25px; block-size: 5px; border-radius: 99px; background: #adc4b2; }
 .coach-sheet-close { justify-self: end; inline-size: 44px; }
 .coach-sheet :is(.coach-sheet-close, .coach-sheet-handle):hover { background: #dcefd31a; color: var(--text); }
 .coach-sheet[data-size] :focus-visible { outline-color: var(--lime); }
@@ -109,7 +94,7 @@
   scrollbar-width: thin;
   padding: 10px max(var(--coach-sheet-inset), env(safe-area-inset-right, 0px)) max(9px, env(safe-area-inset-bottom, 0px)) max(var(--coach-sheet-inset), env(safe-area-inset-left, 0px));
 }
-.coach-sheet[data-size] :is(.plan-assistant, .plan-assistant > div:not([hidden]):has(> div > .coach-surface), .plan-assistant > div > div:not([hidden]):has(> .coach-surface)) {
+.coach-sheet[data-size] :is(.plan-assistant, .plan-assistant > div:not([hidden]):has(> .coach-surface)) {
   display: contents;
 }
 .coach-sheet[data-size] .coach-surface {
