@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { HttpError, json, publicOrigin, readJson } from "@/server/http";
-import { readSession, sessionCookie, sessionCookieName, sessionTokenHash, startAccountSession } from "./server";
+import { readCookie, readSession, sessionCookie, sessionCookieName, sessionTokenHash, startAccountSession } from "./server";
 import { authorizationUrl, exchangeAuthorizationCode, oauthProviders, opaqueToken, providerConfig, type OAuthProvider } from "./oauth-providers";
 import { beginOAuthFlow, consumeOAuthFlow, consumeOAuthGrant, inspectOAuthGrant, linkedProviders, linkOAuthAccount,
   loginOAuthAccount, proofCookie, proofCookieName, storeOAuthGrant } from "./oauth-store";
@@ -28,12 +28,6 @@ const errorMessages: Record<Failure, string> = {
   "link-conflict": "这个第三方账号已绑定到另一个训练搭子账号。",
   "link-already-bound": "当前账号已绑定此登录方式。",
 };
-
-function readCookie(request: Request, key: string) {
-  const matches = request.headers.get("cookie")?.split(";")
-    .map((part) => part.trim()).filter((part) => part.startsWith(key + "="));
-  return matches?.length === 1 ? matches[0].slice(key.length + 1) : undefined;
-}
 
 function protectedApi(handler: (request: Request) => Promise<Response>) {
   return async (request: Request) => {
@@ -137,7 +131,7 @@ export function oauthCallback(provider: OAuthProvider) {
       }
       const code = params.get("code");
       if (providerError || !code || code.length > 4096 || params.getAll("code").length !== 1) return failure(flow.account_id ? "link-error" : "oauth-error");
-      const identity = await exchangeAuthorizationCode(config, code, flow.nonce, flow.pkce ?? undefined);
+      const identity = await exchangeAuthorizationCode(config, code, flow.nonce, flow.pkce ?? undefined, env.SPOTTER_APPLE_TOKEN_KEY);
       const completionCode = await storeOAuthGrant(db, flow, identity);
       return flow.native ? nativeResult("code", completionCode)
         : siteRedirect("/api/auth/oauth/web/complete?" + new URLSearchParams({ code: completionCode }).toString());

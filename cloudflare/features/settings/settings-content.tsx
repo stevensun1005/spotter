@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CalendarDays, ClipboardList, Download, HeartPulse, Package, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
+import { CalendarDays, ClipboardList, Download, HeartPulse, LifeBuoy, Package, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
+import { DeleteAccount } from "@/features/auth/delete-account";
 import { signInPath, signOutEndpoint } from "@/features/auth/paths";
 import { OAuthControls } from "@/features/auth/oauth-controls";
 import type { OAuthNotice } from "@/features/auth/oauth-ui";
@@ -14,11 +15,12 @@ import { SettingsLink, SettingsRows, type SettingsPage } from "./settings-hub";
 import { WeightEntrySettings, WorkoutSettings } from "./workout-settings";
 
 export function SettingsContent({ page, open, owner, cloud, sex, authNotice, sync, pair, sharing, coaching, body,
-  schedule, programs, plans, planImport, latestWorkout, display, changeDisplay, protein, proteinWarehouse, data, agent }: {
+  schedule, programs, plans, planImport, latestWorkout, display, changeDisplay, protein, proteinWarehouse, data, agent, accountDeleted }: {
   page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string; cloud: string; sex?: AnatomyVariant; authNotice?: OAuthNotice;
   sync: () => void; pair: () => void; sharing?: () => void; coaching: () => void; body: () => void;
   schedule: () => void; programs: () => void; plans: () => void; planImport: ReactNode; latestWorkout?: () => void;
   display: DisplayPreferences; changeDisplay: ChangeDisplay; protein: ReactNode; proteinWarehouse: ReactNode; data: ReactNode; agent: ReactNode;
+  accountDeleted: (needsAppleRevocation: boolean) => void;
 }) {
   switch (page) {
     case "account": return <>
@@ -44,7 +46,11 @@ export function SettingsContent({ page, open, owner, cloud, sex, authNotice, syn
         <SettingsLink label="搭子空间" icon={Users} onClick={pair} />
         {sharing && <SettingsLink label="好友分享设置" detail="调整好友和搭子可见的数据" icon={ShieldCheck} onClick={sharing} />}
         <SettingsLink label="教练与学员" icon={Users} onClick={coaching} />
+        <a className="settings-row" href="/privacy">
+          <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span><strong>隐私政策</strong>
+        </a>
       </SettingsRows>
+      {owner && <SettingsRows><DeleteAccount key={owner} owner={owner} onDeleted={accountDeleted} /></SettingsRows>}
     </>;
     case "workout":
     case "advanced":
@@ -129,6 +135,9 @@ export function SettingsContent({ page, open, owner, cloud, sex, authNotice, syn
     case "about": return <>
       <SettingsRows title="训练搭子 · Spotter">
         <SettingsLink label="加载网站最新版本" detail="刷新当前浏览器" onClick={() => window.location.reload()} icon={RefreshCw} />
+        <a className="settings-row" href="/support">
+          <span className="settings-icon" data-tone="slate"><LifeBuoy size={18} aria-hidden="true" /></span><strong>帮助与支持</strong>
+        </a>
         <a className="settings-row" href="https://github.com/stevensun1005/spotter" target="_blank" rel="noreferrer">
           <span className="settings-icon" data-tone="slate"><ClipboardList size={18} aria-hidden="true" /></span><strong>源码和更新记录</strong>
         </a>

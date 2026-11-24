@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 
 const pages = {
-  account: { title: "账号", description: "个人资料、云端同步和隐私", keywords: "性别 肌群图 登录 退出 搭子 好友 分享 教练 sync account", icon: CircleUserRound, tone: "slate" },
+  account: { title: "账号", description: "个人资料、云端同步和隐私", keywords: "账户 性别 肌群图 登录 退出 删除 注销 搭子 好友 分享 教练 sync account delete", icon: CircleUserRound, tone: "slate" },
   workout: { title: "训练", description: "记录方式、默认值和训练画面", keywords: "屏幕常亮 组间休息 动画 蛋白粉 RPE workout", icon: Dumbbell, tone: "green" },
   proteinWarehouse: { title: "蛋白粉仓库", description: "常喝的蛋白粉、一勺粉量和杯量", keywords: "品牌 补剂 乳清 奶昔 克 毫升 protein powder", icon: Package, tone: "teal" },
   advanced: { title: "微调", description: "训练记录的进阶偏好", keywords: "键盘 自动 完成 收起 跳过 advance collapse", icon: Wrench, tone: "slate" },
@@ -23,7 +23,7 @@ const pages = {
   integrations: { title: "集成", description: "健康数据、AI 工具和文件导入", keywords: "数据 接口 下载 mcp api integrations", icon: Plug, tone: "indigo" },
   ai: { title: "AI 教练", description: "训练对话、计划草稿与 Agent 连接", keywords: "GPT Claude AI Haiku Sonnet 权限 账号识别码 Token 训练草稿", icon: Sparkles, tone: "green" },
   data: { title: "数据与备份", description: "导入、恢复及导出个人数据", keywords: "JSON CSV Excel 上传 导入 保存 backup export", icon: FolderArchive, tone: "blue" },
-  about: { title: "关于与更新", description: "刷新网站和添加到主屏幕", keywords: "安装 更新 版本 about update", icon: Info, tone: "slate" },
+  about: { title: "关于与更新", description: "帮助、更新和安装", keywords: "安装 更新 版本 帮助 支持 about update help support", icon: Info, tone: "slate" },
 } as const;
 export type SettingsPage = keyof typeof pages;
 export const settingsGroups: { title?: string; ids: SettingsPage[] }[] = [

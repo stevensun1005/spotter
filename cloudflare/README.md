@@ -149,6 +149,8 @@ npx --no-install wrangler deploy --config dist/server/wrangler.production.json
 
 先应用全部迁移。试用账号由管理员添加到 `spotter_access_accounts`，登录码使用至少 24 随机字节的 Base64url 字符串，D1 只保存登录码的 SHA-256。原生 App 用 `/api/state` 核对当前账号。Apple Health 配对和同步接口仍属于独立 Node 服务。
 
+启用 Apple 登录的部署需设置 Worker Secret `SPOTTER_APPLE_TOKEN_KEY`，值为随机 32 字节的 Base64url 字符串。它用于加密保存 Apple 撤销令牌。替换密钥前应安排已有令牌的迁移或重新授权。删除账号时，如无法从服务端撤销已绑定的 Apple 授权，登录页会指引用户在系统设置中撤销。
+
 在 Cloudflare Worker 设置中将 `ANTHROPIC_API_KEY` 配置为秘密，并设置 `AI_COACH_ENABLED=true`。所有已登录账号均可使用站内 AI，每个账号每个 UTC 自然月最多消耗 US$10。现有 Worker 运行时变量会在重新部署时保留。
 
 ## Diagnostic Commands

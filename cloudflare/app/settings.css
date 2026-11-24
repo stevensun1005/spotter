@@ -24,6 +24,11 @@
 .settings-icon[data-tone="green"] { background: #deefd8; color: #306437; }
 .settings-icon[data-tone="rose"] { background: #f8e5ef; color: #a33d6e; }
 .settings-icon[data-tone="red"] { background: #fce7e6; color: #a93f40; }
+.settings-delete-account strong { color: #9d3030; }
+.account-deletion-dialog .account-delete-confirm { background: #a02f36; color: #fff; }
+.account-deletion-dialog .account-delete-confirm:not(:disabled):hover { background: #85232a; }
+:root[data-spotter-theme="dark"] .settings-delete-account strong { color: #ffaea9; }
+:root[data-spotter-theme="dark"] .account-deletion-dialog :is(.dialog-heading, .dialog-footer) { background: var(--card); }
 .settings-icon[data-tone="orange"] { background: #faecd9; color: #91531c; }
 .settings-icon[data-tone="teal"] { background: #ddefeb; color: #2c6f65; }
 .settings-icon[data-tone="indigo"] { background: #e8ebfa; color: #4654a2; }
