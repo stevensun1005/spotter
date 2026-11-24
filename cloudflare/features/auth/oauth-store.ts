@@ -2,12 +2,15 @@ import { oauthDigest, randomOAuthToken, type OAuthProvider, type ProviderIdentit
 
 type Proof = {
   state_hash: string; provider: OAuthProvider; account_id: string | null; session_hash: string | null;
-  native: 0 | 1; proof: string;
+  native: 0 | 1 | 2; proof: string;
 };
 type OAuthFlow = Proof & { nonce: string; pkce: string | null };
-export type OAuthGrant = Proof & {
-  subject: string; email: string | null; display_name: string | null; apple_credential: string | null;
+export type OAuthIdentity = {
+  provider: OAuthProvider; subject: string; email: string | null; display_name: string | null; apple_credential: string | null;
 };
+type OAuthGrant = Proof & OAuthIdentity;
+type LinkSession = { owner: string; hash: string };
+const appleAppFlow = 2;
 
 const flowSeconds = 10 * 60;
 const grantSeconds = 90;
@@ -17,28 +20,42 @@ export const proofCookieName = (stateHash: string) => "__Host-spotter_oauth_" + 
 export const proofCookie = (stateHash: string, proof = "") =>
   `${proofCookieName(stateHash)}=${proof}; Max-Age=${proof ? flowSeconds + grantSeconds : 0}; Path=/; Secure; HttpOnly; SameSite=Lax`;
 
-export async function beginOAuthFlow(db: D1Database, provider: OAuthProvider, session?: { owner: string; hash: string }, challenge?: string) {
+export async function beginOAuthFlow(db: D1Database, provider: OAuthProvider, session?: LinkSession, challenge?: string,
+  surface?: "apple-app") {
   const state = randomOAuthToken();
   const stateHash = await oauthDigest(state);
   const nonce = randomOAuthToken();
   const pkce = provider === "google" ? randomOAuthToken() : undefined;
   const browserProof = challenge ? undefined : randomOAuthToken();
   const proof = challenge ?? await oauthDigest(browserProof!);
+  const flowKind = surface === "apple-app" ? appleAppFlow : challenge ? 1 : 0;
   const now = seconds();
   await db.batch([
     db.prepare("DELETE FROM spotter_oauth_flows WHERE expires_at <= ?").bind(now),
     db.prepare("DELETE FROM spotter_oauth_grants WHERE expires_at <= ?").bind(now),
     db.prepare("INSERT INTO spotter_oauth_flows (state_hash,provider,account_id,session_hash,native,proof,nonce,pkce,expires_at) VALUES (?,?,?,?,?,?,?,?,?)")
-      .bind(stateHash, provider, session?.owner ?? null, session?.hash ?? null, challenge ? 1 : 0, proof, nonce, pkce ?? null, now + flowSeconds),
+      .bind(stateHash, provider, session?.owner ?? null, session?.hash ?? null, flowKind, proof, nonce, pkce ?? null, now + flowSeconds),
   ]);
   return { state, stateHash, nonce, pkce, browserProof };
 }
 
 export async function consumeOAuthFlow(db: D1Database, provider: OAuthProvider, state: string) {
   return db.prepare(
-    "DELETE FROM spotter_oauth_flows WHERE state_hash=? AND provider=? AND expires_at>? " +
+    "DELETE FROM spotter_oauth_flows WHERE state_hash=? AND provider=? AND native IN (0,1) AND expires_at>? " +
       "RETURNING state_hash,provider,account_id,session_hash,native,proof,nonce,pkce",
   ).bind(await oauthDigest(state), provider, seconds()).first<OAuthFlow>();
+}
+
+export async function consumeAppleAppFlow(db: D1Database, state: string, verifier: string, session?: LinkSession) {
+  const [stateHash, proof] = await Promise.all([oauthDigest(state), oauthDigest(verifier)]);
+  const now = seconds();
+  return db.prepare(
+    "DELETE FROM spotter_oauth_flows WHERE state_hash=? AND provider='apple' AND native=? AND proof=? AND expires_at>? " +
+      "AND account_id IS ? AND session_hash IS ? AND (account_id IS NULL OR EXISTS (SELECT 1 FROM spotter_access_sessions " +
+      "WHERE account_id=spotter_oauth_flows.account_id AND token_hash=spotter_oauth_flows.session_hash AND expires_at>?)) " +
+      "RETURNING nonce,account_id",
+  ).bind(stateHash, appleAppFlow, proof, now, session?.owner ?? null, session?.hash ?? null, now)
+    .first<Pick<OAuthFlow, "nonce" | "account_id">>();
 }
 
 export async function storeOAuthGrant(db: D1Database, flow: OAuthFlow, identity: ProviderIdentity) {
@@ -77,25 +94,32 @@ async function identityOwner(db: D1Database, provider: OAuthProvider, subject: s
   return row?.account_id;
 }
 
-export async function linkOAuthAccount(db: D1Database, grant: OAuthGrant, owner: string, sessionHash: string) {
+export async function linkOAuthAccount(db: D1Database, grant: OAuthIdentity, owner: string, sessionHash: string,
+  surface?: "apple-app") {
+  const credential = surface === "apple-app" ? "apple_app_credential" : "apple_credential";
+  const ownsSession = "account_id=? AND token_hash=? AND expires_at>?";
   const result = await db.prepare(
-    "INSERT INTO spotter_oauth_identities (provider,subject,account_id,apple_credential) " +
-      "SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM spotter_access_sessions WHERE account_id=? AND token_hash=? AND expires_at>?) " +
+    `INSERT INTO spotter_oauth_identities (provider,subject,account_id,${credential}) ` +
+      `SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM spotter_access_sessions WHERE ${ownsSession}) ` +
       "ON CONFLICT DO NOTHING",
   ).bind(grant.provider, grant.subject, owner, grant.apple_credential, owner, sessionHash, seconds()).run();
   if (result.meta.changes) return "linked";
+  if (!await db.prepare(`SELECT 1 FROM spotter_access_sessions WHERE ${ownsSession}`).bind(owner, sessionHash, seconds()).first()) {
+    return "link-expired";
+  }
   const existing = await identityOwner(db, grant.provider, grant.subject);
   if (existing === owner) return "linked";
   if (existing) return "link-conflict";
   return (await linkedProviders(db, owner)).has(grant.provider) ? "link-already-bound" : "link-expired";
 }
 
-export async function loginOAuthAccount(db: D1Database, grant: OAuthGrant) {
+export async function loginOAuthAccount(db: D1Database, grant: OAuthIdentity, surface?: "apple-app") {
+  const credential = surface === "apple-app" ? "apple_app_credential" : "apple_credential";
   const linked = await identityOwner(db, grant.provider, grant.subject);
   if (linked) {
     if (grant.provider === "apple" && grant.apple_credential) {
-      await db.prepare("UPDATE spotter_oauth_identities SET apple_credential=? WHERE provider='apple' AND subject=? AND account_id=? " +
-        "AND (apple_credential IS NULL OR apple_credential NOT LIKE 'v1.r.%' OR ? LIKE 'v1.r.%')")
+      await db.prepare(`UPDATE spotter_oauth_identities SET ${credential}=? WHERE provider='apple' AND subject=? AND account_id=? ` +
+        `AND (${credential} IS NULL OR ${credential} NOT LIKE 'v1.r.%' OR ? LIKE 'v1.r.%')`)
         .bind(grant.apple_credential, grant.subject, linked, grant.apple_credential).run();
     }
     return { accountId: linked };
@@ -111,7 +135,7 @@ export async function loginOAuthAccount(db: D1Database, grant: OAuthGrant) {
         "ON CONFLICT(email) DO NOTHING",
     ).bind(accountId, grant.email, grant.display_name ?? "Spotter 用户", unusedHash, grant.provider, grant.subject),
     db.prepare(
-      "INSERT INTO spotter_oauth_identities (provider,subject,account_id,apple_credential) SELECT ?,?,?,? WHERE EXISTS " +
+      `INSERT INTO spotter_oauth_identities (provider,subject,account_id,${credential}) SELECT ?,?,?,? WHERE EXISTS ` +
         "(SELECT 1 FROM spotter_access_accounts WHERE id=?)",
     ).bind(grant.provider, grant.subject, accountId, grant.apple_credential, accountId),
   ]);

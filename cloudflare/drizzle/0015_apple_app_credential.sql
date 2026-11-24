@@ -1,0 +1,1 @@
+ALTER TABLE `spotter_oauth_identities` ADD `apple_app_credential` text;

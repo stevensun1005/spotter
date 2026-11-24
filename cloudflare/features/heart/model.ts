@@ -19,12 +19,17 @@ export const heartSchema = z.object({
   from: timestamp,
   to: timestamp,
   average: bpm.optional(),
+  minimum: bpm.optional(),
   maximum: bpm.optional(),
+  sourceName: z.string().trim().min(1).max(160).optional(),
+  sourceBundleId: z.string().trim().min(1).max(200).optional(),
   samples: z.array(sampleSchema).max(720),
 }).superRefine((value, ctx) => {
   if (value.to < value.from || value.to - value.from > 86_400_000 ||
       (!value.samples.length && value.average === undefined && value.maximum === undefined) ||
       (value.average !== undefined && value.maximum !== undefined && value.average > value.maximum) ||
+      (value.minimum !== undefined && value.average !== undefined && value.minimum > value.average) ||
+      (value.minimum !== undefined && value.maximum !== undefined && value.minimum > value.maximum) ||
       value.samples.some((sample, i) => sample.at < value.from || sample.at > value.to ||
         (i > 0 && sample.at <= value.samples[i - 1].at))) {
     ctx.addIssue({ code: "custom", message: "心率数据范围无效。" });
