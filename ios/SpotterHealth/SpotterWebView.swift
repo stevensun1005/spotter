@@ -1,5 +1,8 @@
+import AuthenticationServices
 import Combine
+import CryptoKit
 import Foundation
+import Security
 import SwiftUI
 import WebKit
 
@@ -10,6 +13,7 @@ final class SpotterWebModel: NSObject, ObservableObject {
     @Published private(set) var progress = 0.0
     @Published private(set) var canGoBack = false
     @Published private(set) var errorMessage: String?
+    @Published var oauthErrorMessage: String?
     @Published private(set) var currentURL: URL?
     @Published private(set) var pendingShareURL: URL?
     let session: AppSession
@@ -21,6 +25,9 @@ final class SpotterWebModel: NSObject, ObservableObject {
     private var observations: [NSKeyValueObservation] = []
     private var sessionChanges: AnyCancellable?
     private var downloads: [ObjectIdentifier: URL] = [:]
+    private var oauthAttempt: UUID?
+    private var oauthSession: ASWebAuthenticationSession?
+    private var oauthWindow: ASPresentationAnchor?
 
     init(configuration: AppConfiguration, session: AppSession? = nil) {
         self.configuration = configuration
@@ -35,7 +42,7 @@ final class SpotterWebModel: NSObject, ObservableObject {
         let settings = WKWebViewConfiguration()
         settings.websiteDataStore = .default()
         settings.defaultWebpagePreferences.preferredContentMode = .mobile
-        settings.applicationNameForUserAgent = "Spotter/1.0"
+        settings.applicationNameForUserAgent = "Spotter/1.0 SpotterOAuth/1"
         settings.allowsInlineMediaPlayback = true
         settings.userContentController.addUserScript(WKUserScript(
             source: SpotterWebAppearance.liquidGlassScript(trustedOrigin: AppConfiguration.defaultOrigin),
@@ -76,6 +83,7 @@ final class SpotterWebModel: NSObject, ObservableObject {
 
     func load(configuration next: AppConfiguration) {
         guard next != configuration else { return }
+        cancelNativeOAuth()
         session.clearIdentity()
         configuration = next
         currentURL = nil
@@ -86,6 +94,7 @@ final class SpotterWebModel: NSObject, ObservableObject {
     }
 
     func reload() {
+        cancelNativeOAuth()
         session.clearIdentity()
         errorMessage = nil
         guard let webView else { return }
@@ -96,6 +105,7 @@ final class SpotterWebModel: NSObject, ObservableObject {
     func goBack() {
         guard let webView,
               let item = webView.backForwardList.backList.last(where: { configuration.contains($0.url) }) else { return }
+        cancelNativeOAuth()
         session.clearIdentity()
         errorMessage = nil
         webView.go(to: item)
@@ -163,6 +173,173 @@ final class SpotterWebModel: NSObject, ObservableObject {
     private func external(_ url: URL) {
         UIApplication.shared.open(url)
     }
+
+    private func cancelNativeOAuth() {
+        oauthAttempt = nil
+        let previous = oauthSession
+        oauthSession = nil
+        oauthWindow = nil
+        previous?.cancel()
+    }
+
+    private func oauthIsCurrent(_ id: UUID, in view: WKWebView) -> Bool {
+        oauthAttempt == id && webView === view && configuration.origin == AppConfiguration.defaultOrigin
+            && !view.isLoading && view.url.map(configuration.contains) == true
+    }
+
+    private static func base64URL(_ bytes: Data) -> String {
+        bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+
+    private func startNativeOAuth(_ intent: NativeOAuthIntent, in view: WKWebView) {
+        guard oauthAttempt == nil, let anchor = view.window else { return }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            oauthErrorMessage = "暂时无法安全启动登录，请重试。"
+            return
+        }
+        let verifier = Self.base64URL(Data(bytes))
+        let challenge = Self.base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+        let id = UUID()
+        guard !view.isLoading else {
+            oauthErrorMessage = "请等当前页面加载完成后重试。"
+            return
+        }
+        oauthAttempt = id
+        oauthWindow = anchor
+        oauthErrorMessage = nil
+        Task { @MainActor [weak self, weak view] in
+            guard let self, let view else { return }
+            do {
+                var body = ["provider": intent.provider.rawValue, "mode": intent.mode.rawValue, "challenge": challenge]
+                if let owner = intent.expectedOwner { body["expectedOwner"] = owner }
+                let result = try await self.nativeOAuthPOST("/api/auth/oauth/start", body: body, id: id, in: view)
+                guard let rawURL = result["authorizationUrl"] as? String, let url = URL(string: rawURL),
+                      intent.provider.acceptsAuthorizationURL(url) else { throw NativeOAuthError.invalidResponse }
+                self.presentNativeOAuth(url, verifier: verifier, intent: intent, id: id, in: view)
+            } catch {
+                self.failNativeOAuth(id, message: (error as? NativeOAuthError)?.message ?? "暂时无法启动登录，请重试。")
+            }
+        }
+    }
+
+    private func presentNativeOAuth(_ url: URL, verifier: String, intent: NativeOAuthIntent, id: UUID, in view: WKWebView) {
+        guard oauthIsCurrent(id, in: view) else {
+            if oauthAttempt == id { cancelNativeOAuth() }
+            return
+        }
+        let handler: ASWebAuthenticationSession.CompletionHandler = { [weak self, weak view] url, error in
+            Task { @MainActor in
+                guard let self, let view else { return }
+                await self.finishNativeOAuth(url, error: error, verifier: verifier, intent: intent, id: id, in: view)
+            }
+        }
+        let auth: ASWebAuthenticationSession
+        if #available(iOS 17.4, *) {
+            auth = ASWebAuthenticationSession(url: url, callback: .customScheme(NativeOAuthCallback.scheme), completionHandler: handler)
+        } else {
+            auth = ASWebAuthenticationSession(url: url, callbackURLScheme: NativeOAuthCallback.scheme, completionHandler: handler)
+        }
+        auth.presentationContextProvider = self
+        oauthSession = auth
+        if !auth.start() { failNativeOAuth(id, message: "暂时无法打开系统登录窗口，请重试。") }
+    }
+
+    private func finishNativeOAuth(_ url: URL?, error: Error?, verifier: String, intent: NativeOAuthIntent, id: UUID, in view: WKWebView) async {
+        guard oauthIsCurrent(id, in: view) else {
+            if oauthAttempt == id { cancelNativeOAuth() }
+            return
+        }
+        oauthSession = nil
+        if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
+            cancelNativeOAuth()
+            return
+        }
+        guard error == nil, let url, let callback = NativeOAuthCallback(url: url) else {
+            failNativeOAuth(id, message: NativeOAuthError.invalidResponse.message)
+            return
+        }
+        switch callback {
+        case .cancelled:
+            cancelNativeOAuth()
+        case let .failed(reason):
+            failNativeOAuth(id, message: NativeOAuthError.provider(reason).message)
+        case let .code(code):
+            session.clearIdentity()
+            do {
+                let result = try await nativeOAuthPOST("/api/auth/oauth/native/complete", body: ["code": code, "verifier": verifier], id: id, in: view)
+                guard result["status"] as? String == intent.mode.completedStatus,
+                      let destination = URL(string: intent.mode == .link ? "/?auth=linked" : "/", relativeTo: configuration.url)?.absoluteURL else {
+                    throw NativeOAuthError.invalidResponse
+                }
+                cancelNativeOAuth()
+                view.load(URLRequest(url: destination, cachePolicy: .reloadRevalidatingCacheData))
+            } catch {
+                failNativeOAuth(id, message: (error as? NativeOAuthError)?.message ?? NativeOAuthError.invalidResponse.message)
+                refreshIdentity()
+            }
+        }
+    }
+
+    private func failNativeOAuth(_ id: UUID, message: String) {
+        guard oauthAttempt == id else { return }
+        cancelNativeOAuth()
+        oauthErrorMessage = message
+    }
+
+    private func nativeOAuthPOST(_ path: String, body: [String: String], id: UUID, in view: WKWebView) async throws -> [String: Any] {
+        guard oauthIsCurrent(id, in: view) else { throw NativeOAuthError.invalidResponse }
+        let script = """
+        if (window.top !== window || window.location.origin !== expectedOrigin) return null;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15000);
+        try {
+          const response = await fetch(path, {
+            method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+            headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
+            body: JSON.stringify(payload), signal: controller.signal
+          });
+          if (new URL(response.url).origin !== expectedOrigin) return null;
+          return {ok: response.ok, value: await response.json()};
+        } catch (_) { return null; }
+        finally { clearTimeout(timer); }
+        """
+        let raw = try await view.callAsyncJavaScript(script,
+            arguments: ["path": path, "payload": body, "expectedOrigin": configuration.origin],
+            in: nil, contentWorld: .world(name: "SpotterNativeOAuth"))
+        guard oauthIsCurrent(id, in: view), let result = raw as? [String: Any],
+              let ok = result["ok"] as? Bool, let value = result["value"] as? [String: Any] else {
+            throw NativeOAuthError.invalidResponse
+        }
+        if !ok { throw NativeOAuthError.provider(value["code"] as? String ?? "") }
+        return value
+    }
+}
+
+private enum NativeOAuthError: Error {
+    case invalidResponse, provider(String)
+
+    var message: String {
+        switch self {
+        case .provider("use-access-code"):
+            return "请先用现有访问码登录，再到个人设置绑定 Apple 或 Google。"
+        case .provider("link-conflict"):
+            return "这个登录方式已关联到另一个训练搭子账号。"
+        case .provider("link-already-bound"):
+            return "你的训练搭子账号已经绑定了此登录方式。"
+        case .provider("oauth-expired"), .provider("link-expired"):
+            return "本次操作已过期，请重新发起。"
+        default:
+            return "登录或绑定未完成，请重试。"
+        }
+    }
+}
+
+extension SpotterWebModel: ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        oauthWindow ?? ASPresentationAnchor()
+    }
 }
 
 extension SpotterWebModel: WKNavigationDelegate, WKUIDelegate {
@@ -170,6 +347,18 @@ extension SpotterWebModel: WKNavigationDelegate, WKUIDelegate {
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
         let mainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        if configuration.origin == AppConfiguration.defaultOrigin, configuration.contains(url), NativeOAuthIntent.provider(for: url) != nil {
+            let source = navigationAction.sourceFrame
+            let origin = source.securityOrigin
+            let trustedSource = source.isMainFrame && origin.protocol == "https" && origin.host == configuration.url.host
+                && (origin.port == 0 ? 443 : origin.port) == (configuration.url.port ?? 443)
+            let intent = NativeOAuthIntent(url: url, sourceURL: trustedSource ? webView.url : nil, configuration: configuration,
+                mainFrame: navigationAction.targetFrame?.isMainFrame == true, userActivated: navigationAction.navigationType == .linkActivated &&
+                navigationAction.request.httpMethod == "GET")
+            decisionHandler(.cancel)
+            if let intent { startNativeOAuth(intent, in: webView) }
+            return
+        }
         let policy = configuration.navigationPolicy(for: url, mainFrame: mainFrame, userActivated: navigationAction.navigationType == .linkActivated)
         switch policy {
         case .cancel: decisionHandler(.cancel)
@@ -202,6 +391,7 @@ extension SpotterWebModel: WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        cancelNativeOAuth()
         session.clearIdentity()
         isLoading = true
         errorMessage = nil
@@ -222,6 +412,7 @@ extension SpotterWebModel: WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failNavigation(error) }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        cancelNativeOAuth()
         session.clearIdentity()
         isLoading = false
         errorMessage = "页面已暂停，请重新加载。已保存的训练记录仍保留在原账号。"

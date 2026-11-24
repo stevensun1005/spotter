@@ -31,5 +31,43 @@ struct AppPolicySmoke {
         expect(app.ownsBlob(URL(string: "blob:https://example.com/synthetic")!), "Support same-origin file exports")
         expect(!app.ownsBlob(URL(string: "blob:https://example.com.evil.test/synthetic")!), "Reject foreign export blobs")
         print("PASS app URL policy: HTTPS origins, same-origin routes, external videos, login redirects, forbidden schemes, export blobs")
+
+        let trusted = try AppConfiguration(origin: AppConfiguration.defaultOrigin)
+        let link = URL(string: trusted.origin + "/api/auth/oauth/google/native?mode=link&expectedOwner=spotter-123")!
+        let login = URL(string: trusted.origin + "/api/auth/oauth/apple/native?mode=login")!
+        let linkIntent = NativeOAuthIntent(url: link, sourceURL: trusted.url, configuration: trusted, mainFrame: true, userActivated: true)
+        expect(linkIntent?.provider == .google && linkIntent?.mode == .link && linkIntent?.expectedOwner == "spotter-123", "Preserve account binding on the trusted main frame link")
+        let loginIntent = NativeOAuthIntent(url: login, sourceURL: trusted.url, configuration: trusted, mainFrame: true, userActivated: true)
+        expect(loginIntent?.provider == .apple && loginIntent?.mode == .login && loginIntent?.expectedOwner == nil, "No owner supplied for sign in")
+        expect(NativeOAuthIntent(url: link, sourceURL: trusted.url, configuration: trusted, mainFrame: false, userActivated: true) == nil, "Reject subframe auth requests")
+        expect(NativeOAuthIntent(url: link, sourceURL: trusted.url, configuration: trusted, mainFrame: true, userActivated: false) == nil, "Require a direct click")
+        expect(NativeOAuthIntent(url: link, sourceURL: app.url, configuration: trusted, mainFrame: true, userActivated: true) == nil, "Reject cross-origin auth initiation")
+        let anotherSite = URL(string: app.origin + "/api/auth/oauth/google/native?mode=login")!
+        expect(NativeOAuthIntent(url: anotherSite, sourceURL: app.url, configuration: app, mainFrame: true, userActivated: true) == nil, "Custom sites cannot drive system OAuth")
+        for path in ["google/native?mode=link", "apple/native?mode=login&expectedOwner=ignored", "google/native?mode=link&expectedOwner=%0Avalue",
+                     "apple/native?mode=login&mode=link", "google/native?mode=login&returnTo=https://example.com", "google/native?mode=login#fragment"] {
+            let invalid = URL(string: trusted.origin + "/api/auth/oauth/" + path)!
+            expect(NativeOAuthIntent(url: invalid, sourceURL: trusted.url, configuration: trusted, mainFrame: true, userActivated: true) == nil, "Reject ambiguous OAuth query: " + path)
+        }
+
+        expect(NativeOAuthProvider.google.acceptsAuthorizationURL(URL(string: "https://accounts.google.com/o/oauth2/v2/auth?client_id=fixture")!), "Accept Google's exact endpoint")
+        expect(NativeOAuthProvider.apple.acceptsAuthorizationURL(URL(string: "https://appleid.apple.com/auth/authorize")!), "Accept Apple's exact endpoint")
+        for raw in ["http://accounts.google.com/o/oauth2/v2/auth", "https://accounts.google.com.evil.test/o/oauth2/v2/auth",
+                    "https://name@accounts.google.com/o/oauth2/v2/auth", "https://accounts.google.com:444/o/oauth2/v2/auth",
+                    "https://accounts.google.com/redirect", "https://appleid.apple.com/auth/authorize"] {
+            expect(!NativeOAuthProvider.google.acceptsAuthorizationURL(URL(string: raw)!), "Reject untrusted authorization endpoint: " + raw)
+        }
+
+        let code = String(repeating: "a", count: 43)
+        let callback = "spotter-auth://oauth/complete"
+        expect(NativeOAuthCallback(url: URL(string: callback + "?code=" + code)!) == .code(code), "Accept a single base64url handoff code")
+        expect(NativeOAuthCallback(url: URL(string: callback + "?error=link-cancelled")!) == .cancelled, "Provider cancellation ends silently")
+        expect(NativeOAuthCallback(url: URL(string: callback + "?error=link-conflict")!) == .failed("link-conflict"), "Propagate a recognized, non-secret failure")
+        for raw in [callback + "?code=short", callback + "?code=" + code + "&error=oauth-cancelled", callback + "?code=" + code + "#f",
+                    callback + "?error=unknown", "https://oauth/complete?code=" + code, "spotter-auth://other/complete?code=" + code,
+                    "spotter-auth://oauth:4000/complete?code=" + code, "spotter-auth://oauth/%63omplete?code=" + code] {
+            expect(NativeOAuthCallback(url: URL(string: raw)!) == nil, "Reject malformed OAuth handoff: " + raw)
+        }
+        print("PASS native OAuth policy: trusted user gesture, expected owner, exact provider endpoint and single-use handoff shape")
     }
 }

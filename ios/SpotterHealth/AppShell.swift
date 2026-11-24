@@ -92,6 +92,14 @@ struct AppShell: View {
                 if phase == .active { model.refreshIdentity() }
                 else if phase == .background { model.session.clearIdentity() }
             }
+            .alert("账号操作", isPresented: Binding(
+                get: { model.oauthErrorMessage != nil },
+                set: { if !$0 { model.oauthErrorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { model.oauthErrorMessage = nil }
+            } message: {
+                Text(model.oauthErrorMessage ?? "")
+            }
         }
     }
 
