@@ -194,7 +194,64 @@ small { font-size: .81rem; }
 input:not([type=checkbox]), select, textarea { color: var(--text); background: #f8faf7; border: 1px solid #dfe7db; width: 100%; min-width: 0; padding: 8px 10px; min-height: 43px; border-radius: 9px; font-size: 1rem; font-weight: 500; }
 input::placeholder, textarea::placeholder { color: #627064; }
 textarea { resize: vertical; }
-select { appearance: none; padding-right: 27px; background-image: linear-gradient(45deg, transparent 50%, #536954 50%), linear-gradient(135deg, #536954 50%, transparent 50%); background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+select {
+  appearance: none;
+  padding-inline-end: 29px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+select:disabled { cursor: default; opacity: .56; }
+
+@supports (appearance: base-select) and selector(select::picker(select)) {
+  select:not([multiple], [size]) {
+    appearance: base-select;
+    background-image: none;
+    padding-inline-end: 10px;
+    align-items: center;
+    gap: 8px;
+  }
+  select:not([multiple], [size])::picker(select) {
+    appearance: base-select;
+    max-inline-size: calc(100vw - 16px);
+    max-block-size: min(20rem, 52dvh);
+    margin-block: 5px;
+    padding: 5px;
+    border: 1px solid var(--stroke);
+    border-radius: 12px;
+    background: var(--card);
+    color: var(--text);
+    box-shadow: 0 10px 26px #0d1d1929;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  select:not([multiple], [size])::picker-icon { color: var(--muted); flex-shrink: 0; }
+  select:not([multiple], [size]):open::picker-icon { rotate: 180deg; }
+  select:not([multiple], [size]) option {
+    align-items: center;
+    min-block-size: 38px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  select:not([multiple], [size]) option:checked {
+    background: color-mix(in srgb, var(--lime) 29%, var(--card));
+    font-weight: 700;
+  }
+  select:not([multiple], [size]) option:not(:checked):is(:hover, :focus-visible) {
+    background: color-mix(in srgb, var(--muted) 13%, var(--card));
+  }
+  select:not([multiple], [size]) option::checkmark { order: 1; margin-inline-start: auto; padding-inline-start: 9px; }
+  select:not([multiple], [size]) optgroup { color: var(--muted); }
+  select:not([multiple], [size]) optgroup option { color: var(--text); }
+  @media (pointer: coarse) {
+    select:not([multiple], [size]) option { min-block-size: 44px; }
+  }
+}
 .toggle-label, .form-fields .toggle-label { display: flex; align-items: center; gap: 8px; min-height: 42px; color: var(--muted); font-size: .88rem; font-weight: 690; }
 input[type=checkbox] { width: 19px; height: 19px; flex: none; accent-color: #547b3d; }
 .field-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; }

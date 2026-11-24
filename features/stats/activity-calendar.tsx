@@ -9,7 +9,7 @@ import { activityLevel, activityLevels, buildActivityCalendar } from "./activity
 const moveDay = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 } as const;
 
 export function ActivityCalendar({ logs, owner, end }: { logs: TrainingEntry[]; owner: string; end: string }) {
-  const { from, to, total, blankDays, weeks, months, dates, daily } = useMemo(() => buildActivityCalendar(logs, owner, end), [logs, owner, end]);
+  const { from, to, total, blankDays, weeks, months, dates } = useMemo(() => buildActivityCalendar(logs, owner, end), [logs, owner, end]);
   const [day, setDay] = useState(to);
   const scroll = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -17,13 +17,7 @@ export function ActivityCalendar({ logs, owner, end }: { logs: TrainingEntry[]; 
     if (view) view.scrollLeft = view.scrollWidth - view.clientWidth;
   }, [end]);
   const active = day >= from && day <= to ? day : to;
-  const selected = daily.get(active);
   const cell = (date: string) => scroll.current?.querySelector<HTMLButtonElement>('[data-date="' + date + '"]');
-  function jump(date: string) {
-    if (!date || date < from || date > to) return;
-    setDay(date);
-    cell(date)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }
   function onDayKey(event: KeyboardEvent<HTMLButtonElement>, date: string) {
     const offset = moveDay[event.key as keyof typeof moveDay];
     if (!offset) return;
@@ -44,8 +38,8 @@ export function ActivityCalendar({ logs, owner, end }: { logs: TrainingEntry[]; 
               <span key={id} style={{ gridColumnStart: position + 1 }}>{label}</span>)}</div>
             <div className="stats-activity" role="group" aria-label="过去一年每天的训练打卡次数">
               {Array.from({ length: blankDays }, (_, index) => <span key={index} aria-hidden="true" />)}
-              {dates.map(({ date, sessions }) => {
-                const label = date + " · " + sessions + " 次打卡";
+              {dates.map(({ date, sessions, sets }) => {
+                const label = date + " · " + sessions + " 次打卡 · " + sets + " 组";
                 return <button key={date} type="button" data-date={date} data-level={activityLevel(sessions)}
                   aria-label={label} title={label} aria-pressed={active === date} tabIndex={active === date ? 0 : -1}
                   onClick={() => setDay(date)} onKeyDown={(event) => onDayKey(event, date)} />;
@@ -61,7 +55,5 @@ export function ActivityCalendar({ logs, owner, end }: { logs: TrainingEntry[]; 
         </div>
       </div>
     </div>
-    <label className="stats-compare-select">查看单日<input type="date" min={from} max={to} value={active} onChange={(event) => jump(event.target.value)} />
-      <span aria-live="polite">{selected?.sessions ?? 0} 次打卡 · {selected?.sets ?? 0} 组</span></label>
   </section>;
 }
