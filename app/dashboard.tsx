@@ -24,7 +24,7 @@ import { ProteinCheck } from "@/features/training/protein-check";
 import { PairToday } from "@/features/pair/pair-today";
 import { DisconnectPair } from "@/features/pair/disconnect-pair";
 import { WeekCheckins } from "@/features/pair/week-checkins";
-import { PlanAssistant } from "@/features/import/plan-assistant";
+import { PlanAssistant, type PlanAssistantMode } from "@/features/import/plan-assistant";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
 import { AnatomySubject } from "@/features/exercises/anatomy";
@@ -54,7 +54,7 @@ import { ProgramView } from "@/features/programs/program-view";
 import { CoachingView } from "@/features/coaching/coaching-view";
 import { AgentPack } from "@/features/agent/agent-pack";
 import { useDisplayPreferences } from "@/features/settings/display-preferences";
-import { SettingsHub, type SettingsPage } from "@/features/settings/settings-hub";
+import { SettingsHub, SettingsLink, SettingsRows, type SettingsPage } from "@/features/settings/settings-hub";
 import { SettingsContent } from "@/features/settings/settings-content";
 import { useWorkoutReminder } from "@/features/settings/reminders";
 
@@ -127,7 +127,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [view, setView] = useState<View>(heartReturn ? "stats" : "today");
   const [settingsPage, setSettingsPage] = useState<SettingsPage>();
   const { display, changeDisplay } = useDisplayPreferences();
-  const [assistantMode, setAssistantMode] = useState<"import" | "ai">("import");
+  const [assistantMode, setAssistantMode] = useState<PlanAssistantMode>("import");
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
   const [exerciseSelection, setExerciseSelection] = useState<{ choice: ExerciseChoice; owner?: string }>();
@@ -334,7 +334,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     setSettingsPage(page);
     window.scrollTo({ top: 0 });
   }
-  function openPlanAssistant(mode: "import" | "ai") {
+  function openPlanAssistant(mode: PlanAssistantMode) {
     setAssistantMode(mode);
     go("assistant");
   }
@@ -404,6 +404,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   async function importPlans(items: KeyedPlan[], revise: boolean) {
     if (!revise) { await savePlans(items, true); return; }
+    if (!viewer) throw new Error("请先登录训练搭子。");
     const owned = plans.filter((plan) => plan.owner === me.id);
     const next = items.map(({ data }) => {
       const existing = owned.filter((plan) => plan.data.title === data.title.trim());
@@ -412,7 +413,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       return { id: plan.id, revision: plan.updated, data: { ...data, date: plan.data.date, shared: plan.data.shared } };
     });
     if (new Set(next.map((item) => item.id)).size !== next.length) throw new Error("同一计划在这批文件里出现了多次。");
-    const response = await post({ action: "plans", items: next, reviseExisting: true });
+    const response = await post({ action: "plans", items: next, reviseExisting: true, expectedOwner: viewer.id });
     const { revised } = await response.json() as { revised: number };
     await refresh(); setToast("已更新 " + revised + " 个现有计划");
   }
@@ -447,7 +448,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     if (broken >= 0) throw new Error("请检查第 " + (broken + 1) + " 个计划的名称、日期、动作和视频链接。");
     const ready = clean.flatMap((item) => item.checked.success ? [{ id: item.id, data: item.checked.data, revision: item.revision }] : []);
     if (viewer) {
-      const reply = await post({ action: "plans", items: ready, skipExisting });
+      const reply = await post({ action: "plans", items: ready, skipExisting, expectedOwner: viewer.id });
       await refresh();
       if (skipExisting) {
         const { added, skipped } = await reply.json() as { added: number; skipped: number };
@@ -614,7 +615,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   }
 
   const showPageHeading = view !== "plans" && view !== "stats" && view !== "nutrition" && view !== "settings";
-  const heading = pageTitles[view];
+  const heading = view === "assistant" && assistantMode === "coach" ? "AI 教练" : pageTitles[view];
   const activeTab = view === "programs" || view === "assistant" ? "plans"
     : view === "coaching" ? "friends" : view === "body" ? "stats" : view;
   const calendarOpen = view === "stats" && statsTab === "history";
@@ -635,7 +636,6 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             ? <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>
             : <h1>{heading}</h1>}
             {view === "today" && demo && <p>正在查看示例数据。登录后可同步你们的记录。</p>}
-            {view === "assistant" && <p>粘贴已有内容，或用自己的 AI 起草；核对后再排入训练。</p>}
           </div>
           {view === "today" && <div className="plan-heading-actions">
             <button className="button primary page-action" onClick={() => open({ kind: "launch" })}><Play size={19} fill="currentColor" /> 开始训练</button>
@@ -704,7 +704,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           <aside className="right-column">
             {display.weeklyCheckins && <WeekCheckins today={today} me={me} partner={display.social ? partner : undefined}
               partnerCheckins={display.social ? room?.partnerCheckins : undefined} logs={logs} status={buddyStatus} showStats={() => go("stats")} />}
-            {display.planShortcuts && <button className="import-callout" onClick={() => openPlanAssistant("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>添加计划</strong><small>训练文本、视频或自己的 AI</small></span><ChevronRight size={18} /></button>}
+            {display.planShortcuts && <button className="import-callout" onClick={() => openPlanAssistant("import")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>添加计划</strong><small>导入计划、AI 教练或自己的 AI</small></span><ChevronRight size={18} /></button>}
             {warning && !overlay && <p className="inline-error" role="alert">{warning}</p>}
           </aside>
         </div>}
@@ -751,7 +751,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               disabled={!viewer || library.loading || Boolean(library.error)} save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
               <p className="muted">开启后可在结束训练时记录蛋白粉。</p></section>}
             data={<DataView enabled={Boolean(viewer)} saved={() => { void refresh(); void library.load(); }} importPlans={() => openPlanAssistant("import")} />}
-            agent={<div className="feature-stack"><button className="button outline" type="button" onClick={() => openPlanAssistant("ai")}><Sparkles size={17} /> 管理 Agent 连接和训练草稿</button>
+            agent={<div className="feature-stack"><SettingsRows>
+              <SettingsLink label="打开站内 AI 教练" detail="聊训练或起草计划" icon={Sparkles} onClick={() => openPlanAssistant("coach")} />
+              <SettingsLink label="用自己的 AI" detail="提示词、Agent 连接和草稿" onClick={() => openPlanAssistant("ai")} />
+            </SettingsRows>
               <AgentPack profileRef={profileRef} /></div>} />
         </SettingsHub>}
 
@@ -775,8 +778,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} />
         </div>}
 
-        <div hidden={view !== "assistant"}><PlanAssistant today={today} save={importPlans} enabled={Boolean(viewer)} profileRef={profileRef}
-          active={view === "assistant"} mode={assistantMode} onModeChange={setAssistantMode} notify={setToast}
+        <div hidden={view !== "assistant"}><PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} save={importPlans} owner={viewer?.id} profileRef={profileRef}
+          active={view === "assistant"} mode={assistantMode} onModeChange={setAssistantMode}
           onPrograms={() => go("programs")} onData={() => go("data")}
           saved={() => { void refresh(); void library.load(); go("plans"); }} /></div>
       </main>

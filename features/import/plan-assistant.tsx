@@ -1,24 +1,45 @@
 "use client";
 
-import { useState } from "react";
-import { CalendarClock, Clipboard, ClipboardList, FileInput, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CalendarClock, Clipboard, ClipboardList, FileInput, Plug, Sparkles } from "lucide-react";
 import { AgentAccessPanel } from "@/features/agent-access/access-panel";
-import type { PlannedWorkout } from "@/features/plans/model";
-import { ImportView } from "./import-view";
+import { AiCoachPanel } from "@/features/ai-coach/chat-panel";
+import type { Plan, PlannedWorkout } from "@/features/plans/model";
+import { ImportView, PlanImportReview } from "./import-view";
 import { planAiPrompt, type PlanAiIntent } from "./ai-instructions";
 
-type Mode = "import" | "ai";
-export function PlanAssistant({ today, save, saved, notify, enabled, profileRef, active, mode, onModeChange, onPrograms, onData }: {
-  today: string; save: (plans: PlannedWorkout[], revise: boolean) => Promise<void>; saved: () => void;
-  notify: (text: string) => void; enabled: boolean; profileRef?: string; active: boolean;
-  mode: Mode; onModeChange: (mode: Mode) => void; onPrograms: () => void; onData: () => void;
+export type PlanAssistantMode = "import" | "coach" | "ai";
+const methods = [
+  { mode: "import", label: "粘贴已有内容", detail: "训练文本、视频或计划 JSON", icon: ClipboardList },
+  { mode: "coach", label: "站内 AI 教练", detail: "训练对话和草稿", icon: Sparkles },
+  { mode: "ai", label: "用自己的 AI", detail: "提示词和 Agent 连接", icon: Plug },
+] as const;
+
+export function PlanAssistant({ today, selectedDate, save, saved, owner, profileRef, active, mode, onModeChange, onPrograms, onData }: {
+  today: string; selectedDate: string; save: (plans: PlannedWorkout[], revise: boolean) => Promise<void>; saved: () => void;
+  owner?: string; profileRef?: string; active: boolean;
+  mode: PlanAssistantMode; onModeChange: (mode: PlanAssistantMode) => void; onPrograms: () => void; onData: () => void;
 }) {
   const [intent, setIntent] = useState<PlanAiIntent>("create");
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptMessage, setPromptMessage] = useState("");
   const [focusRequest, setFocusRequest] = useState(0);
+  const [review, setReview] = useState<{ source: Plan[]; plans: PlannedWorkout[] }>();
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [savedDraft, setSavedDraft] = useState<Plan[]>();
+  const [savingDraft, setSavingDraft] = useState(false);
+  const reviewTarget = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!active || mode !== "coach" || !reviewOpen) return;
+    reviewTarget.current?.scrollIntoView({ block: "start" });
+    reviewTarget.current?.focus({ preventScroll: true });
+  }, [active, mode, reviewOpen]);
   const prompt = planAiPrompt(today, intent);
   function pasteResult() { onModeChange("import"); setFocusRequest((value) => value + 1); }
+  function reviewDraft(plans: Plan[]) {
+    setReview({ source: plans, plans: plans.map((data) => ({ id: crypto.randomUUID(), data: { ...data, shared: false } })) });
+    setReviewOpen(true);
+  }
   async function copyPrompt() {
     try { await navigator.clipboard.writeText(prompt); setPromptMessage("已复制计划提示词。把它发给你自己的 AI，生成 JSON 后回到这里预览。"); }
     catch { setShowPrompt(true); setPromptMessage("可以在下方选中并复制提示词。"); }
@@ -26,12 +47,28 @@ export function PlanAssistant({ today, save, saved, notify, enabled, profileRef,
 
   return <div className="plan-assistant feature-stack">
     <div className="plan-assistant-tabs" role="group" aria-label="添加计划方式">
-      <button type="button" aria-pressed={mode === "import"} onClick={() => onModeChange("import")}><ClipboardList size={19} /><span>粘贴已有内容<small>训练文本、视频或计划 JSON</small></span></button>
-      <button type="button" aria-pressed={mode === "ai"} onClick={() => onModeChange("ai")}><Sparkles size={19} /><span>用自己的 AI<small>复制提示词或接收 Agent 草稿</small></span></button>
+      {methods.map(({ mode: method, label, detail, icon: Icon }) => <button type="button" key={method} aria-pressed={mode === method} onClick={() => onModeChange(method)}>
+        <Icon size={19} aria-hidden="true" /><span>{label}<small>{detail}</small></span>
+      </button>)}
     </div>
     <div hidden={mode !== "import"}>
-      <ImportView today={today} save={save} saved={saved} notify={notify} canRevise={enabled} focusRequest={focusRequest}
+      <ImportView today={today} save={save} saved={saved} canRevise={Boolean(owner)} focusRequest={focusRequest}
         helpAI={() => { setIntent("organize"); onModeChange("ai"); }} onPrograms={onPrograms} onData={onData} />
+    </div>
+    <div hidden={mode !== "coach"}>
+      <div hidden={reviewOpen}><AiCoachPanel active={active && mode === "coach" && !reviewOpen} owner={owner} selectedDate={selectedDate}
+        onReview={reviewDraft} savedDraft={savedDraft} resumeReview={review ? () => setReviewOpen(true) : undefined} /></div>
+      {review && <div hidden={!reviewOpen} tabIndex={-1} ref={reviewTarget}>
+        <div className="feature-stack coach-review">
+          <div className="exercise-toolbar">
+            <button type="button" className="button outline small" disabled={savingDraft} onClick={() => setReviewOpen(false)}>返回对话</button>
+            <button type="button" className="button subtle small" disabled={savingDraft} onClick={() => { setReview(undefined); setReviewOpen(false); }}>取消核对</button>
+          </div>
+          <PlanImportReview plans={review.plans} save={save} busyChanged={setSavingDraft} aiDraft saved={() => {
+            setSavedDraft(review.source); setReview(undefined); setReviewOpen(false); saved();
+          }} />
+        </div>
+      </div>}
     </div>
     <div hidden={mode !== "ai"} className="plan-ai-stack">
       <section className="card padded feature-stack plan-prompt-card">
@@ -47,8 +84,8 @@ export function PlanAssistant({ today, save, saved, notify, enabled, profileRef,
         {showPrompt && <label>计划提示词<textarea className="prompt-text" readOnly rows={9} value={prompt} onFocus={(event) => event.target.select()} /></label>}
         <p className="muted">生成内容会先预览和编辑，确认后才保存。已连接的 Agent 也可以把草稿直接送到下方。</p>
       </section>
-      <AgentAccessPanel enabled={enabled} profileRef={profileRef} saved={saved} active={active && mode === "ai"} />
+      <AgentAccessPanel enabled={Boolean(owner)} profileRef={profileRef} saved={saved} active={active && mode === "ai"} />
     </div>
-    <aside className="plan-assistant-related card padded"><span className="tile mint"><CalendarClock size={20} /></span><div><strong>已有完整训练周期？</strong><p className="muted">完整周期保留周次和阶段，在训练周期中导入。个人数据备份仍从数据页面恢复。</p></div><div className="exercise-toolbar"><button type="button" className="button outline small" onClick={onPrograms}>训练周期</button><button type="button" className="button subtle small" onClick={onData}>数据备份</button></div></aside>
+    {mode !== "coach" && <aside className="plan-assistant-related card padded"><span className="tile mint"><CalendarClock size={20} /></span><div><strong>已有完整训练周期？</strong><p className="muted">完整周期保留周次和阶段，在训练周期中导入。个人数据备份仍从数据页面恢复。</p></div><div className="exercise-toolbar"><button type="button" className="button outline small" onClick={onPrograms}>训练周期</button><button type="button" className="button subtle small" onClick={onData}>数据备份</button></div></aside>}
   </div>;
 }
