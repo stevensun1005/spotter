@@ -1,5 +1,7 @@
 # 训练搭子 · Spotter
 
+iPhone App 开发版位于 `ios/SpotterHealth.xcodeproj`，选择 **Spotter** scheme。它复用当前站点的训练业务和原生健康模块；构建、模拟器开发包及另一台电脑完成后的代码补齐约定见 [iPhone App 说明](docs/iphone-app.md)。
+
 用手机安排训练、逐组记录、和一个搭子互相打卡。独立 Node.js 服务提供页面、账号和 API。SQLite 数据库保存在服务端的持久磁盘。页面和素材随项目构建，计划导入在浏览器里完成。可以直接粘贴训练文本、B 站或 YouTube 链接，也可以粘贴任意 AI 按页面提示词生成的 JSON。
 
 ## 本地启动

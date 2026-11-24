@@ -13,6 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
     "test:health-native": "node tools/verify-health-native.mjs",
+    "test:ios-app": "node tools/verify-ios-app.mjs",
+    "ios:source-check": "node tools/check-app-source.mjs --fetch --upstream origin/main --upstream origin/codex/health-device-sync --upstream origin/codex/spotter-iphone-app",
+    "ios:package": "node tools/build-ios-simulator.mjs",
     "plans:import": "node --env-file-if-exists=.env.local tools/import-plans.mjs"
   },
   "dependencies": {
