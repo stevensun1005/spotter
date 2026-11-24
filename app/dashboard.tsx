@@ -671,14 +671,15 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       }} />;
   }
 
-  const heading = view === "assistant" ? undefined : pageTitles[view];
-  const coachMeal = view === "assistant" && assistantMeal?.owner === viewer?.id ? assistantMeal : undefined;
-  const activeTab = view === "programs" || view === "assistant" ? "plans"
+  const assistantPage = view === "assistant";
+  const heading = pageTitles[view];
+  const coachMeal = assistantPage && assistantMeal?.owner === viewer?.id ? assistantMeal : undefined;
+  const activeTab = view === "programs" ? "plans"
     : view === "coaching" ? "friends" : view === "body" ? "stats" : view;
   const calendarOpen = view === "stats" && statsTab === "history";
   return <AnatomySubject.Provider value={me.anatomyVariant}><div className={calendarOpen ? "app app-history" : "app"}>
     <div className="stage">
-      <main className={view === "today" ? "content content-today" : view === "nutrition" ? "content content-nutrition" : view === "assistant" ? "content content-coach" : "content"}>
+      <main className={view === "today" ? "content content-today" : view === "nutrition" ? "content content-nutrition" : assistantPage ? "content content-coach" : "content"}>
         {view === "today" && <>
           <header className="home-toolbar">
             <div className="home-toolbar-start">
@@ -850,8 +851,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "friends" && <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
           today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()} />}
 
-        <div hidden={view !== "assistant"}><PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} save={importPlans} owner={viewer?.id} profileRef={profileRef}
-          active={view === "assistant"} mode={assistantMode} onModeChange={changeAssistantMode}
+        <div hidden={!assistantPage}><PlanAssistant key={viewer?.id ?? "guest"} today={today} selectedDate={selected} save={importPlans} owner={viewer?.id} profileRef={profileRef}
+          active={assistantPage} mode={assistantMode} onModeChange={changeAssistantMode}
           backLabel={coachMeal ? coachMeal.fromCoach ? "返回 AI 教练" : "返回饮食记录" : "返回"}
           onBack={coachMeal?.fromCoach ? () => { setAssistantMode("coach"); go("assistant"); } : leavePlanAssistant}
           mealPhoto={coachMeal && <CoachMealPhoto key={coachMeal.id} request={coachMeal} close={() => go("nutrition")} />}
@@ -865,11 +866,18 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           saved={() => { void refresh(); void library.load(); go("plans"); }} /></div>
       </main>
     </div>
-    {view !== "nutrition" && <nav aria-label="主导航" className="primary-nav">{primaryTabs
-      .filter(({ id }) => id !== "friends" || display.social)
-      .map(({ id, icon: Icon, label }) =>
-      <button className={activeTab === id ? "active" : ""} aria-current={id === view ? "page" : id === activeTab ? "location" : undefined}
-        key={id} type="button" onClick={() => go(id)}><Icon size={21} aria-hidden="true" /><span>{label}</span></button>)}</nav>}
+    {view !== "nutrition" && <nav aria-label="主导航" className="primary-nav">
+      <div className="primary-nav-tabs">{primaryTabs
+        .filter(({ id }) => id !== "friends" || display.social)
+        .map(({ id, icon: Icon, label }) =>
+          <button className={activeTab === id ? "active" : ""} aria-current={id === view ? "page" : id === activeTab ? "location" : undefined}
+            key={id} type="button" onClick={() => go(id)}><Icon size={21} aria-hidden="true" /><span>{label}</span></button>)}
+      </div>
+      <button className={assistantPage ? "primary-nav-coach active" : "primary-nav-coach"} aria-current={assistantPage ? "page" : undefined}
+        type="button" aria-label="AI 教练" title="AI 教练" onClick={() => assistantPage ? changeAssistantMode("coach") : openPlanAssistant("coach")}>
+        <span className="primary-nav-coach-icon"><Sparkles size={21} aria-hidden="true" /></span>
+      </button>
+    </nav>}
     {overlay?.kind === "editor" && <Dialog title={plans.some((plan) => plan.id === overlay.plan.id && plan.owner === me.id) ? "编辑计划" : "新建计划"} onClose={close}>
       <form onSubmit={(e) => { e.preventDefault(); const item = overlay.plan; void act(async () => { await savePlans([item]); setSelected(item.data.date); setOverlay(null); }); }}>
         <div className="dialog-body"><PlanFields value={overlay.plan.data} templates={templates} change={(data) => setOverlay({ kind: "editor", plan: { ...overlay.plan, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>

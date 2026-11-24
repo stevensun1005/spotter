@@ -2,7 +2,7 @@
   --coach-evergreen: #294536;
   --coach-paper: color-mix(in srgb, var(--card) 88%, var(--canvas));
   --coach-choice: color-mix(in srgb, var(--lime) 24%, var(--card));
-  --coach-nav-space: calc(61px + env(safe-area-inset-bottom));
+  --coach-nav-space: calc(var(--primary-nav-space) + 5px);
   display: flex;
   flex-direction: column;
   gap: 15px;
