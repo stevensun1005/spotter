@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ClipboardList, Send, Sparkles } from "lucide-react";
+import { ClipboardList, ListChecks, MessageCircle, Send, Sparkles } from "lucide-react";
 import type { Plan } from "@/features/plans/model";
+import { guidedMessage } from "./guided";
+import { GuidedCoachPanel, type GuidedCoachSelection } from "./guided-panel";
 import { maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
   type CoachConfig, type CoachModel, type CoachRequest, type CoachResponse } from "./model";
 
@@ -10,6 +12,20 @@ type Exchange = { question: string; reply: string; model: CoachModel };
 type Availability = CoachConfig | { error: string };
 const endpoint = "/api/ai-coach";
 const modelNames = { haiku: "Haiku 5.5", sonnet: "Sonnet 5.5" };
+
+function CoachDraftActions({ draft, savedDrafts, resumeReview, onReview }: {
+  draft?: Plan[]; savedDrafts: ReadonlySet<Plan[]>; resumeReview?: () => void; onReview: (plans: Plan[]) => void;
+}) {
+  if (!draft && !resumeReview) return null;
+  const saved = draft !== undefined && savedDrafts.has(draft);
+  const openReview = resumeReview ?? (draft && !saved ? () => onReview(draft) : undefined);
+  return <div className="coach-draft">
+    <div><strong>训练草稿</strong><p className="muted">{resumeReview ? "有一份草稿正在核对。" : saved ? "已保存这份草稿。" : `${draft?.length} 个计划，等待核对后保存。`}</p></div>
+    {openReview && <button className="button primary small" type="button" onClick={openReview}>
+      <ClipboardList size={17} aria-hidden="true" />{resumeReview ? "继续核对" : "核对与编辑"}
+    </button>}
+  </div>;
+}
 
 function recentMessages(exchanges: Exchange[], question: string): CoachRequest["messages"] {
   const messages: CoachRequest["messages"] = [{ role: "user", content: question }];
@@ -22,12 +38,15 @@ function recentMessages(exchanges: Exchange[], question: string): CoachRequest["
   return messages;
 }
 
-export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft, resumeReview }: {
+export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDrafts, resumeReview }: {
   active: boolean; owner?: string; selectedDate: string; onReview: (plans: Plan[]) => void;
-  savedDraft?: Plan[]; resumeReview?: () => void;
+  savedDrafts: ReadonlySet<Plan[]>; resumeReview?: () => void;
 }) {
   const [availability, setAvailability] = useState<Availability>();
   const [check, setCheck] = useState(0);
+  const [flow, setFlow] = useState<"guided" | "chat">("guided");
+  const [guidedResult, setGuidedResult] = useState<CoachResponse>();
+  const [guidedError, setGuidedError] = useState("");
   const [intent, setIntent] = useState<CoachRequest["intent"]>("chat");
   const [draftModel, setDraftModel] = useState<CoachModel>("haiku");
   const [draftDays, setDraftDays] = useState(7);
@@ -66,8 +85,8 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
 
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
-    if (active && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
-  }, [active, exchanges]);
+    if (active && flow === "chat" && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
+  }, [active, exchanges, flow]);
 
   const available = Boolean(owner) && availability && "enabled" in availability && availability.enabled;
   const sonnet = available && availability.models.includes("sonnet");
@@ -81,21 +100,13 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
     setError("");
   }
 
-  async function send(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const question = input.trim();
-    if (!owner || !available || !question || !date || request.current) return;
+  async function askCoach(payload: CoachRequest, receive: (result: CoachResponse) => void, showError: (message: string) => void) {
+    if (!available || request.current) return;
     const controller = new AbortController();
     request.current = controller;
     setWaiting(true);
-    setError("");
+    showError("");
     try {
-      const payload: CoachRequest = {
-        expectedOwner: owner, messages: recentMessages(exchanges, question), intent, model, date,
-        includePlans, contextRange,
-        ...(intent === "draft" ? { draftDays } : {}),
-        ...(intent === "draft" && reviseDraft && draft ? { priorDraft: { plans: draft } } : {}),
-      };
       const response = await fetch(endpoint, {
         method: "POST", headers: { "Content-Type": "application/json" },
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)]),
@@ -104,15 +115,9 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
       const result = await response.json().catch(() => null) as (CoachResponse & { error?: string }) | null;
       if (!response.ok) throw new Error(result?.error || "AI 教练暂时无法回复。请稍后重试。");
       if (typeof result?.reply !== "string" || !result.reply || (result.model !== "haiku" && result.model !== "sonnet")) throw new Error("未收到完整回复。请重试。");
-      if (controller.signal.aborted) return;
-      setExchanges((previous) => [...previous, { question, reply: result.reply, model: result.model }]);
-      if (Array.isArray(result.draft?.plans) && result.draft.plans.length) {
-        setDraft(result.draft.plans);
-        setReviseDraft(false);
-      }
-      setInput("");
+      if (!controller.signal.aborted) receive(result);
     } catch (reason) {
-      if (!controller.signal.aborted) setError(reason instanceof Error && reason.name === "Error"
+      if (!controller.signal.aborted) showError(reason instanceof Error && reason.name === "Error"
         ? reason.message : "连接未完成。请检查网络后重试。");
     } finally {
       if (!controller.signal.aborted) {
@@ -122,15 +127,60 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
     }
   }
 
+  function send(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = input.trim();
+    if (!owner || !question || !date) return;
+    void askCoach({
+      expectedOwner: owner, messages: recentMessages(exchanges, question), intent, model, date,
+      includePlans, contextRange,
+      ...(intent === "draft" ? { draftDays } : {}),
+      ...(intent === "draft" && reviseDraft && draft ? { priorDraft: { plans: draft } } : {}),
+    }, (result) => {
+      setExchanges((previous) => [...previous, { question, reply: result.reply, model: result.model }]);
+      if (Array.isArray(result.draft?.plans) && result.draft.plans.length) {
+        setDraft(result.draft.plans);
+        setReviseDraft(false);
+      }
+      setInput("");
+    }, setError);
+  }
+
+  function generate(selection: GuidedCoachSelection, requestedModel: CoachModel) {
+    if (!owner || !available || request.current) return;
+    void askCoach({
+      ...selection, expectedOwner: owner, messages: [{ role: "user", content: guidedMessage }],
+      intent: "draft", model: sonnet ? requestedModel : "haiku", includePlans: false,
+    }, setGuidedResult, setGuidedError);
+  }
+
   const status = !owner ? "登录后可使用站内 AI 教练。" : !availability ? "正在检查 AI 教练状态…"
     : "error" in availability ? availability.error : "当前账号尚未启用站内 AI 教练。你仍可使用外部 AI 或粘贴计划。";
+  const canRetry = owner && availability && "error" in availability;
+  const retry = () => { setAvailability(undefined); setCheck((value) => value + 1); };
 
-  return <section className="card padded feature-stack coach-chat" aria-label="训练对话">
+  return <div className="feature-stack coach-workflows">
+    <div className="segmented coach-flow-controls" role="group" aria-label="AI 教练方式">
+      <button type="button" aria-pressed={flow === "guided"} disabled={waiting} onClick={() => setFlow("guided")}><ListChecks size={17} aria-hidden="true" />问答定制</button>
+      <button type="button" aria-pressed={flow === "chat"} disabled={waiting} onClick={() => setFlow("chat")}><MessageCircle size={17} aria-hidden="true" />自由对话</button>
+    </div>
+    <div hidden={flow !== "guided"}>
+      <GuidedCoachPanel selectedDate={selectedDate} busy={waiting} enabled={Boolean(available)} sonnet={Boolean(sonnet)}
+        status={available ? undefined : status} error={guidedError} onGenerate={generate} />
+      {canRetry && <button type="button" className="button outline small" onClick={retry}>重试连接</button>}
+      {(guidedResult || resumeReview) && <section className="card padded feature-stack coach-guided-result" aria-label="问答定制结果">
+        {guidedResult && <div className="coach-message" role="status">
+          <strong>AI 教练 <span>{modelNames[guidedResult.model]}</span></strong><p>{guidedResult.reply}</p>
+        </div>}
+        <CoachDraftActions draft={guidedResult?.draft?.plans} savedDrafts={savedDrafts} resumeReview={resumeReview} onReview={onReview} />
+      </section>}
+    </div>
+    <section className="card padded feature-stack coach-chat" aria-label="训练对话" hidden={flow !== "chat"}>
     <div className="section-head"><h2><Sparkles size={20} aria-hidden="true" />训练对话</h2>
       {available && (exchanges.length > 0 || input.trim()) && <button className="button subtle small" type="button" disabled={waiting} onClick={clearConversation}>清空对话</button>}
     </div>
     {!available ? <div className="coach-chat-status"><p className="muted" role="status">{status}</p>
-      {owner && availability && "error" in availability && <button type="button" className="button outline small" onClick={() => { setAvailability(undefined); setCheck((value) => value + 1); }}>重试</button>}
+      {canRetry && <button type="button" className="button outline small" onClick={retry}>重试</button>}
     </div> : <>
       {exchanges.length > 0 && <ol className="coach-transcript" ref={transcript} aria-label="对话记录" aria-live="polite" tabIndex={0}>
         {exchanges.map(({ question, reply, model: used }, index) => <li key={index}>
@@ -138,13 +188,7 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
           <div className="coach-message"><strong>AI 教练 <span>{modelNames[used]}</span></strong><p>{reply}</p></div>
         </li>)}
       </ol>}
-      {(draft || resumeReview) && <div className="coach-draft">
-        <div><strong>训练草稿</strong><p className="muted">{resumeReview ? "有一份草稿正在核对。" : draft === savedDraft ? "已处理这份草稿。" : `${draft?.length} 个计划，等待核对后保存。`}</p></div>
-        {resumeReview || draft && draft !== savedDraft ? <button className="button primary small" type="button" onClick={() => {
-          if (resumeReview) resumeReview();
-          else if (draft) onReview(draft);
-        }}><ClipboardList size={17} aria-hidden="true" />{resumeReview ? "继续核对" : "核对与编辑"}</button> : null}
-      </div>}
+      <CoachDraftActions draft={draft} savedDrafts={savedDrafts} resumeReview={resumeReview} onReview={onReview} />
       <form className="form-fields coach-form" onSubmit={send} aria-busy={waiting}>
         <div className="segmented coach-intent" role="group" aria-label="对话任务">
           <button type="button" aria-pressed={intent === "chat"} disabled={waiting} onClick={() => setIntent("chat")}>聊训练</button>
@@ -177,5 +221,6 @@ export function AiCoachPanel({ active, owner, selectedDate, onReview, savedDraft
         <button className="button primary" disabled={waiting || !input.trim() || !date}><Send size={17} aria-hidden="true" />{intent === "draft" ? "请求草稿" : "发送"}</button>
       </form>
     </>}
-  </section>;
+    </section>
+  </div>;
 }

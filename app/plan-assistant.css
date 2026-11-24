@@ -23,6 +23,11 @@
 .plan-import-stack .import-form { margin-top: 0; }
 .plan-import-stack .import-preview { min-width: 0; }
 .coach-chat { margin-inline: auto; width: min(100%, 800px); }
+.coach-chat[hidden] { display: none; }
+.coach-workflows { margin-inline: auto; width: min(100%, 800px); }
+.coach-flow-controls { align-self: start; }
+.coach-flow-controls > button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.coach-guided-result { margin-top: 14px; }
 .coach-chat-status, .coach-draft { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .coach-transcript { list-style: none; margin: 0; padding: 0 3px 5px; display: grid; gap: 13px; max-height: min(56vh, 560px); overflow: auto; }
 .coach-transcript > li { display: grid; gap: 12px; }
@@ -44,6 +49,8 @@
   .plan-assistant-tabs > button > span { font-size: .85rem; }
   .plan-assistant-tabs small { display: none; }
   .plan-prompt-intent { width: 100%; }
+  .coach-flow-controls { width: 100%; }
+  .coach-flow-controls > button { flex: 1; }
   .plan-assistant .exercise-toolbar { flex-wrap: wrap; }
   .plan-assistant-related { align-items: start; }
 }

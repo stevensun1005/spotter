@@ -11,7 +11,7 @@ import { planAiPrompt, type PlanAiIntent } from "./ai-instructions";
 export type PlanAssistantMode = "import" | "coach" | "ai";
 const methods = [
   { mode: "import", label: "粘贴已有内容", detail: "训练文本、视频或计划 JSON", icon: ClipboardList },
-  { mode: "coach", label: "站内 AI 教练", detail: "训练对话和草稿", icon: Sparkles },
+  { mode: "coach", label: "站内 AI 教练", detail: "问答定制或自由对话", icon: Sparkles },
   { mode: "ai", label: "用自己的 AI", detail: "提示词和 Agent 连接", icon: Plug },
 ] as const;
 
@@ -26,7 +26,7 @@ export function PlanAssistant({ today, selectedDate, save, saved, owner, profile
   const [focusRequest, setFocusRequest] = useState(0);
   const [review, setReview] = useState<{ source: Plan[]; plans: PlannedWorkout[] }>();
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [savedDraft, setSavedDraft] = useState<Plan[]>();
+  const [savedDrafts, setSavedDrafts] = useState(() => new Set<Plan[]>());
   const [savingDraft, setSavingDraft] = useState(false);
   const reviewTarget = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -57,15 +57,15 @@ export function PlanAssistant({ today, selectedDate, save, saved, owner, profile
     </div>
     <div hidden={mode !== "coach"}>
       <div hidden={reviewOpen}><AiCoachPanel active={active && mode === "coach" && !reviewOpen} owner={owner} selectedDate={selectedDate}
-        onReview={reviewDraft} savedDraft={savedDraft} resumeReview={review ? () => setReviewOpen(true) : undefined} /></div>
+        onReview={reviewDraft} savedDrafts={savedDrafts} resumeReview={review ? () => setReviewOpen(true) : undefined} /></div>
       {review && <div hidden={!reviewOpen} tabIndex={-1} ref={reviewTarget}>
         <div className="feature-stack coach-review">
           <div className="exercise-toolbar">
-            <button type="button" className="button outline small" disabled={savingDraft} onClick={() => setReviewOpen(false)}>返回对话</button>
+            <button type="button" className="button outline small" disabled={savingDraft} onClick={() => setReviewOpen(false)}>返回 AI 教练</button>
             <button type="button" className="button subtle small" disabled={savingDraft} onClick={() => { setReview(undefined); setReviewOpen(false); }}>取消核对</button>
           </div>
           <PlanImportReview plans={review.plans} save={save} busyChanged={setSavingDraft} aiDraft saved={() => {
-            setSavedDraft(review.source); setReview(undefined); setReviewOpen(false); saved();
+            setSavedDrafts((previous) => new Set(previous).add(review.source)); setReview(undefined); setReviewOpen(false); saved();
           }} />
         </div>
       </div>}

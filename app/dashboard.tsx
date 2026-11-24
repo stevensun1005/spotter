@@ -752,7 +752,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               <p className="muted">开启后可在结束训练时记录蛋白粉。</p></section>}
             data={<DataView enabled={Boolean(viewer)} saved={() => { void refresh(); void library.load(); }} importPlans={() => openPlanAssistant("import")} />}
             agent={<div className="feature-stack"><SettingsRows>
-              <SettingsLink label="打开站内 AI 教练" detail="聊训练或起草计划" icon={Sparkles} onClick={() => openPlanAssistant("coach")} />
+              <SettingsLink label="打开站内 AI 教练" detail="问答定制或自由对话" icon={Sparkles} onClick={() => openPlanAssistant("coach")} />
               <SettingsLink label="用自己的 AI" detail="提示词、Agent 连接和草稿" onClick={() => openPlanAssistant("ai")} />
             </SettingsRows>
               <AgentPack profileRef={profileRef} /></div>} />
