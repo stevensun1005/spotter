@@ -494,6 +494,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       }} />;
   }
 
+  const showPageHeading = view !== "stats" && view !== "nutrition";
   const heading = view === "today" ? "今天一起练" : navigation.find((item) => item.id === view)?.title;
   return <div className="app">
     <aside className="sidebar">
@@ -510,7 +511,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         <div className="top-actions"><span className="cloud-status"><Cloud size={17} />{cloud}</span><button className="top-profile" onClick={() => open({ kind: "pair" })} aria-label="账号与搭子空间"><span className="avatar lime">{avatar(me.name)}</span><ChevronDown size={15} /></button></div>
       </header>
       <main className="content">
-        <div className="page-heading">
+        {showPageHeading && <div className="page-heading">
           <div>{view === "today" && <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>}<h1>{heading}</h1>
             {view === "today" && demo && <p>正在查看示例数据。登录后可同步你们的记录。</p>}
             {view === "import" && <p>把聊天里的训练安排或视频链接变成可打卡的计划。</p>}
@@ -519,7 +520,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             {view === "plans" && viewer && <button className="button outline page-action" disabled={library.loading || Boolean(library.error)} onClick={() => open({ kind: "schedule" })}><Settings2 size={18} /> 个人计划设置</button>}
             <button className="button primary page-action" onClick={() => newPlan()}><Plus size={19} /> 新建计划</button>
           </div>}
-        </div>
+        </div>}
 
         {view === "today" && <div className="today-grid">
           <div className="home-pair">
