@@ -610,7 +610,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
         {view === "plans" && <PlanSections key={planTab ?? "plans"} date={selected} templates={templates} initial={planTab}
           exerciseLibrary={<OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
-          schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, true)}><section className="card padded">
+          schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, true)}><section className="card padded plans-list-card">
           <div className="section-head plans-list-heading">
             <h2>全部计划</h2>
             <div className="plans-list-actions">
@@ -618,7 +618,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               <button className="button primary small" type="button" onClick={() => newPlan()}><Plus size={17} /> 新建计划</button>
             </div>
           </div>
-          <div className="segmented" role="group" aria-label="计划状态">
+          <div className="segmented plans-status-tabs" role="group" aria-label="计划状态">
             <button type="button" aria-pressed={planStatus === "pending"} onClick={() => setPlanStatus("pending")}>待训练</button>
             <button type="button" aria-pressed={planStatus === "completed"} onClick={() => setPlanStatus("completed")}>已完成</button>
           </div>
