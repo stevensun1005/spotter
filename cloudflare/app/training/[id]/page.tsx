@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import Dashboard from "@/app/dashboard";
 import { workoutAt } from "@/features/training/route";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { asDate } from "@/app/workout";
+import { signInPath } from "@/features/auth/paths";
+import { isSpotterApp } from "@/features/auth/oauth-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +13,8 @@ export default async function TrainingPage({ params }: { params: Promise<{ id: s
   const id = workoutAt("/training/" + (await params).id);
   if (!id) redirect("/");
   const user = await getChatGPTUser();
+  const requiresSignIn = isSpotterApp((await headers()).get("user-agent") ?? "");
+  if (!user && requiresSignIn) redirect(signInPath("/training/" + id));
   const identity = user && { id: user.userId, name: user.fullName || user.email.split("@")[0] };
-  return <Dashboard viewer={identity} initialDate={asDate()} initialWorkoutId={id} />;
+  return <Dashboard key={identity?.id} viewer={identity} requiresSignIn={requiresSignIn} initialDate={asDate()} initialWorkoutId={id} />;
 }

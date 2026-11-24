@@ -16,3 +16,7 @@ export function safeReturnPath(value: unknown): string {
 export function signInPath(returnTo = "/") {
   return signInPage + "?return_to=" + encodeURIComponent(safeReturnPath(returnTo));
 }
+
+export function appSessionRecoveryPath(requiresSignIn: boolean, status: "expired" | "account-changed", path: string) {
+  if (requiresSignIn) return status === "expired" ? signInPath(path) : "/";
+}

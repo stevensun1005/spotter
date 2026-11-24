@@ -24,7 +24,7 @@ registerHooks({ resolve(specifier, context, next) {
 const { POST: signIn } = await import("../app/api/auth/sign-in/route.ts");
 const { POST: signOut } = await import("../app/api/auth/sign-out/route.ts");
 const { GET: state } = await import("../app/api/state/route.ts");
-const { safeReturnPath } = await import("../features/auth/paths.ts");
+const { appSessionRecoveryPath, safeReturnPath, signInPath } = await import("../features/auth/paths.ts");
 const origin = "https://auth.synthetic.invalid";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -108,4 +108,13 @@ test("sign-in return paths retain shared links without permitting other origins"
     "/%2felsewhere.invalid", "/.//elsewhere.invalid", "/api/workout", "/sign-in?return_to=/", ["/"]]) {
     assert.equal(safeReturnPath(unsafe), "/");
   }
+});
+
+test("iPhone session recovery preserves the workout for reauthentication and reloads after switching accounts", () => {
+  const workout = "/training/492533f6-5abc-4e45-9a68-66e492bd25ad";
+  assert.equal(appSessionRecoveryPath(true, "expired", workout), signInPath(workout));
+  assert.equal(appSessionRecoveryPath(true, "expired", "//external.invalid/"), signInPath());
+  assert.equal(appSessionRecoveryPath(true, "account-changed", workout), "/");
+  assert.equal(appSessionRecoveryPath(false, "expired", workout), undefined);
+  assert.equal(appSessionRecoveryPath(false, "account-changed", workout), undefined);
 });
