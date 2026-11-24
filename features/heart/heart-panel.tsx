@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, HeartPulse, Upload } from "lucide-react";
+import { Check, HeartPulse, RefreshCw, Upload } from "lucide-react";
 import { errorText, send } from "@/shared/client";
 import type { Session } from "@/features/training/model";
 import { sources, workoutWindow, type HeartData } from "./model";
@@ -76,13 +76,16 @@ function HeartChart({ data }: { data: HeartData }) {
   return <canvas className="heart-chart" ref={canvas} role="img" aria-label={"心率曲线，" + data.samples.length + " 个已存采样点"} />;
 }
 
-const time = (at: number) => new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+const time = (at: number) => new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
 
 function HeartSummary({ data }: { data: HeartData }) {
+  const minimum = data.minimum ?? (data.samples.length ? Math.min(...data.samples.map((sample) => sample.bpm)) : undefined);
   return <div className="heart-summary">
-    <div className="heart-summary-meta"><strong>{sources[data.source]}</strong><span>{time(data.from)} – {time(data.to)}</span></div>
+    <div className="heart-summary-meta"><strong>{data.sourceName || sources[data.source]}</strong><span>{time(data.from)} – {time(data.to)}</span></div>
+    {data.sourceName && <span className="muted">{sources[data.source]}{data.sourceBundleId ? " · " + data.sourceBundleId : ""}</span>}
     <div className="heart-values">
       {data.average !== undefined && <div><span>平均心率</span><strong>{data.average} <small>bpm</small></strong></div>}
+      {minimum !== undefined && <div><span>{data.minimum === undefined ? "最低已存采样" : "最低心率"}</span><strong>{minimum} <small>bpm</small></strong></div>}
       {data.maximum !== undefined && <div><span>最高心率</span><strong>{data.maximum} <small>bpm</small></strong></div>}
     </div>
     {data.samples.length > 0 && <HeartChart data={data} />}
@@ -98,6 +101,7 @@ export function HeartPanel({ id, session, whoopResult }: { id: string; session: 
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(whoopResult ? providerMessage[whoopResult] : "");
+  const [revision, setRevision] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -118,7 +122,7 @@ export function HeartPanel({ id, session, whoopResult }: { id: string; session: 
     void load();
     document.addEventListener("visibilitychange", visible);
     return () => { abort.abort(); document.removeEventListener("visibilitychange", visible); };
-  }, [id]);
+  }, [id, revision]);
 
   async function importFile(file: File) {
     setBusy(true); setError(""); setResult(""); setConfirmRemove(false); setPreview(null);
@@ -163,6 +167,7 @@ export function HeartPanel({ id, session, whoopResult }: { id: string; session: 
 
   return <section className="heart-panel" aria-label="训练心率">
     <h3><HeartPulse size={19} /> 训练心率</h3>
+    <p className="muted">打卡时间：{time(workoutWindow(session).from)} – {time(workoutWindow(session).to)}。仅匹配本次训练，按当前时区显示。</p>
     {loading && <p className="muted">正在读取心率…</p>}
     {preview ? <><p className="muted">导入预览 · 仅你可见</p><HeartSummary data={preview} /></> :
       current ? <HeartSummary data={current} /> : null}
@@ -178,6 +183,7 @@ export function HeartPanel({ id, session, whoopResult }: { id: string; session: 
         if (file) void importFile(file);
       }} />
       <button type="button" className="button outline small" disabled={busy || loading} onClick={() => fileInput.current?.click()}><Upload size={15} />{current ? "导入另一份文件" : "导入心率文件"}</button>
+      <button type="button" className="button subtle small" disabled={busy || loading} onClick={() => { setError(""); setLoading(true); setRevision((value) => value + 1); }}><RefreshCw size={15} />刷新已同步数据</button>
       {whoop && <button type="button" className="button outline small" disabled={busy || loading} onClick={() => void connect()}>{current ? "用 WHOOP 同步并替换" : "用 WHOOP 同步本次心率"}</button>}
       {current && (confirmRemove ?
         <><button type="button" className="button outline small" disabled={busy} onClick={() => void remove()}>确认移除</button><button type="button" className="button subtle small" disabled={busy} onClick={() => setConfirmRemove(false)}>取消</button></> :
@@ -185,12 +191,12 @@ export function HeartPanel({ id, session, whoopResult }: { id: string; session: 
     </div>}
     {busy && <p role="status" className="muted">正在处理心率…</p>}
     {!preview && <details className="heart-help">
-      <summary>支持的设备与文件</summary>
+      <summary>同步方式、设备与可用数据</summary>
       <ul>
-        <li>Apple Watch：在账号里连接 iPhone 配套应用，从 Apple 健康直接同步。也可在「健康」里导出 ZIP 或 export.xml。</li>
-        <li>Garmin：在 Garmin Connect 打开这一项活动，导出 FIT 原始文件或 TCX。</li>
-        <li>WHOOP：选择导出包里的 workouts.csv，也可直接选择 ZIP。配置授权后可在这里同步单次训练的平均及最高心率。</li>
-        <li>其他设备：支持含时间和 BPM 的 FIT、TCX 或 CSV。</li>
+        <li><strong>原生同步：</strong>在账号里配对 iPhone 应用，读取 Apple 健康已收到的历史心率。手动补同步请在应用选定范围并点击同步，再刷新这里。Apple Watch 实时心率尚未接入。</li>
+        <li><strong>厂商在线同步：</strong>WHOOP {whoop ? "已配置，可授权读取本次训练的平均和最高心率；厂商摘要不提供曲线或最低心率。" : "尚未配置测试凭据与回调，可使用文件导入。"}Garmin 直连尚未接入。</li>
+        <li><strong>文件导入：</strong>Garmin Connect 导出单次 FIT / TCX；Apple 健康导出 ZIP / export.xml；WHOOP 导出 workouts.csv / ZIP。含逐点心率的文件可显示曲线、平均、最低和最高值。重复保存替换本条心率，不新增打卡。</li>
+        <li>其他设备先将数据写入 Apple 健康，或导入带时间和 BPM 的 FIT、TCX、CSV。以实际导出的字段为准，CSV 时间须含时区或有 timezone 列。</li>
       </ul>
       <p>网页在手机上读取文件，只上传你确认保存的心率。搭子看不到这些数据。</p>
     </details>}

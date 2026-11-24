@@ -6,6 +6,7 @@ import { displayNumber } from "@/shared/ui";
 import { offsetDate, shortDate } from "@/shared/dates";
 import { sessionTotals } from "@/features/training/model";
 import type { TrainingEntry } from "@/shared/state";
+import { PrivateHealthOverview } from "@/features/health/overview";
 
 export function Stats({ today, logs, self, partner }: {
   today: string; logs: TrainingEntry[]; self: string; partner: { id: string; name: string } | null;
@@ -31,5 +32,6 @@ export function Stats({ today, logs, self, partner }: {
     <section className="card padded"><div className="section-head"><h2>训练次数</h2><span className="muted">{shortDate(start)}至{shortDate(today)}</span></div>
       <div className={"bars" + (period === 30 ? " dense" : "")}>{counts.map((count, i) => <div key={i} title={shortDate(offsetDate(start, i)) + " · " + count + " 次"}><div className="bar-track"><span style={{ height: count ? count / max * 100 + "%" : "4px" }} data-empty={count === 0} /></div>{(period === 7 || i === 0 || i === 29) && <small>{Number(offsetDate(start, i).slice(8))}</small>}</div>)}</div>
     </section>
+    {person === self && <PrivateHealthOverview start={start} end={today} />}
   </div>;
 }

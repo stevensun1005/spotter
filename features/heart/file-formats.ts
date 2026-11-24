@@ -5,13 +5,15 @@ export function timeValue(value: string, zone = "") {
   if (/^\d{10,13}$/.test(cleaned)) return cleaned.length === 10 ? Number(cleaned) * 1000 : Number(cleaned);
   const match = cleaned.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s*(Z|[+-]\d{2}:?\d{2})?$/i);
   if (!match) return NaN;
-  const offset = (match[3] || zone.trim().replace(/^(?:UTC|GMT)(?=[+-])/i, "")).replace(/^([+-]\d{2})(\d{2})$/, "$1:$2");
-  if (offset && !/^(?:Z|[+-]\d{2}:\d{2})$/i.test(offset)) return NaN;
+  const offset = (match[3] || zone.trim().replace(/^(?:UTC|GMT)$/i, "Z").replace(/^(?:UTC|GMT)(?=[+-])/i, "")).replace(/^([+-]\d{2})(\d{2})$/, "$1:$2");
+  // A timezone-free timestamp would silently use the importing device's zone.
+  if (!/^(?:Z|[+-]\d{2}:\d{2})$/i.test(offset)) return NaN;
   return Date.parse(match[1] + "T" + match[2] + offset);
 }
 
 export function appleParser(window: TimeWindow) {
   const samples = sampleCollection(window);
+  const sourceNames = new Set<string>();
   const decoder = new TextDecoder();
   let tail = "";
   return {
@@ -25,11 +27,30 @@ export function appleParser(window: TimeWindow) {
         if (!/\btype\s*=\s*["']HKQuantityTypeIdentifierHeartRate["']/.test(tag[1])) continue;
         const at = tag[1].match(/\bstartDate\s*=\s*["']([^"']+)["']/)?.[1];
         const rate = tag[1].match(/\bvalue\s*=\s*["']([^"']+)["']/)?.[1];
-        if (at && rate) samples.add(timeValue(at), Number(rate));
+        if (at && rate) {
+          const timestamp = timeValue(at);
+          const bpm = Number(rate);
+          samples.add(timestamp, bpm);
+          if (timestamp >= window.from && timestamp <= window.to && bpm >= 1 && bpm <= 300) {
+            const name = tag[1].match(/\bsourceName\s*=\s*(["'])(.*?)\1/)?.[2];
+            if (name) sourceNames.add(xmlText(name));
+          }
+        }
       }
     },
-    finish: () => samples.collect("apple"),
+    finish() {
+      const result = samples.collect("apple");
+      const sourceName = [...sourceNames].join(" / ").slice(0, 160).trim();
+      return result && { ...result, ...(sourceName ? { sourceName } : {}) };
+    },
   };
+}
+
+function xmlText(value: string) {
+  const entities: Record<string, string> = {
+    "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'",
+  };
+  return value.replace(/&(?:amp|lt|gt|quot|apos);/g, (entity) => entities[entity] ?? entity).trim();
 }
 
 export function readTcx(text: string, window: TimeWindow) {
@@ -42,7 +63,11 @@ export function readTcx(text: string, window: TimeWindow) {
     const value = heart && field(heart, "Value");
     if (time && value) samples.add(timeValue(time), Number(value));
   }
-  return samples.collect("tcx");
+  const result = samples.collect("tcx");
+  const creator = text.match(/<(?:[\w-]+:)?Creator\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?Creator>/)?.[1];
+  const name = creator && field(creator, "Name");
+  const sourceName = name && xmlText(name).slice(0, 160);
+  return result && { ...result, ...(sourceName ? { sourceName } : {}) };
 }
 
 function* csvRows(text: string) {

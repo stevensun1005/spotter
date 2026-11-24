@@ -14,6 +14,9 @@ export function readFit(bytes: ArrayBuffer, window: TimeWindow) {
   for (const record of messages.recordMesgs ?? []) {
     if (typeof record.heartRate === "number") samples.add(timestamp(record.timestamp), record.heartRate);
   }
-  return samples.collect("fit") ?? matchingSummary(window, (messages.sessionMesgs ?? []).map((record) =>
+  const result = samples.collect("fit") ?? matchingSummary(window, (messages.sessionMesgs ?? []).map((record) =>
     sourceSummary("fit", timestamp(record.startTime), timestamp(record.timestamp), record.avgHeartRate, record.maxHeartRate)));
+  const file = messages.fileIdMesgs?.[0];
+  const sourceName = [file?.manufacturer, file?.productName].filter((value): value is string => typeof value === "string" && Boolean(value.trim())).join(" · ").slice(0, 160);
+  return result && { ...result, ...(sourceName ? { sourceName } : {}) };
 }
