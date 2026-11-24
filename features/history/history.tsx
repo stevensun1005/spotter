@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Dumbbell, ListFilter } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Dumbbell, ListFilter } from "lucide-react";
 import { offsetDate, shortDate, weekdayIndex, weekdays } from "@/shared/dates";
 import type { TrainingEntry } from "@/shared/state";
 import { Dialog } from "@/shared/ui";
+import { errorText } from "@/shared/client";
+import { moveHistoryId, orderedOwnLogs } from "./day-order";
 
 export { LogDetail } from "./log-detail";
 
@@ -22,12 +24,16 @@ function moveMonth(first: string, step: number) {
   return date.toISOString().slice(0, 10);
 }
 
-export function History({ today, logs, self, partner, show }: {
+export function History({ today, logs, self, partner, show, orderByDay, saveOrder }: {
   today: string; logs: TrainingEntry[]; self: string; partner: string | undefined; show: (entry: TrainingEntry) => void;
+  orderByDay?: ReadonlyMap<string, readonly string[]>; saveOrder?: (date: string, ids: string[]) => Promise<void>;
 }) {
   const [scope, setScope] = useState<HistorySubject>("all");
   const [first, setFirst] = useState(() => today.slice(0, 7) + "-01");
   const [active, setActive] = useState<string>();
+  const [editing, setEditing] = useState<string[]>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const subject = partner ? scope : "self";
   const month = first.slice(0, 7);
   const leading = weekdayIndex(first);
@@ -42,7 +48,25 @@ export function History({ today, logs, self, partner, show }: {
     if (entries) entries.push(log);
     else byDate.set(log.data.date, [log]);
   }
+  if (orderByDay) for (const [date, entries] of byDate) {
+    const order = orderByDay.get(date);
+    if (order) byDate.set(date, orderedOwnLogs(entries, self, order));
+  }
   const activeLogs = active ? byDate.get(active) ?? [] : [];
+  const ownLogs = activeLogs.filter((log) => log.owner === self);
+  const shownLogs = editing ? orderedOwnLogs(activeLogs, self, editing) : activeLogs;
+
+  function closeDay() {
+    if (!busy) { setActive(undefined); setEditing(undefined); setError(""); }
+  }
+
+  async function applyOrder() {
+    if (!saveOrder || !active || !editing || busy) return;
+    setBusy(true); setError("");
+    try { await saveOrder(active, editing); setEditing(undefined); }
+    catch (reason) { setError(errorText(reason)); }
+    finally { setBusy(false); }
+  }
 
   return <div className="history-calendar">
     <section className="card history-month-card" aria-label="训练月历">
@@ -93,13 +117,23 @@ export function History({ today, logs, self, partner, show }: {
         {partner && subject !== "self" && <span data-person="partner"><i aria-hidden="true" />{partner}</span>}
       </div>
     </section>
-    {active && <Dialog title={shortDate(active) + "的打卡"} onClose={() => setActive(undefined)}>
+    {active && <Dialog title={shortDate(active) + "的打卡"} onClose={closeDay}>
       <div className="dialog-body history-day-list">
+        {saveOrder && ownLogs.length > 1 && <div className="exercise-toolbar">
+          {editing ? <>
+            <button type="button" className="button primary small" disabled={busy} onClick={() => void applyOrder()}>{busy ? "保存中…" : "保存排序"}</button>
+            <button type="button" className="button subtle small" disabled={busy} onClick={() => { setEditing(undefined); setError(""); }}>取消排序</button>
+          </> : <button type="button" className="button outline small" onClick={() => setEditing(ownLogs.map((log) => log.id))}>排序我的训练</button>}
+        </div>}
+        {error && <p className="inline-error" role="alert">{error}</p>}
         {!activeLogs.length && <p className="history-no-records">{subject === "partner" ? "搭子这一天还没有训练记录。" : "这一天还没有训练记录。"}</p>}
-        {activeLogs.map((log) => {
+        {shownLogs.map((log) => {
           const mine = log.owner === self;
-          return <button className="history-day-record" type="button" data-person={mine ? "self" : "partner"}
-            key={log.owner + ":" + log.id} onClick={() => { setActive(undefined); show(log); }}>
+          const position = mine ? editing?.indexOf(log.id) ?? -1 : -1;
+          const label = log.data.plan.title;
+          return <div className="history-day-sort-row" key={log.owner + ":" + log.id}>
+            <button className="history-day-record" type="button" data-person={mine ? "self" : "partner"}
+            disabled={Boolean(editing)} onClick={() => { closeDay(); show(log); }}>
             <span className="history-record-icon"><Dumbbell size={19} aria-hidden="true" /></span>
             <span className="history-record-label">
               <strong>{log.data.plan.title}</strong>
@@ -107,7 +141,14 @@ export function History({ today, logs, self, partner, show }: {
                 <span>{log.data.plan.category} · {log.data.minutes} 分钟</span></small>
             </span>
             <ChevronRight size={19} aria-hidden="true" />
-          </button>;
+            </button>
+            {editing && position >= 0 && <div className="history-day-sort-controls">
+              <button type="button" className="icon-button" aria-label={"上移 " + label} disabled={busy || position === 0}
+                onClick={() => setEditing(moveHistoryId(editing, log.id, -1))}><ArrowUp size={17} /></button>
+              <button type="button" className="icon-button" aria-label={"下移 " + label} disabled={busy || position === editing.length - 1}
+                onClick={() => setEditing(moveHistoryId(editing, log.id, 1))}><ArrowDown size={17} /></button>
+            </div>}
+          </div>;
         })}
       </div>
     </Dialog>}

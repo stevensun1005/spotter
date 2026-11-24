@@ -4,10 +4,12 @@ import { useState, type FormEvent } from "react";
 import { ArrowLeft, Camera, Plus, Search } from "lucide-react";
 import { Dialog, displayNumber } from "@/shared/ui";
 import { errorText } from "@/shared/client";
-import type { MealEntry, PersonalFood } from "@/features/library/model";
+import type { FoodPortions, MealEntry, PersonalFood } from "@/features/library/model";
 import { foods, maxFoodGrams, scaleNutrition, searchFoods, type Food } from "./foods";
 import { FoodPhoto } from "./food-photo";
 import { commonMealFoods, splitFoodQuery, type RecentMealFood } from "./recent-foods";
+import { PortionEditor } from "./portion-editor";
+import { portionGrams, portionKey } from "./portions";
 
 const nutrients = [
   { key: "calories", label: "热量", unit: "千卡" },
@@ -18,14 +20,16 @@ const nutrients = [
 type Mode = "lookup" | "manual" | "personal" | "photo";
 type Values = Food["per100g"];
 
-export function MealEditor({ meal, initial, personal, recent, close, onLog, onSaveFood, reloadFoods }: {
+export function MealEditor({ meal, initial, personal, recent, savedPortions, close, onLog, onSaveFood, onSavePortions, reloadFoods }: {
   meal: MealEntry["meal"];
   initial?: MealEntry;
   personal: PersonalFood[];
   recent: RecentMealFood[];
+  savedPortions: FoodPortions[];
   close: () => void;
   onLog: (entry: MealEntry) => Promise<void>;
   onSaveFood: (food: PersonalFood) => Promise<void>;
+  onSavePortions: (item: FoodPortions) => Promise<void>;
   reloadFoods: () => void;
 }) {
   const myFoods: Food[] = personal.map(({ id, name, per100g }) => ({ id, name, per100g, aliases: [] }));
@@ -36,14 +40,16 @@ export function MealEditor({ meal, initial, personal, recent, close, onLog, onSa
   const [showAll, setShowAll] = useState(false);
   const [name, setName] = useState(initial?.name ?? "");
   const [amount, setAmount] = useState(initial?.grams ? String(initial.grams) : "");
+  const [unit, setUnit] = useState("");
   const [values, setValues] = useState<Partial<Values>>(() =>
     initial ? { calories: initial.calories, protein: initial.protein, carbs: initial.carbs, fat: initial.fat } : {});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const grams = Number(amount);
-  const validGrams = Number.isFinite(grams) && grams >= 0.1 && grams <= maxFoodGrams;
-  const computed = selected && validGrams ? scaleNutrition(selected.per100g, grams) : undefined;
+  const available = savedPortions.find(({ id }) => id === selected?.id)?.portions ?? [];
+  const portion = available.find(({ name }) => portionKey(name) === unit);
+  const grams = portionGrams(amount, mode === "lookup" ? portion : undefined);
+  const computed = selected && grams !== undefined ? scaleNutrition(selected.per100g, grams) : undefined;
   const { name: foodQuery, grams: queryGrams } = splitFoodQuery(query);
   const searching = Boolean(query.trim());
   const common = commonMealFoods(choices, recent, meal);
@@ -62,6 +68,7 @@ export function MealEditor({ meal, initial, personal, recent, close, onLog, onSa
 
   function choose(food: Food, lastGrams?: number) {
     setSelected(food);
+    setUnit("");
     setAmount(queryGrams ?? (lastGrams === undefined ? "" : String(lastGrams)));
     setError("");
   }
@@ -89,7 +96,7 @@ export function MealEditor({ meal, initial, personal, recent, close, onLog, onSa
       if (mode === "lookup" && selected && computed) {
         await onLog({ type: "meal", meal, name: selected.name, foodId: selected.id, grams, ...computed });
       } else {
-        await onLog({ type: "meal", meal, name, ...(validGrams ? { grams } : {}), ...nutrition });
+        await onLog({ type: "meal", meal, name, ...(grams !== undefined ? { grams } : {}), ...nutrition });
       }
     } catch (reason) {
       setError(errorText(reason));
@@ -140,7 +147,23 @@ export function MealEditor({ meal, initial, personal, recent, close, onLog, onSa
           {mode === "lookup" && selected ? <>
             <div className="food-selected"><div><h3>{selected.name}</h3><small>{displayNumber(selected.per100g.calories)} 千卡／100 g</small></div>
               {selected.source ? <a className="text-button" href={selected.source} target="_blank" rel="noopener noreferrer">USDA 数据来源</a> : <small>我的食物</small>}</div>
-            {weightInput(true)}
+            {available.length > 0 && <label>份量单位<select value={portion ? unit : ""} onChange={(event) => {
+              const key = event.target.value;
+              const next = available.find(({ name }) => portionKey(name) === key);
+              setUnit(key);
+              setAmount(grams === undefined ? (next ? "1" : "") : String(Math.round(grams / (next?.grams ?? 1) * 1_000) / 1_000));
+            }}><option value="">克</option>{available.map((item) => <option key={portionKey(item.name)} value={portionKey(item.name)}>
+              {item.name}（每份 {displayNumber(item.grams)} g）
+            </option>)}</select></label>}
+            {portion ? <><label>吃了多少（{portion.name}）<input type="number" inputMode="decimal" required
+              min={0.1 / portion.grams} max={maxFoodGrams / portion.grams} step="any" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+              <p className="muted" role="status">{grams === undefined ? "份量超出可记录范围" : "折合 " + displayNumber(grams) + " g"}</p></> : weightInput(true)}
+            <PortionEditor key={selected.id} portions={available} save={async (next) => {
+              await onSavePortions({ kind: "food-portions", id: selected.id, portions: next });
+              if (portion && !next.some(({ name }) => portionKey(name) === unit)) {
+                setUnit(""); setAmount(grams === undefined ? "" : String(grams));
+              }
+            }} />
             <div className="food-preview" aria-label="本份营养" aria-live="polite">
               {nutrients.map(({ key, label, unit }) => <div key={key}><span>{label}</span>
                 <strong>{computed ? displayNumber(computed[key]) : "—"} <small>{unit}</small></strong>

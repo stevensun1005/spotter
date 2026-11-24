@@ -1,11 +1,12 @@
 import type { CoachingMutation } from "./model";
+import type { LessonMutation } from "./progress-model";
 
 export function coachingError(reason: unknown) {
   if (reason instanceof DOMException && reason.name === "TimeoutError") return "等待时间较长，请检查网络后重试；已提交的内容不会因重试重复添加。";
   return reason instanceof Error ? reason.message : "教练空间暂时无法读取或保存，请稍后重试。";
 }
 
-export async function coachingRequest<T>(body?: CoachingMutation, query = "", signal?: AbortSignal): Promise<T> {
+export async function coachingRequest<T>(body?: CoachingMutation | LessonMutation, query = "", signal?: AbortSignal): Promise<T> {
   const timeout = AbortSignal.timeout(20_000);
   const response = await fetch("/api/coaching" + query, {
     cache: "no-store", signal: signal ? AbortSignal.any([signal, timeout]) : timeout,

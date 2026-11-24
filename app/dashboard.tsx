@@ -38,7 +38,7 @@ import { withoutTemplateLink } from "@/features/plans/template-link";
 import { useLibrary } from "@/features/library/use-library";
 import { PlanActions } from "@/features/plans/plan-actions";
 import { MovePlan, ScheduleSettings } from "@/features/plans/schedule-view";
-import { blocked, openSchedule } from "@/features/plans/schedule";
+import { blocked, openSchedule, type MovePreview, type Schedule } from "@/features/plans/schedule";
 import { pauseClock, resumeClock } from "@/features/training/clock";
 import { finalizeCheckin, mergePendingCheckins, type CheckinReceipt, type CheckinUpload, type QueuedCheckin } from "@/features/training/checkin-outbox";
 import { useCheckinOutbox } from "@/features/training/use-checkin-outbox";
@@ -52,8 +52,13 @@ import { CoachingView } from "@/features/coaching/coaching-view";
 import { HardDriveDownload, Ruler } from "lucide-react";
 
 type View = "today" | "plans" | "programs" | "assistant" | "coaching" | "stats" | "friends" | "nutrition" | "body" | "data" | "settings" | "more";
-type KeyedPlan = { id: string; data: Plan };
-type Overlay = { kind: "pair" | "launch" | "friend-sharing" } | { kind: "schedule"; restDay?: string } | { kind: "move"; item: KeyedPlan } | { kind: "delete"; itemId: string; label: string; type: "plan" | "draft" } | { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } | { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
+type KeyedPlan = { id: string; data: Plan; revision?: string };
+type Overlay = { kind: "pair" | "launch" | "friend-sharing" } |
+  { kind: "schedule"; restDay?: string; settings: Schedule; revision: string | null } |
+  { kind: "move"; item: PlanEntry } |
+  { kind: "delete"; itemId: string; label: string; type: "plan" | "draft"; revision?: string } |
+  { kind: "editor"; plan: KeyedPlan } | { kind: "template"; item: KeyedPlan; editing?: boolean } |
+  { kind: "session"; id: string; data: Session } | { kind: "log"; log: Log; whoop?: WhoopStatus };
 type PlanEntry = Extract<Entry, { kind: "plan" }>;
 const navigation = [
   { id: "today", title: "今日训练", mobile: "今日", icon: House },
@@ -126,6 +131,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [planStatus, setPlanStatus] = useState<"pending" | "completed">("pending");
   const [confirmRemoveTemplate, setConfirmRemoveTemplate] = useState(false);
   const library = useLibrary(Boolean(viewer));
+  const reloadLibrary = library.load;
   const [returnToLog, setReturnToLog] = useState(heartReturn);
   const [state, setState] = useState<State>(() => viewer ? { me: viewer, entries: [], room: null } : demoState(initialDate));
   const [cloud, setCloud] = useState(viewer ? "正在连接" : "本机演示");
@@ -226,16 +232,19 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") { void refresh(); retry(); setToday(asDate()); }
     }, 15000);
-    const wake = () => { void refresh(); retry(); setToday(asDate()); };
+    const wake = () => { void refresh(); void reloadLibrary(); retry(); setToday(asDate()); };
+    const regainVisibility = () => { if (document.visibilityState === "visible") wake(); };
     window.addEventListener("online", wake);
     window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", regainVisibility);
     return () => {
       clearInterval(timer);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       window.removeEventListener("online", wake);
       window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", regainVisibility);
     };
-  }, [draftKey, flushDraft, refresh, setPending]);
+  }, [draftKey, flushDraft, refresh, reloadLibrary, setPending]);
 
   useEffect(() => {
     if (!toast) return;
@@ -274,7 +283,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const profiles = library.rows.filter((item) => item.kind === "exercise").map(({ item }) => item);
   const templates = library.rows.filter((item) => item.kind === "template");
   const trackProtein = Boolean(viewer && library.rows.find((item) => item.kind === "protein-preference")?.enabled);
-  const schedule = library.rows.find((item) => item.kind === "schedule")?.values ?? openSchedule;
+  const scheduleRow = library.rows.find((item) => item.kind === "schedule");
+  const schedule = scheduleRow?.values ?? openSchedule;
   const exerciseNames = [
     ...plans.filter((plan) => plan.owner === me.id).flatMap((plan) => plan.data.exercises.map((item) => item.name)),
     ...logs.filter((log) => log.owner === me.id).flatMap((log) => log.data.plan.exercises.map((item) => item.name)),
@@ -312,6 +322,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     setFriendFocus({ id: partner.id, date });
   }
   const open = (next: Overlay) => { setWarning(""); setOverlay(next); };
+  const openScheduleSettings = (restDay?: string) =>
+    open({ kind: "schedule", restDay, settings: schedule, revision: scheduleRow?.updated ?? null });
   const parkWorkout = useCallback((id: string, data: Session) => {
     const latest = pendingRef.current[id] ?? data;
     const paused = pauseClock(latest);
@@ -375,7 +387,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       const existing = owned.filter((plan) => plan.data.title === data.title.trim());
       if (existing.length !== 1) throw new Error("找不到唯一的现有计划「" + data.title + "」。更新未保存。");
       const [plan] = existing;
-      return { id: plan.id, data: { ...data, date: plan.data.date, shared: plan.data.shared } };
+      return { id: plan.id, revision: plan.updated, data: { ...data, date: plan.data.date, shared: plan.data.shared } };
     });
     if (new Set(next.map((item) => item.id)).size !== next.length) throw new Error("同一计划在这批文件里出现了多次。");
     const response = await post({ action: "plans", items: next, reviseExisting: true });
@@ -383,9 +395,10 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     await refresh(); setToast("已更新 " + revised + " 个现有计划");
   }
 
-  function openTemplate(plan = planBlank(selected), id = crypto.randomUUID(), editing = false) {
+  function openTemplate(plan = planBlank(selected), id = crypto.randomUUID(), revision?: string) {
     setConfirmRemoveTemplate(false);
-    open({ kind: "template", item: { id, data: { ...withoutTemplateLink(plan), title: planDisplayTitle(plan), shared: false } }, editing });
+    open({ kind: "template", item: { id, revision, data: { ...withoutTemplateLink(plan), title: planDisplayTitle(plan), shared: false } },
+      editing: Boolean(revision) });
   }
 
   function planExercise(choice: ExerciseChoice, row?: CatalogEntry) {
@@ -402,7 +415,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       : { ...planBlank(selected), title: move.name, exercises: [move] };
     setPlanPick(undefined);
     go("plans");
-    if (plan) open({ kind: "editor", plan: { id: plan.id, data: next } });
+    if (plan) open({ kind: "editor", plan: { id: plan.id, data: next, revision: plan.updated } });
     else newPlan(next);
   }
 
@@ -410,7 +423,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     const clean = items.map((item) => ({ ...item, checked: cleanPlan(item.data) }));
     const broken = clean.findIndex((item) => !item.checked.success);
     if (broken >= 0) throw new Error("请检查第 " + (broken + 1) + " 个计划的名称、日期、动作和视频链接。");
-    const ready = clean.flatMap((item) => item.checked.success ? [{ id: item.id, data: item.checked.data }] : []);
+    const ready = clean.flatMap((item) => item.checked.success ? [{ id: item.id, data: item.checked.data, revision: item.revision }] : []);
     if (viewer) {
       const reply = await post({ action: "plans", items: ready, skipExisting });
       await refresh();
@@ -461,14 +474,14 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     trainingNav.enter(id);
   }
 
-  async function deleteRecord(id: string, kind: "plan" | "draft") {
+  async function deleteRecord(id: string, kind: "plan" | "draft", revision?: string) {
     await act(async () => {
       if (kind === "draft") {
         deletedDrafts.current.add(id);
         await queue.current;
       }
       try {
-        if (viewer) await post({ action: "delete", id, kind });
+        if (viewer) await post({ action: "delete", id, kind, revision });
         if (kind === "draft") {
           const next = { ...pendingRef.current };
           delete next[id]; setPending(next);
@@ -530,11 +543,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     catch { setToast("请长按文本手动复制。"); }
   }
 
-  function planActions(item: KeyedPlan) {
-    return viewer ? <PlanActions title={item.data.title} edit={() => open({ kind: "editor", plan: item })}
+  function planActions(item: PlanEntry) {
+    const editable = { id: item.id, data: item.data, revision: item.updated };
+    return viewer ? <PlanActions title={item.data.title} edit={() => open({ kind: "editor", plan: editable })}
       move={() => open({ kind: "move", item })} saveTemplate={() => openTemplate(item.data)}
-      remove={() => open({ kind: "delete", itemId: item.id, label: item.data.title, type: "plan" })} /> :
-      <button className="button subtle small" onClick={() => open({ kind: "editor", plan: item })}>编辑</button>;
+      remove={() => open({ kind: "delete", itemId: item.id, label: item.data.title, type: "plan", revision: item.updated })} /> :
+      <button className="button subtle small" onClick={() => open({ kind: "editor", plan: editable })}>编辑</button>;
   }
 
   function renderPlan(item: PlanEntry, i: number) {
@@ -664,7 +678,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
         {view === "plans" && <PlanSections key={planTab ?? "plans"} date={selected} templates={templates} initial={planTab}
           exerciseLibrary={<OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
-          schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, true)}><section className="card padded plans-list-card">
+          schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, row.updated)}
+          exerciseProfiles={profiles}><section className="card padded plans-list-card">
           <div className="section-head plans-list-heading">
             <h2>全部计划</h2>
             <div className="plans-list-actions">
@@ -696,7 +711,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
             <p className="muted">{viewer ? "开启后，训练结束时可以勾选是否已喝蛋白粉。" : "登录后可以保存训练偏好。"}</p>
             {viewer && <button className="list-line" type="button" aria-haspopup="dialog" disabled={library.loading || Boolean(library.error)}
-              onClick={() => open({ kind: "schedule" })}><span className="tile mint"><Settings2 size={18} /></span><strong>个人计划设置</strong><ChevronRight size={16} /></button>}
+              onClick={() => openScheduleSettings()}><span className="tile mint"><Settings2 size={18} /></span><strong>个人计划设置</strong><ChevronRight size={16} /></button>}
             {library.error && <button className="button outline small" type="button" onClick={() => void library.load()}>{library.error}</button>}
           </section>
           {viewer && <section className="card padded">
@@ -717,6 +732,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             <button type="button" aria-pressed={statsTab === "history"} onClick={() => setStatsTab("history")}>打卡历史</button>
           </div>
           {calendarOpen ? <History today={today} self={me.id} partner={partnerWithDetails?.name} logs={logs}
+            orderByDay={new Map(library.rows.flatMap((item) => item.kind === "history-order" ? [[item.id, item.entries] as const] : []))}
+            saveOrder={viewer ? (date, entries) => library.save({ kind: "history-order", id: date, entries }) : undefined}
             show={(log) => open({ kind: "log", log })} /> :
             <Stats today={today} self={me.id} partner={partnerWithDetails ?? null} logs={logs} onExercise={setExercise}
               pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
@@ -742,36 +759,39 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
       </form>
     </Dialog>}
     {overlay?.kind === "launch" && <TrainingLaunch close={close} start={(kind) => begin(undefined, kind)}
-      rest={viewer && !library.loading && !library.error ? () => open({ kind: "schedule", restDay: today }) : undefined}
+      rest={viewer && !library.loading && !library.error ? () => openScheduleSettings(today) : undefined}
       body={() => { close(); go("body"); }} />}
     {overlay?.kind === "friend-sharing" && <Dialog title="好友分享设置" className="friend-settings-dialog" onClose={close}>
       <div className="dialog-body"><FriendsView enabled={Boolean(viewer)} today={today} sharingOnly /></div>
     </Dialog>}
     {overlay?.kind === "schedule" && <ScheduleSettings
-      settings={schedule} restDay={overlay.restDay} close={close} save={async (values) => {
-      await library.save({ kind: "schedule", values }); setToast("计划设置已保存");
+      settings={overlay.settings} restDay={overlay.restDay} close={close} save={async (values) => {
+      await library.save({ kind: "schedule", values }, overlay.revision); setToast("计划设置已保存");
     }} />}
-    {overlay?.kind === "move" && <MovePlan item={overlay.item} settings={schedule} close={close} save={async (date, shift) => {
-      const response = await post({ action: "move", id: overlay.item.id, from: overlay.item.data.date, date, shift });
-      const { moved } = await response.json() as { moved: number };
+    {overlay?.kind === "move" && <MovePlan item={overlay.item} settings={schedule} today={today} close={close} inspect={async (choice) => {
+      const response = await post({ action: "previewMove", id: overlay.item.id, from: overlay.item.data.date, revision: overlay.item.updated, ...choice });
+      return response.json() as Promise<MovePreview>;
+    }} save={async (choice, token) => {
+      const response = await post({ action: "move", id: overlay.item.id, from: overlay.item.data.date, revision: overlay.item.updated, ...choice, token });
+      const { moved, date } = await response.json() as { moved: number; date: string };
       await refresh(); setSelected(date); setToast(moved > 1 ? "已顺延 " + moved + " 个计划" : "训练已移动");
     }} />}
     {overlay?.kind === "delete" && <Dialog title={overlay.type === "plan" ? "删除训练计划" : "删除训练草稿"} onClose={close}>
       <div className="dialog-body feature-stack"><p>确定删除「{overlay.label}」？{overlay.type === "plan" ? "已打卡的历史仍可查看。" : "这次尚未打卡的组记录会一同删除。"}</p>{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
-      <div className="dialog-footer"><button className="button outline" disabled={busy} onClick={close}>取消</button><button className="button primary" disabled={busy} onClick={() => void deleteRecord(overlay.itemId, overlay.type)}>确认删除</button></div>
+      <div className="dialog-footer"><button className="button outline" disabled={busy} onClick={close}>取消</button><button className="button primary" disabled={busy} onClick={() => void deleteRecord(overlay.itemId, overlay.type, overlay.revision)}>确认删除</button></div>
     </Dialog>}
     {overlay?.kind === "template" && <Dialog title={overlay.editing ? "编辑模板" : "保存训练模板"} onClose={close}>
       <form onSubmit={(event) => { event.preventDefault(); const { id, data } = overlay.item; void act(async () => {
         const parsed = cleanPlan(data);
         if (!parsed.success) throw new Error("请检查模板名称、日期、动作或视频。");
-        await library.save({ kind: "template", id, plan: { ...withoutTemplateLink(parsed.data), shared: false } });
+        await library.save({ kind: "template", id, plan: { ...withoutTemplateLink(parsed.data), shared: false } }, overlay.item.revision);
         await refresh();
         setOverlay(null); go("plans"); setPlanTab("个人模板"); setToast("模板已保存");
       }); }}>
         <div className="dialog-body"><PlanFields template value={overlay.item.data} change={(data) => setOverlay({ ...overlay, item: { ...overlay.item, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
         <div className="dialog-footer">{overlay.editing && <button type="button" className="button outline" disabled={busy} onClick={() => {
           if (!confirmRemoveTemplate) { setConfirmRemoveTemplate(true); return; }
-          void act(async () => { await library.remove("template", overlay.item.id); await refresh(); setOverlay(null); setToast("模板已删除"); });
+          void act(async () => { await library.remove("template", overlay.item.id, overlay.item.revision); await refresh(); setOverlay(null); setToast("模板已删除"); });
         }}>{confirmRemoveTemplate ? "确认删除" : "删除模板"}</button>}
           <button className="button primary" disabled={busy}><Check size={18} /> 保存模板</button></div>
       </form>

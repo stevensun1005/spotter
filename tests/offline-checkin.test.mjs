@@ -28,7 +28,8 @@ const { POST } = await import("../app/api/workout/route.ts");
 const {
   finalizeCheckin, hasWorkoutCheckinKey, isCheckinQueued, mergePendingCheckins, queueCheckin, readCheckins, replayCheckin,
 } = await import("../features/training/checkin-outbox.ts");
-const { startSession } = await import("../features/training/model.ts");
+const { draftSessionSchema, sessionSchema, startFreeSession, startSession } = await import("../features/training/model.ts");
+const { crossedRestDeadline, restReminderMode } = await import("../features/training/rest-reminder.ts");
 
 const owner = "member:a";
 const another = "member";
@@ -154,4 +155,54 @@ test("real log endpoint retries lost replies by UUID and rejects wrong-account d
   const lateDraft = await POST(request({ action: "draft", expectedOwner: owner, id: logId, data: workout() }));
   assert.equal(lateDraft.status, 409);
   assert.equal(await replayCheckin(storage, owner, logId, () => assert.fail("synced queue should be empty")), undefined);
+});
+
+test("incline walks keep exact workout time, machine units and zero-percent grades through checkout, replay and historical edits", async (t) => {
+  database(t);
+  worker.owner = owner;
+  const draft = startFreeSession(plan.date, "incline");
+  draft.started = start;
+  draft.clock = { elapsed: 37_000, runningSince: null };
+  draft.cardio.incline = { kind: "level", value: 6.5 };
+  draft.cardio.distanceKm = 0.72;
+  draft.cardio.speedKmh = 5.1;
+  assert.equal(draftSessionSchema.safeParse(draft).success, true);
+  assert.equal(sessionSchema.safeParse(draft).success, false);
+  assert.equal((await POST(request({ action: "draft", id: logId, expectedOwner: owner, data: draft }))).status, 200);
+  const storage = memoryStorage();
+  const receipt = finalizeCheckin(draft, end);
+  assert.equal(receipt.data.cardio.durationSeconds, 37);
+  assert.deepEqual(receipt.data.rows, []);
+  assert.equal(receipt.data.minutes, 1);
+  assert.equal(finalizeCheckin({ ...draft, cardio: { ...draft.cardio, durationSeconds: 245 } }, end).data.minutes, 4);
+  assert.throws(() => finalizeCheckin({ ...draft, clock: { elapsed: 0, runningSince: null } }, end), /记录有氧训练时长/);
+  assert.equal(draftSessionSchema.safeParse({ ...draft, cardio: { ...draft.cardio, incline: { kind: "level", value: -2.5 } } }).success, false);
+
+  queueCheckin(storage, owner, logId, receipt);
+  const saved = await replayCheckin(storage, owner, logId, async (body) => {
+    const response = await POST(request({ action: "log", ...body }));
+    assert.equal(response.status, 200);
+    return response.json();
+  });
+  assert.deepEqual(saved.data.cardio, { ...draft.cardio, durationSeconds: 37 });
+  const changes = { ...saved.data, minutes: 4, cardio: { ...saved.data.cardio, durationSeconds: 245, incline: { kind: "percent", value: 0 } } };
+  const updated = await POST(request({ action: "editLog", id: logId, revision: saved.updated, data: changes }));
+  assert.equal(updated.status, 200);
+  assert.deepEqual((await updated.json()).data.cardio, changes.cardio);
+  const { backupSchema, emptyBackup } = await import("../features/data/model.ts");
+  const restored = backupSchema.parse({ ...emptyBackup(), training: [{ kind: "log", id: logId, data: changes }] });
+  assert.deepEqual(restored.training[0].data.cardio, changes.cardio);
+});
+
+test("a rest reminder crosses only its active deadline once", () => {
+  assert.equal(restReminderMode("sound"), "sound");
+  assert.equal(restReminderMode("unknown"), "visual");
+  const before = { until: 5000, elapsed: 4900 };
+  const after = { until: 5000, elapsed: 5000 };
+  assert.equal(crossedRestDeadline(undefined, after), false);
+  assert.equal(crossedRestDeadline(before, before), false);
+  assert.equal(crossedRestDeadline(before, after), true);
+  assert.equal(crossedRestDeadline(after, after), false);
+  assert.equal(crossedRestDeadline(before, { until: undefined, elapsed: 5000 }), false);
+  assert.equal(crossedRestDeadline(before, { until: 5010, elapsed: 5010 }), false);
 });

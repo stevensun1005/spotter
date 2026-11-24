@@ -1,12 +1,13 @@
 "use client";
 
-import { Activity, Coffee, Dumbbell, Ruler, Zap } from "lucide-react";
+import { Activity, Coffee, Dumbbell, Footprints, Ruler, Zap } from "lucide-react";
 import { Dialog } from "@/shared/ui";
 import type { FreeWorkoutKind } from "./model";
 
 const modes = [
   { id: "strength", label: "力量训练", icon: Dumbbell },
   { id: "cardio", label: "有氧训练", icon: Activity },
+  { id: "incline", label: "爬坡走", icon: Footprints },
   { id: "hiit", label: "HIIT 训练", icon: Zap },
 ] as const;
 

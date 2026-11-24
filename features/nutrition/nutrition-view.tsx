@@ -29,6 +29,7 @@ export function NutritionView({ enabled, today }: { enabled: boolean; today: str
   const store = useLibrary(enabled, date);
   const targets = store.rows.find((row) => row.kind === "targets")?.values ?? emptyNutrition;
   const personal = store.rows.filter((row) => row.kind === "food");
+  const portions = store.rows.filter((row) => row.kind === "food-portions");
   const rows = store.rows.flatMap((row) => row.kind === "nutrition" && row.entry.type !== "measurement" ? [{ id: row.id, entry: row.entry }] : []);
   const totals = rows.reduce<NutritionValues>((sum, { entry }) => {
     if (entry.type === "water") sum.water += entry.ml;
@@ -109,8 +110,8 @@ export function NutritionView({ enabled, today }: { enabled: boolean; today: str
       {store.error && <button className="button outline small" onClick={() => void store.load()}>{store.error}</button>}
     </section>
     {error && <p className="inline-error" role="alert">{error}</p>}
-    {isMeal(editor) && <MealEditor key={saveId} meal={editor} initial={mealToEdit} personal={personal} recent={store.recentMeals}
-      close={() => setEditor(undefined)} onSaveFood={store.save} reloadFoods={() => void store.load()} onLog={async (entry) => {
+    {isMeal(editor) && <MealEditor key={saveId} meal={editor} initial={mealToEdit} personal={personal} recent={store.recentMeals} savedPortions={portions}
+      close={() => setEditor(undefined)} onSaveFood={store.save} onSavePortions={store.save} reloadFoods={() => void store.load()} onLog={async (entry) => {
         await store.save({ kind: "nutrition", date, id: saveId, entry });
         setEditor(undefined);
       }} />}

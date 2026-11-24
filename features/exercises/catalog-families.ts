@@ -231,6 +231,22 @@ function groupRule(row: CatalogEntry) {
     (!rule.exclude || !rule.exclude.test(name)) && rule.action.test(name));
 }
 
+export function catalogueTrainingPattern(row: CatalogEntry) {
+  const rule = groupRule(row);
+  if (!rule) return;
+  if (rule.id === "cable-triceps") {
+    const form = tricepsVariantGroup(row);
+    return { id: rule.id + ":" + form, title: "三头" + form };
+  }
+  if (rule.id === "bench-press" || rule.id === "close-bench-press" || rule.id === "chest-fly") {
+    const english = canonicalEnglish(row.en);
+    const angle = /\b(?:incline|inclined)\b/.test(english) ? "上斜" : /\b(?:decline|declined)\b/.test(english) ? "下斜" :
+      /\bfloor\b/.test(english) ? "地面" : /\b(?:standing|seated)\b/.test(english) ? "直立" : "平位";
+    return { id: rule.id + ":" + angle, title: angle + rule.title };
+  }
+  return { id: rule.id, title: rule.title };
+}
+
 // Keep names with changes to leverage, stance or angle separate. Only known qualifiers
 // describing the same exercise can be removed from the movement name.
 const minorVariation = /\b(?:pause|paused|palms in|(?:wide(?: reverse)?|narrow|reverse|neutral|overhand|underhand) grip)\b/g;

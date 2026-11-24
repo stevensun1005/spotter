@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
 import { planSchema, videoUrl } from "@/features/plans/model";
-import { scheduleSchema } from "@/features/plans/schedule";
+import { planRevisionSchema, scheduleSchema } from "@/features/plans/schedule";
 import { muscleNames, types as exerciseTypes } from "@/features/exercises/labels";
 import { exerciseAreaOptions } from "@/features/exercises/catalogue-areas";
 import { proteinPreference } from "@/features/training/protein";
@@ -58,11 +58,23 @@ export const personalFood = z.object({ kind: z.literal("food"), id: uuid, name: 
   per100g: foodValues.extend({ calories: amount.max(1000), protein: amount.max(100), carbs: amount.max(100), fat: amount.max(100) }),
 });
 export type PersonalFood = z.infer<typeof personalFood>;
+export const foodPortion = z.object({ name: z.string().trim().min(1).max(20), grams: z.number().finite().min(0.1).max(maxFoodGrams) });
+export const foodPortions = z.object({
+  kind: z.literal("food-portions"), id: z.string().trim().min(1).max(80),
+  portions: z.array(foodPortion).max(8).refine((portions) =>
+    new Set(portions.map(({ name }) => name.normalize("NFKC").toLowerCase())).size === portions.length),
+});
+export type FoodPortions = z.infer<typeof foodPortions>;
+export const historyOrder = z.object({
+  kind: z.literal("history-order"), id: dateSchema,
+  entries: z.array(uuid).max(150).refine((ids) => new Set(ids).size === ids.length),
+});
+export type HistoryOrder = z.infer<typeof historyOrder>;
 const statsPins = z.object({ kind: z.literal("stats-pins"), ids: z.array(z.string().min(1).max(100)).max(80) });
-export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, personalFood, statsPins, proteinPreference, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
+export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, personalFood, foodPortions, historyOrder, statsPins, proteinPreference, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
 export type LibraryItem = z.infer<typeof libraryItem>;
 export type LibraryRow = LibraryItem & { updated: string };
 export const libraryMutation = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("save"), data: libraryItem }),
-  z.object({ action: z.literal("remove"), kind: z.enum(["template", "nutrition"]), id: uuid }),
+  z.object({ action: z.literal("save"), data: libraryItem, revision: planRevisionSchema.nullable().optional() }),
+  z.object({ action: z.literal("remove"), kind: z.enum(["template", "nutrition"]), id: uuid, revision: planRevisionSchema.optional() }),
 ]);

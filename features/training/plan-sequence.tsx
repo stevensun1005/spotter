@@ -4,7 +4,7 @@ import { exerciseTempo, tempoNotationHint } from "@/features/exercises/tempo";
 import type { Plan } from "@/features/plans/model";
 import { blockTitle, defaultRest, trainingBlocks } from "./sequence";
 
-export function PlanSequence({ plan, onExercise }: { plan: Plan; onExercise: (choice: ExerciseChoice) => void }) {
+export function PlanSequence({ plan, onExercise }: { plan: Plan; onExercise?: (choice: ExerciseChoice) => void }) {
   const { data } = useCatalogue();
   return <div className="plan-sequence">
     <p className="muted sequence-rest">同轮换动作休息 {defaultRest(plan)} 秒 · 换站至少 {Math.max(60, defaultRest(plan))} 秒</p>
@@ -21,7 +21,8 @@ export function PlanSequence({ plan, onExercise }: { plan: Plan; onExercise: (ch
           const tempo = exerciseTempo(choice, fromCatalogue(data, choice), plan.category);
           return <li key={index}>
             <span className="sequence-slot">{block.slots[slot]}</span>
-            <div><button type="button" className="sequence-exercise" onClick={() => onExercise({ ...choice, trainingCategory: plan.category })}>{name}</button>
+            <div>{onExercise ? <button type="button" className="sequence-exercise" onClick={() => onExercise({ ...choice, trainingCategory: plan.category })}>{name}</button> :
+              <strong className="sequence-exercise">{name}</strong>}
               <small>{move.sets} 组 × {move.seconds ? move.seconds + " 秒" : move.reps + (move.repsMax && move.repsMax > move.reps ? "–" + move.repsMax : "") + " 次"}
                 {move.restSeconds !== undefined && " · " + (block.moves.length > 1 ? "轮间" : "组间") + " " + move.restSeconds + " 秒"}</small>
               <small title={tempo.numeric ? tempoNotationHint : undefined}>{tempo.label} {tempo.text}</small>

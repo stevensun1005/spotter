@@ -20,7 +20,7 @@ export const GET = api(async (request) => {
 export const POST = api(async (request) => {
   const { id } = await requireAccount();
   const item = await readJson(request, libraryMutation, 48000);
-  if (item.action === "save") await saveLibrary(id, item.data);
-  else await removeLibrary(id, item.kind, item.id);
+  if (item.action === "save") return json({ ok: true, updated: await saveLibrary(id, item.data, item.revision) });
+  await removeLibrary(id, item.kind, item.id, item.revision);
   return json({ ok: true });
 });

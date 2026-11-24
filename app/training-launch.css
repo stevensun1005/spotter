@@ -35,7 +35,7 @@
 }
 .workout-launch-actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: start;
   gap: clamp(18px, 5vw, 31px) 8px;
   width: min(100%, 440px);
@@ -65,9 +65,10 @@
 }
 .launch-icon svg { width: 51%; height: 51%; }
 .launch-action.cardio { --launch-color: #a5e2ca; }
+.launch-action.incline { --launch-color: #abd8ef; }
 .launch-action.hiit { --launch-color: #ffdc96; }
 .launch-action.rest { --launch-color: #c9bfed; }
-.launch-action.body-data { grid-column: 2 / 4; --launch-color: #f2c1ac; }
+.launch-action.body-data { --launch-color: #f2c1ac; }
 
 @media (max-height: 430px) {
   .workout-launch-actions { margin-top: 0; gap: 12px 8px; }

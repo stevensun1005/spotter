@@ -1,7 +1,10 @@
 import { asDate } from "@/shared/dates";
 import type { Entry, TrainingEntry } from "@/shared/state";
 import { pauseClock, workoutElapsed } from "./clock";
-import { sessionSchema, sessionTotals, type Session } from "./model";
+import { checkinProblem, sessionSchema, type Session } from "./model";
+import { cardioMinutes, cardioSeconds } from "./cardio";
+
+export { checkinProblem } from "./model";
 
 type CheckinStorage = Pick<Storage, "length" | "key" | "getItem" | "setItem" | "removeItem">;
 export type QueuedCheckin = TrainingEntry & { kind: "log" };
@@ -17,16 +20,14 @@ export function hasWorkoutCheckinKey(owner: string, key: string | null) {
   return key === null || key.startsWith(accountPrefix(owner));
 }
 
-export function checkinProblem(data: Session) {
-  if (data.finishedVideo && !data.plan.video) return "这次训练没有视频链接。";
-  if (!data.finishedVideo && sessionTotals(data).sets === 0) return "请至少完成一组动作或标记视频跟练完成。";
-  return "";
-}
-
 export function finalizeCheckin(data: Session, now = Date.now()): CheckinReceipt {
   const ended = Math.max(data.started, Math.min(now, data.started + 86_400_000));
-  const minutes = data.minutes || Math.min(720, Math.max(1, Math.round(workoutElapsed(data, now) / 60_000)));
-  const result = sessionSchema.safeParse({ ...pauseClock(data, now), date: asDate(now), ended, minutes });
+  const elapsed = workoutElapsed(data, now);
+  const cardio = data.cardio && { ...data.cardio, durationSeconds: cardioSeconds(data.cardio, elapsed) };
+  const minutes = cardio ? cardioMinutes(cardio.durationSeconds)
+    : data.minutes || Math.min(720, Math.max(1, Math.round(elapsed / 60_000)));
+  if (cardio && !cardio.durationSeconds) throw new Error("请记录有氧训练时长。");
+  const result = sessionSchema.safeParse({ ...pauseClock(data, now), date: asDate(now), ended, minutes, ...(cardio && { cardio }) });
   if (!result.success) throw new Error("训练数据无效，请检查后重试。");
   const problem = checkinProblem(result.data);
   if (problem) throw new Error(problem);

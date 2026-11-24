@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { HttpError } from "@/server/http";
 import type { LibraryItem, LibraryRow } from "./model";
 import { libraryKey } from "@/features/data/model";
-import { openSchedule, scheduleSchema } from "@/features/plans/schedule";
+import { nextRevision } from "@/features/plans/schedule";
 import { withoutTemplateLink } from "@/features/plans/template-link";
 import { freezeTemplatePlans } from "@/features/plans/template-server";
 import type { RecentMealFood } from "@/features/nutrition/recent-foods";
@@ -17,8 +17,8 @@ export async function readLibrary(owner: string, day?: string, body = false): Pr
   const statement = body
     ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind = 'nutrition' AND json_extract(payload, '$.entry.type') IN ('weight','measurement') ORDER BY day ASC, updated DESC").bind(owner)
     : day
-    ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind IN ('targets', 'food') OR (kind = 'nutrition' AND day = ?)) ORDER BY updated DESC").bind(owner, day)
-    : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins', 'protein-preference') ORDER BY updated DESC").bind(owner);
+    ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind IN ('targets', 'food', 'food-portions') OR (kind = 'nutrition' AND day = ?)) ORDER BY updated DESC").bind(owner, day)
+    : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins', 'protein-preference', 'history-order') ORDER BY updated DESC").bind(owner);
   const { results } = await statement.all<{ payload: string; updated: string }>();
   return results.map(({ payload, updated }) => ({ ...JSON.parse(payload) as LibraryItem, updated }));
 }
@@ -34,26 +34,35 @@ export async function readRecentMealFoods(owner: string, day: string): Promise<R
   return results;
 }
 
-export async function saveLibrary(owner: string, item: LibraryItem) {
+const staleLibraryItem = () => new HttpError(409, "模板或计划设置已在另一处变更，请关闭此窗口，刷新后重新编辑。");
+
+export async function saveLibrary(owner: string, item: LibraryItem, revision?: string | null) {
   const id = libraryKey(item);
-  const day = item.kind === "nutrition" ? item.date : null;
-  const payload = item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item;
-  await database().prepare(
-    "INSERT INTO personal_library (owner, kind, id, day, payload, updated) VALUES (?, ?, ?, ?, ?, ?) " +
-    "ON CONFLICT (owner, kind, id) DO UPDATE SET day = excluded.day, payload = excluded.payload, updated = excluded.updated"
-  ).bind(owner, item.kind, id, day, JSON.stringify(payload), new Date().toISOString()).run();
-}
-
-export async function removeLibrary(owner: string, kind: "template" | "nutrition", id: string) {
+  const day = item.kind === "nutrition" ? item.date : item.kind === "history-order" ? item.id : null;
+  const payload = JSON.stringify(item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item);
+  const protectedWrite = item.kind === "template" || item.kind === "schedule";
+  const updated = nextRevision(new Date().toISOString(), protectedWrite ? [revision] : []);
   const db = database();
-  const remove = db.prepare("DELETE FROM personal_library WHERE owner = ? AND kind = ? AND id = ?").bind(owner, kind, id);
-  if (kind === "template") {
-    await db.batch([freezeTemplatePlans(db, owner, id, new Date().toISOString()), remove]);
-  } else await remove.run();
+  const result = protectedWrite && revision ? await db.prepare(
+    "UPDATE personal_library SET payload=?, updated=? WHERE owner=? AND kind=? AND id=? AND updated=?"
+  ).bind(payload, updated, owner, item.kind, id, revision).run() : await db.prepare(
+    "INSERT INTO personal_library (owner, kind, id, day, payload, updated) VALUES (?, ?, ?, ?, ?, ?) " +
+    "ON CONFLICT (owner, kind, id) " +
+    (protectedWrite ? "DO NOTHING" : "DO UPDATE SET day=excluded.day,payload=excluded.payload,updated=excluded.updated")
+  ).bind(owner, item.kind, id, day, payload, updated).run();
+  if (protectedWrite && !result.meta.changes) throw staleLibraryItem();
+  return updated;
 }
 
-export async function readSchedule(owner: string) {
-  const row = await database().prepare("SELECT payload FROM personal_library WHERE owner = ? AND kind = 'schedule' AND id = 'schedule'").bind(owner).first<{ payload: string }>();
-  if (!row) return openSchedule;
-  return scheduleSchema.parse(JSON.parse(row.payload).values);
+export async function removeLibrary(owner: string, kind: "template" | "nutrition", id: string, revision?: string) {
+  const db = database();
+  if (kind === "template") {
+    if (!revision) throw staleLibraryItem();
+    const [, removed] = await db.batch([
+      freezeTemplatePlans(db, owner, id, nextRevision(new Date().toISOString(), [revision]), revision),
+      db.prepare("DELETE FROM personal_library WHERE owner=? AND kind='template' AND id=? AND updated=?")
+        .bind(owner, id, revision),
+    ]);
+    if (!removed?.meta.changes) throw staleLibraryItem();
+  } else await db.prepare("DELETE FROM personal_library WHERE owner = ? AND kind = ? AND id = ?").bind(owner, kind, id).run();
 }

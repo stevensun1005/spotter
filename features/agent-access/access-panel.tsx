@@ -6,6 +6,7 @@ import { Dialog } from "@/shared/ui";
 import { PlanFields } from "@/features/plans/plan-fields";
 import { cleanPlan, type Plan } from "@/features/plans/model";
 import { agentPlanningGuide } from "@/features/import/ai-instructions";
+import { DraftDayPreview, DraftProgress } from "@/features/import/draft-preview";
 
 type Scope = "read:context" | "plans:draft" | "plans:write";
 type Connection = { id: string; name: string; scopes: Scope[]; createdAt: string; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null };
@@ -175,6 +176,8 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
     </form></Dialog>}
     {secret && <Dialog title="保存本次连接令牌" onClose={() => { setSecret(""); setReveal(false); }}><div className="dialog-body form-fields"><p>令牌只在这里展示一次。复制给你信任的 Agent 后关闭，之后可在连接列表撤销。</p><label>连接令牌<input type={reveal ? "text" : "password"} value={secret} readOnly autoComplete="off" spellCheck={false} onFocus={(event) => event.target.select()} /></label><div className="exercise-toolbar"><button className="button outline" type="button" onClick={() => void copy(secret, "连接令牌已复制。请只用于你信任的 Agent。")}>复制令牌</button><button className="button subtle" type="button" onClick={() => setReveal((value) => !value)}>{reveal ? "隐藏" : "显示"}</button></div></div></Dialog>}
     {preview && <Dialog title={preview.title} onClose={() => { if (!busy) { if (changed) setDiscard(true); else setPreview(undefined); } }} className="agent-draft-dialog"><div className="dialog-body feature-stack">
+      <DraftProgress steps={["已接收草稿", "逐日核对", "排入日历"]} current={preview.status === "committed" ? 3 : 1} />
+      <DraftDayPreview plans={plans} select={preview.status === "committed" ? undefined : setActive} />
       <div className="import-tabs" role="group" aria-label="草稿中的训练">{plans.map((plan, index) => <button key={index} type="button" aria-pressed={active === index} onClick={() => setActive(index)}>{index + 1} · {plan.title}</button>)}</div>
       <p className="muted">Agent 草稿默认私人。排入日历后，可在原计划入口按现有规则选择分享。</p>
       {plans[active] && <fieldset className="agent-fieldset" disabled={busy || preview.status === "committed"}><PlanFields allowSharing={false} key={active} value={plans[active]} change={(plan) => { setPlans((current) => current.map((item, index) => index === active ? plan : item)); setChanged(true); setDiscard(false); }} /></fieldset>}

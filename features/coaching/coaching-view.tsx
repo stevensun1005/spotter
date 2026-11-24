@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarDays, Check, ClipboardList, GraduationCap, Inbox, RefreshCw, Send, ShieldCheck, Unplug, UserRoundPlus, UsersRound } from "lucide-react";
+import { CalendarDays, ChartNoAxesCombined, Check, ClipboardList, GraduationCap, Inbox, RefreshCw, Send, ShieldCheck, Unplug, UserRoundPlus, UsersRound } from "lucide-react";
 import { avatar, Dialog } from "@/shared/ui";
 import type { Plan } from "@/features/plans/model";
 import { CoachingConnectDialog } from "./coaching-connect";
 import { CoachingSendDialog } from "./coaching-send";
 import { CoachingAssignmentDialog, coachingStatus } from "./coaching-assignment";
+import { LearnerOverviewDialog } from "./learner-overview";
 import { coachingError, coachingRequest } from "./coaching-client";
 import type { CoachingAssignment, CoachingHome, CoachingLink } from "./model";
 
@@ -24,6 +25,7 @@ export function CoachingView({ enabled, active = true, today, saved }: Props) {
   const [notice, setNotice] = useState("");
   const [connect, setConnect] = useState<"invite" | "join">();
   const [sendTo, setSendTo] = useState<CoachingLink>();
+  const [learner, setLearner] = useState<CoachingLink>();
   const [selected, setSelected] = useState<CoachingAssignment>();
   const [disconnect, setDisconnect] = useState<CoachingLink>();
   const [disconnectError, setDisconnectError] = useState("");
@@ -44,7 +46,7 @@ export function CoachingView({ enabled, active = true, today, saved }: Props) {
   useEffect(() => {
     const abort = new AbortController();
     if (enabled) void load(abort.signal);
-    else { setHome(undefined); setConnect(undefined); setSendTo(undefined); setSelected(undefined); setDisconnect(undefined); setError(""); setNotice(""); }
+    else { setHome(undefined); setConnect(undefined); setSendTo(undefined); setLearner(undefined); setSelected(undefined); setDisconnect(undefined); setError(""); setNotice(""); }
     return () => abort.abort();
   }, [enabled, load]);
   useEffect(() => {
@@ -119,7 +121,11 @@ export function CoachingView({ enabled, active = true, today, saved }: Props) {
         const completed = related.reduce((total, item) => total + (item.progress?.completed ?? 0), 0);
         return <article className="card coach-person-card" key={link.id}>
           <div className="coach-person-heading"><span className={"avatar " + (role === "coach" ? "mint" : "lilac")} aria-hidden="true">{avatar(name)}</span><div><h4>{name}</h4><p>{role === "coach" ? "我的学员" : "我的教练"} · 已连接</p></div></div>
-          {role === "coach" ? <><div className="coach-meta"><span>{related.length} 份下发</span><span>{completed} 节已完成</span><span>{link.shareDetails ? "获准查看实际组记录" : "仅分享完成状态"}</span></div><button className="button primary small coach-self-start" type="button" disabled={busy} onClick={() => setSendTo(link)}><Send size={16} />发送训练</button></>
+          {role === "coach" ? <><div className="coach-meta"><span>{related.length} 份下发</span><span>{completed} 节已完成</span><span>{link.shareDetails ? "获准查看实际组记录" : "仅分享完成状态"}</span></div>
+            <div className="coach-toolbar">
+              <button className="button primary small" type="button" disabled={busy} onClick={() => setSendTo(link)}><Send size={16} />发送训练</button>
+              <button className="button outline small" type="button" disabled={busy} onClick={() => setLearner(link)}><ChartNoAxesCombined size={16} />学员概览</button>
+            </div></>
             : <label className="coach-option"><input type="checkbox" checked={link.shareDetails} disabled={busy} onChange={(event) => void changeSharing(link, event.target.checked)} /><span><strong>分享这位教练下发训练的实际组记录</strong><small>可选，包含这段关系下已完成训练的历史组记录。完成状态与主动反馈继续分享；无关训练、私人备注、心率、身体和饮食不会通过教练关系开放。</small></span></label>}
           <button className="text-button coach-disconnect" type="button" disabled={busy} onClick={() => { setDisconnect(link); setDisconnectError(""); }}><Unplug size={15} />断开教练关系</button>
         </article>;
@@ -137,6 +143,7 @@ export function CoachingView({ enabled, active = true, today, saved }: Props) {
     </section>
     {connect && <CoachingConnectDialog mode={connect} close={() => setConnect(undefined)} joined={() => { setRole("student"); setNotice("已连接教练。你可逐份预览并接收对方下发的训练。"); void load(); }} />}
     {sendTo && home && <CoachingSendDialog link={sendTo} sources={home.sources} today={today} close={() => setSendTo(undefined)} sent={(assignment) => { setNotice("已发送给 " + assignment.studentName + "，等待学员确认接收。"); setSelected(assignment); void load(); }} />}
+    {learner && <LearnerOverviewDialog key={learner.id} link={learner} today={today} close={() => setLearner(undefined)} />}
     {selected && <CoachingAssignmentDialog key={selected.id} value={selected} close={() => setSelected(undefined)} changed={() => void load()} saved={saved} />}
     {disconnect && <Dialog title="断开教练关系" onClose={() => { if (!busy) setDisconnect(undefined); }}><div className="dialog-body feature-stack"><p>确认断开与 {disconnect.coachId === home?.viewerId ? disconnect.studentName : disconnect.coachName} 的教练关系？</p><p>断开后停止新的计划下发，也停止教练读取完成记录和反馈。已经接收的计划与训练历史仍保留在学员账号。</p>{disconnectError && <p className="inline-error" role="alert">{disconnectError}</p>}</div><div className="dialog-footer"><button type="button" className="button outline" disabled={busy} onClick={() => setDisconnect(undefined)}>继续保持连接</button><button type="button" className="button primary" disabled={busy} onClick={() => void endRelationship()}>{busy ? "正在断开…" : "确认断开"}</button></div></Dialog>}
   </div>;

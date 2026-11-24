@@ -4,6 +4,8 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { HttpError, json, readJson } from "@/server/http";
 import { coachingMutation } from "@/features/coaching/model";
 import { changeCoaching, coachingDetail, coachingHome, coachingSource } from "@/features/coaching/server";
+import { learnerPeriod, lessonMutation } from "@/features/coaching/progress-model";
+import { learnerOverview, recordLesson } from "@/features/coaching/progress-server";
 
 export const dynamic = "force-dynamic";
 async function account() {
@@ -27,6 +29,9 @@ export const GET = api(async (request) => {
   const { db, actor } = await account();
   const query = new URL(request.url).searchParams;
   if (query.has("assignment")) return json(await coachingDetail(db, actor.id, z.string().uuid().parse(query.get("assignment"))));
+  if (query.has("learner")) return json(await learnerOverview(db, actor.id, learnerPeriod.parse({
+    learner: query.get("learner"), from: query.get("from"), to: query.get("to"),
+  })));
   if (query.has("sourceKind") || query.has("sourceId")) {
     const source = z.object({ kind: z.enum(["plan", "template", "program"]), id: z.string().uuid() }).parse({ kind: query.get("sourceKind"), id: query.get("sourceId") });
     return json(await coachingSource(db, actor.id, source.kind, source.id));
@@ -35,6 +40,6 @@ export const GET = api(async (request) => {
 });
 export const POST = api(async (request) => {
   const { db, actor } = await account();
-  const input = await readJson(request, coachingMutation, 12_000);
-  return json(await changeCoaching(db, actor, coachingMutation.parse(input)));
+  const input = await readJson(request, z.union([coachingMutation, lessonMutation]), 12_000);
+  return json(input.action === "lesson" ? await recordLesson(db, actor.id, input) : await changeCoaching(db, actor, coachingMutation.parse(input)));
 });

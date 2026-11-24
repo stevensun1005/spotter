@@ -3,6 +3,7 @@ import { dateSchema } from "@/shared/dates";
 import { planBlank, planSchema, type Plan } from "@/features/plans/model";
 import { maxWorkoutMs } from "./clock";
 import { setVolumeKg } from "./volume";
+import { cardioMinutes, cardioSchema } from "./cardio";
 
 const sets = z.object({
   reps: z.number().int().min(0).max(999),
@@ -24,6 +25,7 @@ const sessionFields = z.object({
   ended: z.number().int().positive().optional(),
   clock: z.object({ elapsed: z.number().int().min(0).max(maxWorkoutMs), runningSince: z.number().int().positive().nullable() }).optional(),
   minutes: z.number().int().min(0).max(720),
+  cardio: cardioSchema.optional(),
   note: z.string().max(1500),
   finishedVideo: z.boolean(),
   proteinShake: z.boolean().optional(),
@@ -36,11 +38,14 @@ const sessionFields = z.object({
 }).refine((value) =>
   (value.ended === undefined || (value.ended >= value.started && value.ended - value.started <= 86_400_000)) &&
   value.rows.length === value.plan.exercises.length &&
-    value.rows.every((row, i) => row.length === value.plan.exercises[i].sets));
+  value.rows.every((row, i) => row.length === value.plan.exercises[i].sets) &&
+  (!value.cardio || (value.plan.category === "有氧训练" && value.planId === "" && !value.plan.video && !value.plan.exercises.length && !value.finishedVideo)));
 
 export const draftSessionSchema = sessionFields.refine(({ plan, planId, finishedVideo }) =>
   Boolean(plan.video || plan.exercises.length) || (planId === "" && !finishedVideo));
-export const sessionSchema = sessionFields.refine(({ plan }) => Boolean(plan.video || plan.exercises.length));
+export const sessionSchema = sessionFields.refine(({ plan, cardio, minutes }) => cardio
+  ? cardio.durationSeconds !== undefined && minutes === cardioMinutes(cardio.durationSeconds)
+  : Boolean(plan.video || plan.exercises.length));
 
 export type Session = z.infer<typeof sessionSchema>;
 export type SetLine = z.infer<typeof sets>;
@@ -61,13 +66,15 @@ export const freeWorkoutTitle = "自由训练";
 const freeWorkoutPresets = {
   strength: { title: freeWorkoutTitle, category: "力量训练" },
   cardio: { title: "有氧训练", category: "有氧训练" },
+  incline: { title: "爬坡走", category: "有氧训练" },
   hiit: { title: "HIIT 训练", category: "有氧训练" },
 } satisfies Record<string, Pick<Plan, "title" | "category">>;
 
 export type FreeWorkoutKind = keyof typeof freeWorkoutPresets;
 
 export function startFreeSession(date: string, kind: FreeWorkoutKind = "strength"): Session {
-  return startSession({ ...planBlank(date), ...freeWorkoutPresets[kind], exercises: [] }, "", date);
+  const session = startSession({ ...planBlank(date), ...freeWorkoutPresets[kind], exercises: [] }, "", date);
+  return kind === "incline" ? { ...session, cardio: { activity: "incline-walk" } } : session;
 }
 
 export function sessionTotals(session: Session) {
@@ -79,4 +86,14 @@ export function sessionTotals(session: Session) {
     volume += setVolumeKg(line, session.plan.exercises[i]);
   }));
   return { sets, volume };
+}
+
+export function hasCompletedWorkout(data: Session) {
+  return data.cardio ? Boolean(data.cardio.durationSeconds) : data.finishedVideo || sessionTotals(data).sets > 0;
+}
+
+export function checkinProblem(data: Session) {
+  if (data.finishedVideo && !data.plan.video) return "这次训练没有视频链接。";
+  if (!hasCompletedWorkout(data)) return data.cardio ? "请记录有氧训练时长。" : "请至少完成一组动作或标记视频跟练完成。";
+  return "";
 }

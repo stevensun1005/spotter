@@ -6,6 +6,7 @@ import { PlanFields } from "@/features/plans/plan-fields";
 import type { PlannedWorkout } from "@/features/plans/model";
 import { errorText } from "@/shared/client";
 import { detectImportFormat, parseImport } from "./parse";
+import { DraftDayPreview, DraftProgress } from "./draft-preview";
 
 export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, onData, focusRequest = 0 }: {
   today: string; save: (plans: PlannedWorkout[], revise: boolean) => Promise<void>; saved: () => void; notify?: (text: string) => void; canRevise: boolean;
@@ -46,6 +47,7 @@ export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, 
     catch (reason) { setParseError(errorText(reason, "导入失败，请检查内容。")); }
   };
   return <div className="plan-import-stack feature-stack">
+    <DraftProgress steps={["填写内容", "逐日核对", "排入日历"]} current={busy ? 2 : imported.length ? 1 : 0} />
     <section className="card padded feature-stack">
       <div className="section-head"><h2>粘贴并预览计划</h2><span className="tile lilac"><ClipboardList size={18} /></span></div>
       <p className="muted">已有训练文本、视频链接，或 AI 返回的计划 JSON，都在这里预览和编辑后保存。</p>
@@ -62,6 +64,7 @@ export function ImportView({ today, save, saved, canRevise, helpAI, onPrograms, 
       {helpAI && <div className="plan-import-help"><p className="muted">还需要从目标起草，或让 AI 整理复杂内容？</p><button className="button subtle small" type="button" onClick={helpAI}><Sparkles size={16} />用自己的 AI</button></div>}
     </section>
     {imported.length > 0 && <section className="card padded import-preview"><div className="section-head"><h2>校验并保存</h2><span className="count-label">{imported.length} 个计划</span></div>
+      <DraftDayPreview plans={imported.map(({ data }) => data)} select={setIndex} />
       {imported.length > 1 && <div className="import-tabs">{imported.map(({ id, data }, i) => <button className="button small outline" type="button" aria-pressed={index === i} key={id} disabled={busy} onClick={() => setIndex(i)}>{data.title || "训练 " + (i + 1)}</button>)}</div>}
       <form onSubmit={async (event) => {
         event.preventDefault(); setBusy(true); setSaveError("");

@@ -11,6 +11,7 @@ export async function send(path: string, body: unknown) {
     const data = await response.json().catch(() => null) as { error?: string } | null;
     throw new ClientError(response.status, data?.error || "服务器暂时无法保存，请重试。");
   }
+  return response;
 }
 
 export function errorText(reason: unknown, fallback = "操作未完成，请检查网络后重试。") {

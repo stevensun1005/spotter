@@ -4,8 +4,9 @@ import { getChatGPTUser } from "../../chatgpt-auth";
 import { draftSessionSchema, planSchema, sessionSchema, type Entry, type State } from "../../workout";
 
 import { api } from "@/server/http";
-import { dateSchema } from "@/shared/dates";
-import { checkPlanDates, reschedule } from "@/features/plans/schedule-server";
+import { previewMove, reschedule } from "@/features/plans/schedule-server";
+import { moveChoiceSchema, planRevisionSchema } from "@/features/plans/schedule";
+import { deletePlan, writePlans } from "@/features/plans/plan-server";
 import { resolvePlanTemplate } from "@/features/plans/template-link";
 import { ownTemplateJoin } from "@/features/plans/template-server";
 import { updateLog } from "@/features/history/update-log";
@@ -20,9 +21,10 @@ const id = z.string().uuid();
 const expectedOwner = z.string().min(1).max(300).optional();
 const pairTarget = z.object({ partner: z.string().trim().min(1).max(120), connection: id });
 const mutation = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("plans"), skipExisting: z.boolean().optional(), reviseExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema })).min(1).max(20) }),
-  z.object({ action: z.literal("move"), id, from: dateSchema, date: dateSchema, shift: z.boolean() }),
-  z.object({ action: z.literal("delete"), id, kind: z.enum(["plan", "draft"]) }),
+  z.object({ action: z.literal("plans"), skipExisting: z.boolean().optional(), reviseExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema, revision: planRevisionSchema.nullable().optional() })).min(1).max(20) }),
+  moveChoiceSchema.extend({ action: z.literal("previewMove") }),
+  moveChoiceSchema.extend({ action: z.literal("move"), token: z.string().regex(/^[a-f0-9]{64}$/) }),
+  z.object({ action: z.literal("delete"), id, kind: z.enum(["plan", "draft"]), revision: planRevisionSchema.optional() }),
   z.object({ action: z.literal("draft"), id, data: draftSessionSchema, expectedOwner }),
   z.object({ action: z.literal("log"), id, data: sessionSchema, expectedOwner }),
   z.object({ action: z.literal("editLog"), id, data: sessionSchema, revision: z.string().min(1).max(40) }),
@@ -116,46 +118,25 @@ export const POST = api(async (request) => {
   const save = (itemId: string, kind: Entry["kind"], data: unknown) => db.prepare(
     "INSERT INTO entries (owner, id, kind, payload, updated) VALUES (?, ?, ?, ?, ?) " +
     "ON CONFLICT (owner, id) DO UPDATE SET kind = excluded.kind, payload = excluded.payload, updated = excluded.updated " +
-    "WHERE (entries.kind = 'draft' AND excluded.kind IN ('draft', 'log')) OR (entries.kind = 'plan' AND excluded.kind = 'plan')"
+    "WHERE entries.kind = 'draft' AND excluded.kind IN ('draft', 'log')"
   ).bind(owner, itemId, kind, JSON.stringify(data), now);
 
-  if (body.action === "move") {
-    return reply(await reschedule(db, owner, body.id, body.from, body.date, body.shift, now));
+  if (body.action === "previewMove") {
+    return reply(await previewMove(db, owner, body));
+  } else if (body.action === "move") {
+    return reply(await reschedule(db, owner, body, body.token, now));
   } else if (body.action === "delete") {
+    if (body.kind === "plan") {
+      await deletePlan(db, owner, body.id, body.revision, now);
+      return reply({ ok: true });
+    }
     const removed = await db.prepare(
       "INSERT INTO entries (owner, id, kind, payload, updated) VALUES (?, ?, ?, '{}', ?) " +
       "ON CONFLICT(owner, id) DO UPDATE SET kind = excluded.kind, payload = '{}', updated = excluded.updated WHERE entries.kind = ? OR entries.kind = excluded.kind"
     ).bind(owner, body.id, "deleted-" + body.kind, now, body.kind).run();
     if (!removed.meta.changes) return reply({ error: "这条记录已变更，无法删除。" }, 409);
   } else if (body.action === "plans") {
-    if (body.reviseExisting) {
-      const revised = await db.prepare(
-        "WITH incoming AS MATERIALIZED (SELECT json_extract(value, '$.id') AS id, json_extract(value, '$.data') AS data FROM json_each(?)), " +
-        "eligible AS MATERIALIZED (SELECT i.id, json_set(i.data, '$.date', json_extract(e.payload, '$.date'), " +
-        "'$.shared', json(CASE json_extract(e.payload, '$.shared') WHEN 1 THEN 'true' ELSE 'false' END)) AS payload " +
-        "FROM incoming i JOIN entries e ON e.id = i.id AND json_extract(e.payload, '$.title') = json_extract(i.data, '$.title') WHERE e.owner = ? AND e.kind = 'plan') " +
-        "UPDATE entries SET payload = (SELECT eligible.payload FROM eligible WHERE eligible.id = entries.id), updated = ? " +
-        "WHERE owner = ? AND kind = 'plan' AND id IN (SELECT id FROM eligible) " +
-        "AND (SELECT COUNT(DISTINCT id) FROM eligible) = (SELECT COUNT(*) FROM incoming)"
-      ).bind(JSON.stringify(body.items), owner, now, owner).run();
-      if (revised.meta.changes !== body.items.length) return reply({ error: "批次中有计划已改名或删除，更新未保存。" }, 409);
-      return reply({ revised: revised.meta.changes });
-    }
-    await checkPlanDates(db, owner, body.items);
-    if (body.skipExisting) {
-      const results = await db.batch(body.items.map(({ id, data }) => {
-        const payload = JSON.stringify(data);
-        return db.prepare(
-          "INSERT INTO entries (owner, id, kind, payload, updated) " +
-          "SELECT ?, ?, 'plan', ?, ? WHERE NOT EXISTS (" +
-          "SELECT 1 FROM entries WHERE owner = ? AND kind = 'plan' AND payload = ?) " +
-          "ON CONFLICT (owner, id) DO NOTHING"
-        ).bind(owner, id, payload, now, owner, payload);
-      }));
-      const added = results.reduce((count, result) => count + result.meta.changes, 0);
-      return reply({ added, skipped: body.items.length - added });
-    }
-    await db.batch(body.items.map((item) => save(item.id, "plan", item.data)));
+    return reply(await writePlans(db, owner, body.items, now, body));
   } else if (body.action === "editLog") {
     return reply(await updateLog(db, owner, body.id, body.revision, body.data, now));
   } else if (body.action === "draft" || body.action === "log") {

@@ -65,7 +65,7 @@ export async function importBackup(owner: string, file: Backup) {
   const now = new Date().toISOString();
   const workouts = new Map(file.training.flatMap((row) => row.kind === "log" ? [[row.id, row.data] as const] : []));
   const library = file.library.map((item) => ({
-    id: libraryKey(item), kind: item.kind, day: item.kind === "nutrition" ? item.date : null,
+    id: libraryKey(item), kind: item.kind, day: item.kind === "nutrition" ? item.date : item.kind === "history-order" ? item.id : null,
     item: item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item,
   }));
   const heart = file.heart.flatMap((row) => {

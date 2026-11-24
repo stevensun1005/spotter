@@ -112,6 +112,10 @@
 .coach-actual li > span:last-child { text-align: right; }
 .coach-assignment-actions { flex-wrap: wrap; }
 .coach-assignment-actions .button { min-height: 42px; }
+.coach-learner-period { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 5px; align-items: center; text-align: center; }
+.coach-learner-period > strong { font-size: .875rem; }
+.coach-learner-totals { grid-template-columns: repeat(auto-fit, minmax(min(100%, 94px), 1fr)); }
+.coach-lesson-list p { overflow-wrap: anywhere; white-space: pre-wrap; }
 @media (max-width: 700px) {
   .coach-person-list, .coach-assignment-list { grid-template-columns: minmax(0, 1fr); }
   .coach-intro { padding: 17px; }

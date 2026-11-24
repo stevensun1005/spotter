@@ -6,6 +6,7 @@ import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { shortDate } from "@/shared/dates";
 import { prescriptionText } from "@/features/plans/prescription";
 import { sessionTotals, type Session } from "@/features/training/model";
+import { formatCardioDuration } from "@/features/training/cardio";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
 import { exerciseTempo, tempoNotationHint } from "@/features/exercises/tempo";
@@ -34,15 +35,22 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
     }} />
   </Dialog>;
   const canShare = own && share;
+  const cardio = log.data.cardio;
+  const canTemplate = !cardio && onTemplate;
   return <Dialog title={log.data.plan.title} className="log-detail-dialog" onClose={close}>
     <div className="dialog-body log-detail-body">
       <header className="log-overview">
         <p className="muted">{shortDate(log.data.date)} · {log.data.plan.category}</p>
-        <div className="totals">
+        {cardio ? <div className="totals">
+          <div><strong>{cardio.durationSeconds === undefined ? "—" : formatCardioDuration(cardio.durationSeconds)}</strong><span>实际时长</span></div>
+          {cardio.incline?.value !== undefined && <div><strong>{cardio.incline.value}</strong><span>{cardio.incline.kind === "percent" ? "坡度 %" : "跑步机档位"}</span></div>}
+          {cardio.distanceKm !== undefined && <div><strong>{cardio.distanceKm}</strong><span>距离 km</span></div>}
+          {cardio.speedKmh !== undefined && <div><strong>{cardio.speedKmh}</strong><span>速度 km/h</span></div>}
+        </div> : <div className="totals">
           <div><strong>{log.data.minutes}</strong><span>分钟</span></div>
           <div><strong>{sets}</strong><span>完成组数</span></div>
           <div><strong>{displayNumber(volume)}</strong><span>容量 kg</span></div>
-        </div>
+        </div>}
       </header>
       {own && trackProtein && onEdit && <ProteinCheck checked={log.data.proteinShake === true}
         save={(proteinShake) => onEdit({ ...log.data, proteinShake })} />}
@@ -70,9 +78,9 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
         })}
       </section>}
     </div>
-    {(onTemplate || onEdit || canShare) && <div className="dialog-footer log-detail-actions">
+    {(canTemplate || onEdit || canShare) && <div className="dialog-footer log-detail-actions">
       {onEdit && <button className="button primary small" type="button" onClick={() => setEditing(true)}><Pencil size={16} /> 编辑记录</button>}
-      {onTemplate && <button className="button outline small" type="button" onClick={onTemplate}><Bookmark size={16} /> 另存为模板</button>}
+      {canTemplate && <button className="button outline small" type="button" onClick={canTemplate}><Bookmark size={16} /> 另存为模板</button>}
       {canShare && <button className="button outline small" type="button" onClick={() => setSharing(true)}><Share2 size={16} /> 分享训练</button>}
     </div>}
   </Dialog>;

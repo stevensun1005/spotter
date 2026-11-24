@@ -162,3 +162,7 @@
 .history-record-label strong { font-size: .94rem; font-weight: 760; line-height: 1.3; }
 .history-record-label small { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: var(--muted); font-size: .75rem; }
 .history-owner { border-radius: 999px; padding: 1px 5px; color: var(--history-tone); background: var(--history-tint); font-weight: 750; }
+.history-day-sort-row { display: flex; gap: 6px; align-items: center; }
+.history-day-sort-row > .history-day-record { flex: 1; min-width: 0; }
+.history-day-sort-row > .history-day-record:disabled { opacity: 1; }
+.history-day-sort-controls { display: flex; gap: 4px; flex: none; }

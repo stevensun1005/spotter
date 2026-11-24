@@ -31,3 +31,11 @@
   .plan-assistant-related { align-items: start; }
 }
 @media (max-width: 360px) { .plan-assistant-tabs { grid-template-columns: minmax(0, 1fr); } }
+.plan-draft-progress { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.plan-draft-progress > li { padding: 5px 9px; border-radius: 7px; border: 1px solid var(--stroke); color: var(--muted); font-size: .8rem; }
+.plan-draft-progress > li[aria-current], .plan-draft-progress > li[data-complete] { color: #294025; background: #e6f2d9; }
+.plan-draft-day { display: grid; gap: 5px; border-left: 2px solid var(--stroke); padding-left: 10px; }
+.plan-draft-session summary { cursor: pointer; overflow-wrap: anywhere; padding: 5px 0; }
+.plan-draft-session > div { padding: 7px 0; }
+.plan-draft-session ul { padding-left: 1.4em; margin: 3px 0; }
+.plan-draft-session small { color: var(--muted); }

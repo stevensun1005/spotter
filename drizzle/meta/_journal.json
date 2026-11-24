@@ -57,6 +57,13 @@
       "when": 1795508818003,
       "tag": "0007_buddy_nutrition",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1795529342669,
+      "tag": "0008_coaching_lessons",
+      "breakpoints": true
     }
   ]
 }

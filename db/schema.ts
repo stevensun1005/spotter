@@ -197,3 +197,16 @@ export const coachingAssignments = sqliteTable("coaching_assignments", {
   check("coaching_assignment_kind", sql`${table.kind} IN ('plan', 'program')`),
   check("coaching_assignment_status", sql`${table.status} IN ('pending', 'accepted', 'declined', 'cancelled')`),
 ]);
+
+export const coachingLessons = sqliteTable("coaching_lessons", {
+  id: text().primaryKey().notNull(),
+  linkId: text("link_id").notNull().references(() => coachingLinks.id),
+  delta: integer().notNull(),
+  note: text().notNull(),
+  reverses: text(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  index("coaching_lessons_link").on(table.linkId, table.createdAt),
+  uniqueIndex("coaching_lessons_reversal").on(table.linkId, table.reverses),
+  check("coaching_lessons_delta", sql`${table.delta} BETWEEN -1000 AND 1000 AND ${table.delta} != 0`),
+]);

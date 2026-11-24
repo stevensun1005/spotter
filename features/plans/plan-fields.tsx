@@ -8,11 +8,12 @@ import { Plus, Trash2 } from "lucide-react";
 import { defaultRest } from "@/features/training/sequence";
 import { categories, prescribedWeight, type Move, type Plan } from "./model";
 import { resolvePlanTemplate } from "./template-link";
+import { addPlanMove, phaseOf, setMovePhase, type MovePhase } from "./move-phase";
 
 export function PlanFields({ value, change, template = false, templates, allowSharing = true }: {
   value: Plan; change: (plan: Plan) => void; template?: boolean; templates?: readonly { id: string; plan: Plan }[]; allowSharing?: boolean;
 }) {
-  const [picker, setPicker] = useState(false);
+  const [picker, setPicker] = useState<MovePhase>();
   const { data: catalogue } = useCatalogue();
   const linked = !template && Boolean(value.templateId);
   const selected = templates?.find((item) => item.id === value.templateId);
@@ -75,8 +76,10 @@ export function PlanFields({ value, change, template = false, templates, allowSh
       <label>跟练链接<input type="url" value={value.video} onChange={(e) => edit("video", e.target.value.trim())} placeholder="YouTube 或 B站链接（选填）" /></label>
       <label>默认休息（秒）<input type="number" min={0} max={600} value={value.defaultRestSeconds ?? ""} placeholder={String(defaultRest(value))} onChange={(e) => edit("defaultRestSeconds", e.target.value === "" ? undefined : Number(e.target.value))} /></label>
       <p className="muted">相邻动作填写相同组别和器械站时，会按轮循环。换动作使用默认休息，组间或轮间时长可单独指定。</p>
-      <div className="field-title"><strong>训练动作</strong><button type="button" className="button subtle small" disabled={value.exercises.length >= 30} onClick={() => setPicker(true)}><Plus size={16} /> 添加动作</button></div>
-      {value.exercises.map((item, index) => <div className="move-editor" key={index}>
+      {([["warmup", "热身动作"], ["work", "正式动作"]] as const).map(([phase, title]) => <section key={phase} className="feature-stack" aria-label={title}>
+        <div className="field-title"><strong>{title}</strong><button type="button" className="button subtle small"
+          disabled={value.exercises.length >= 30} onClick={() => setPicker(phase)}><Plus size={16} />{phase === "warmup" ? "添加热身" : "添加动作"}</button></div>
+      {value.exercises.map((item, index) => phaseOf(item) === phase && <div className="move-editor" key={index}>
         <div className="move-editor-top">
           <label>动作 {index + 1}<input maxLength={100} placeholder="如：哑铃卧推" value={item.name} onChange={(e) => editMove(index, { name: e.target.value, catalogueId: undefined, sourceName: undefined })} /></label>
           <button type="button" className="icon-button" aria-label={"移除动作 " + (index + 1)} onClick={() => edit("exercises", value.exercises.filter((_, i) => i !== index))}><Trash2 size={17} /></button>
@@ -85,6 +88,9 @@ export function PlanFields({ value, change, template = false, templates, allowSh
           <label>组别<input maxLength={4} pattern="[A-Z](?:-[2-9]|-[12][0-9]|-30)?" placeholder="如 A 或 A-2；留空为独立动作" value={item.block ?? ""} onChange={(e) => editMove(index, { block: e.target.value.toUpperCase() || undefined })} /></label>
           <label>器械站<input maxLength={60} placeholder="如 哑铃＋可调凳" value={item.station ?? ""} onChange={(e) => editMove(index, { station: e.target.value || undefined })} /></label>
         </div>
+        <button className="text-button" type="button" onClick={() => editMove(index, setMovePhase(item, phase === "warmup" ? "work" : "warmup"))}>
+          {phase === "warmup" ? "转为正式动作" : "设为热身"}
+        </button>
         <div className="field-grid">
           <label>动作备注<input maxLength={220} value={item.cue ?? ""} onChange={(e) => editMove(index, { cue: e.target.value || undefined })} /></label>
           <label>节奏<input maxLength={tempoMaxLength} title={tempoNotationHint} value={item.tempo ?? ""}
@@ -109,8 +115,9 @@ export function PlanFields({ value, change, template = false, templates, allowSh
             <div className="field-grid"><label>参考重量单位<select value={item.loadPercent.unit} onChange={(event) => editMove(index, { loadPercent: { ...item.loadPercent!, unit: event.target.value as "kg" | "lb" } })}><option value="kg">kg</option><option value="lb">lb</option></select></label><p className="muted">处方重量 {item.weight} {item.unit}</p></div><p className="muted">填入你确认的参考值，不自动采用历史估算 1RM。按原单位的周进阶或减量会改为直接重量。</p></>}
         </div></details>
       </div>)}
-      {picker && <ExercisePicker names={value.exercises.map((item) => item.name)} close={() => setPicker(false)} onUse={(move) => {
-        edit("exercises", [...value.exercises, move]); setPicker(false);
+      </section>)}
+      {picker && <ExercisePicker names={value.exercises.map((item) => item.name)} close={() => setPicker(undefined)} onUse={(move) => {
+        edit("exercises", addPlanMove(value.exercises, move, picker)); setPicker(undefined);
       }} />}
     </>}
   </div>;

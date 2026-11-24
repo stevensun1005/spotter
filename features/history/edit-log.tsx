@@ -4,7 +4,9 @@ import { useState, type FormEvent } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { parsePlanMove } from "@/features/exercises/move-name";
 import { appendSet, changeSet } from "@/features/training/set-editor";
-import { sessionSchema, sessionTotals, type Session, type SetLine } from "@/features/training/model";
+import { hasCompletedWorkout, sessionSchema, type Session, type SetLine } from "@/features/training/model";
+import { CardioFields } from "@/features/training/cardio-fields";
+import { cardioMinutes } from "@/features/training/cardio";
 
 export function EditLog({ original, today, cancel, save }: {
   original: Session; today: string; cancel: () => void; save: (next: Session) => Promise<void>;
@@ -37,8 +39,9 @@ export function EditLog({ original, today, cancel, save }: {
     if (pending) return;
     setError("");
     const valid = sessionSchema.safeParse(data);
-    if (!valid.success || !data.finishedVideo && sessionTotals(data).sets === 0) {
-      setError("请检查训练名称、日期、动作名称、重量和次数，并至少保留一组完成记录。");
+    if (!valid.success || !hasCompletedWorkout(data)) {
+      setError(data.cardio && !data.cardio.durationSeconds ? "请记录有氧训练时长。" :
+        "请检查训练名称、日期和记录数值，并保留完成的训练。");
       return;
     }
     setPending(true);
@@ -53,8 +56,10 @@ export function EditLog({ original, today, cancel, save }: {
         onChange={(event) => setData({ ...data, plan: { ...data.plan, title: event.target.value } })} /></label>
       <div className="field-grid">
         <label>打卡日期<input type="date" max={today} required value={data.date} onChange={(e) => setData({ ...data, date: e.target.value })} /></label>
-        <label>时长（分钟）<input type="number" min={0} max={720} required value={data.minutes} onChange={(e) => setData({ ...data, minutes: Number(e.target.value) })} /></label>
+        {!data.cardio && <label>时长（分钟）<input type="number" min={0} max={720} required value={data.minutes} onChange={(e) => setData({ ...data, minutes: Number(e.target.value) })} /></label>}
       </div>
+      {data.cardio && <CardioFields value={data.cardio} change={(cardio) => setData({ ...data, cardio,
+        minutes: cardio.durationSeconds ? cardioMinutes(cardio.durationSeconds) : 0 })} />}
       <label>训练心得<textarea rows={3} maxLength={1500} value={data.note} onChange={(e) => setData({ ...data, note: e.target.value })} /></label>
       {data.plan.exercises.map((item, move) => <details className="edit-log-move" key={move} open={data.plan.exercises.length === 1 || undefined}>
         <summary><strong>{parsePlanMove(item.name).name}</strong><span className="muted">{data.rows[move].filter((line) => line.done).length} 组完成</span></summary>

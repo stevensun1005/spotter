@@ -38,21 +38,22 @@ export function useLibrary(enabled: boolean, date?: string, body = false) {
     return () => abort.abort();
   }, [load]);
 
-  async function save(item: LibraryItem) {
+  async function save(item: LibraryItem, expected?: string | null) {
     if (!enabled) throw new Error("登录后可以保存记录。");
     const valid = libraryItem.safeParse(item);
     if (!valid.success) throw new Error("请检查字段长度、数值或视频链接。");
-    await send("/api/library", { action: "save", data: valid.data });
+    const response = await send("/api/library", { action: "save", data: valid.data, revision: expected });
+    const { updated } = await response.json() as { updated: string };
     revision.current++;
     setState((prev) => ({ url, error: "", recentMeals: prev?.url === url ? prev.recentMeals : undefined, rows: [
-      { ...valid.data, updated: new Date().toISOString() },
+      { ...valid.data, updated: updated ?? new Date().toISOString() },
       ...(prev?.url === url ? prev.rows : []).filter((row) => !matches(row, valid.data)),
     ] }));
     void load();
   }
 
-  async function remove(kind: "template" | "nutrition", id: string) {
-    await send("/api/library", { action: "remove", kind, id });
+  async function remove(kind: "template" | "nutrition", id: string, expected?: string) {
+    await send("/api/library", { action: "remove", kind, id, revision: expected });
     revision.current++;
     setState((prev) => prev && { ...prev, rows: prev.rows.filter((row) => row.kind !== kind || row.id !== id) });
     if (kind === "nutrition" && date) void load();

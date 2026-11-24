@@ -15,6 +15,7 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier, context);
 } });
 const server = await import("../features/coaching/server.ts");
+const { learnerOverview, recordLesson } = await import("../features/coaching/progress-server.ts");
 const { buildProgram } = await import("../features/programs/builder.ts");
 const { saveProgram } = await import("../features/programs/server.ts");
 const { startSession } = await import("../features/training/model.ts");
@@ -210,4 +211,63 @@ test("coaching home bounds D1 query count and returns metadata instead of whole 
   assert.ok(home.sources.every((source) => !source.expectedHash));
   assert.ok(!JSON.stringify(home).includes('"exercises"'));
   assert.ok(!JSON.stringify(home).includes('"payload"'));
+});
+
+test("learner overview counts assigned check-ins only and honors current sharing and dates", async (t) => {
+  const { db, mutate, link, send, accept, entry } = fixture(t);
+  const relationship = await link();
+  const { assignment, detail } = await send(relationship);
+  await accept(assignment.id);
+  const assigned = detail.program.sessions[0];
+  const checkedIn = startSession(assigned.plan, assigned.id, "2026-12-08");
+  checkedIn.minutes = 30;
+  checkedIn.note = "PRIVATE_PROGRESS_MARKER";
+  checkedIn.rows[0][0] = { ...checkedIn.rows[0][0], done: true, right: { weight: 10, reps: 7 } };
+  entry(learner.id, crypto.randomUUID(), "log", checkedIn);
+  entry(learner.id, crypto.randomUUID(), "draft", checkedIn);
+  entry(other.id, crypto.randomUUID(), "log", checkedIn);
+  entry(learner.id, crypto.randomUUID(), "log", { ...checkedIn, planId: crypto.randomUUID() });
+  const firstWeek = { learner: relationship.id, from: "2026-11-30", to: "2026-12-06" };
+  assert.deepEqual((await learnerOverview(db, coach.id, firstWeek)).summary, { sessions: 1, days: 1, minutes: null, sets: null, volumeKg: null });
+  await mutate(learner, { action: "sharing", linkId: relationship.id, shareDetails: true });
+  assert.equal((await learnerOverview(db, coach.id, firstWeek)).summary.sessions, 0);
+  const actual = await learnerOverview(db, coach.id, { ...firstWeek, from: "2026-12-01", to: "2026-12-31" });
+  assert.deepEqual(actual.summary, { sessions: 1, days: 1, minutes: 30, sets: 1, volumeKg: 230 });
+  assert.equal(actual.balance, 0);
+  assert.deepEqual(actual.lessons, []);
+  assert.ok(!JSON.stringify(actual).includes("PRIVATE_PROGRESS_MARKER"));
+  await assert.rejects(learnerOverview(db, learner.id, firstWeek), denied(404));
+  await mutate(learner, { action: "disconnect", linkId: relationship.id });
+  await assert.rejects(learnerOverview(db, coach.id, firstWeek), denied(404));
+});
+
+test("lesson ledger debits once, protects balances and reversals, and isolates relationships", async (t) => {
+  const { db, link } = fixture(t);
+  const relationship = await link();
+  const another = await link(other);
+  const write = (values, actor = coach.id) => recordLesson(db, actor, {
+    action: "lesson", linkId: relationship.id, requestId: crypto.randomUUID(), note: "", ...values,
+  });
+  const read = () => learnerOverview(db, coach.id, { learner: relationship.id, from: "2026-12-01", to: "2026-12-31" });
+  const credit = { change: "credit", quantity: 3, requestId: crypto.randomUUID(), note: "合成课时" };
+  await assert.rejects(write(credit, learner.id), denied(404));
+  await write(credit);
+  await write(credit);
+  await assert.rejects(write({ ...credit, quantity: 4 }), denied(409));
+  const debit = { change: "debit", quantity: 2, requestId: crypto.randomUUID() };
+  await Promise.all([write(debit), write(debit)]);
+  assert.equal((await read()).balance, 1);
+  await assert.rejects(write({ change: "debit", quantity: 2 }), denied(409));
+  await assert.rejects(write({ change: "reverse", lessonId: credit.requestId }), denied(409));
+  await assert.rejects(write({ linkId: another.id, change: "reverse", lessonId: debit.requestId }), denied(409));
+  const reversal = { change: "reverse", lessonId: debit.requestId, requestId: crypto.randomUUID() };
+  await write(reversal);
+  await write(reversal);
+  await assert.rejects(write({ change: "reverse", lessonId: debit.requestId }), denied(409));
+  await assert.rejects(write({ change: "reverse", lessonId: reversal.requestId }), denied(409));
+  const final = await read();
+  assert.equal(final.balance, 3);
+  assert.equal(final.lessons.length, 3);
+  assert.equal(final.lessons.find(({ id }) => id === debit.requestId).reversed, true);
+  assert.equal(final.lessons.find(({ id }) => id === reversal.requestId).reverses, debit.requestId);
 });

@@ -16,6 +16,10 @@ import { parsePlanMove } from "@/features/exercises/move-name";
 import { fromCatalogue, useCatalogue, type ExerciseChoice } from "@/features/exercises/open-gym";
 import { exerciseTempo, tempoNotationHint } from "@/features/exercises/tempo";
 import { blockTitle, defaultRest, nextSet, restFor, trainingBlocks, type SetPosition } from "./sequence";
+import { CardioFields } from "./cardio-fields";
+import { cardioSeconds } from "./cardio";
+import { restReminderMode, restReminderOptions } from "./rest-reminder";
+import { useRestReminder } from "./use-rest-reminder";
 
 const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, "0")).join(":");
 
@@ -64,12 +68,16 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const running = data.clock?.runningSince != null;
   const timer = showTime(Math.floor(elapsed / 1000));
   const rest = data.rest ? Math.max(0, Math.ceil((data.rest.until - elapsed) / 1000)) : 0;
+  const reminder = useRestReminder(data.rest?.until, elapsed, running);
+  const restComplete = data.rest !== undefined && rest === 0;
   const restSeconds = data.defaultRestOverride ?? defaultRest(plan);
   const { sets: done, volume } = sessionTotals(data);
   const total = data.rows.flat().length;
   const showFinish = trackProtein && confirmFinish;
   const progressTotal = total + Number(Boolean(plan.video));
-  const defaultTitle = plan.category === "有氧训练" ? "有氧训练" : freeWorkoutTitle;
+  const cardio = data.cardio;
+  const allowFinish = cardio ? cardioSeconds(cardio, elapsed) > 0 : done > 0 || data.finishedVideo;
+  const defaultTitle = cardio ? "爬坡走" : plan.category === "有氧训练" ? "有氧训练" : freeWorkoutTitle;
 
   function activate(target: SetTarget, session = data) {
     const value = fieldValue(session.rows[target.move][target.row], target.field);
@@ -152,6 +160,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
     const restPlan = { ...plan, defaultRestSeconds: restSeconds };
     const pause = restFor(restPlan, from, target);
     const markedAt = Date.now();
+    if (pause.seconds) reminder.prepareSound();
     setNow(markedAt);
     setOpenedMove(target.move);
     setFocusSet(target);
@@ -182,13 +191,14 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
               onClick={() => {
                 const stamp = Date.now();
                 setNow(stamp);
+                if (!running && rest > 0) reminder.prepareSound();
                 update(running ? pauseClock(data, stamp) : resumeClock(data, stamp));
               }}>
               {running ? <Pause size={19} fill="currentColor" /> : <Play size={19} fill="currentColor" />}
             </button>
           </div>
           <button type="button" className="button primary workout-finish" aria-label={pending ? "正在保存" : "完成打卡"}
-            disabled={pending || Boolean(edit) || (!done && !data.finishedVideo)}
+            disabled={pending || Boolean(edit) || !allowFinish}
             onClick={() => { if (trackProtein) setConfirmFinish(true); else finish(); }}>{pending ? "正在保存" : "完成"}</button>
         </div>
         <div className="workout-header-row">
@@ -198,21 +208,24 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
               maxLength={100} disabled={pending}
               onChange={(event) => update({ ...data, plan: { ...plan, title: event.target.value.trim() || defaultTitle } })} />
           </label> : <div className="workout-title"><p className="muted">{plan.category}</p><h2>{plan.title}</h2></div>}
-          <div className="workout-summary">
+          {!cardio && <div className="workout-summary">
             <strong>{done}/{total} 组</strong><small>{displayNumber(volume)} kg 容量</small>
-          </div>
+          </div>}
         </div>
         <p className="workout-sync">{sync}</p>
         {data.rest && <div className="rest-counter workout-rest-counter" aria-label="休息计时">
-          <span>{rest ? data.rest.kind + " " + showTime(rest) : "休息结束"}</span>
+          <span aria-hidden={restComplete || undefined}>{rest ? data.rest.kind + " " + showTime(rest) : "休息结束"}</span>
           <button className="button subtle small" type="button" disabled={pending}
             onClick={() => update({ ...data, rest: undefined })}>{rest ? "跳过" : "关闭"}</button>
         </div>}
+        <span className="sr-only" role="status">{restComplete ? "休息结束" : ""}</span>
       </header>
     <div className="dialog-body workout-body">
       {plan.durationNote && <p className="muted">{plan.durationNote}</p>}
       {progressTotal > 0 && <progress value={done + Number(data.finishedVideo)} max={progressTotal} aria-label="训练进度" />}
       <fieldset disabled={pending} className="session-fields">
+        {cardio && <CardioFields value={cardio} change={(next) => update({ ...data, cardio: next })}
+          liveSeconds={cardioSeconds({ ...cardio, durationSeconds: undefined }, elapsed)} />}
         {data.plan.video && <div className="video-panel"><VideoLink url={data.plan.video} /><label className="toggle-label"><input type="checkbox" checked={data.finishedVideo} onChange={(e) => update({ ...data, finishedVideo: e.target.checked })} /> 已完成跟练</label></div>}
         {pendingSet && <div className="workout-next" role="status">
           <span>下一组</span><strong>{activeSlot} · {parsePlanMove(plan.exercises[pendingSet.move].name).name}</strong>
@@ -251,13 +264,15 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
       </fieldset>
       {error && !showFinish && <p className="inline-error" role="alert">{error}</p>}
     </div>
-    {edit ? renderPad() : <div className="workout-actions" role="group" aria-label="训练操作">
+    {edit ? renderPad() : <div className={"workout-actions" + (cardio ? " workout-cardio-actions" : "")} role="group" aria-label="训练操作">
       <button type="button" disabled={pending} onClick={close}><Minimize2 size={22} /> 最小化</button>
-      <button type="button" disabled={pending} onClick={() => setPanel("settings")}><MoreHorizontal size={22} /> 更多</button>
-      <button type="button" className="workout-add-action" aria-label="添加动作" disabled={pending || plan.exercises.length >= 30}
-        onClick={() => setPicker(-1)}><span><Plus size={23} /></span>加动作</button>
+      {!cardio && <>
+        <button type="button" disabled={pending} onClick={() => setPanel("settings")}><MoreHorizontal size={22} /> 更多</button>
+        <button type="button" className="workout-add-action" aria-label="添加动作" disabled={pending || plan.exercises.length >= 30}
+          onClick={() => setPicker(-1)}><span><Plus size={23} /></span>加动作</button>
+      </>}
       <button type="button" disabled={pending} onClick={() => setPanel("note")}><NotebookPen size={22} /> 写心得</button>
-      <button type="button" disabled={pending || !total} onClick={openKeypad}><Keyboard size={22} /> 数字键盘</button>
+      {!cardio && <button type="button" disabled={pending || !total} onClick={openKeypad}><Keyboard size={22} /> 数字键盘</button>}
     </div>}
     </div>
     {panel === "settings" && <Dialog title="训练设置" onClose={() => setPanel(undefined)}>
@@ -266,11 +281,15 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
         const fields = new FormData(event.currentTarget);
         const restOverride = Number(fields.get("rest"));
         const minutes = Number(fields.get("minutes"));
+        reminder.saveMode(restReminderMode(fields.get("reminder")));
         update({ ...data, defaultRestOverride: restOverride === restSeconds ? data.defaultRestOverride : restOverride, minutes });
         setPanel(undefined);
       }}>
         <div className="dialog-body form-fields">
           <label>本次默认休息（秒）<input type="number" name="rest" min={0} max={600} defaultValue={restSeconds} required /></label>
+          <label>休息结束提醒<select name="reminder" defaultValue={reminder.mode}>
+            {restReminderOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+          </select><small className="muted">用于前台训练页面</small></label>
           <label>实际时长（分钟）<input type="number" name="minutes" min={0} max={720} defaultValue={data.minutes || ""} placeholder="留空时使用计时" /></label>
         </div>
         <div className="dialog-footer"><button type="submit" className="button primary">保存设置</button></div>
@@ -293,6 +312,8 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
         <button className="button primary" type="button" disabled={pending} onClick={finish}><Check size={18} /> {pending ? "正在保存" : "保存打卡"}</button>
       </div>
     </Dialog>}
-    {picker !== undefined && <ExercisePicker allowBlank={false} prior={data.plan.exercises[picker]} names={data.plan.exercises.map((move) => move.name)} close={() => setPicker(undefined)} onUse={useExercise} />}
+    {picker !== undefined && <ExercisePicker allowBlank={false} prior={data.plan.exercises[picker]} names={data.plan.exercises.map((move) => move.name)}
+      replacementContext={{ plan: data.plan, index: picker, defaultRestOverride: data.defaultRestOverride }}
+      close={() => setPicker(undefined)} onUse={useExercise} />}
   </main>;
 }

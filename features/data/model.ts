@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { draftSessionSchema, sessionSchema, sessionTotals } from "@/features/training/model";
+import { draftSessionSchema, hasCompletedWorkout, sessionSchema } from "@/features/training/model";
 import { planSchema } from "@/features/plans/model";
 import { libraryItem, uuid, type LibraryItem } from "@/features/library/model";
 import { heartSchema } from "@/features/heart/model";
@@ -24,8 +24,8 @@ export const backupSchema = z.object({
   library: z.array(libraryItem).max(25_000),
   heart: z.array(z.object({ id: uuid, data: heartSchema })).max(25_000),
 }).superRefine((file, ctx) => {
-  if (file.training.some((row) => row.kind === "log" && !row.data.finishedVideo && !sessionTotals(row.data).sets)) {
-    ctx.addIssue({ code: "custom", path: ["training"], message: "打卡需要包含完成的组或视频。" });
+  if (file.training.some((row) => row.kind === "log" && !hasCompletedWorkout(row.data))) {
+    ctx.addIssue({ code: "custom", path: ["training"], message: "打卡需要包含完成的组、视频或有氧训练时长。" });
   }
 });
 export type Backup = z.infer<typeof backupSchema>;
@@ -37,7 +37,7 @@ export type DateBounds = z.infer<typeof dateBounds>;
 export function libraryScope(item: LibraryItem): DataScope {
   if (item.kind === "template") return "templates";
   if (item.kind === "nutrition") return item.entry.type === "weight" || item.entry.type === "measurement" ? "body" : "nutrition";
-  if (item.kind === "targets" || item.kind === "food") return "nutrition";
+  if (item.kind === "targets" || item.kind === "food" || item.kind === "food-portions") return "nutrition";
   return "training";
 }
 

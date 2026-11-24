@@ -6,6 +6,7 @@ export function withoutTemplateLink({ templateId: _templateId, week: _week, day:
 
 export function resolvePlanTemplate(plan: Plan, template?: Plan): Plan {
   if (!plan.templateId || !template) return plan;
-  const { title, date, shared, templateId, week, day } = plan;
-  return { ...template, title, date, shared, templateId, week, day };
+  const { title, date, shared, templateId, week, day, programId, programSessionId, phaseId } = plan;
+  return { ...withoutTemplateLink(template), title, date, shared, templateId, week, day,
+    ...(programId ? { programId } : {}), ...(programSessionId ? { programSessionId } : {}), ...(phaseId ? { phaseId } : {}) };
 }
