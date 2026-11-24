@@ -43,6 +43,7 @@ export async function saveLibrary(owner: string, item: LibraryItem, revision?: s
   const day = libraryDay(item);
   const payload = JSON.stringify(item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item);
   const protectedWrite = item.kind === "template" || item.kind === "schedule" || item.kind === "body-profile" || item.kind === "protein-warehouse";
+  const createMeal = item.kind === "nutrition" && item.entry.type === "meal" && revision === null;
   const updated = nextRevision(new Date().toISOString(), protectedWrite ? [revision] : []);
   const db = database();
   const result = protectedWrite && revision ? await db.prepare(
@@ -50,9 +51,17 @@ export async function saveLibrary(owner: string, item: LibraryItem, revision?: s
   ).bind(payload, updated, owner, item.kind, id, revision).run() : await db.prepare(
     "INSERT INTO personal_library (owner, kind, id, day, payload, updated) VALUES (?, ?, ?, ?, ?, ?) " +
     "ON CONFLICT (owner, kind, id) " +
-    (protectedWrite ? "DO NOTHING" : "DO UPDATE SET day=excluded.day,payload=excluded.payload,updated=excluded.updated") +
-    (item.kind === "nutrition" ? " WHERE json_extract(personal_library.payload, '$.sourceWorkoutId') IS NULL" : "")
+    (protectedWrite || createMeal ? "DO NOTHING" : "DO UPDATE SET day=excluded.day,payload=excluded.payload,updated=excluded.updated") +
+    (item.kind === "nutrition" && !createMeal ? " WHERE json_extract(personal_library.payload, '$.sourceWorkoutId') IS NULL" : "")
   ).bind(owner, item.kind, id, day, payload, updated).run();
+  if (createMeal && !result.meta.changes) {
+    // The same submission can be retried after a lost response without overwriting a later edit.
+    const existing = await db.prepare(
+      "SELECT updated FROM personal_library WHERE owner=? AND kind='nutrition' AND id=? AND payload=?"
+    ).bind(owner, id, payload).first<{ updated: string }>();
+    if (existing) return existing.updated;
+    throw new HttpError(409, "这条饮食记录已变更，请在饮食日记中查看。");
+  }
   if (protectedWrite && !result.meta.changes) {
     if (item.kind === "body-profile") throw new HttpError(409, "身体档案已在另一处变更，请刷新后重新编辑。");
     if (item.kind === "protein-warehouse") throw new HttpError(409, "仓库已在另一台设备更新，请确认最新产品后重试。");

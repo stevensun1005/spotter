@@ -30,6 +30,14 @@ export const foodPhotoDraftSchema = z.object({
     fat: amount(100),
   }).strict(),
 }).strict();
+export const proteinPhotoProductFields = z.object({
+  name: foodPhotoDraftSchema.shape.name.optional(),
+  scoopGrams: z.number().finite().min(0.1).max(250).optional(),
+  per100g: foodPhotoDraftSchema.shape.per100g.refine(({ protein, carbs, fat }) => protein + carbs + fat <= 103).optional(),
+}).strict();
+export const proteinPhotoProductSchema = proteinPhotoProductFields.refine(
+  ({ name, scoopGrams, per100g }) => name !== undefined || scoopGrams !== undefined || per100g !== undefined,
+);
 export const mealPhotoDraftSchema = z.object({
   name: z.string().trim().min(1).max(100),
   grams: z.number().finite().min(0.1).max(maxFoodGrams).optional(),
@@ -40,6 +48,7 @@ export const photoNeedsSchema = z.object({
 }).strict();
 
 export type FoodPhotoDraft = z.infer<typeof foodPhotoDraftSchema>;
+export type ProteinPhotoProduct = z.infer<typeof proteinPhotoProductSchema>;
 export type MealPhotoDraft = z.infer<typeof mealPhotoDraftSchema>;
 
 export function parseFoodPhotoResult(input: string): { draft: FoodPhotoDraft } | { error: string } {

@@ -4,6 +4,7 @@ import type { Session } from "./model";
 export const proteinPreference = z.object({
   kind: z.literal("protein-preference"),
   enabled: z.boolean(),
+  defaultProductId: z.string().uuid().optional(),
 });
 
 export const maxProteinProducts = 20;
@@ -21,6 +22,8 @@ export const proteinProductSchema = z.object({
   scoopGrams: z.number().finite().min(0.1).max(250),
   cupMl: z.number().finite().min(1).max(2000),
   powder: proteinNutrition.optional(),
+  powderEstimated: z.literal(true).optional(),
+  scoopEstimated: z.literal(true).optional(),
   mixer: z.object({ name: z.string().trim().min(1).max(60), per100ml: proteinNutrition }).optional(),
 });
 export type ProteinProduct = z.infer<typeof proteinProductSchema>;
@@ -30,6 +33,18 @@ export const proteinWarehouse = z.object({
   products: z.array(proteinProductSchema).max(maxProteinProducts).refine((items) =>
     new Set(items.map(({ id }) => id)).size === items.length),
 });
+
+export function defaultWorkoutProteinProduct(products: readonly ProteinProduct[], defaultProductId?: string): ProteinProduct | undefined {
+  const preferred = products.find(({ id }) => id === defaultProductId);
+  if (preferred) return preferred.powder ? preferred : undefined;
+  const complete = products.filter(({ powder }) => powder);
+  return complete.length === 1 ? complete[0] : undefined;
+}
+
+export function proteinServingGrams({ scoopGrams, cupMl }: ProteinProduct): number {
+  // Approximate the full drink's liquid weight as 1 g/mL.
+  return Math.round((scoopGrams + cupMl) * 100) / 100;
+}
 
 export function proteinServingNutrition(product: ProteinProduct): ProteinNutrition | undefined {
   const { powder, mixer, scoopGrams, cupMl } = product;
