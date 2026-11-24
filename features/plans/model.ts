@@ -56,6 +56,7 @@ export const planSchema = z.object({
   title: text(100),
   date: dateSchema,
   templateId: z.string().uuid().optional(),
+  ownExercises: z.literal(true).optional(),
   programId: z.string().uuid().optional(),
   programSessionId: z.string().uuid().optional(),
   phaseId: z.string().uuid().optional(),

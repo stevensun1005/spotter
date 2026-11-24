@@ -44,6 +44,11 @@ test("a linked plan follows its current template body while retaining its indivi
   assert.deepEqual(resolvePlanTemplate(booked, currentTemplate), {
     ...currentTemplate, title: booked.title, date: booked.date, shared: true, templateId, week: 3, day: 1,
   });
+  const custom = planSchema.parse({ ...booked, ownExercises: true });
+  const customResolved = resolvePlanTemplate(custom, currentTemplate);
+  assert.equal(customResolved.minutes, currentTemplate.minutes);
+  assert.strictEqual(customResolved.exercises, custom.exercises);
+  assert.equal(withoutTemplateLink(customResolved).ownExercises, undefined);
   assert.deepEqual(withoutTemplateLink(booked), {
     ...block, title: booked.title, date: booked.date, shared: true,
     durationNote: "原计划 45 分钟", defaultRestSeconds: 45,
@@ -87,4 +92,13 @@ test("workout queries isolate owner templates and deletion freezes only the owne
   assert.deepEqual(planSchema.parse(frozen), frozen);
   assert.deepEqual(JSON.parse(stored.get("owner", "log-id").payload), { plan: booked });
   assert.deepEqual(JSON.parse(stored.get("partner", "partner-plan").payload), booked);
+
+  const custom = { ...booked, ownExercises: true };
+  insert.run("owner", "custom-plan", "plan", JSON.stringify(custom));
+  assert.equal(freezeTemplatePlans(db, "owner", templateId, "later").run().changes, 1);
+  const customFrozen = JSON.parse(stored.get("owner", "custom-plan").payload);
+  assert.deepEqual(customFrozen.exercises, booked.exercises);
+  assert.equal(customFrozen.minutes, currentTemplate.minutes);
+  assert.equal(customFrozen.ownExercises, undefined);
+  assert.equal(customFrozen.templateId, undefined);
 });

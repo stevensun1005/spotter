@@ -13,9 +13,10 @@ import { addPlanMove, phaseOf, setMovePhase, type MovePhase } from "./move-phase
 export function PlanFields({ value, change, template = false, templates, allowSharing = true }: {
   value: Plan; change: (plan: Plan) => void; template?: boolean; templates?: readonly { id: string; plan: Plan }[]; allowSharing?: boolean;
 }) {
-  const [picker, setPicker] = useState<MovePhase>();
+  const [picker, setPicker] = useState<MovePhase | number>();
   const { data: catalogue } = useCatalogue();
   const linked = !template && Boolean(value.templateId);
+  const ownExercises = linked && value.ownExercises === true;
   const selected = templates?.find((item) => item.id === value.templateId);
   const resolved = linked ? resolvePlanTemplate(value, selected?.plan) : value;
   const edit = (key: keyof Plan, next: Plan[keyof Plan]) => change({ ...value, [key]: next });
@@ -32,12 +33,21 @@ export function PlanFields({ value, change, template = false, templates, allowSh
 
   function selectTemplate(id: string) {
     if (!id) {
-      change({ ...resolved, templateId: undefined });
+      change({ ...resolved, templateId: undefined, ownExercises: undefined });
       return;
     }
     const match = templates?.find((item) => item.id === id);
     if (!match) return;
-    change(resolvePlanTemplate({ ...value, templateId: id, title: value.title.trim() ? value.title : match.plan.title }, match.plan));
+    change(resolvePlanTemplate({ ...value, templateId: id, ownExercises: undefined, title: value.title.trim() ? value.title : match.plan.title }, match.plan));
+  }
+
+  function usePickedMove(move: Move) {
+    if (typeof picker === "number") {
+      editMove(picker, { name: move.name, catalogueId: move.catalogueId, sourceName: undefined });
+    } else if (picker) {
+      edit("exercises", addPlanMove(value.exercises, move, picker));
+    }
+    setPicker(undefined);
   }
 
   return <div className="form-fields">
@@ -57,17 +67,21 @@ export function PlanFields({ value, change, template = false, templates, allowSh
       <label>练次（可选）<input type="number" min={1} max={7} inputMode="numeric" value={value.day ?? ""}
         onChange={(event) => edit("day", event.target.value ? Number(event.target.value) : undefined)} /></label>
     </div>}
-    {linked ? <>
-      <p className="muted">{templates && !selected ? "原模板不可用，当前显示计划中保存的内容。" : "在个人模板中编辑动作和组数。"}</p>
-      <details className="move-editor">
+    {linked && <>
+      <p className="muted">{templates && !selected ? "原模板不可用，显示已保存的动作。" : ownExercises ? "动作修改只适用于本次训练。" : "动作和组数来自个人模板。"}</p>
+      {(!ownExercises || selected) && <button className="button outline small" type="button" onClick={() => change(ownExercises
+        ? resolvePlanTemplate({ ...value, ownExercises: undefined }, selected?.plan)
+        : { ...resolved, ownExercises: true })}>{ownExercises ? "恢复模板动作" : "自定义本次动作"}</button>}
+      {!ownExercises && <details className="move-editor">
         <summary>{[resolved.category, resolved.exercises.length ? resolved.exercises.length + " 个动作" : "视频跟练",
           resolved.minutes > 0 && resolved.minutes + " 分钟"].filter(Boolean).join(" · ")}</summary>
         {resolved.exercises.length > 0 && <ul className="sequence-moves">{resolved.exercises.map((item, index) => <li key={index}>
           <span>{item.name} · {item.sets} 组 · {exerciseTempo(item, fromCatalogue(catalogue, item), resolved.category).text}</span>
         </li>)}</ul>}
         {resolved.durationNote && <p className="muted">{resolved.durationNote}</p>}
-      </details>
-    </> : <>
+      </details>}
+    </>}
+    {!linked && <>
       <div className="field-grid">
         <label>预计时长（分钟）<input type="number" min={0} max={720} value={value.minutes || ""} onChange={(e) => edit("minutes", Number(e.target.value))} placeholder="选填" /></label>
         {share}
@@ -75,6 +89,8 @@ export function PlanFields({ value, change, template = false, templates, allowSh
       {value.durationNote !== undefined && <label>预计时长说明<textarea rows={2} maxLength={380} value={value.durationNote} onChange={(event) => edit("durationNote", event.target.value)} /></label>}
       <label>跟练链接<input type="url" value={value.video} onChange={(e) => edit("video", e.target.value.trim())} placeholder="YouTube 或 B站链接（选填）" /></label>
       <label>默认休息（秒）<input type="number" min={0} max={600} value={value.defaultRestSeconds ?? ""} placeholder={String(defaultRest(value))} onChange={(e) => edit("defaultRestSeconds", e.target.value === "" ? undefined : Number(e.target.value))} /></label>
+    </>}
+    {(!linked || ownExercises) && <>
       <p className="muted">相邻动作填写相同组别和器械站时，会按轮循环。换动作使用默认休息，组间或轮间时长可单独指定。</p>
       {([["warmup", "热身动作"], ["work", "正式动作"]] as const).map(([phase, title]) => <section key={phase} className="feature-stack" aria-label={title}>
         <div className="field-title"><strong>{title}</strong><button type="button" className="button subtle small"
@@ -88,12 +104,15 @@ export function PlanFields({ value, change, template = false, templates, allowSh
           <label>组别<input maxLength={4} pattern="[A-Z](?:-[2-9]|-[12][0-9]|-30)?" placeholder="如 A 或 A-2；留空为独立动作" value={item.block ?? ""} onChange={(e) => editMove(index, { block: e.target.value.toUpperCase() || undefined })} /></label>
           <label>器械站<input maxLength={60} placeholder="如 哑铃＋可调凳" value={item.station ?? ""} onChange={(e) => editMove(index, { station: e.target.value || undefined })} /></label>
         </div>
-        <button className="text-button" type="button" onClick={() => editMove(index, setMovePhase(item, phase === "warmup" ? "work" : "warmup"))}>
-          {phase === "warmup" ? "转为正式动作" : "设为热身"}
-        </button>
+        <div className="field-title">
+          <button className="text-button" type="button" onClick={() => editMove(index, setMovePhase(item, phase === "warmup" ? "work" : "warmup"))}>
+            {phase === "warmup" ? "转为正式动作" : "设为热身"}
+          </button>
+          {ownExercises && <button className="text-button" type="button" aria-label={"替换动作 " + (index + 1)} onClick={() => setPicker(index)}>从动作库替换</button>}
+        </div>
         <div className="field-grid">
-          <label>动作备注<input maxLength={220} value={item.cue ?? ""} onChange={(e) => editMove(index, { cue: e.target.value || undefined })} /></label>
-          <label>节奏<input maxLength={tempoMaxLength} title={tempoNotationHint} value={item.tempo ?? ""}
+          <label>动作备注<input aria-label={"动作 " + (index + 1) + " 备注"} maxLength={220} value={item.cue ?? ""} onChange={(e) => editMove(index, { cue: e.target.value || undefined })} /></label>
+          <label>节奏<input aria-label={"动作 " + (index + 1) + " 节奏"} maxLength={tempoMaxLength} title={tempoNotationHint} value={item.tempo ?? ""}
             placeholder={exerciseTempo(item, fromCatalogue(catalogue, item), value.category).text}
             onChange={(event) => editMove(index, { tempo: event.target.value || undefined })} /></label>
         </div>
@@ -116,9 +135,8 @@ export function PlanFields({ value, change, template = false, templates, allowSh
         </div></details>
       </div>)}
       </section>)}
-      {picker && <ExercisePicker names={value.exercises.map((item) => item.name)} close={() => setPicker(undefined)} onUse={(move) => {
-        edit("exercises", addPlanMove(value.exercises, move, picker)); setPicker(undefined);
-      }} />}
+      {picker !== undefined && <ExercisePicker names={value.exercises.map((item) => item.name)}
+        identityOnly={typeof picker === "number"} close={() => setPicker(undefined)} onUse={usePickedMove} />}
     </>}
   </div>;
 }

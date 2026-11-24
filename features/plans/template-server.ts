@@ -6,9 +6,10 @@ export const ownTemplateJoin =
 export function freezeTemplatePlans(db: D1Database, owner: string, templateId: string, now: string, revision?: string) {
   return db.prepare(
     "UPDATE entries AS e SET payload = json_patch(" +
-    "json_remove(e.payload, '$.templateId', '$.category', '$.minutes', '$.durationNote', '$.defaultRestSeconds', '$.video', '$.exercises'), " +
+    "json_remove(e.payload, '$.templateId', '$.ownExercises', '$.category', '$.minutes', '$.durationNote', '$.defaultRestSeconds', '$.video'), " +
     "json_remove(json_extract(t.payload, '$.plan'), '$.title', '$.date', '$.shared', '$.templateId', '$.week', '$.day'," +
-    "'$.programId', '$.programSessionId', '$.phaseId')" +
+    "'$.programId', '$.programSessionId', '$.phaseId', '$.ownExercises', " +
+    "CASE WHEN json_extract(e.payload,'$.ownExercises') = 1 THEN '$.exercises' ELSE '$.ownExercises' END)" +
     "), updated = CASE WHEN julianday(e.updated) >= julianday(?) THEN strftime('%Y-%m-%dT%H:%M:%fZ', e.updated, '+0.001 seconds') ELSE ? END " +
     "FROM personal_library t " +
     "WHERE e.owner = ? AND e.kind = 'plan' AND t.owner = e.owner AND t.kind = 'template' AND t.id = ? " +

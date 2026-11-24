@@ -61,6 +61,30 @@ test("documented custom exercises use the same cover as their demo and participa
   assert.equal(customCover(classified), undefined, "A privately named variation must not show an unrelated base exercise");
 });
 
+test("the custom hamstring sweep stays upright with a straight front leg on both sides", async () => {
+  const { customCatalogueEntry, customCover } = await import("../features/exercises/custom-catalogue.ts");
+  const { exerciseDemo } = await import("../features/exercises/catalogue-demo.ts");
+  const { researchedGuide } = await import("../features/exercises/guidance.ts");
+  const name = "腘绳肌扫地式活动";
+  const entry = customCatalogueEntry(name, undefined, undefined);
+  const motion = entry.demo.illustration;
+  assert.equal(exerciseDemo(name, name, undefined, true).illustration, motion);
+  assert.match(customCover(entry), /^data:image\/svg\+xml,/);
+  for (const frame of motion.frames) {
+    const [head, shoulder, hip] = frame;
+    assert.equal(head[0], shoulder[0]);
+    assert.equal(shoulder[0], hip[0]);
+    for (const [knee, ankle] of [[frame[7], frame[8]], [frame[9], frame[10]]]) {
+      assert.deepEqual(knee, [(hip[0] + ankle[0]) / 2, (hip[1] + ankle[1]) / 2]);
+    }
+  }
+  assert.ok(motion.frames.some((frame) => frame[11][1] < frame[8][1]));
+  assert.ok(motion.frames.some((frame) => frame[12][1] < frame[10][1]));
+  assert.ok(new Set(motion.frames.map((frame) => frame[4].join(","))).size > 2);
+  assert.match(researchedGuide(name).description, /上身直立/);
+  assert.match(researchedGuide(name).steps[0], /前膝保持自然伸直/);
+});
+
 test("a workout without a plan can be synced and backed up as an empty draft", async () => {
   const { backupSchema, emptyBackup } = await import("../features/data/model.ts");
   const { planSchema } = await import("../features/plans/model.ts");

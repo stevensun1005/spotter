@@ -20,7 +20,7 @@ export { defaultCatalogMove } from "./replacements";
 
 const defaultOptions: ReplacementOptions = { sameStationOnly: true, available: [], avoidKneeling: false, avoidJumping: false };
 
-export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlank = true, replacementContext }: {
+export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlank = true, replacementContext, identityOnly }: {
   onUse: (move: Move) => void;
   close: () => void;
   prior?: Move;
@@ -28,6 +28,7 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
   names?: string[];
   allowBlank?: boolean;
   replacementContext?: ReplacementContext;
+  identityOnly?: boolean;
 }) {
   const catalogue = useCatalogue();
   const [config, setConfig] = useState<{ move: Move; item?: CatalogEntry; station?: "same" | "changed" | "unknown" }>();
@@ -69,7 +70,7 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
     { label: "秒数", key: "seconds", low: 0, high: 18000 },
     { label: "组间休息（秒）", key: "restSeconds", low: 0, high: 600 },
   ] as const;
-  return createPortal(<Dialog title={prior ? "替换动作" : "选择动作"} className="catalogue-picker-dialog" onClose={close}>
+  return createPortal(<Dialog title={prior || identityOnly ? "替换动作" : "选择动作"} className="catalogue-picker-dialog" onClose={close}>
     <div className="dialog-body">
       {config ? <form onSubmit={confirm} className="form-fields picker-config">
         <button type="button" className="button subtle small" onClick={() => setConfig(undefined)}><ChevronLeft size={17} /> 返回选动作</button>
@@ -129,7 +130,8 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
               })}</div> : <p className="muted">当前条件下没有找到动作模式和主练部位都匹配的替代项。可以调整限制，或打开全部动作。</p>}
           </>}
         </section>}
-        {(!prior || mode === "catalogue") && <OpenGymCatalogue picker choose={configure} quick={use} names={names} profiles={profiles} />}
+        {(!prior || mode === "catalogue") && <OpenGymCatalogue picker choose={identityOnly ? use : configure}
+          quick={identityOnly ? undefined : use} names={names} profiles={profiles} />}
       </>}
     </div>
   </Dialog>, document.body);
