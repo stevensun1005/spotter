@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { CalendarDays, ClipboardList, Download, HeartPulse, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
+import { signInPath, signOutEndpoint } from "@/features/auth/paths";
 import type { AnatomyVariant } from "@/features/body/profile";
 import type { ChangeDisplay, DisplayPreferences } from "./display-preferences";
 import { DisplaySettings } from "./display-settings";
@@ -22,10 +23,15 @@ export function SettingsContent({ page, open, owner, cloud, sex, sync, pair, sha
       <SettingsRows title="账户与同步">
         {owner && <SettingsLink label="性别" detail={sex === "female" ? "女" : sex === "male" ? "男" : "未填写"} icon={UserRound} onClick={body} />}
         {owner && <SettingsLink label="立即同步" detail={cloud} icon={RefreshCw} onClick={sync} />}
-        <a className="settings-row" href={owner ? "/signout-with-chatgpt?return_to=%2F" : "/signin-with-chatgpt?return_to=%2F"} target="_top">
+        {owner ? <form method="post" action={signOutEndpoint}>
+          <button type="submit" className="settings-row">
+            <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span>
+            <strong>退出当前账号</strong>
+          </button>
+        </form> : <a className="settings-row" href={signInPath()}>
           <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span>
-          <strong>{owner ? "退出当前账号" : "使用 ChatGPT 登录"}</strong>
-        </a>
+          <strong>登录训练搭子</strong>
+        </a>}
       </SettingsRows>
       <SettingsRows title="关系与隐私">
         <SettingsLink label="搭子空间" icon={Users} onClick={pair} />

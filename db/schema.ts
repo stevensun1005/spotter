@@ -241,3 +241,22 @@ export const aiCoachQuota = sqliteTable("ai_coach_quota", {
   owner: text().notNull(),
   requests: integer().notNull(),
 }, (table) => [primaryKey({ columns: [table.day, table.owner] })]);
+
+export const spotterAccessAccounts = sqliteTable("spotter_access_accounts", {
+  id: text().primaryKey().notNull(),
+  email: text().notNull().unique(),
+  displayName: text("display_name").notNull(),
+  accessHash: text("access_hash").notNull(),
+}, (table) => [
+  check("spotter_access_email_lowercase", sql`lower(${table.email}) = ${table.email}`),
+  check("spotter_access_hash_hex", sql`length(${table.accessHash}) = 64 AND ${table.accessHash} NOT GLOB '*[^0-9a-f]*'`),
+]);
+
+export const spotterAccessSessions = sqliteTable("spotter_access_sessions", {
+  tokenHash: text("token_hash").primaryKey().notNull(),
+  accountId: text("account_id").notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  expiresAt: integer("expires_at").notNull(),
+}, (table) => [
+  index("spotter_access_sessions_expiry").on(table.expiresAt),
+  index("spotter_access_sessions_account").on(table.accountId),
+]);

@@ -10,6 +10,8 @@
     "dev": "node scripts/run-framework.mjs dev",
     "dev:ai-coach": "node scripts/run-framework.mjs dev --host 127.0.0.1 --port 5180 --strictPort",
     "build": "node scripts/run-framework.mjs build",
+    "cf:prepare": "node scripts/prepare-cloudflare-free.mjs",
+    "cf:dry-run": "node scripts/prepare-cloudflare-free.mjs --dry-run",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",

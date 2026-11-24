@@ -27,6 +27,7 @@ import { WeekCheckins } from "@/features/pair/week-checkins";
 import { PlanAssistant, type PlanAssistantMode } from "@/features/import/plan-assistant";
 import { CoachSheet, type CoachSheetSize } from "@/features/ai-coach/coach-sheet";
 import { ImportView } from "@/features/import/import-view";
+import { signInPath } from "@/features/auth/paths";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
 import { AnatomySubject } from "@/features/exercises/anatomy";
@@ -698,7 +699,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
               <Settings size={21} aria-hidden="true" />
             </button>
           </header>
-          {demo && <p className="muted home-demo">正在查看示例数据。登录后可同步你们的记录。</p>}
+          {demo && <p className="muted home-demo">正在查看示例数据。<a href={signInPath()}>登录训练搭子</a>以同步记录。</p>}
           <div id="today-nutrition" hidden={nutritionPreferences.collapsed}>
             {!nutritionPreferences.collapsed && <HomeNutrition key={viewer?.id ?? "guest"} owner={viewer?.id ?? ""} today={today}
               shortcuts={homeNutritionShortcuts} cacheEnabled={nutritionPreferences.cacheEnabled} logs={ownNutritionLogs} open={openNutrition}
@@ -956,7 +957,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
         {viewer && !partner && <p className="muted">配对期间双方会互相看到历史和今后的训练打卡及详情。饮食记录默认共享，可在「设置 → 账号 → 好友分享设置」里调整。</p>}
-        {demo ? <><p className="muted">用 ChatGPT 账号登录后，你可以创建搭子空间，也可以输入对方的邀请码。</p><a className="button primary" target="_top" href="/signin-with-chatgpt?return_to=%2F"><LogIn size={18} /> 登录</a></> :
+        {demo ? <><p className="muted">登录训练搭子后，你可以创建搭子空间，也可以输入对方的邀请码。</p><a className="button primary" href={signInPath()}><LogIn size={18} /> 登录</a></> :
           partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partner.name}</strong><small>可以查看彼此的打卡和训练详情。</small></div><span className="state-tag checked">已连接</span></div> :
           room?.invite ? <><p className="muted">把邀请码发给搭子。对方需要先有网站访问权限，再登录并输入邀请码。</p><input aria-label="搭子邀请码" value={room.invite} readOnly onFocus={(e) => e.target.select()} /><button className="button primary" onClick={() => void copy(room.invite!, "已复制邀请码")}><Copy size={17} /> 复制邀请码</button></> :
           <><button className="button primary" disabled={busy} onClick={() => void act(async () => { await post({ action: "create" }); await refresh(); })}><Users size={18} /> 创建搭子空间</button>

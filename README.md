@@ -1,6 +1,6 @@
 # 训练搭子 · Sites
 
-这是当前试用版。项目约定见 [AGENTS.md](AGENTS.md)。使用 Sites 登录和原有 D1 数据库。验证时使用本地 D1。
+这是 Spotter 的 Cloudflare 独立试用版。用户以邮箱和访问码登录，训练和会话使用本环境的 D1。项目约定见 [AGENTS.md](AGENTS.md)。
 
 - 开始或继续训练会打开独立训练页。点组数值或底部「数字键盘」可编辑。返回后可以恢复草稿。
 - 「添加计划」可切换「站内 AI」和「用自己的 AI」，并核对 Agent 草稿。文本、视频链接或计划 JSON 从「设置 → 计划与日程 → 粘贴已有内容」导入。每批最多 20 个计划，保存时跳过相同内容。
@@ -134,6 +134,22 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 ```
 
 Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
+
+## Cloudflare 部署
+
+Cloudflare 独立版使用 Workers、静态资产和单独的 `spotter-free` D1 实例。现有 Sites 账号、训练历史及设备连接由原环境继续管理。
+
+```sh
+npm run build
+npm run cf:dry-run
+CLOUDFLARE_ACCOUNT_ID=<account-id> SPOTTER_D1_DATABASE_ID=<new-d1-id> npm run cf:prepare
+npx --no-install wrangler d1 migrations apply DB --config dist/server/wrangler.production.json --remote
+npx --no-install wrangler deploy --config dist/server/wrangler.production.json
+```
+
+先应用全部迁移。试用账号由管理员添加到 `spotter_access_accounts`，登录码使用至少 24 随机字节的 Base64url 字符串，D1 只保存登录码的 SHA-256。原生 App 用 `/api/state` 核对当前账号。Apple Health 配对和同步接口仍属于独立 Node 服务。
+
+站内 AI 需在 Cloudflare Worker 设置中配置 `ANTHROPIC_API_KEY` 为秘密和 `AI_COACH_ENABLED`、`AI_COACH_ALLOWED_EMAILS`。现有 Worker 运行时变量会在重新部署时保留。
 
 ## Diagnostic Commands
 

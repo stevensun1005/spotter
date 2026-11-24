@@ -6,6 +6,7 @@ import { Anatomy } from "@/features/exercises/anatomy";
 import { exerciseMuscles } from "@/features/exercises/guidance";
 import { muscleNames, regionMuscle } from "@/features/exercises/labels";
 import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
+import { signInPath } from "@/features/auth/paths";
 import { errorText } from "@/shared/client";
 import { offsetDate, shortDate } from "@/shared/dates";
 import { avatar, Dialog, displayNumber } from "@/shared/ui";
@@ -525,7 +526,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
   if (!enabled) return <section className="card padded feature-stack">
     <h2>登录后查看好友</h2>
     <p className="muted">你可以邀请搭子、家人和朋友，并为每个人设置分享范围。</p>
-    <a className="button primary" href={"/signin-with-chatgpt?return_to=" + encodeURIComponent(joinCode ? "/#friend-invite=" + joinCode : "/")} target="_top">登录</a>
+    <a className="button primary" href={signInPath(joinCode ? "/#friend-invite=" + joinCode : "/")}>登录</a>
   </section>;
 
   const feedback = <>{error && <p className="inline-error" role="alert">{error}</p>}
