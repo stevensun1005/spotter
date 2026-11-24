@@ -1,5 +1,6 @@
 export const signInEndpoint = "/api/auth/sign-in";
 export const signOutEndpoint = "/api/auth/sign-out";
+export const deleteAccountEndpoint = "/api/auth/delete-account";
 const signInPage = "/sign-in";
 const validationOrigin = "https://spotter.invalid";
 
@@ -15,6 +16,10 @@ export function safeReturnPath(value: unknown): string {
 
 export function signInPath(returnTo = "/") {
   return signInPage + "?return_to=" + encodeURIComponent(safeReturnPath(returnTo));
+}
+
+export function accountDeletedPath(needsAppleRevocation: boolean) {
+  return signInPath() + "&account_deleted=" + (needsAppleRevocation ? "apple" : "done");
 }
 
 export function appSessionRecoveryPath(requiresSignIn: boolean, status: "expired" | "account-changed", path: string) {

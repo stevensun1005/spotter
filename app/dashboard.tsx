@@ -31,7 +31,8 @@ import type { PlanAssistantMode } from "@/features/ai-coach/mode-tabs";
 import { readActivitySummary } from "@/features/ai-coach/activity-summary";
 import { CoachSheet, type CoachSheetSize } from "@/features/ai-coach/coach-sheet";
 import { ImportView } from "@/features/import/import-view";
-import { appSessionRecoveryPath, signInPath } from "@/features/auth/paths";
+import { accountDeletedPath, appSessionRecoveryPath, signInPath } from "@/features/auth/paths";
+import { clearDeletedAccountBrowserData, workoutClocksKey, workoutDraftsKey } from "@/features/auth/account-browser-data";
 import type { OAuthNotice } from "@/features/auth/oauth-ui";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { ExerciseDetail } from "@/features/exercises/exercise-view";
@@ -191,8 +192,8 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
   const refreshId = useRef(0);
   const [sessionRedirect, setSessionRedirect] = useState(false);
   const redirecting = useRef(false);
-  const draftKey = "spotter-drafts:" + (viewer?.id ?? "demo");
-  const liveClocks = useMemo(() => makeWorkoutTabClocks("spotter-workout-clocks:" + (viewer?.id ?? "demo")), [viewer?.id]);
+  const draftKey = workoutDraftsKey(viewer?.id ?? "demo");
+  const liveClocks = useMemo(() => makeWorkoutTabClocks(workoutClocksKey(viewer?.id ?? "demo")), [viewer?.id]);
   const [sync, setSync] = useState("正在保存");
 
   useEffect(() => {
@@ -211,6 +212,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
   }, []);
 
   const setPending = useCallback((next: Record<string, Session>) => {
+    if (redirecting.current) return;
     pendingRef.current = next;
     setPendingDrafts(next);
     try {
@@ -229,6 +231,16 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
     setSessionRedirect(true);
     window.location.replace(destination);
   }, [requiresSignIn]);
+
+  function finishAccountDeletion(needsAppleRevocation: boolean) {
+    if (!viewer) return;
+    redirecting.current = true;
+    ++refreshId.current;
+    pendingRef.current = {};
+    setSessionRedirect(true);
+    clearDeletedAccountBrowserData(viewer.id, window);
+    window.location.replace(accountDeletedPath(needsAppleRevocation));
+  }
 
   const refresh = useCallback(async () => {
     if (!viewer || redirecting.current) return;
@@ -463,6 +475,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
   const openScheduleSettings = (restDay?: string) =>
     open({ kind: "schedule", restDay, settings: schedule, revision: scheduleRow?.updated ?? null });
   const checkpointWorkouts = useCallback((workouts: ReadonlyMap<string, Session>) => {
+    if (redirecting.current) return;
     const next = { ...pendingRef.current };
     let changed = false;
     for (const [id, data] of workouts) {
@@ -900,6 +913,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
           saved={() => { void refresh(); void library.load(); }} /></div>
         {view === "settings" && <SettingsHub page={settingsPage} open={openSetting} close={() => go("today")} name={me.name} cloud={cloud} account={Boolean(viewer)}>
           <SettingsContent page={settingsPage} open={openSetting} owner={viewer?.id ?? ""} cloud={cloud} sex={me.anatomyVariant} authNotice={authNotice}
+            accountDeleted={finishAccountDeletion}
             sync={() => { void refresh(); void library.load(); }} pair={() => open({ kind: "pair" })}
             sharing={viewer ? () => open({ kind: "friend-sharing" }) : undefined}
             coaching={() => go("coaching")} body={() => go("body")} schedule={() => openScheduleSettings()}
