@@ -31,14 +31,33 @@ private final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sen
     }
 }
 
+struct HealthRecordsResult: Decodable {
+    let saved: Int
+    let skipped: Int
+    let empty: Bool
+}
+
+struct WorkoutPage: Decodable {
+    let workouts: [WorkoutWindow]
+    let nextCursor: String?
+}
+
 struct BridgeClient {
-    private static let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
+    private static let defaultSession = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
+    private let session: URLSession?
+
+    // Tests can inject a URLProtocol-backed session; production keeps the ephemeral, no-redirect transport.
+    init(session: URLSession? = nil) { self.session = session }
     private struct Empty: Encodable {}
     private struct Pair: Encodable { let code: String }
     private struct Token: Decodable { let token: String }
-    private struct Windows: Decodable { let workouts: [WorkoutWindow] }
     private struct Sync: Encodable { let id: String; let data: HeartPayload }
     private struct Saved: Decodable { let saved: Bool }
+    private struct RecordsSaved: Decodable { let saved: Int }
+    private struct Report: Encodable {
+        let action = "report"
+        let from: Int; let to: Int; let saved: Int; let skipped: Int; let empty: Bool; let selected: [String]; let received: [String]
+    }
     private struct Status: Decodable { let connected: Bool }
     private struct Problem: Decodable { let error: String }
 
@@ -61,29 +80,45 @@ struct BridgeClient {
         return Connection(origin: server, token: result.token)
     }
 
-    func workouts(_ connection: Connection) async throws -> [WorkoutWindow] {
-        let response: Windows = try await Self.call(connection.origin, "sync", token: connection.token,
-                                                   method: "GET", body: Optional<Empty>.none)
-        return response.workouts
+    func workouts(_ connection: Connection, from: Date, to: Date, cursor: String?) async throws -> WorkoutPage {
+        var query = [URLQueryItem(name: "from", value: String(epochMilliseconds(from))),
+                     URLQueryItem(name: "to", value: String(epochMilliseconds(to))), URLQueryItem(name: "limit", value: "100")]
+        if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return try await Self.call(connection.origin, "sync", token: connection.token,
+                                   method: "GET", body: Optional<Empty>.none, query: query, session: session)
     }
 
     func save(_ record: HeartPayload, id: String, using connection: Connection) async throws -> Bool {
         let result: Saved = try await Self.call(connection.origin, "sync", token: connection.token,
-                                                 method: "POST", body: Sync(id: id, data: record))
+                                                 method: "POST", body: Sync(id: id, data: record), session: session)
         return result.saved
+    }
+
+    func save(_ records: HealthRecordsPayload, using connection: Connection) async throws -> HealthRecordsResult {
+        let result: HealthRecordsResult = try await Self.call(connection.origin, "records", token: connection.token,
+                                                        method: "POST", body: records, session: session)
+        return result
+    }
+
+    func report(_ connection: Connection, from: Date, to: Date, saved: Int, skipped: Int, empty: Bool, selected: Set<HealthSelection>, received: Set<HealthSelection>) async throws {
+        let _: RecordsSaved = try await Self.call(connection.origin, "sync", token: connection.token, method: "POST",
+            body: Report(from: epochMilliseconds(from), to: epochMilliseconds(to), saved: saved, skipped: skipped, empty: empty, selected: selected.map(\.rawValue).sorted(), received: received.map(\.rawValue).sorted()), session: session)
     }
 
     func disconnect(_ connection: Connection) async throws {
         let _: Status = try await Self.call(connection.origin, "sync", token: connection.token,
-                                           method: "DELETE", body: Empty())
+                                           method: "DELETE", body: Empty(), session: session)
     }
 
     private static func call<Input: Encodable, Output: Decodable>(
-        _ input: String, _ route: String, token: String? = nil, method: String, body: Input?
+        _ input: String, _ route: String, token: String? = nil, method: String, body: Input?,
+        query: [URLQueryItem] = [], session: URLSession? = nil
     ) async throws -> Output {
         let server = try origin(input)
-        guard let url = URL(string: server + "/api/health/apple/" + route) else { throw BridgeError.origin }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        guard var parts = URLComponents(string: server + "/api/health/apple/" + route) else { throw BridgeError.origin }
+        if !query.isEmpty { parts.queryItems = query }
+        guard let url = parts.url else { throw BridgeError.origin }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.httpMethod = method
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
         if let body {
@@ -91,13 +126,26 @@ struct BridgeClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(body)
         }
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw BridgeError.badResponse }
-        guard (200..<300).contains(http.statusCode) else {
-            let problem = try? JSONDecoder().decode(Problem.self, from: data)
-            throw BridgeError.server(http.statusCode, problem?.error ?? "服务器暂时无法同步。")
+        // GETs and writes are idempotent. A dropped response can be safely retried without local health-data queues.
+        let attempts = route == "pair" ? 1 : 3
+        for attempt in 0..<attempts {
+            do {
+                let (data, response) = try await (session ?? defaultSession).data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw BridgeError.badResponse }
+                if http.statusCode >= 500 && attempt + 1 < attempts {
+                    try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 500_000_000)
+                    continue
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    let problem = try? JSONDecoder().decode(Problem.self, from: data)
+                    throw BridgeError.server(http.statusCode, problem?.error ?? "服务器暂时无法同步。")
+                }
+                guard let result = try? JSONDecoder().decode(Output.self, from: data) else { throw BridgeError.badResponse }
+                return result
+            } catch let error as URLError where attempt + 1 < attempts && error.code != .cancelled {
+                try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 500_000_000)
+            }
         }
-        guard let result = try? JSONDecoder().decode(Output.self, from: data) else { throw BridgeError.badResponse }
-        return result
+        throw BridgeError.badResponse
     }
 }

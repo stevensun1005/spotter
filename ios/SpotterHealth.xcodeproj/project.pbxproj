@@ -78,12 +78,12 @@
 /* Begin XCBuildConfiguration section */
 		A13000000000000000000011 = {
 			isa = XCBuildConfiguration;
-			buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; };
+			buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; };
 			name = Debug;
 		};
 		A13000000000000000000012 = {
 			isa = XCBuildConfiguration;
-			buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_VERSION = 5.0; SWIFT_COMPILATION_MODE = wholemodule; };
+			buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_VERSION = 5.0; SWIFT_COMPILATION_MODE = wholemodule; };
 			name = Release;
 		};
 		A13000000000000000000013 = {
