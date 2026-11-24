@@ -45,7 +45,7 @@ export function PlanAssistant({ today, selectedDate, save, saved, owner, profile
     catch { setShowPrompt(true); setPromptMessage("可以在下方选中并复制提示词。"); }
   }
 
-  return <div className="plan-assistant feature-stack">
+  return <div className={mode === "coach" ? "plan-assistant plan-assistant-coach feature-stack" : "plan-assistant feature-stack"}>
     <div className="plan-assistant-tabs" role="group" aria-label="添加计划方式">
       {methods.map(({ mode: method, label, detail, icon: Icon }) => <button type="button" key={method} aria-pressed={mode === method} onClick={() => onModeChange(method)}>
         <Icon size={19} aria-hidden="true" /><span>{label}<small>{detail}</small></span>

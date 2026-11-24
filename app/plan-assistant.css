@@ -6,6 +6,21 @@
 .plan-assistant-tabs small { font-size: .875rem; color: var(--muted); line-height: 1.5; font-weight: 400; }
 .plan-assistant-tabs > button[aria-pressed=true] { background: var(--lime); color: var(--dark); border-color: #b1d865; }
 .plan-assistant-tabs > button[aria-pressed=true] small { color: #395436; }
+.content.content-coach { max-width: 800px; }
+.page-heading.coach-page-heading { align-items: center; margin-bottom: 14px; }
+.coach-page-title { display: flex; align-items: center; gap: 12px; }
+.coach-page-heading h1 { font-size: clamp(1.55rem, 3.15vw, 2rem); letter-spacing: -.04em; }
+.coach-back.icon-button { width: 44px; height: 44px; border-radius: 13px; background: var(--card); }
+.plan-assistant-coach .plan-assistant-tabs { gap: 6px; }
+.plan-assistant-coach .plan-assistant-tabs > button {
+  justify-content: center; padding: 8px 6px; min-height: 44px; gap: 7px;
+  flex-direction: row; border-radius: 12px; font-size: .85rem;
+}
+.plan-assistant-coach .plan-assistant-tabs > button > span { text-align: center; }
+.plan-assistant-coach .plan-assistant-tabs small { display: none; }
+.plan-assistant-coach .plan-assistant-tabs > button[aria-pressed=true] {
+  background: color-mix(in srgb, var(--lime) 25%, var(--card)); color: var(--text); border-color: #a1ba83;
+}
 .plan-assistant h2 { display: flex; align-items: center; gap: 8px; }
 .plan-ai-stack { display: grid; gap: 19px; }
 .plan-ai-stack[hidden] { display: none; }
@@ -25,8 +40,14 @@
 .coach-chat { margin-inline: auto; width: min(100%, 800px); }
 .coach-chat[hidden] { display: none; }
 .coach-workflows { margin-inline: auto; width: min(100%, 800px); }
-.coach-flow-controls { align-self: start; }
-.coach-flow-controls > button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.coach-flow-controls.segmented {
+  display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%;
+  background: color-mix(in srgb, var(--mint) 65%, var(--card)); border-color: var(--stroke); padding: 4px; border-radius: 14px;
+}
+.coach-flow-controls.segmented > button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border-radius: 11px;
+}
+.coach-flow-controls.segmented > button[aria-pressed=true] { background: #294936; color: #f6fcf0; }
 .coach-guided-result { margin-top: 14px; }
 .coach-chat-status, .coach-draft { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .coach-transcript { list-style: none; margin: 0; padding: 0 3px 5px; display: grid; gap: 13px; max-height: min(56vh, 560px); overflow: auto; }
@@ -50,7 +71,8 @@
   .plan-assistant-tabs small { display: none; }
   .plan-prompt-intent { width: 100%; }
   .coach-flow-controls { width: 100%; }
-  .coach-flow-controls > button { flex: 1; }
+  .plan-assistant-coach .plan-assistant-tabs > button svg { width: 15px; height: 15px; }
+  .plan-assistant-coach .plan-assistant-tabs > button > span { font-size: clamp(.72rem, 3.2vw, .83rem); }
   .plan-assistant .exercise-toolbar { flex-wrap: wrap; }
   .plan-assistant-related { align-items: start; }
 }

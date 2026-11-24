@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, ArrowRight, Dumbbell, House, PersonStanding, Plus, Sparkles, Trash2, Waves } from "lucide-react";
+import { CalendarCheck, Check, ChevronDown, Dumbbell, Plus, Sparkles, Trash2 } from "lucide-react";
+import { catalogueCover, catalogueDemo } from "@/features/exercises/catalogue-demo";
 import { ExercisePicker } from "@/features/exercises/exercise-picker";
+import { label as catalogueLabel } from "@/features/exercises/labels";
 import { useCatalogue, type CatalogEntry } from "@/features/exercises/open-gym";
 import { dateSchema } from "@/shared/dates";
 import {
@@ -15,21 +17,28 @@ type Pools = Record<Phase, GuidedMove[]>;
 type Scene = GuidedDraft["scene"];
 type Model = "haiku" | "sonnet";
 type Choice = { value: string; label: string };
+type Art = "impact" | "overhead" | "knee" | "hinge" | Scene | "guided";
 export type GuidedCoachSelection = { date: string; draftDays: number; guided: GuidedDraft };
 
 const steps = [
-  { label: "限制", title: "有哪些动作想先避开？" },
-  { label: "场景", title: "这次在哪里练？" },
-  { label: "预设", title: "从一组动作开始" },
-  { label: "动作", title: "调整候选动作" },
-  { label: "设置", title: "设置训练目标与节奏" },
+  { label: "限制", title: "有哪些动作想先避开？", detail: "可多选。只需选择本次想避开的动作。", art: "knee" },
+  { label: "场景", title: "这次在哪里练？", detail: "选择你能使用的器械和训练空间。", art: "gym" },
+  { label: "预设", title: "从一组动作开始", detail: "选一组 Spotter 动作，下一步可以自由增删。", art: "guided" },
+  { label: "动作", title: "调整候选动作", detail: "为正式训练和热身分别选动作。", art: "bodyweight" },
+  { label: "设置", title: "设置训练目标与节奏", detail: "告诉教练你想练什么，以及每周能练多久。", art: "home" },
 ] as const;
 const sceneDetail = {
-  gym: { detail: "器械、自由重量和训练凳", icon: Dumbbell },
-  home: { detail: "哑铃和一块可活动的空间", icon: House },
-  bodyweight: { detail: "无需训练器械", icon: PersonStanding },
-  bands: { detail: "以弹力带和徒手动作为主", icon: Waves },
-} as const;
+  gym: "有器械、自由重量和训练凳",
+  home: "哑铃和一块可活动的空间",
+  bodyweight: "用自身体重训练",
+  bands: "以弹力带和徒手动作为主",
+} satisfies Record<Scene, string>;
+const limitDetail = {
+  jumping: { detail: "跑步、跳箱和类似的落地冲击", art: "impact" },
+  overhead: { detail: "将重量推举到头部上方", art: "overhead" },
+  "deep-knee": { detail: "需要明显弯曲膝盖的动作", art: "knee" },
+  "heavy-hip-hinge": { detail: "大重量硬拉等髋铰链动作", art: "hinge" },
+} satisfies Record<GuidedDraft["limits"][number], { detail: string; art: Art }>;
 const warmupIds = ["4420", "3905", "3411", "1368"];
 type Preset = { id: string; title: string; work: readonly string[]; warmup: readonly string[] };
 const presets: Record<Scene, readonly Preset[]> = {
@@ -78,6 +87,29 @@ function choicesFrom(ids: readonly string[], catalog: Map<string, CatalogEntry>,
   });
 }
 
+function GuidedArt({ art }: { art: Art }) {
+  return <span className="guided-art" data-art={art} aria-hidden="true" />;
+}
+
+function ExerciseThumbnail({ row }: { row?: CatalogEntry }) {
+  const cover = row && catalogueCover(catalogueDemo(row));
+  return <span className="guided-thumbnail" aria-hidden="true">
+    <Dumbbell size={17} />
+    {cover && <img src={cover} loading="lazy" alt="" onError={(event) => { event.currentTarget.hidden = true; }} />}
+  </span>;
+}
+
+function MovePreview({ moves, catalog, title }: { moves: GuidedMove[]; catalog: Map<string, CatalogEntry>; title: string }) {
+  if (!moves.length) return null;
+  return <div className="guided-preview-group">
+    <h4>{title}</h4>
+    <ul>{moves.map((move) => <li key={guidedMoveKey(move)}>
+      <ExerciseThumbnail row={catalog.get(move.catalogueId ?? "")} />
+      <span>{move.name}</span>
+    </li>)}</ul>
+  </div>;
+}
+
 function MultiChoices<T extends Choice>({ label: title, choices, values, change }: {
   label: string; choices: readonly T[]; values: T["value"][]; change: (values: T["value"][]) => void;
 }) {
@@ -101,26 +133,27 @@ function PresetStep({ scene, limits, selected, choose }: {
     <legend className="sr-only">选择动作预设</legend>
     {error && <p className="muted" role="status">{error} <button className="text-button" type="button" onClick={reload}>重试</button></p>}
     {!error && !data && <p className="muted" role="status">正在读取动作库…</p>}
-    <div className="guided-card-options">
+    <div className="guided-card-options guided-presets">
       {data && presets[scene].map(({ id: key, title, work, warmup }) => {
         const pools = { work: choicesFrom(work, catalog, excludes), warmup: choicesFrom(warmup, catalog, excludes) };
         if (!pools.work.length) return null;
         return <div className="guided-preset" key={key}>
           <label className="guided-option">
+            <ExerciseThumbnail row={catalog.get(pools.work[0].catalogueId)} />
+            <span className="guided-option-copy"><strong>{title}</strong><small>{pools.work.length} 个正式动作 · {pools.warmup.length} 个热身动作</small></span>
             <input name={id} type="radio" checked={selected === key} onChange={() => choose(key, pools)} />
-            <span><strong>{title}</strong><small>{pools.work.length} 个正式动作 · {pools.warmup.length} 个热身动作</small></span>
           </label>
           <details>
-            <summary>查看{title}的动作</summary>
-            <dl><div><dt>正式</dt><dd>{pools.work.map(({ name }) => name).join("、")}</dd></div>
-              {!!pools.warmup.length && <div><dt>热身</dt><dd>{pools.warmup.map(({ name }) => name).join("、")}</dd></div>}
-            </dl>
+            <summary aria-label={`查看${title}的动作`}>查看动作 <ChevronDown size={16} aria-hidden="true" /></summary>
+            <MovePreview moves={pools.work} catalog={catalog} title="正式动作" />
+            <MovePreview moves={pools.warmup} catalog={catalog} title="热身动作" />
           </details>
         </div>;
       })}
       <label className="guided-option">
+        <GuidedArt art="guided" />
+        <span className="guided-option-copy"><strong>自选动作</strong><small>从 Spotter 动作库加入你想用的动作</small></span>
         <input name={id} type="radio" checked={selected === "own"} onChange={() => choose("own", { work: [], warmup: [] })} />
-        <span><strong>自选动作</strong><small>从 Spotter 动作库加入你想用的动作</small></span>
       </label>
     </div>
   </fieldset>;
@@ -131,20 +164,26 @@ function PoolEditor({ value, phase, setPhase, disabled, remove, add }: {
   remove: (phase: Phase, move: GuidedMove) => void; add: (phase: Phase) => void;
 }) {
   const limits = value[phase].length >= guidedMaxPoolSize;
+  const { data } = useCatalogue();
+  const catalog = useMemo(() => new Map(data?.rows.map((row) => [row.id, row])), [data]);
   return <div className="guided-pool">
     <div className="guided-pool-top">
       <div className="segmented" role="group" aria-label="候选动作类别">
         <button type="button" aria-pressed={phase === "work"} onClick={() => setPhase("work")}>正式动作 ({value.work.length})</button>
         <button type="button" aria-pressed={phase === "warmup"} onClick={() => setPhase("warmup")}>热身动作 ({value.warmup.length})</button>
       </div>
-      <button className="button outline small" type="button" disabled={disabled || limits} onClick={() => add(phase)}><Plus size={16} aria-hidden="true" />加动作</button>
     </div>
+    <button className="button outline guided-add-move" type="button" disabled={disabled || limits} onClick={() => add(phase)}><Plus size={17} aria-hidden="true" />从动作库添加</button>
     {limits && <p className="muted">每类最多选 {guidedMaxPoolSize} 个候选动作。</p>}
     {value[phase].length === 0 ? <p className="muted">{phase === "work" ? "至少加入一个正式动作。" : "热身动作可以留空。"}</p> :
-      <ul className="guided-pool-list">{value[phase].map((item) => <li key={guidedMoveKey(item)}>
-        <span>{item.name}</span>
-        <button type="button" className="icon-button" aria-label={"移除 " + item.name} disabled={disabled} onClick={() => remove(phase, item)}><Trash2 size={17} aria-hidden="true" /></button>
-      </li>)}</ul>}
+      <ul className="guided-pool-list">{value[phase].map((item) => {
+        const row = catalog.get(item.catalogueId ?? "");
+        return <li key={guidedMoveKey(item)}>
+          <ExerciseThumbnail row={row} />
+          <span className="guided-option-copy"><strong>{item.name}</strong>{row && <small>{catalogueLabel(row.target)} · {catalogueLabel(row.equipment)}</small>}</span>
+          <button type="button" className="icon-button" aria-label={"移除 " + item.name} disabled={disabled} onClick={() => remove(phase, item)}><Trash2 size={17} aria-hidden="true" /></button>
+        </li>;
+      })}</ul>}
   </div>;
 }
 
@@ -236,33 +275,47 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
     if (result.success) void onGenerate({ date, draftDays: weeks * 7, guided: result.data }, sonnet ? model : "haiku");
   }
 
-  return <section className="card padded feature-stack guided-coach" aria-label="问答定制计划">
+  return <section className="card guided-coach" aria-label="问答定制计划">
+    <header className="guided-intro">
+      <div className="guided-intro-copy">
+        <p className="guided-step-count" aria-hidden="true">{step + 1} / {steps.length} · {selected.label}</p>
+        <h2 id={id + "-heading"} tabIndex={-1} ref={headline}>{selected.title}</h2>
+        <p>{selected.detail}</p>
+      </div>
+      <GuidedArt art={selected.art} />
+    </header>
     <ol className="guided-progress" aria-label="定制进度">
       {steps.map(({ label }, index) => <li key={label} aria-current={step === index ? "step" : undefined} data-complete={step > index || undefined}>
-        {label}
+        <span className="guided-progress-marker" aria-hidden="true">{step > index ? <Check size={12} /> : index + 1}</span>{label}
       </li>)}
     </ol>
-    <h2 id={id + "-heading"} tabIndex={-1} ref={headline}>{selected.title}</h2>
-    <form className="feature-stack" onSubmit={submit} aria-labelledby={id + "-heading"} aria-busy={busy}>
+    <form className="guided-form" onSubmit={submit} aria-labelledby={id + "-heading"} aria-busy={busy}>
+      <div className="guided-step-content">
       {step === 0 && <>
-        <p className="muted">可多选。无需提供伤病详情，没有要避开的动作就直接继续。</p>
-        <MultiChoices label="想避开的动作" choices={guidedLimits} values={limits} change={chooseLimits} />
+        <fieldset className="guided-choice-set">
+          <legend className="sr-only">想避开的动作</legend>
+          <div className="guided-card-options">{guidedLimits.map(({ value, label }) => {
+            const { art, detail } = limitDetail[value];
+            return <label className="guided-option" key={value}>
+              <GuidedArt art={art} />
+              <span className="guided-option-copy"><strong>{label}</strong><small>{detail}</small></span>
+              <input type="checkbox" checked={limits.includes(value)} onChange={() => chooseLimits(toggle(limits, value))} />
+            </label>;
+          })}</div>
+        </fieldset>
+        <button className="button subtle guided-skip" type="button" onClick={() => { chooseLimits([]); setStep(1); }}>暂无限制，跳过</button>
         {preset && <p className="muted">调整限制时会移除已知冲突的候选动作，可在动作步骤重新调整。</p>}
       </>}
       {step === 1 && <fieldset className="guided-choice-set">
         <legend className="sr-only">训练场景</legend>
-        <div className="guided-card-options">{guidedScenes.map(({ value, label }) => {
-          const { detail, icon: Icon } = sceneDetail[value];
-          return <label className="guided-option" key={value}>
+        <div className="guided-card-options">{guidedScenes.map(({ value, label }) =>
+          <label className="guided-option" key={value}>
+            <GuidedArt art={value} />
+            <span className="guided-option-copy"><strong>{label}</strong><small>{sceneDetail[value]}</small></span>
             <input type="radio" name={id + "-scene"} checked={scene === value} onChange={() => chooseScene(value)} />
-            <span><strong><Icon size={18} aria-hidden="true" />{label}</strong><small>{detail}</small></span>
-          </label>;
-        })}</div>
+          </label>)}</div>
       </fieldset>}
-      {step === 2 && scene && <>
-        <p className="muted">预设来自 Spotter 动作库，下一步可增删。</p>
-        <PresetStep scene={scene} limits={limits} selected={preset} choose={choosePreset} />
-      </>}
+      {step === 2 && scene && <PresetStep scene={scene} limits={limits} selected={preset} choose={choosePreset} />}
       {step === 3 && <>
         <p className="muted">AI 只从你保留的动作中编排。请确认它们符合本次器械和动作限制。</p>
         <PoolEditor value={pool} phase={phase} setPhase={setPhase} disabled={busy} remove={(kind, item) => {
@@ -274,13 +327,21 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
       {final && <>
         <fieldset className="form-fields guided-choice-set" disabled={busy}>
           <legend className="sr-only">训练计划设置</legend>
-          <div className="guided-settings">
-            <label>训练目标<select value={goal} onChange={(event) => {
-              const option = guidedGoals.find(({ value }) => value === event.target.value);
-              if (option) setGoal(option.value);
-            }}>{guidedGoals.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
-            <label>每周训练天数<select value={days} onChange={(event) => setDays(Number(event.target.value))}>
-              {[1, 2, 3, 4, 5, 6, 7].map((day) => <option key={day} value={day}>{day} 天</option>)}</select></label>
+          <fieldset className="guided-choice-set guided-settings-group">
+            <legend>训练目标</legend>
+            <div className="guided-goals">{guidedGoals.map(({ value, label }) => <label key={value} className="guided-answer">
+              <input name={id + "-goal"} type="radio" className="sr-only" checked={goal === value} onChange={() => setGoal(value)} />
+              <span>{label}</span>
+            </label>)}</div>
+          </fieldset>
+          <fieldset className="guided-choice-set guided-settings-group">
+            <legend>每周训练天数</legend>
+            <div className="guided-frequency">{[1, 2, 3, 4, 5, 6, 7].map((daysPerWeek) => <label key={daysPerWeek} className="guided-answer">
+              <input name={id + "-days"} type="radio" className="sr-only" checked={days === daysPerWeek} onChange={() => setDays(daysPerWeek)} />
+              <span>{daysPerWeek}<span className="sr-only"> 天</span></span>
+            </label>)}</div>
+          </fieldset>
+          <div className="guided-settings guided-settings-box">
             <label>单次时长（分钟）<input type="number" required min={15} max={120} step={1} value={minutes || ""} inputMode="numeric" onChange={(event) => setMinutes(Number(event.target.value))} /></label>
             <label>计划周期<select value={weeks} onChange={(event) => setWeeks(Number(event.target.value))}>
               {guidedWeeks.map((week) => <option key={week} value={week}>{week} 周</option>)}</select></label>
@@ -288,22 +349,25 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, sonnet, error, s
             {sonnet && <label>模型<select value={model} onChange={(event) => setModel(event.target.value === "sonnet" ? "sonnet" : "haiku")}>
               <option value="haiku">Haiku 5.5</option><option value="sonnet">Sonnet 5.5</option></select></label>}
           </div>
-          <div className="feature-stack">
+          <div className="feature-stack guided-settings-group">
             <h3>重点部位 <small className="muted">选填</small></h3>
             <MultiChoices label="重点部位" choices={guidedFocus} values={focus} change={setFocus} />
           </div>
         </fieldset>
-        <p className={tooMany ? "inline-error" : "muted"} role="status">
-          {tooMany ? "一次最多生成 " + maxGuidedSessions + " 堂训练，请缩短周期或减少每周训练天数。" : "将起草 " + sessionCount + " 堂训练。"}
+        <p className={tooMany ? "inline-error" : "guided-summary"} role="status">
+          {tooMany ? "一次最多生成 " + maxGuidedSessions + " 堂训练，请缩短周期或减少每周训练天数。" : <>
+            <CalendarCheck size={20} aria-hidden="true" /><span>将起草 <strong>{sessionCount} 堂训练</strong> · 共 {weeks} 周</span>
+          </>}
         </p>
         <p className="muted guided-privacy">点击生成后会把本次所选答案和候选动作发给 Anthropic。训练草稿需核对后保存。</p>
         {!enabled && <p className="muted" role="status">{status || "AI 教练启用后可以生成草稿。"}</p>}
         {error && <p className="inline-error" role="alert">{error}</p>}
       </>}
+      </div>
       <div className="guided-actions">
-        {step > 0 && <button className="button outline" type="button" disabled={busy} onClick={() => setStep(step - 1)}><ArrowLeft size={17} aria-hidden="true" />上一步</button>}
+        {step > 0 && <button className="button outline" type="button" disabled={busy} onClick={() => setStep(step - 1)}>上一步</button>}
         <button className="button primary" type="submit" disabled={busy || (final ? !canGenerate : !canAdvance)}>
-          {final ? <><Sparkles size={17} aria-hidden="true" />{busy ? "正在生成…" : "生成计划草稿"}</> : <>下一步 <ArrowRight size={17} aria-hidden="true" /></>}
+          {final ? <><Sparkles size={17} aria-hidden="true" />{busy ? "正在生成…" : "生成计划草稿"}</> : "下一步"}
         </button>
       </div>
     </form>

@@ -128,6 +128,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [settingsPage, setSettingsPage] = useState<SettingsPage>();
   const { display, changeDisplay } = useDisplayPreferences();
   const [assistantMode, setAssistantMode] = useState<PlanAssistantMode>("import");
+  const assistantOrigin = useRef<{ view: View; setting?: SettingsPage }>({ view: "plans" });
   const [statsTab, setStatsTab] = useState<"overview" | "history">(heartReturn ? "history" : "overview");
   const [friendFocus, setFriendFocus] = useState<{ id: string; date: string }>();
   const [exerciseSelection, setExerciseSelection] = useState<{ choice: ExerciseChoice; owner?: string }>();
@@ -335,8 +336,14 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     window.scrollTo({ top: 0 });
   }
   function openPlanAssistant(mode: PlanAssistantMode) {
+    if (view !== "assistant") assistantOrigin.current = { view, setting: settingsPage };
     setAssistantMode(mode);
     go("assistant");
+  }
+  function leavePlanAssistant() {
+    const { view: previous, setting } = assistantOrigin.current;
+    go(previous);
+    if (previous === "settings") setSettingsPage(setting);
   }
   function showBuddy(date = partnerLastDay || today) {
     if (!partner) return;
@@ -615,7 +622,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   }
 
   const showPageHeading = view !== "plans" && view !== "stats" && view !== "nutrition" && view !== "settings";
-  const heading = view === "assistant" && assistantMode === "coach" ? "AI 教练" : pageTitles[view];
+  const coachPage = view === "assistant" && assistantMode === "coach";
+  const heading = coachPage ? "AI 教练" : pageTitles[view];
   const activeTab = view === "programs" || view === "assistant" ? "plans"
     : view === "coaching" ? "friends" : view === "body" ? "stats" : view;
   const calendarOpen = view === "stats" && statsTab === "history";
@@ -630,9 +638,13 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
           </div>
         </div>
       </header>}
-      <main className={view === "today" ? "content content-today" : "content"}>
-        {showPageHeading && <div className={view === "today" ? "page-heading today-heading" : "page-heading"}>
-          <div>{view === "today"
+      <main className={view === "today" ? "content content-today" : coachPage ? "content content-coach" : "content"}>
+        {showPageHeading && <div className={view === "today" ? "page-heading today-heading" : coachPage ? "page-heading coach-page-heading" : "page-heading"}>
+          <div className={coachPage ? "coach-page-title" : undefined}>
+            {coachPage && <button className="icon-button coach-back" type="button" onClick={leavePlanAssistant} aria-label="返回">
+              <ChevronLeft size={21} aria-hidden="true" />
+            </button>}
+            {view === "today"
             ? <p className="date-line"><CalendarDays size={16} /> {shortDate(today)} · 星期{weekdays[weekdayIndex(today)]}</p>
             : <h1>{heading}</h1>}
             {view === "today" && demo && <p>正在查看示例数据。登录后可同步你们的记录。</p>}
