@@ -7,6 +7,9 @@ import { asDate, offsetDate } from "@/shared/dates";
 import { errorText } from "@/shared/client";
 import type { PlannedWorkout } from "@/features/plans/model";
 import type { MealEntry } from "@/features/library/model";
+import type { CoachMealSubmission } from "@/features/nutrition/coach-meal-save";
+import { maxPhotoNoteLength } from "@/features/nutrition/food-photo-request";
+import { recognizeMealPhoto, validatePhotoFile } from "@/features/nutrition/food-photo-client";
 import type { ActivitySummary } from "./activity-summary";
 import { ChatTrainingDraft } from "./chat-draft";
 import { CoachReplyCard, type CoachReplyKind } from "./reply-card";
@@ -14,12 +17,18 @@ import { asksForTrainingPlan } from "./chat-intent";
 import { asksToReviseDraft, draftWindowFor, type DraftWindow } from "./plan-conversation";
 import { weightDialogue, type PendingWeight } from "./weight-dialogue";
 import { useAnthropicSharing } from "./sharing-consent";
+import { CoachPhotoAttachment, CoachPhotoPickers } from "./coach-photo-attachment";
 import { coachModel, maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
   type CoachConfig, type CoachRequest, type CoachResponse } from "./model";
 
 type WeightRecord = { id: string; date: string; kg: number };
 export type CoachActions = {
   logMeal?: (meal?: MealEntry["meal"]) => void;
+  photoMeal?: {
+    currentMeal: () => MealEntry["meal"];
+    save: (submission: CoachMealSubmission) => Promise<MealEntry>;
+    view: (date: string) => void;
+  };
   trainingStats?: (message: string, date: string) => ActivitySummary | string | undefined;
   saveWeight?: (record: WeightRecord) => Promise<void>;
   saveDraft?: (plans: PlannedWorkout[]) => Promise<void>;
@@ -36,6 +45,8 @@ type Turn = {
   activity?: ActivitySummary;
   action?: "workout";
   weight?: WeightRecord;
+  unsavedMeal?: CoachMealSubmission;
+  savedMealDate?: string;
   window?: DraftWindow;
   items?: (PlannedWorkout & { todayId: string })[];
   saved?: boolean;
@@ -46,6 +57,7 @@ type Turn = {
 };
 type Availability = CoachConfig | { error: string };
 type BeginCoachRequest = () => { receive: (result: CoachResponse) => void; showError: (message: string) => void };
+type PhotoAttachment = { id: string; file: File; date: string; meal: MealEntry["meal"]; notes: string };
 
 const endpoint = "/api/ai-coach";
 const planRequest = "帮我制定训练计划";
@@ -115,6 +127,9 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   const [contextDate, setContextDate] = useState<string>();
   const [revisionTarget, setRevisionTarget] = useState<string>();
   const [weightPrompt, setWeightPrompt] = useState<PendingWeight>();
+  const [photo, setPhoto] = useState<PhotoAttachment>();
+  const cameraInput = useRef<HTMLInputElement>(null);
+  const requestedMeal = useRef<MealEntry["meal"] | undefined>(undefined);
   const request = useRef<AbortController>(null);
   const writing = useRef(false);
   const processedMeal = useRef<string | undefined>(undefined);
@@ -130,7 +145,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   const available = !!owner && availability && "enabled" in availability && availability.enabled;
   const chatDate = includePlans ? contextDate ?? selectedDate : selectedDate;
   const lastTurn = turns.at(-1);
-  const showSuggestions = Boolean(compact && !waiting && !lastTurn && !mealPhoto && !optionsOpen);
+  const showSuggestions = Boolean(compact && !waiting && !lastTurn && !mealPhoto && !photo && !optionsOpen);
 
   useEffect(() => {
     if (!active || !owner) return;
@@ -179,6 +194,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     if (request.current || writing.current) return;
     setTurns([]);
     setInput("");
+    setPhoto(undefined);
+    requestedMeal.current = undefined;
     setError("");
     setRevisionTarget(undefined);
     setWeightPrompt(undefined);
@@ -227,7 +244,87 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
 
   function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (photo) {
+      const question = input.trim();
+      const notes = [photo.notes, question].filter(Boolean).join("\n");
+      if (!owner || !available || !actions?.photoMeal || waiting) return;
+      if (notes.length > maxPhotoNoteLength) {
+        setError(`照片的份量说明最多 ${maxPhotoNoteLength} 字。请缩短补充说明，或移除照片后重新发送。`);
+        return;
+      }
+      withConsent(() => { void recordPhoto(photo, question, notes, owner); });
+      return;
+    }
     submitQuestion(input);
+  }
+
+  function attachPhoto(file: File) {
+    const photoMeal = actions?.photoMeal;
+    if (!photoMeal || waiting) return;
+    const meal = requestedMeal.current ?? photoMeal.currentMeal();
+    requestedMeal.current = undefined;
+    try {
+      validatePhotoFile(file);
+      setPhoto((previous) => previous ? { ...previous, file }
+        : { id: crypto.randomUUID(), file, date: asDate(), meal, notes: "" });
+      setError("");
+      setOptionsOpen(false);
+      onExpand?.();
+    } catch (reason) {
+      setError(errorText(reason, "无法打开这张照片，请换一张。"));
+    }
+  }
+
+  async function savePhotoMeal(turnId: string, submission: CoachMealSubmission) {
+    if (!actions?.photoMeal || writing.current || request.current) return;
+    writing.current = true;
+    setWaiting(true);
+    updateTurn(turnId, { error: undefined, unsavedMeal: undefined, replyKind: "loading", localReply: "正在添加到饮食记录…" });
+    try {
+      const entry = await actions.photoMeal.save(submission);
+      updateTurn(turnId, { replyKind: "saved", savedMealDate: submission.date,
+        localReply: `已添加到${entry.meal}「${entry.name}」 · ${entry.calories} 千卡 · 蛋白质 ${entry.protein} 克` });
+    } catch (reason) {
+      updateTurn(turnId, { localReply: undefined, unsavedMeal: submission, error: errorText(reason, "识别已完成，暂时没能添加。") });
+    } finally {
+      writing.current = false;
+      setWaiting(false);
+    }
+  }
+
+  async function recordPhoto(attachment: PhotoAttachment, question: string, notes: string, expectedOwner: string) {
+    if (request.current || writing.current) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setInput("");
+    setError("");
+    setWaiting(true);
+    const turnId = addTurn("local", question ? "照片 · " + question : "照片记饮食",
+      { replyKind: "loading", localReply: "正在识别照片和份量…" });
+    try {
+      const result = await recognizeMealPhoto(attachment.file, notes, expectedOwner, controller.signal);
+      if (controller.signal.aborted) return;
+      if (result.kind === "needs") {
+        setPhoto({ ...attachment, notes });
+        updateTurn(turnId, { replyKind: "meal", localReply: result.needs.join("\n") });
+        return;
+      }
+      setPhoto(undefined);
+      request.current = null;
+      await savePhotoMeal(turnId, {
+        owner: expectedOwner, id: attachment.id, date: attachment.date, meal: attachment.meal, draft: result.draft,
+      });
+    } catch (reason) {
+      if (!controller.signal.aborted) {
+        setInput(question);
+        updateTurn(turnId, { localReply: undefined, error: errorText(reason, "照片未能识别，请检查网络后重试。") });
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        request.current = null;
+        setWaiting(false);
+      }
+    }
   }
 
   async function recordWeight(turnId: string, record: WeightRecord) {
@@ -319,7 +416,14 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     const meal = question.match(/^(?:(?:我想|我要|帮我|给我|拍照)\s*)*(?:拍照记饮食|记饮食|记录饮食|记(?:录)?(早餐|午餐|晚餐|加餐)|拍照识别餐食)[。！!？? ]*$/u);
     if (meal) {
       clearInput();
-      if (!actions?.logMeal) addTurn("local", question, { replyKind: "meal", localReply: "登录并启用饮食功能后，可以在这里拍照记餐。" });
+      if (actions?.photoMeal && available) {
+        if (photo) composer.current?.focus();
+        else {
+          addTurn("local", question, { replyKind: "meal", localReply: "点输入栏旁的拍照或相册。写下份量后发送，识别完成就会记入饮食。" });
+          requestedMeal.current = meal[1] as MealEntry["meal"] | undefined;
+          cameraInput.current?.click();
+        }
+      } else if (!actions?.logMeal) addTurn("local", question, { replyKind: "meal", localReply: "登录并启用饮食功能后，可以在这里拍照记餐。" });
       else if (!mealPhoto) {
         addTurn("local", question, { replyKind: "meal", localReply: "拍一张餐食照片或从相册选图。我会填出份量和营养，你核对后再保存。" });
         actions.logMeal(meal[1] as MealEntry["meal"] | undefined);
@@ -385,7 +489,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
         </button></div>
       <ol className="coach-thread" aria-label="对话记录">
           {turns.map((turn) => {
-            const { id, kind, question, response, localReply } = turn;
+            const { id, kind, question, response, localReply, savedMealDate } = turn;
             const draft = response?.draft?.plans;
             const replyKind = turn.replyKind ?? (draft ? "plan" : kind === "plan" || kind === "revision" ? "question" : "chat");
             return <li className="coach-turn" key={id}>
@@ -394,6 +498,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
                 activity={turn.activity} weight={replyKind === "saved" ? turn.weight : undefined}>
                 {turn.action === "workout" && actions?.startWorkout && <button className="button outline small coach-reply-action" type="button"
                   onClick={actions.startWorkout}><Dumbbell size={16} aria-hidden="true" />选择训练</button>}
+                {savedMealDate && actions?.photoMeal && <button className="button outline small coach-reply-action" type="button"
+                  onClick={() => actions.photoMeal?.view(savedMealDate)}>查看饮食记录</button>}
                 {draft && actions?.saveDraft && <ChatTrainingDraft draft={draft} today={today} saved={Boolean(turn.saved)} busy={waiting}
                   addedToday={turn.addedToday} error={turn.saveError} superseded={turn.superseded}
                   onSave={() => void saveDraft(turn)} onAddToday={(index) => void saveDraft(turn, index)}
@@ -402,6 +508,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
               {turn.error && <CoachReplyCard kind="error" reply={turn.error}>
                 {turn.weight && failedWeight.current?.id === turn.weight.id && <button className="button outline small coach-reply-action"
                   type="button" disabled={waiting} onClick={() => { if (turn.weight) void recordWeight(id, turn.weight); }}>重试保存</button>}
+                {turn.unsavedMeal && <button className="button primary small coach-reply-action" type="button" disabled={waiting}
+                  onClick={() => { if (turn.unsavedMeal) void savePhotoMeal(id, turn.unsavedMeal); }}>添加到{turn.unsavedMeal.meal}</button>}
               </CoachReplyCard>}
               {kind !== "local" && !response && !turn.error && <CoachReplyCard kind="loading" reply="教练正在回复" />}
             </li>;
@@ -420,12 +528,14 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
           .map((question) => <button key={question} type="button" onClick={() => submitQuestion(question, true)}>{question}</button>)}
       </div>}
       <div className="coach-quick-actions">
-        {available && !revisionTarget && <button className="coach-quick-button" type="button" disabled={waiting} aria-expanded={optionsOpen}
+        {actions?.photoMeal && <CoachPhotoPickers cameraInput={cameraInput} disabled={waiting || !available}
+          onPick={() => { requestedMeal.current = undefined; }} onFile={attachPhoto} />}
+        {available && !photo && !revisionTarget && <button className="coach-quick-button" type="button" disabled={waiting} aria-expanded={optionsOpen}
           aria-controls="coach-context" onClick={() => setOptionsOpen(!optionsOpen)}>
           <SlidersHorizontal size={15} aria-hidden="true" />{includePlans ? "已附上训练安排" : "对话选项"}
         </button>}
       </div>
-      {optionsOpen && available && !revisionTarget && <div className="coach-context-options form-fields" id="coach-context">
+      {optionsOpen && available && !photo && !revisionTarget && <div className="coach-context-options form-fields" id="coach-context">
         <label className="toggle-label"><input type="checkbox" checked={includePlans} disabled={waiting}
           onChange={(event) => setIncludePlans(event.target.checked)} />附上个人训练安排</label>
         {includePlans && <div className="coach-context-fields">
@@ -439,10 +549,15 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       {revisionTarget && <div className="coach-revision-note">
         <span>正在调整选中的训练草稿</span><button type="button" className="text-button" disabled={waiting} onClick={() => setRevisionTarget(undefined)}>取消</button>
       </div>}
+      {photo && <CoachPhotoAttachment file={photo.file} meal={photo.meal} active={active} disabled={waiting}
+        onMeal={(meal) => setPhoto({ ...photo, meal })} onRemove={() => { setPhoto(undefined); setError(""); }}
+        onDictate={(text) => setInput((current) => [current.trim(), text].filter(Boolean).join(" ").slice(0, maxPhotoNoteLength))}
+        onFocus={() => composer.current?.focus()} />}
       <form className="coach-composer-field" onSubmit={send} aria-busy={waiting}>
         <label className="sr-only" htmlFor="coach-chat-input">给 AI 教练发消息</label>
-        <textarea id="coach-chat-input" rows={1} ref={composer} maxLength={maxCoachMessageLength} value={input} disabled={waiting}
-          aria-describedby="coach-composer-notice" placeholder={weightPrompt ? "例如 80.5 kg" : revisionTarget ? "想怎么调整这份草稿？" : "问问 Spotter 教练…"}
+        <textarea id="coach-chat-input" rows={1} ref={composer} maxLength={photo ? maxPhotoNoteLength : maxCoachMessageLength} value={input} disabled={waiting}
+          aria-describedby="coach-composer-notice" placeholder={photo ? photo.notes ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
+            : weightPrompt ? "例如 80.5 kg" : revisionTarget ? "想怎么调整这份草稿？" : "问问 Spotter 教练…"}
           onChange={(event) => { setInput(event.target.value); setError(""); }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
@@ -450,12 +565,14 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
               event.currentTarget.form?.requestSubmit();
             }
           }} />
-        <button className="coach-send" type="submit" aria-label="发送消息" disabled={waiting || !input.trim()}><ArrowUp size={20} aria-hidden="true" /></button>
+        {photo ? <button className="coach-send coach-send-meal" type="submit" disabled={waiting || !available}>识别并记餐</button>
+          : <button className="coach-send" type="submit" aria-label="发送消息" disabled={waiting || !input.trim()}><ArrowUp size={20} aria-hidden="true" /></button>}
       </form>
       {error && <p className="inline-error coach-composer-notice" role="alert">{error}</p>}
       <div className="coach-composer-note">
         <p id="coach-composer-notice" className="coach-composer-notice" role="status">
-          {available ? "记体重和查统计在训练搭子内处理。训练问答会发送相关对话给 Anthropic。" : status}
+          {available ? photo ? "听写由浏览器处理。发送后由 Anthropic 识别照片和份量，信息够时直接记入饮食。"
+            : "记体重和查统计在训练搭子内处理。训练问答会发送相关对话给 Anthropic。" : status}
         </p>
         {canRetry && <button className="text-button" type="button" onClick={() => { setAvailability(undefined); setCheck((value) => value + 1); }}>重试</button>}
       </div>

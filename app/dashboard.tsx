@@ -39,6 +39,7 @@ import { defaultCatalogMove } from "@/features/exercises/exercise-picker";
 import type { CatalogEntry, ExerciseChoice } from "@/features/exercises/open-gym";
 import { NutritionView, mealForNow } from "@/features/nutrition/nutrition-view";
 import { CoachMealPhoto, type CoachMealRequest } from "@/features/nutrition/meal-editor";
+import { saveCoachMeal } from "@/features/nutrition/coach-meal-save";
 import { HomeNutrition } from "@/features/nutrition/home-nutrition";
 import { useNutritionPreferences } from "@/features/nutrition/nutrition-preferences";
 import type { NutritionShortcut } from "@/features/nutrition/nutrition-summary";
@@ -920,6 +921,15 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             onPrograms={() => go("programs")} onData={() => go("data")}
             coachActions={{
               logMeal: viewer && display.nutrition ? (meal) => openMealPhoto(undefined, meal) : undefined,
+              photoMeal: viewer && display.nutrition ? {
+                currentMeal: mealForNow,
+                save: async (submission) => {
+                  const meal = await saveCoachMeal(submission);
+                  void reloadLibrary();
+                  return meal;
+                },
+                view: (date) => { openNutrition(); setNutritionStartDate(date); },
+              } : undefined,
               trainingStats: (question, date) => {
                 const summary = readActivitySummary(question, date, logs, viewer?.id ?? "");
                 if (!summary) return undefined;

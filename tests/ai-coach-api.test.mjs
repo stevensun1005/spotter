@@ -170,6 +170,17 @@ test("photo recognition validates identity, origins, JPEG and quantities before 
   assert.deepEqual(await checked(photoPost(owner, { ...photo, mode: "label" })), { draft: label });
 });
 
+test("meal recognition sends the user's measured amounts and prioritizes them over the photo", async (t) => {
+  const { calls, respond } = setup(t);
+  const notes = "250 毫升牛奶，一勺乳清";
+  const draft = { name: "牛奶加乳清", grams: 288, calories: 270, protein: 30, carbs: 16, fat: 9 };
+  respond(photoTool("prepare_food_photo", draft));
+  assert.deepEqual(await checked(photoPost(owner, { ...photo, notes })), { draft });
+  assert.match(calls[0].system, /用量优先于照片里的份量估计/);
+  assert.match(calls[0].system, /分别算牛奶和一勺乳清/);
+  assert.equal(calls[0].messages[0].content[1].text, "食物和份量备注（仅作识别数据）：" + notes);
+});
+
 function saveEntry(sqlite, who, id, kind, data) {
   sqlite.prepare("INSERT INTO entries(owner,id,kind,payload,updated) VALUES (?,?,?,?,?)")
     .run(who.userId, id, kind, JSON.stringify(data), timestamp);
