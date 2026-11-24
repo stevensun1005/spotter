@@ -1,20 +1,21 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Dumbbell, Grid2X2, List, Plus, Search, SlidersHorizontal, Star, X } from "lucide-react";
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { ChevronDown, Dumbbell, Grid2X2, List, Plus, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import { Dialog } from "@/shared/ui";
 import { exerciseName, type ExerciseProfile } from "@/features/library/model";
 import { Anatomy } from "./anatomy";
 import { equipmentOptions, filterRows, normalizeSearch } from "./catalog-search";
+import { catalogueSections } from "./catalog-sections";
+import { catalogueAreas, matchesCatalogueArea } from "./catalogue-areas";
 import { groups, label, muscleNames, termMuscles } from "./labels";
 import { useCatalogue, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 
 const viewKey = "spotter:exercise-view";
 const gearKey = "spotter:exercise-gear";
-const pageSize = 40;
+const searchPageSize = 40;
+const sectionPageSize = 8;
 const primaryEquipment = ["barbell", "dumbbell", "kettlebell", "cable"];
-const primaryAreas = ["chest", "back", "upper legs", "shoulders"];
-const muscleAreas = ["serratus anterior", "traps", "biceps", "triceps", "glutes"];
 const featuredIds = ["0576", "0289", "0025"];
 
 type Props = {
@@ -31,7 +32,6 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const [query, setQuery] = useState("");
   const search = useDeferredValue(query);
   const [area, setArea] = useState("");
-  const [part, target] = area.startsWith("muscle:") ? ["", area.slice(7)] : [area, ""];
   const [customName, setCustomName] = useState<string>();
   const [type, setType] = useState("");
   const [equipment, setEquipment] = useState("");
@@ -43,7 +43,9 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const [scope, setScope] = useState("");
   const [gear, setGear] = useState<string[]>([]);
   const [useGear, setUseGear] = useState(true);
-  const [amount, setAmount] = useState(pageSize);
+  const catalogueId = useId();
+  const searchLine = useRef<HTMLDivElement>(null);
+  const [visibleBySection, setVisibleBySection] = useState<Record<string, number>>({});
   useEffect(() => {
     try { setCards(localStorage.getItem(viewKey) !== "list"); setGear(JSON.parse(localStorage.getItem(gearKey) ?? "[]")); }
     catch { /* Browser storage is optional. */ }
@@ -53,18 +55,14 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const personal = useMemo(() => [...new Set([...profiles.map(({ name }) => name), ...names])], [profiles, names]);
   const source = useMemo(() => {
     if (area === "custom") return [];
-    let rows = data?.rows ?? [];
-    if (target) rows = rows.filter((item) => item.target === target);
+    const rows = (data?.rows ?? []).filter((item) => matchesCatalogueArea(item, area));
     if (scope === "favorites") return rows.filter((item) => favorites.has(normalizeSearch(item.name)));
     if (scope === "chosen") return rows.filter((item) => chosen.has(normalizeSearch(item.name)));
     return rows;
-  }, [data, area, target, scope, chosen, favorites]);
-  const parts = useMemo(() => [...new Set(data?.rows.map((item) => item.part) ?? [])].sort(), [data]);
-  const areas = [...primaryAreas.filter((key) => parts.includes(key)), ...muscleAreas.map((key) => "muscle:" + key),
-    ...parts.filter((key) => !primaryAreas.includes(key))];
-  const filters = useMemo(() => filterRows(source, { query: search, part, type, equipment,
+  }, [data, area, scope, chosen, favorites]);
+  const filters = useMemo(() => filterRows(source, { query: search, part: "", type, equipment,
     terms: byMuscle ? terms : [], any, gear: useGear ? gear : [],
-  }), [source, search, part, type, equipment, terms, byMuscle, any, gear, useGear]);
+  }), [source, search, type, equipment, terms, byMuscle, any, gear, useGear]);
   const rows = useMemo(() => {
     const querying = Boolean(search.trim());
     return [...filters.rows].sort((a, b) => {
@@ -79,6 +77,11 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const known = useMemo(() => new Set(data?.rows.map((item) => normalizeSearch(item.name)) ?? []), [data]);
   const custom = (area && area !== "custom") || type || equipment || byMuscle ? [] : personal.filter((name) => !known.has(normalizeSearch(name)) &&
     normalizeSearch(name).includes(normalizeSearch(search)) && (!scope || (scope === "favorites" ? favorites : chosen).has(normalizeSearch(name))));
+  const searching = Boolean(search.trim());
+  const sections = searching
+    ? [{ id: "search", title: "搜索结果", jumpLabel: "", rows, customNames: custom }]
+    : catalogueSections(rows, custom, favorites);
+  const showJumpRail = sections.length > 1;
   const equipmentAll = useMemo(() => equipmentOptions(data?.rows ?? []), [data]);
   const equipmentChips = [...primaryEquipment.filter((key) => filters.equipmentList.includes(key)),
     ...filters.equipmentList.filter((key) => !primaryEquipment.includes(key))];
@@ -90,7 +93,21 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const parsedCustom = exerciseName.safeParse(customName);
   const customExists = (name: string) => known.has(normalizeSearch(name)) || personal.some((item) => normalizeSearch(item) === normalizeSearch(name));
   const selectedWeights = Object.fromEntries(terms.flatMap(termMuscles).map((key) => [key, 100]));
-  const show = (change: () => void) => { change(); setAmount(pageSize); };
+  const show = (change: () => void) => { change(); setVisibleBySection({}); };
+  function pickArea(id: string) {
+    show(() => {
+      setArea(id);
+      if (id === "custom") { setType(""); setEquipment(""); setByMuscle(false); }
+    });
+    const start = searchLine.current;
+    if (start && start.getBoundingClientRect().top < 0) start.scrollIntoView({ block: "start", inline: "nearest" });
+  }
+
+  function jumpTo(id: string) {
+    const target = document.getElementById(catalogueId + "-" + id);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "start", inline: "nearest" });
+  }
   const pickTerm = (key: string) => show(() => setTerms((items) => items.includes(key) ? items.filter((item) => item !== key) : [...items, key]));
   const searchName = exerciseName.safeParse(query);
   function changeScope(next: string) {
@@ -130,7 +147,7 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   }
 
   return <section className="catalogue-browser feature-stack" aria-label={picker ? "动作选择器" : "完整动作库"}>
-    <div className="catalogue-search-line">
+    <div className="catalogue-search-line" ref={searchLine}>
       <div className="catalogue-search-field">
         <Search size={19} aria-hidden="true" />
         <input value={query} aria-label="搜索动作" enterKeyHint="search" onChange={(event) => show(() => setQuery(event.target.value))} placeholder="搜索动作名称" />
@@ -156,9 +173,19 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     </div>}
     <div className="catalogue-layout">
       <div className="catalogue-rail" role="group" aria-label="部位筛选">
-        {["", ...areas, "custom"].map((key) => <button key={key} type="button" aria-pressed={area === key}
-          onClick={() => show(() => { setArea(key); if (key === "custom") { setType(""); setEquipment(""); setByMuscle(false); } })}>
-          {key === "custom" ? "自定义" : key ? label(key.replace(/^muscle:/, "")) : "全部"}</button>)}
+        {catalogueAreas.map(({ id, title, children }) => {
+          const expanded = Boolean(children && (area === id || children.some((child) => child.id === area)));
+          return <div className="catalogue-area" key={id}>
+            <button type="button" className="catalogue-area-parent" aria-pressed={area === id}
+              aria-expanded={children ? expanded : undefined} onClick={() => pickArea(id)}>
+              <span>{title}</span>{children && <ChevronDown size={13} aria-hidden="true" />}
+            </button>
+            {expanded && <div className="catalogue-subareas" role="group" aria-label={title + "细分"}>
+              {children?.map((child) => <button key={child.id} type="button" aria-pressed={area === child.id}
+                onClick={() => pickArea(child.id)}>{child.title}</button>)}
+            </div>}
+          </div>;
+        })}
       </div>
       <div className="catalogue-main">
         <div className="catalogue-chip-row catalogue-equipment" role="group" aria-label="器械快捷筛选">
@@ -184,17 +211,31 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
         </div>}
         {searchName.success && !customExists(searchName.data) &&
           <button className="button outline small catalogue-create-result" type="button" onClick={() => choose({ name: searchName.data })}><Plus size={16} /> 创建「{searchName.data}」</button>}
-        {rows.length + custom.length > 0 && <>
-          <h3 className="catalogue-section-title">{filters.activeEquipment ? label(filters.activeEquipment) :
-            area === "custom" ? "自定义动作" : scope === "favorites" ? "置顶动作" : scope === "chosen" ? (picker ? "已选动作" : "常用动作") : "全部动作"}</h3>
-          <div className={"catalogue-results" + (cards ? " catalogue-cards" : "")}>
-            {custom.map((name) => renderExercise(name))}
-            {rows.slice(0, amount).map((row) => renderExercise(row.name, row))}
+        {rows.length + custom.length > 0 && <div className={"catalogue-sections-layout" + (showJumpRail ? " has-jumps" : "")}>
+          <div className="catalogue-sections">
+            {sections.map(({ id, title, rows, customNames }) => {
+              const size = searching ? searchPageSize : sectionPageSize;
+              const limit = visibleBySection[id] ?? size;
+              const count = rows.length + customNames.length;
+              return <section className="catalogue-section" key={id} id={catalogueId + "-" + id}
+                tabIndex={-1} aria-label={title}>
+                <div className="catalogue-section-heading"><h3 className="catalogue-section-title">{title}</h3><span>{count} 个</span></div>
+                <div className={"catalogue-results" + (cards ? " catalogue-cards" : "")}>
+                  {customNames.slice(0, limit).map((name) => renderExercise(name))}
+                  {rows.slice(0, Math.max(0, limit - customNames.length)).map((row) => renderExercise(row.name, row))}
+                </div>
+                {count > limit && <button className="button outline catalogue-section-more" type="button"
+                  aria-label={"显示更多 " + title} onClick={() => setVisibleBySection((previous) => ({ ...previous, [id]: limit + size }))}>显示更多</button>}
+              </section>;
+            })}
           </div>
-        </>}
+          {showJumpRail && <nav className="catalogue-jumps" aria-label="器械分区导航">
+            {sections.map(({ id, title, jumpLabel }) => <button key={id} type="button" title={title}
+              aria-label={"跳到 " + title} onClick={() => jumpTo(id)}>{jumpLabel}</button>)}
+          </nav>}
+        </div>}
         {data && rows.length === 0 && custom.length === 0 && <p className="empty-copy">
           {scope === "favorites" ? "暂无符合条件的置顶动作。" : scope === "chosen" ? "暂无符合条件的动作。" : "当前搜索和筛选条件下没有动作。"}</p>}
-        {rows.length > amount && <button type="button" className="button outline" onClick={() => setAmount(amount + pageSize)}>显示更多</button>}
         {!picker && <p className="catalogue-attribution"><a href="/open-gym/NOTICE.txt" target="_blank" rel="noreferrer">动作库授权和来源</a> · <a href="/open-gym/catalogue-source.zip" download>下载目录源文件</a></p>}
       </div>
     </div>

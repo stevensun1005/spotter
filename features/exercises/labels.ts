@@ -16,6 +16,7 @@ const labels: Record<string, string> = {
   "front delts": "三角肌前束", "side delts": "三角肌中束", "rear delts": "三角肌后束",
   triceps: "肱三头肌", biceps: "肱二头肌", "upper back": "上背", lats: "背阔肌", calves: "小腿后侧",
   quads: "股四头肌", forearms: "前臂", hamstrings: "腘绳肌", spine: "下背", traps: "斜方肌",
+  "hip flexors": "髋屈肌", obliques: "腹斜肌", shins: "小腿前侧",
   adductors: "大腿内收肌", "serratus anterior": "前锯肌", abductors: "髋外展肌", "levator scapulae": "肩胛提肌",
 };
 export const label = (value: string) => labels[value] ?? value;

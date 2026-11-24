@@ -155,11 +155,26 @@ test("iPhone shortcut saves readings only inside the selected workout", async ()
 
 test("complete openGym snapshot keeps IDs, translations, filtering and artwork separate", async () => {
   const { filterRows } = await import("../features/exercises/catalog-search.ts");
+  const { catalogueAreas, matchesCatalogueArea } = await import("../features/exercises/catalogue-areas.ts");
   const read = (name) => JSON.parse(readFileSync(new URL("public/open-gym/" + name, root), "utf8"));
   const { rows, variants } = read("index.json");
   assert.equal(rows.length, 5632);
   assert.equal(Object.keys(variants).length, 922);
   assert.equal(new Set(rows.map((entry) => entry.id)).size, rows.length);
+  const parts = new Set(rows.map((entry) => entry.part));
+  for (const part of parts) assert.ok(catalogueAreas.some((area) => area.id === part), part);
+  for (const area of catalogueAreas.filter(({ id }) => id !== "custom")) {
+    assert.ok(rows.some((entry) => matchesCatalogueArea(entry, area.id)), area.id);
+    for (const child of area.children ?? []) {
+      const matches = rows.filter((entry) => matchesCatalogueArea(entry, child.id));
+      assert.ok(matches.length > 0, child.id);
+      assert.ok(matches.every((entry) => matchesCatalogueArea(entry, area.id)), child.id);
+    }
+  }
+  const squat = rows.find((entry) => entry.id === "3593");
+  assert.ok(matchesCatalogueArea(squat, "upper legs:quads"));
+  assert.equal(matchesCatalogueArea(squat, "upper legs:hamstrings"), false);
+  assert.equal(matchesCatalogueArea(squat, "custom"), false);
   const bench = rows.find((entry) => entry.id === "0025");
   assert.equal(bench.muscles.chest, 100);
   assert.equal(bench.muscles["front-delts"], 40);
