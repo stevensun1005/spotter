@@ -47,10 +47,15 @@ test("only the current owner's completed logs contribute their actual sets, time
     { id: "cardio", owner: own, kind: "log", updated: today, data: cardio },
   ];
   const result = readActivitySummary("本周我练了多少？", today, records, own);
-  assert.deepEqual(result, {
+  const { totals, ...summary } = result;
+  const { volume, ...counts } = totals;
+  assert.deepEqual(summary, {
     from: "2026-11-23", to: today,
+    english: false,
     reply: "2026-11-23 至 2026-11-24 的已完成训练\n2 次 · 1 天 · 56 分钟 · 1 组 · 容量 72.6 kg",
   });
+  assert.deepEqual(counts, { sessions: 2, days: 1, minutes: 56, sets: 1 });
+  assert.equal(Math.round(volume * 10), 726);
   assert.equal(readActivitySummary("today's workout summary", today, records, ""), undefined);
   assert.match(readActivitySummary("昨天的训练统计", today, records, own).reply, /暂无已完成/);
 });

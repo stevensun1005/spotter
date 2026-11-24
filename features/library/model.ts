@@ -4,7 +4,7 @@ import { planSchema, videoUrl } from "@/features/plans/model";
 import { planRevisionSchema, scheduleSchema } from "@/features/plans/schedule";
 import { muscleNames, types as exerciseTypes } from "@/features/exercises/labels";
 import { exerciseAreaOptions } from "@/features/exercises/catalogue-areas";
-import { proteinPreference } from "@/features/training/protein";
+import { proteinPreference, proteinWarehouse } from "@/features/training/protein";
 import { measurements, recordedMetrics } from "@/features/body/measurements";
 import { bodyProfileItem } from "@/features/body/profile";
 import { maxFoodGrams } from "@/features/nutrition/foods";
@@ -55,7 +55,8 @@ export const emptyNutrition: NutritionValues = { calories: 0, protein: 0, carbs:
 export const uuid = z.string().uuid();
 const saveProfile = z.object({ kind: z.literal("exercise"), item: exerciseProfile });
 const template = z.object({ kind: z.literal("template"), id: uuid, plan: planSchema });
-const nutrition = z.object({ kind: z.literal("nutrition"), id: uuid, date: dateSchema, entry: nutritionEntry });
+const nutrition = z.object({ kind: z.literal("nutrition"), id: uuid, date: dateSchema, entry: nutritionEntry,
+  sourceWorkoutId: uuid.optional() });
 const targetWeightKg = z.number().finite().min(10).max(700);
 export const nutritionGoalPreference = z.object({
   goal: nutritionGoal,
@@ -83,7 +84,7 @@ export const historyOrder = z.object({
 export type HistoryOrder = z.infer<typeof historyOrder>;
 const statsPins = z.object({ kind: z.literal("stats-pins"), ids: z.array(z.string().min(1).max(100)).max(80) });
 export const libraryItem = z.discriminatedUnion("kind", [saveProfile, template, nutrition, targets, nutritionEnergyItem, nutritionPlanningItem,
-  personalFood, foodPortions, historyOrder, statsPins, proteinPreference, bodyProfileItem, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
+  personalFood, foodPortions, historyOrder, statsPins, proteinPreference, proteinWarehouse, bodyProfileItem, z.object({ kind: z.literal("schedule"), values: scheduleSchema })]);
 export type LibraryItem = z.infer<typeof libraryItem>;
 export type LibraryRow = LibraryItem & { updated: string };
 export const libraryMutation = z.discriminatedUnion("action", [

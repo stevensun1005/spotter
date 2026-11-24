@@ -50,7 +50,13 @@ function activityRange(message: string, today: string) {
   return { from: /今天|今日|\btoday\b/iu.test(message) ? today : offsetDate(today, -weekdayIndex(today)), to: today };
 }
 
-export type ActivitySummary = { reply: string; from: string; to: string };
+export type ActivitySummary = {
+  reply: string;
+  from: string;
+  to: string;
+  english: boolean;
+  totals: { sessions: number; days: number; minutes: number; sets: number; volume: number };
+};
 
 export function readActivitySummary(message: string, contextDate: string, records: readonly TrainingEntry[], owner: string): ActivitySummary | undefined {
   const question = message.normalize("NFKC");
@@ -84,5 +90,5 @@ export function readActivitySummary(message: string, contextDate: string, record
       : `No completed workouts recorded for ${period}.`
     : sessions ? `${period} 的已完成训练\n${sessions} 次 · ${days.size} 天 · ${minutes} 分钟 · ${sets} 组 · 容量 ${load} kg`
       : `${period} 暂无已完成的训练记录。`;
-  return { ...range, reply };
+  return { ...range, reply, english, totals: { sessions, days: days.size, minutes, sets, volume } };
 }

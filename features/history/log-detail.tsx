@@ -17,12 +17,14 @@ import { ShareCard } from "@/features/share/share-card";
 import { HeartPanel } from "@/features/heart/heart-panel";
 import type { WhoopStatus } from "@/features/heart/whoop";
 import { kindLabels } from "@/features/training/set-row";
-import { ProteinCheck } from "@/features/training/protein-check";
+import { ProteinCheck, ProteinProductSummary } from "@/features/training/protein-check";
+import type { ProteinProduct } from "@/features/training/protein";
 import type { TrainingEntry } from "@/shared/state";
 
-export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share, trackProtein, pendingSync, sex }: {
+export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, share, trackProtein, proteinProducts, pendingSync, sex }: {
   log: TrainingEntry; close: () => void; own: boolean; whoop?: WhoopStatus; onTemplate?: () => void;
   today?: string; onEdit?: (next: Session) => Promise<void>; trackProtein?: boolean; pendingSync?: boolean;
+  proteinProducts?: readonly ProteinProduct[];
   share?: { name: string; owner: string; logs: TrainingEntry[] };
   sex?: AnatomyVariant | null;
 }) {
@@ -56,8 +58,10 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
           <div><strong>{displayNumber(volume)}</strong><span>容量 kg</span></div>
         </div>}
       </header>
-      {own && trackProtein && onEdit && <ProteinCheck checked={log.data.proteinShake === true}
-        save={(proteinShake) => onEdit({ ...log.data, proteinShake })} />}
+      {own && (trackProtein && onEdit && !pendingSync
+        ? <ProteinCheck checked={log.data.proteinShake === true} product={log.data.proteinProduct} products={proteinProducts}
+          save={(proteinShake, proteinProduct) => onEdit({ ...log.data, proteinShake, proteinProduct })} />
+        : log.data.proteinShake && log.data.proteinProduct && <ProteinProductSummary product={log.data.proteinProduct} />)}
       {log.data.note && <p className="note">{log.data.note}</p>}
       {log.data.plan.video && <VideoLink url={log.data.plan.video} />}
       {pendingSync && <p className="muted" role="status">已在本机打卡，联网后自动同步</p>}

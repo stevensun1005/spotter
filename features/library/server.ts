@@ -19,7 +19,7 @@ export async function readLibrary(owner: string, day?: string, body = false): Pr
     : day
     ? db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND (kind IN ('targets', 'food', 'food-portions', 'nutrition-plan') " +
       "OR (kind IN ('nutrition', 'nutrition-energy') AND day = ?)) ORDER BY updated DESC").bind(owner, day)
-    : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins', 'protein-preference', 'history-order') ORDER BY updated DESC").bind(owner);
+    : db.prepare("SELECT payload, updated FROM personal_library WHERE owner = ? AND kind IN ('exercise', 'template', 'schedule', 'stats-pins', 'protein-preference', 'protein-warehouse', 'history-order') ORDER BY updated DESC").bind(owner);
   const { results } = await statement.all<{ payload: string; updated: string }>();
   return results.map(({ payload, updated }) => ({ ...JSON.parse(payload) as LibraryItem, updated }));
 }
@@ -38,10 +38,11 @@ export async function readRecentMealFoods(owner: string, day: string): Promise<R
 const staleLibraryItem = () => new HttpError(409, "模板或计划设置已在另一处变更，请关闭此窗口，刷新后重新编辑。");
 
 export async function saveLibrary(owner: string, item: LibraryItem, revision?: string | null) {
+  if (item.kind === "nutrition" && item.sourceWorkoutId) throw new HttpError(400, "在对应的训练记录中编辑蛋白粉打卡。");
   const id = libraryKey(item);
   const day = libraryDay(item);
   const payload = JSON.stringify(item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item);
-  const protectedWrite = item.kind === "template" || item.kind === "schedule" || item.kind === "body-profile";
+  const protectedWrite = item.kind === "template" || item.kind === "schedule" || item.kind === "body-profile" || item.kind === "protein-warehouse";
   const updated = nextRevision(new Date().toISOString(), protectedWrite ? [revision] : []);
   const db = database();
   const result = protectedWrite && revision ? await db.prepare(
@@ -49,12 +50,15 @@ export async function saveLibrary(owner: string, item: LibraryItem, revision?: s
   ).bind(payload, updated, owner, item.kind, id, revision).run() : await db.prepare(
     "INSERT INTO personal_library (owner, kind, id, day, payload, updated) VALUES (?, ?, ?, ?, ?, ?) " +
     "ON CONFLICT (owner, kind, id) " +
-    (protectedWrite ? "DO NOTHING" : "DO UPDATE SET day=excluded.day,payload=excluded.payload,updated=excluded.updated")
+    (protectedWrite ? "DO NOTHING" : "DO UPDATE SET day=excluded.day,payload=excluded.payload,updated=excluded.updated") +
+    (item.kind === "nutrition" ? " WHERE json_extract(personal_library.payload, '$.sourceWorkoutId') IS NULL" : "")
   ).bind(owner, item.kind, id, day, payload, updated).run();
   if (protectedWrite && !result.meta.changes) {
     if (item.kind === "body-profile") throw new HttpError(409, "身体档案已在另一处变更，请刷新后重新编辑。");
+    if (item.kind === "protein-warehouse") throw new HttpError(409, "仓库已在另一台设备更新，请确认最新产品后重试。");
     throw staleLibraryItem();
   }
+  if (item.kind === "nutrition" && !result.meta.changes) throw new HttpError(409, "在对应的训练记录中编辑蛋白粉打卡。");
   return updated;
 }
 
@@ -68,5 +72,10 @@ export async function removeLibrary(owner: string, kind: "template" | "nutrition
         .bind(owner, id, revision),
     ]);
     if (!removed?.meta.changes) throw staleLibraryItem();
-  } else await db.prepare("DELETE FROM personal_library WHERE owner = ? AND kind = ? AND id = ?").bind(owner, kind, id).run();
+  } else {
+    const removed = await db.prepare("DELETE FROM personal_library WHERE owner = ? AND kind = ? AND id = ? " +
+      "AND json_extract(payload, '$.sourceWorkoutId') IS NULL").bind(owner, kind, id).run();
+    if (!removed.meta.changes && await db.prepare("SELECT 1 FROM personal_library WHERE owner = ? AND kind = ? AND id = ?")
+      .bind(owner, kind, id).first()) throw new HttpError(409, "在对应的训练记录中取消蛋白粉打卡。");
+  }
 }

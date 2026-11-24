@@ -30,8 +30,10 @@ function Exercise({ move }: { move: Move }) {
   const label = move.sourceSlot?.endsWith("-warmup") ? "热身" : move.sourceSlot ?? move.block;
 
   return <li className={styles.exercise}>
-    <strong>{label && <span className={styles.slot}>{label}</span>}{move.name}</strong>
-    <span>{[`${move.sets} 组${amount ? ` × ${amount}` : ""}`, load].filter(Boolean).join(" · ")}</span>
+    <div className={styles.exerciseMain}>
+      <strong>{label && <span className={styles.slot}>{label}</span>}{move.name}</strong>
+      <span className={styles.dose}>{[`${move.sets} 组${amount ? ` × ${amount}` : ""}`, load].filter(Boolean).join(" · ")}</span>
+    </div>
     {metadata && <small>{metadata}</small>}
     {move.cue && <small>{move.cue}</small>}
   </li>;
@@ -46,7 +48,8 @@ export function ChatTrainingDraft({ draft, today, saved, busy, superseded, onSav
     if (addedToday?.has(index) || saved && draft[index].date === today) {
       return <span className={styles.confirmed} role="status"><Check size={16} aria-hidden="true" />已加到今天</span>;
     }
-    return <button className="button outline small" type="button" disabled={busy} onClick={() => onAddToday(index)}
+    return <button className={scheduledToday ? "button primary small" : "button outline small"}
+      type="button" disabled={busy} onClick={() => onAddToday(index)}
       aria-label={single ? undefined : `把${draft[index].title}加到今天`}>
       <CalendarPlus size={16} aria-hidden="true" />{single ? "添加到今日训练" : "添加这节到今日训练"}
     </button>;
@@ -56,11 +59,9 @@ export function ChatTrainingDraft({ draft, today, saved, busy, superseded, onSav
 
   return <section className={styles.card} aria-label="训练草稿" aria-busy={busy}>
     <div className={styles.header}>
-      <span className={styles.icon}><ClipboardList size={18} aria-hidden="true" /></span>
-      <div>
-        <strong>训练草稿</strong>
-        <small role="status">{draft.length} 节训练{saved ? " · 已保存到训练日历" : superseded ? " · 已有新版" : ""}</small>
-      </div>
+      <span className={styles.icon}><ClipboardList size={17} aria-hidden="true" /></span>
+      <strong>训练草稿</strong>
+      <small className={styles.status} role="status">{draft.length} 节训练{saved ? " · 已保存到训练日历" : superseded ? " · 已有新版" : ""}</small>
     </div>
     <div className={styles.sessions}>
       {draft.map((plan, index) => <details key={index} className={styles.session} open={single || undefined}>

@@ -21,6 +21,7 @@ import { seedSessionLoads } from "@/features/training/workout-loads";
 import { TrainingLaunch } from "@/features/training/training-launch";
 import type { FreeWorkoutKind } from "@/features/training/model";
 import { ProteinCheck } from "@/features/training/protein-check";
+import type { ProteinProduct } from "@/features/training/protein";
 import { PairToday } from "@/features/pair/pair-today";
 import { DisconnectPair } from "@/features/pair/disconnect-pair";
 import { WeekCheckins } from "@/features/pair/week-checkins";
@@ -65,6 +66,7 @@ import { AgentPack } from "@/features/agent/agent-pack";
 import { useDisplayPreferences } from "@/features/settings/display-preferences";
 import { SettingsHub, SettingsLink, SettingsRows, type SettingsPage } from "@/features/settings/settings-hub";
 import { SettingsContent } from "@/features/settings/settings-content";
+import { ProteinWarehouse } from "@/features/settings/protein-warehouse";
 import { useWorkoutReminder } from "@/features/settings/reminders";
 
 type View = "today" | "plans" | "programs" | "assistant" | "coaching" | "stats" | "friends" | "nutrition" | "body" | "data" | "settings";
@@ -158,6 +160,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const [planStatus, setPlanStatus] = useState<"pending" | "completed">("pending");
   const [confirmRemoveTemplate, setConfirmRemoveTemplate] = useState(false);
   const library = useLibrary(Boolean(viewer));
+  const proteinFoods = useLibrary(Boolean(viewer && view === "settings" && settingsPage === "proteinWarehouse"), today);
   const reloadLibrary = library.load;
   const [returnToLog, setReturnToLog] = useState(heartReturn);
   const [state, setState] = useState<State>(() => viewer ? { me: viewer, entries: [], room: null } : demoState(initialDate));
@@ -328,6 +331,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
   const profiles = library.rows.filter((item) => item.kind === "exercise").map(({ item }) => item);
   const templates = library.rows.filter((item) => item.kind === "template");
   const trackProtein = Boolean(viewer && library.rows.find((item) => item.kind === "protein-preference")?.enabled);
+  const proteinWarehouse = viewer ? library.rows.find((item) => item.kind === "protein-warehouse") : undefined;
+  const proteinProducts = proteinWarehouse?.products ?? [];
   const scheduleRow = library.rows.find((item) => item.kind === "schedule");
   const schedule = scheduleRow?.values ?? openSchedule;
   const exerciseNames = [
@@ -621,6 +626,16 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     });
   }
 
+  async function saveProteinProducts(products: ProteinProduct[]) {
+    if (!viewer) throw new Error("登录后可以保存蛋白粉。");
+    try {
+      await library.save({ kind: "protein-warehouse", products }, proteinWarehouse?.updated ?? null, viewer.id);
+    } catch (reason) {
+      await library.load();
+      throw reason;
+    }
+  }
+
   async function saveLogEdit(log: Log, data: Session) {
     const response = await post({ action: "editLog", id: log.id, revision: log.updated, data });
     const changes = await response.json() as Pick<Log, "data" | "updated">;
@@ -669,7 +684,8 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
 
   if (trainingNav.id) {
     if (overlay?.kind === "session" && overlay.id === trainingNav.id && !completedWorkout) {
-      return <AnatomySubject.Provider value={me.anatomyVariant}><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} trackProtein={trackProtein} close={() => { close(); trainingNav.leave(); }}
+      return <AnatomySubject.Provider value={me.anatomyVariant}><Workout key={overlay.id} onExercise={setExercise} data={overlay.data} trackProtein={trackProtein}
+        proteinProducts={proteinProducts} close={() => { close(); trainingNav.leave(); }}
         loadHistory={loadHistory}
         update={(data) => { setOverlay({ ...overlay, data }); upsertLocalDraft(overlay.id, data); }}
         finish={() => void finishSession(overlay.id, overlay.data)} error={warning} pending={busy} sync={sync} />{exerciseDialog}</AnatomySubject.Provider>;
@@ -812,6 +828,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView key={viewer?.id ?? "guest"} enabled={Boolean(viewer)} owner={viewer?.id} today={today}
           records={ownNutritionLogs} initialDate={nutritionStartDate} initialShortcut={nutritionShortcut} onMealPhoto={openMealPhoto}
+          proteinProducts={proteinProducts} onProteinWarehouse={() => { go("settings"); openSetting("proteinWarehouse"); }}
           onBack={() => go("today")} onBody={() => go("body")}
           onDevices={() => { go("settings"); openSetting("watches"); }} />}
         {view === "body" && <BodyView enabled={Boolean(viewer)} today={today} onProfileSaved={(sex) => {
@@ -835,8 +852,12 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
             latestWorkout={viewer && latestOwnWorkout ? () => open({ kind: "log", log: latestOwnWorkout }) : undefined}
             display={display} changeDisplay={changeDisplay}
             protein={<section className="card padded feature-stack"><ProteinCheck label="显示蛋白粉打卡" checked={trackProtein}
-              disabled={!viewer || library.loading || Boolean(library.error)} save={(enabled) => library.save({ kind: "protein-preference", enabled })} />
+              disabled={!viewer || library.loading || Boolean(library.error)} save={(enabled) => library.save({ kind: "protein-preference", enabled }, undefined, viewer?.id)} />
               <p className="muted">开启后可在结束训练时记录蛋白粉。</p></section>}
+            proteinWarehouse={<ProteinWarehouse owner={viewer?.id ?? ""} products={proteinProducts}
+              disabled={!viewer || library.loading || Boolean(library.error)} save={saveProteinProducts}
+              personalFoods={viewer ? proteinFoods.rows.filter((item) => item.kind === "food") : []}
+              onUseAgent={() => openPlanAssistant("ai")} />}
             data={<DataView enabled={Boolean(viewer)} saved={() => { void refresh(); void library.load(); }} importPlans={() => openSetting("planImport")} />}
             agent={<div className="feature-stack"><SettingsRows>
               <SettingsLink label="打开站内 AI 教练" detail="问答定制或自由对话" icon={Sparkles} onClick={() => openPlanAssistant("coach")} />
@@ -886,7 +907,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
                 if (!viewer) return "请先登录训练搭子，再查看你的训练统计。";
                 if (cloud === "正在连接") return "训练记录还在同步，稍后再问我一次。";
                 if (cloud === "云端连接异常") return "暂时读不到完整的云端训练记录，连接恢复后再问我一次。";
-                return summary.reply;
+                return summary;
               },
               saveWeight: viewer ? ({ id, date, kg }) => library.save({ kind: "nutrition", id, date, entry: { type: "weight", kg } }, undefined, viewer.id) : undefined,
               saveDraft: viewer ? (items) => savePlans(items, true, false) : undefined,
@@ -971,6 +992,7 @@ export default function Dashboard({ viewer, initialDate, initialWorkoutId, heart
     </Dialog>}
     {overlay?.kind === "log" && (overlay.log.owner === me.id || (overlay.log.owner === partnerWithDetails?.id &&
       logs.some(({ owner, id }) => owner === partnerWithDetails.id && id === overlay.log.id))) && <LogDetail log={overlay.log} close={close} own={Boolean(viewer && overlay.log.owner === me.id)} whoop={overlay.whoop} today={today} trackProtein={trackProtein}
+      proteinProducts={proteinProducts}
       sex={(overlay.log.owner === me.id ? me.anatomyVariant : partnerWithDetails?.anatomyVariant) ?? null}
       share={viewer && overlay.log.owner === me.id ? { name: me.name, owner: me.id, logs } : undefined}
       pendingSync={pendingLog}

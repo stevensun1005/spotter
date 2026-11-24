@@ -7,7 +7,9 @@ import { asDate, offsetDate } from "@/shared/dates";
 import { errorText } from "@/shared/client";
 import type { PlannedWorkout } from "@/features/plans/model";
 import type { MealEntry } from "@/features/library/model";
+import type { ActivitySummary } from "./activity-summary";
 import { ChatTrainingDraft } from "./chat-draft";
+import { CoachReplyCard, type CoachReplyKind } from "./reply-card";
 import { asksForTrainingPlan } from "./chat-intent";
 import { asksToReviseDraft, draftWindowFor, type DraftWindow } from "./plan-conversation";
 import { weightDialogue, type PendingWeight } from "./weight-dialogue";
@@ -18,7 +20,7 @@ import { coachModel, maxCoachConversationLength, maxCoachMessageLength, maxCoach
 type WeightRecord = { id: string; date: string; kg: number };
 export type CoachActions = {
   logMeal?: (meal?: MealEntry["meal"]) => void;
-  trainingStats?: (message: string, date: string) => string | undefined;
+  trainingStats?: (message: string, date: string) => ActivitySummary | string | undefined;
   saveWeight?: (record: WeightRecord) => Promise<void>;
   saveDraft?: (plans: PlannedWorkout[]) => Promise<void>;
   startWorkout?: () => void;
@@ -30,6 +32,8 @@ type Turn = {
   question: string;
   response?: CoachResponse;
   localReply?: string;
+  replyKind?: CoachReplyKind;
+  activity?: ActivitySummary;
   action?: "workout";
   weight?: WeightRecord;
   window?: DraftWindow;
@@ -158,7 +162,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   useEffect(() => {
     if (!mealResult || processedMeal.current === mealResult.id) return;
     processedMeal.current = mealResult.id;
-    setTurns((previous) => [...previous, { id: mealResult.id, kind: "local", question: "", localReply: mealResult.message }]);
+    setTurns((previous) => [...previous, { id: mealResult.id, kind: "local", question: "", localReply: mealResult.message, replyKind: "saved" }]);
   }, [mealResult]);
 
   function updateTurn(id: string, patch: Partial<Turn>) {
@@ -230,12 +234,12 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     if (!actions?.saveWeight || writing.current || request.current) return;
     writing.current = true;
     setWaiting(true);
-    updateTurn(turnId, { error: undefined, localReply: "正在保存体重…" });
+    updateTurn(turnId, { error: undefined, replyKind: "loading", localReply: "正在保存体重…" });
     try {
       await actions.saveWeight(record);
       failedWeight.current = undefined;
       setWeightPrompt(undefined);
-      updateTurn(turnId, { localReply: `已记录 ${record.date} 的体重 ${record.kg} kg。` });
+      updateTurn(turnId, { replyKind: "saved", localReply: `已记录 ${record.date} 的体重 ${record.kg} kg。` });
     } catch (reason) {
       failedWeight.current = record;
       updateTurn(turnId, { localReply: undefined, error: errorText(reason, "体重还没保存，请重试。") });
@@ -262,7 +266,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       else savedToday.add(todayIndex);
       updateTurn(turn.id, { saved: turn.saved || todayIndex === undefined ||
         turn.items.length === 1 && turn.items[0].data.date === date, addedToday: savedToday });
-      addTurn("local", "", { localReply: todayIndex === undefined
+      addTurn("local", "", { replyKind: "saved", localReply: todayIndex === undefined
         ? items.length === 1 ? `「${items[0].data.title}」已在 ${items[0].data.date} 的训练日程。` : `这 ${items.length} 节训练已在日程里。`
         : `「${items[0].data.title}」已加入今天的训练。` });
     } catch (reason) {
@@ -283,16 +287,16 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     if (weight.kind !== "pass") {
       clearInput();
       if (!owner || !actions?.saveWeight) {
-        addTurn("local", question, { localReply: "请先登录训练搭子，再记体重。" });
+        addTurn("local", question, { replyKind: "weight", localReply: "请先登录训练搭子，再记体重。" });
       } else if (weight.kind === "ask" || weight.kind === "cancel") {
         if (weight.kind === "ask") setWeightPrompt(weight);
         else { setWeightPrompt(undefined); failedWeight.current = undefined; }
-        addTurn("local", question, { localReply: weight.message });
+        addTurn("local", question, { replyKind: "weight", localReply: weight.message });
       } else {
         const date = weight.date ?? offsetDate(localDate, weight.dayOffset ?? 0);
         if (date > localDate) {
           setWeightPrompt({ dateRequired: true });
-          addTurn("local", question, { localReply: "体重记录需要实际测量的日期。请告诉我今天或之前的日期和体重。" });
+          addTurn("local", question, { replyKind: "weight", localReply: "体重记录需要实际测量的日期。请告诉我今天或之前的日期和体重。" });
           return;
         }
         const previous = failedWeight.current;
@@ -307,23 +311,24 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     const stats = actions?.trainingStats?.(question, localDate);
     if (stats) {
       clearInput();
-      addTurn("local", question, { localReply: stats });
+      addTurn("local", question, typeof stats === "string" ? { replyKind: "stats", localReply: stats }
+        : { replyKind: "stats", localReply: stats.reply, activity: stats });
       return;
     }
 
     const meal = question.match(/^(?:(?:我想|我要|帮我|给我|拍照)\s*)*(?:拍照记饮食|记饮食|记录饮食|记(?:录)?(早餐|午餐|晚餐|加餐)|拍照识别餐食)[。！!？? ]*$/u);
     if (meal) {
       clearInput();
-      if (!actions?.logMeal) addTurn("local", question, { localReply: "登录并启用饮食功能后，可以在这里拍照记餐。" });
+      if (!actions?.logMeal) addTurn("local", question, { replyKind: "meal", localReply: "登录并启用饮食功能后，可以在这里拍照记餐。" });
       else if (!mealPhoto) {
-        addTurn("local", question, { localReply: "拍一张餐食照片或从相册选图。我会填出份量和营养，你核对后再保存。" });
+        addTurn("local", question, { replyKind: "meal", localReply: "拍一张餐食照片或从相册选图。我会填出份量和营养，你核对后再保存。" });
         actions.logMeal(meal[1] as MealEntry["meal"] | undefined);
       }
       return;
     }
     if (/^(?:我想|我要|帮我|现在|今天)*\s*(?:开始训练|开始练|开练)[。！!？? ]*$/u.test(question)) {
       clearInput();
-      addTurn("local", question, { localReply: "准备好后，可以选一堂今天的训练或开始自由训练。", action: "workout" });
+      addTurn("local", question, { replyKind: "workout", localReply: "准备好后，可以选一堂今天的训练或开始自由训练。", action: "workout" });
       return;
     }
 
@@ -378,27 +383,27 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
         <div className="coach-thread-controls"><button className="button outline small" type="button" onClick={clearConversation} disabled={waiting}>
           <MessageSquarePlus size={17} aria-hidden="true" />新对话
         </button></div>
-        <ol className="coach-thread" aria-label="对话记录">
+      <ol className="coach-thread" aria-label="对话记录">
           {turns.map((turn) => {
             const { id, kind, question, response, localReply } = turn;
             const draft = response?.draft?.plans;
+            const replyKind = turn.replyKind ?? (draft ? "plan" : kind === "plan" || kind === "revision" ? "question" : "chat");
             return <li className="coach-turn" key={id}>
               {question && <div className="coach-own-message"><span className="sr-only">你</span><p>{question}</p></div>}
-              {(response || localReply) && <div className={draft ? "coach-reply coach-reply-draft" : "coach-reply"} aria-live="polite">
-                <div className="coach-reply-byline"><span>Spotter 教练</span></div>
-                <p>{localReply ?? response?.reply}</p>
+              {(response || localReply) && <CoachReplyCard kind={replyKind} reply={localReply ?? response?.reply}
+                activity={turn.activity} weight={replyKind === "saved" ? turn.weight : undefined}>
                 {turn.action === "workout" && actions?.startWorkout && <button className="button outline small coach-reply-action" type="button"
-                  onClick={actions.startWorkout}>选择训练</button>}
+                  onClick={actions.startWorkout}><Dumbbell size={16} aria-hidden="true" />选择训练</button>}
                 {draft && actions?.saveDraft && <ChatTrainingDraft draft={draft} today={today} saved={Boolean(turn.saved)} busy={waiting}
                   addedToday={turn.addedToday} error={turn.saveError} superseded={turn.superseded}
                   onSave={() => void saveDraft(turn)} onAddToday={(index) => void saveDraft(turn, index)}
                   onRevise={() => { setRevisionTarget(id); composer.current?.focus(); }} />}
-              </div>}
-              {turn.error && <div className="coach-turn-status inline-error" role="alert">{turn.error}
+              </CoachReplyCard>}
+              {turn.error && <CoachReplyCard kind="error" reply={turn.error}>
                 {turn.weight && failedWeight.current?.id === turn.weight.id && <button className="button outline small coach-reply-action"
                   type="button" disabled={waiting} onClick={() => { if (turn.weight) void recordWeight(id, turn.weight); }}>重试保存</button>}
-              </div>}
-              {kind !== "local" && !response && !turn.error && <p className="coach-turn-status" role="status">教练正在回复…</p>}
+              </CoachReplyCard>}
+              {kind !== "local" && !response && !turn.error && <CoachReplyCard kind="loading" reply="教练正在回复" />}
             </li>;
           })}
           {mealPhoto && <li className="coach-photo-tool" ref={photoPosition}>

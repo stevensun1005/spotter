@@ -1,9 +1,8 @@
 .card {
   display: grid;
-  gap: 10px;
+  gap: 9px;
   min-width: 0;
-  margin-block-start: 10px;
-  padding: 10px;
+  padding: 9px;
   color: var(--text);
   background: var(--coach-paper);
   border: 1px solid var(--stroke);
@@ -13,20 +12,21 @@
   overflow-wrap: anywhere;
 }
 
-.header { display: flex; align-items: center; gap: 8px; }
-.header small, .heading small { display: block; color: var(--muted); }
+.header { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 7px; }
+.heading small, .status { display: block; color: var(--muted); }
+.status { margin-inline-start: auto; }
 .icon {
   display: grid;
   flex: none;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   background: var(--coach-choice);
 }
 
 .sessions { display: grid; gap: 6px; }
-.session { border: 1px solid var(--stroke); border-radius: 10px; background: var(--card); }
+.session { border: 1px solid var(--stroke); border-radius: 11px; background: var(--card); }
 .session > summary {
   display: flex;
   align-items: center;
@@ -38,7 +38,8 @@
   list-style: none;
 }
 .session > summary::-webkit-details-marker { display: none; }
-.session > summary:hover { background: var(--coach-paper); }
+.session > summary:hover, .session[open] > summary { background: color-mix(in srgb, var(--coach-choice) 44%, var(--card)); }
+.session[open] > summary { border-end-start-radius: 0; border-end-end-radius: 0; }
 .heading { flex: 1; min-width: 0; }
 .chevron { color: var(--muted); flex: none; }
 .session[open] .chevron { transform: rotate(180deg); }
@@ -47,8 +48,10 @@
 .content { padding: 7px 9px 9px; }
 .content > small, .exercise small { color: var(--muted); }
 .exercises { margin: 0; padding: 0; list-style: none; }
-.exercise { display: grid; gap: 2px; padding-block-start: 7px; border-block-start: 1px solid var(--stroke); }
+.exercise { display: grid; gap: 3px; padding-block-start: 7px; border-block-start: 1px solid var(--stroke); }
+.exerciseMain { display: flex; justify-content: space-between; align-items: baseline; gap: 3px 9px; flex-wrap: wrap; min-width: 0; }
 .exercise strong { font-weight: 680; }
+.dose { color: var(--muted); font-size: .82rem; font-variant-numeric: tabular-nums; }
 .slot {
   display: inline-block;
   margin-inline-end: 5px;
@@ -60,5 +63,6 @@
 }
 
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.card :global(.button.small) { gap: 5px; padding-inline: 9px; font-size: .8rem; }
-.confirmed { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.card :global(.button.small) { min-block-size: 39px; gap: 5px; padding-inline: 9px; font-size: .82rem; }
+.card :global(.button.primary) { color: #24351d; }
+.confirmed { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 7px; background: var(--coach-choice); }

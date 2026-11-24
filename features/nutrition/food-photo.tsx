@@ -32,12 +32,13 @@ function encodePhoto(photo: HTMLImageElement) {
   return { mediaType: "image/jpeg" as const, base64 };
 }
 
-export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
+export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal, destination }: {
   owner: string;
   onApply: (draft: FoodPhotoDraft) => void;
   onBack?: () => void;
   onManual: () => void;
   onMeal?: (draft: MealPhotoDraft) => void;
+  destination?: "protein";
 }) {
   const [photo, setPhoto] = useState<string>();
   const [ready, setReady] = useState(false);
@@ -138,7 +139,9 @@ export function FoodPhoto({ owner, onApply, onBack, onManual, onMeal }: {
 
   return <div className="form-fields">
     {onBack && <button className="text-button food-back" type="button" onClick={onBack}><ArrowLeft size={17} aria-hidden="true" /> 返回食物库</button>}
-    <p className="muted">{onMeal ? "拍下整份餐食。站内 AI 会估算食物、份量和营养，核对后即可保存。" : "拍清楚包装品名和营养表。站内 AI 会读取每 100 克的营养，核对后可存入食物库。"}</p>
+    <p className="muted">{onMeal ? "拍下整份餐食。站内 AI 会估算食物、份量和营养，核对后即可保存。"
+      : destination === "protein" ? "拍清楚蛋白粉品名和营养表。站内 AI 会填入名称和每 100 克的营养，方便核对后保存。"
+      : "拍清楚包装品名和营养表。站内 AI 会读取每 100 克的营养，核对后可存入食物库。"}</p>
     {!configuration && <p role="status" className="muted">正在检查站内 AI…</p>}
     {configuration?.enabled ? <>
       <div className="food-photo-pickers">
