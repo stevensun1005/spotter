@@ -2,7 +2,7 @@ import type { TrainingEntry } from "@/shared/state";
 import { setVolumeKg, toKg } from "@/features/training/volume";
 import type { Move } from "@/features/plans/model";
 import type { SetLine } from "@/features/training/model";
-import { parsePlanMove } from "./move-name";
+import { canonicalCatalogueId, parsePlanMove } from "./move-name";
 
 export function estimatedMax(weight: number, reps: number) {
   if (weight <= 0 || reps < 1 || reps > 10) return null;
@@ -20,9 +20,14 @@ function setMetrics(line: SetLine, move: Move) {
 }
 
 export function exerciseHistory(name: string, logs: TrainingEntry[], owner: string, catalogueId?: string) {
+  const canonicalName = parsePlanMove(name).name;
+  const canonicalId = catalogueId && canonicalCatalogueId(catalogueId);
   return logs.filter((log) => log.kind === "log" && log.owner === owner).flatMap((log) =>
     log.data.plan.exercises.flatMap((move, index) => {
-      if (catalogueId && move.catalogueId ? catalogueId !== move.catalogueId : ![parsePlanMove(move.name).name, move.sourceName].includes(parsePlanMove(name).name)) return [];
+      const matches = canonicalId && move.catalogueId
+        ? canonicalId === canonicalCatalogueId(move.catalogueId)
+        : [move.name, move.sourceName].some((candidate) => candidate && parsePlanMove(candidate).name === canonicalName);
+      if (!matches) return [];
       const sets = (log.data.rows[index] ?? []).filter((line) => line.done).map((line) => ({ line, ...setMetrics(line, move) }));
       return sets.length ? [{
         id: log.id + ":" + index, title: log.data.plan.title, date: log.data.date, started: log.data.started,

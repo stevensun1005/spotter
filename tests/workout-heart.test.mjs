@@ -158,8 +158,8 @@ test("complete openGym snapshot keeps IDs, translations, filtering and artwork s
   const { catalogueAreas, matchesCatalogueArea } = await import("../features/exercises/catalogue-areas.ts");
   const read = (name) => JSON.parse(readFileSync(new URL("public/open-gym/" + name, root), "utf8"));
   const { rows, variants } = read("index.json");
-  assert.equal(rows.length, 5632);
-  assert.equal(Object.keys(variants).length, 922);
+  assert.equal(rows.length, 5630);
+  assert.equal(Object.keys(variants).length, 924);
   assert.equal(new Set(rows.map((entry) => entry.id)).size, rows.length);
   const parts = new Set(rows.map((entry) => entry.part));
   for (const part of parts) assert.ok(catalogueAreas.some((area) => area.id === part), part);
@@ -186,7 +186,7 @@ test("complete openGym snapshot keeps IDs, translations, filtering and artwork s
   assert.ok(anatomy["male-front"].regions["upper-chest"].length > 0);
   assert.ok(anatomy["female-back"].regions.lats.length > 0);
   const media = rows.filter((item) => item.animation);
-  assert.equal(media.length, 1257);
+  assert.equal(media.length, 1256);
   assert.equal(read("flow/0025.json").frames.length, 3);
   for (const item of media) assert.ok(existsSync(new URL("public/open-gym/flow/" + item.id + ".json", root)));
   const index = new Map();

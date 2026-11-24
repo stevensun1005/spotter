@@ -6,6 +6,8 @@ import { Dialog, displayNumber, VideoLink } from "@/shared/ui";
 import { shortDate } from "@/shared/dates";
 import { sessionTotals, type Session } from "@/features/training/model";
 import { parsePlanMove } from "@/features/exercises/move-name";
+import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
+import { exerciseTempo, tempoNotationHint } from "@/features/exercises/tempo";
 import { EditLog } from "./edit-log";
 import { ShareCard } from "@/features/share/share-card";
 import { HeartPanel } from "@/features/heart/heart-panel";
@@ -21,6 +23,7 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
 }) {
   const [editing, setEditing] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const { data: catalogue } = useCatalogue();
   const { volume, sets } = sessionTotals(log.data);
   if (sharing && own && share) return <ShareCard log={log} {...share} close={() => setSharing(false)} />;
   if (editing && onEdit && today) return <Dialog title="编辑训练记录" onClose={() => setEditing(false)}>
@@ -47,15 +50,21 @@ export function LogDetail({ log, close, own, whoop, onTemplate, onEdit, today, s
       {own && <HeartPanel id={log.id} session={log.data} whoopResult={whoop} />}
       {log.data.plan.exercises.length > 0 && <section className="log-exercises" aria-label="训练动作">
         <h3>训练动作</h3>
-        {log.data.plan.exercises.map((item, i) => <div className="log-move" key={i}><strong>{parsePlanMove(item.name).name}</strong>
-          {log.data.rows[i].map((line, j) => line.done && <div key={j}>
-            <span>第 {j + 1} 组{line.kind ? " · " + kindLabels[line.kind] : ""}</span>
-            <span>{line.seconds ? line.seconds + " 秒" + (line.weight ? " · " + line.weight + " " + item.unit : "") :
-              line.right ? "左 " + line.weight + " " + item.unit + " × " + line.reps + " · 右 " + line.right.weight + " " + item.unit + " × " + line.right.reps :
-              line.weight + " " + item.unit + " × " + line.reps + " 次"}{line.rpe === undefined ? "" : " · RPE " + line.rpe}</span>
-            <Check size={16} />
-          </div>)}
-        </div>)}
+        {log.data.plan.exercises.map((item, i) => {
+          const { name, cue } = parsePlanMove(item.name);
+          const choice = { ...item, name, cue: item.cue ?? cue };
+          const tempo = exerciseTempo(choice, fromCatalogue(catalogue, choice), log.data.plan.category);
+          return <div className="log-move" key={i}><strong>{name}</strong>
+            <p className="muted" title={tempo.numeric ? tempoNotationHint : undefined}><small>{tempo.label} {tempo.text}</small></p>
+            {log.data.rows[i].map((line, j) => line.done && <div key={j}>
+              <span>第 {j + 1} 组{line.kind ? " · " + kindLabels[line.kind] : ""}</span>
+              <span>{line.seconds ? line.seconds + " 秒" + (line.weight ? " · " + line.weight + " " + item.unit : "") :
+                line.right ? "左 " + line.weight + " " + item.unit + " × " + line.reps + " · 右 " + line.right.weight + " " + item.unit + " × " + line.right.reps :
+                line.weight + " " + item.unit + " × " + line.reps + " 次"}{line.rpe === undefined ? "" : " · RPE " + line.rpe}</span>
+              <Check size={16} />
+            </div>)}
+          </div>;
+        })}
       </section>}
     </div>
     {(onTemplate || onEdit || canShare) && <div className="dialog-footer log-detail-actions">

@@ -9,6 +9,7 @@ import { type ExerciseProfile } from "@/features/library/model";
 import { OpenGymCatalogue } from "./open-gym-catalogue";
 import { fromCatalogue, useCatalogue, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 import { label } from "./labels";
+import { exerciseTempo, tempoMaxLength, tempoNotationHint } from "./tempo";
 
 export function defaultCatalogMove(choice: ExerciseChoice, item?: CatalogEntry, prior?: Move) {
   const timed = item?.hold || item?.type === "isometric" || item?.type === "cardio";
@@ -39,7 +40,7 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
   function confirm(event: FormEvent) {
     event.preventDefault();
     event.stopPropagation();
-    if (config) onUse({ ...config.move, name: config.move.name.trim() });
+    if (config) onUse({ ...config.move, name: config.move.name.trim(), tempo: config.move.tempo?.trim() || undefined });
   }
   const fields = [
     { label: "组数", key: "sets", low: 1, high: 30 },
@@ -56,6 +57,9 @@ export function ExercisePicker({ onUse, close, prior, profiles, names, allowBlan
         <div className="field-grid">{fields.map(({ label, key, low, high }) => <label key={key}>{label}
           <input type="number" min={low} max={high} required={key === "sets"} value={config.move[key] ?? ""}
             onChange={(event) => setConfig({ ...config, move: { ...config.move, [key]: Number(event.target.value) } })} /></label>)}</div>
+        <label>节奏<input maxLength={tempoMaxLength} title={tempoNotationHint} value={config.move.tempo ?? ""}
+          placeholder={exerciseTempo(config.move, config.item).text}
+          onChange={(event) => setConfig({ ...config, move: { ...config.move, tempo: event.target.value || undefined } })} /></label>
         <button className="button primary" disabled={!config.move.name.trim()}><Plus size={17} /> {prior ? "使用这个动作" : "加入动作"}</button>
       </form> : <>
         {prior && <p className="muted">替换「{prior.name}」</p>}

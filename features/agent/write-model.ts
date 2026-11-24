@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tempoMaxLength } from "@/features/exercises/tempo";
 import { personalFood } from "@/features/library/model";
 import { categories, cleanPlan, planSchema } from "@/features/plans/model";
 import { profileRefSchema } from "./profile";
@@ -61,6 +62,7 @@ const planItem = {
           block: { type: "string", pattern: "^[A-Z](?:-[2-9]|-[12]\\d|-30)?$" },
           station: text(60),
           cue: text(220),
+          tempo: { ...text(tempoMaxLength), description: "保留原计划节奏，例如 2-0-1-0。未注明时省略。" },
           sourceSlot: { type: "string", pattern: "^[A-Z](?:\\d+|-warmup)?$" },
           sourceName: text(100),
           restSeconds: integer(0, 600),

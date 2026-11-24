@@ -10,6 +10,7 @@ import { catalogueSections } from "./catalog-sections";
 import { catalogueAreas, matchesCatalogueArea } from "./catalogue-areas";
 import { groups, label, muscleNames, termMuscles } from "./labels";
 import { useCatalogue, type CatalogEntry, type ExerciseChoice } from "./open-gym";
+import { canonicalMoveName } from "./move-name";
 
 const viewKey = "spotter:exercise-view";
 const gearKey = "spotter:exercise-gear";
@@ -30,7 +31,7 @@ type Props = {
 export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sameMuscle, picker }: Props) {
   const { data, error, reload } = useCatalogue();
   const [query, setQuery] = useState("");
-  const search = useDeferredValue(query);
+  const search = useDeferredValue(canonicalMoveName(query.trim()));
   const [area, setArea] = useState("");
   const [customName, setCustomName] = useState<string>();
   const [type, setType] = useState("");
@@ -52,7 +53,7 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   }, []);
   const favorites = useMemo(() => new Set(profiles.filter((profile) => profile.pinned).map(({ name }) => normalizeSearch(name))), [profiles]);
   const chosen = useMemo(() => new Set(names.map(normalizeSearch)), [names]);
-  const personal = useMemo(() => [...new Set([...profiles.map(({ name }) => name), ...names])], [profiles, names]);
+  const personal = useMemo(() => [...new Set([...profiles.map(({ name }) => name), ...names].map(canonicalMoveName))], [profiles, names]);
   const source = useMemo(() => {
     if (area === "custom") return [];
     const rows = (data?.rows ?? []).filter((item) => matchesCatalogueArea(item, area));
@@ -90,7 +91,7 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     ? [...featuredIds.flatMap((id) => rows.find((row) => row.id === id) ?? []),
       ...rows.filter((row) => row.animation && !featuredIds.includes(row.id)).slice(0, 3)].slice(0, 3)
     : [];
-  const parsedCustom = exerciseName.safeParse(customName);
+  const parsedCustom = exerciseName.safeParse(customName === undefined ? undefined : canonicalMoveName(customName.trim()));
   const customExists = (name: string) => known.has(normalizeSearch(name)) || personal.some((item) => normalizeSearch(item) === normalizeSearch(name));
   const selectedWeights = Object.fromEntries(terms.flatMap(termMuscles).map((key) => [key, 100]));
   const show = (change: () => void) => { change(); setVisibleBySection({}); };
@@ -109,7 +110,7 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     target?.scrollIntoView({ block: "start", inline: "nearest" });
   }
   const pickTerm = (key: string) => show(() => setTerms((items) => items.includes(key) ? items.filter((item) => item !== key) : [...items, key]));
-  const searchName = exerciseName.safeParse(query);
+  const searchName = exerciseName.safeParse(canonicalMoveName(query.trim()));
   function changeScope(next: string) {
     show(() => {
       setScope(scope === next ? "" : next);

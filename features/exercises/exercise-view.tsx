@@ -12,10 +12,16 @@ import { ExerciseProgress } from "./progress";
 import { MuscleBreakdown } from "./anatomy";
 import { ExerciseAnimation } from "./exercise-animation";
 import { exerciseMotion } from "./motion-data";
+import poseSources from "./workout-guide-motions.json" with { type: "json" };
+import flowSources from "./flow-motion-equivalents.json" with { type: "json" };
 import { fromCatalogue, useCatalogue, useCatalogDetail, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 import { label as translate } from "./labels";
 import { exerciseMuscles, researchedGuide } from "./guidance";
 import { GuideEditor } from "./guide-editor";
+import { exerciseTempo, tempoNotationHint } from "./tempo";
+
+const poseMotions: Record<string, string> = poseSources;
+const flowMotions: Record<string, string> = flowSources;
 
 const sections = [
   { id: "guide", label: "要点", icon: BookOpen }, { id: "history", label: "历史", icon: Clock3 },
@@ -41,9 +47,12 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
     ? fromCatalogue(data, { name: referenceName, catalogueId: reference.demoCatalogueId })
     : item;
   const motion = exerciseMotion(name, base, choice.sourceName, demo?.id, demo?.animation);
+  const animationId = motion.id ?? (!motion.illustration && demo ? flowMotions[demo.id] : undefined);
+  const poseSlug = !motion.illustration && demo ? poseMotions[demo.id] : undefined;
   const weights = exerciseMuscles(referenceName, item, personal);
   const steps = personal?.steps.length ? personal.steps : reference?.steps ?? (detail?.data?.steps.length ? detail.data.steps : guide?.steps);
   const description = personal?.description || reference?.description || detail?.data?.description;
+  const cadence = exerciseTempo(choice, item, choice.trainingCategory);
   const [tab, setTab] = useState<typeof sections[number]["id"]>("guide");
   const [note, setNote] = useState(profile.note);
   const [label, setLabel] = useState("");
@@ -77,15 +86,19 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
     <div className="dialog-body feature-stack">
       {error && <p className="inline-error" role="alert">{error}</p>}
       {tab === "guide" && <>
-        {motion.id || motion.illustration ? <ExerciseAnimation key={motion.id ?? referenceName}
-          id={motion.id} illustration={motion.illustration} name={referenceName} thumbnail /> :
-          guide?.photos && <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} />}
+        {animationId || motion.illustration || poseSlug ? <ExerciseAnimation key={animationId ?? poseSlug ?? referenceName}
+          id={animationId} illustration={motion.illustration} poseSlug={poseSlug} name={referenceName} /> :
+          guide?.photos ? <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} /> :
+          item && <p className="muted catalogue-detail-label">此动作暂无已核对的动画。</p>}
         {referenceName !== base && <p className="muted catalogue-detail-label">{referenceName}</p>}
         <div className="exercise-toolbar"><span>{reference?.equipment || (item ? translate(item.equipment) : guide?.equipment ?? "自定义动作")}</span><div>
           {addToPlan && <button type="button" className="button outline small" onClick={() => addToPlan(choice, item)}><Plus size={15} /> 加入计划</button>}
           <button type="button" className="button outline small" aria-pressed={profile.pinned} disabled={busy} onClick={() => void update({ ...profile, pinned: !profile.pinned })}><Pin size={15} /> {profile.pinned ? "取消置顶" : "置顶"}</button>
         </div></div>
         <section className="card padded feature-stack"><h3>动作步骤</h3>
+          <p className="exercise-plan-cue"><strong>{cadence.label}</strong> {cadence.text}
+            {cadence.numeric && <small className="exercise-tempo-hint">{tempoNotationHint}</small>}
+          </p>
           {description && <p>{description}</p>}
           {choice.cue && <p className="exercise-plan-cue"><strong>本次计划</strong> {choice.cue}</p>}
           {steps?.length ? <ol className="exercise-steps">{steps.map((step, index) => <li key={index}>{step}</li>)}</ol> :

@@ -1,15 +1,17 @@
 import { z } from "zod";
 import { dateSchema } from "@/shared/dates";
-import { parsePlanMove } from "@/features/exercises/move-name";
+import { canonicalCatalogueId, canonicalMoveName, parsePlanMove } from "@/features/exercises/move-name";
+import { normalizeTempo, tempoMaxLength } from "@/features/exercises/tempo";
 
 export const categories = ["力量训练", "有氧训练", "拉伸恢复", "跟练视频", "其他"] as const;
 const text = (max: number) => z.string().trim().min(1).max(max);
 const move = z.object({
-  name: text(100),
-  catalogueId: z.string().regex(/^\d{4,6}$/).optional(),
+  name: text(100).transform(canonicalMoveName),
+  catalogueId: z.string().regex(/^\d{4,6}$/).transform(canonicalCatalogueId).optional(),
   block: z.string().regex(/^[A-Z](?:-[2-9]|-[12]\d|-30)?$/).optional(),
   station: text(60).optional(),
   cue: text(220).optional(),
+  tempo: text(tempoMaxLength).transform(normalizeTempo).optional(),
   sourceSlot: z.string().regex(/^[A-Z](?:\d+|-warmup)?$/).optional(),
   sourceName: text(100).optional(),
   sets: z.number().int().min(1).max(30),

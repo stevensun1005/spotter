@@ -16,7 +16,7 @@ const guideDetails: Record<AgentScope, readonly string[]> = {
     "## 训练",
     "- 新计划用 add_spotter_plans。每批 1–20 堂，传 plans 数组，每堂有 title、date（YYYY-MM-DD）、category；可补充 minutes、video、durationNote、defaultRestSeconds、exercises。",
     "- category 选「力量训练」「有氧训练」「拉伸恢复」「跟练视频」「其他」。按用户当地日期安排未指定开始日的计划。动作沿用动作库名称；分组和顺序可单放 block、station、sourceSlot，休息用 restSeconds。",
-    "- 动作保留 name、sets、reps、weight、unit（kg 或 lb）、seconds。保留已知的重量、范围和分侧信息；组数、次数或休息时间有疑问时先核对。未知重量填 0；只有跟练链接时保留原链接，动作空数组，未知时长填 0。计划默认私密。",
+    "- 动作保留 name、sets、reps、weight、unit（kg 或 lb）、seconds。保留已知的重量、范围、分侧和 tempo（例如 2-0-1-0）；组数、次数或休息时间有疑问时先核对。未知重量填 0；只有跟练链接时保留原链接，动作空数组，未知时长填 0。计划默认私密。",
     "- 示例参数在下方。已完成的训练用 import_spotter_records 的 training 类别，成品放 backup.training 中的 log，只在用户确认确实完成后写入。",
   ],
   nutrition: [
@@ -49,7 +49,7 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
   const exampleDate = "2026-01-01";
   const exampleId = "12345678-1234-4234-8234-123456789000";
   const examplePlan: Plan = { title: "上肢力量", date: exampleDate, category: "力量训练", minutes: 45, shared: false, video: "",
-    exercises: [{ name: "哑铃卧推", sets: 3, reps: 10, weight: 0, unit: "kg", seconds: 0 }] };
+    exercises: [{ name: "哑铃卧推", sets: 3, reps: 10, weight: 0, unit: "kg", seconds: 0, tempo: "2-0-1-0" }] };
   const importExample = (kind: AgentScope, entry: LibraryItem) => jsonBlock({
     profileRef, scope: kind, confirmed: true, backup: { format: "spotter-backup", version: 1, training: [], library: [entry], heart: [] },
   });

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { ExercisePicker } from "@/features/exercises/exercise-picker";
+import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
+import { exerciseTempo, tempoMaxLength, tempoNotationHint } from "@/features/exercises/tempo";
 import { Plus, Trash2 } from "lucide-react";
 import { defaultRest } from "@/features/training/sequence";
 import { categories, type Move, type Plan } from "./model";
@@ -11,6 +13,7 @@ export function PlanFields({ value, change, template = false, templates }: {
   value: Plan; change: (plan: Plan) => void; template?: boolean; templates?: readonly { id: string; plan: Plan }[];
 }) {
   const [picker, setPicker] = useState(false);
+  const { data: catalogue } = useCatalogue();
   const linked = !template && Boolean(value.templateId);
   const selected = templates?.find((item) => item.id === value.templateId);
   const resolved = linked ? resolvePlanTemplate(value, selected?.plan) : value;
@@ -52,7 +55,7 @@ export function PlanFields({ value, change, template = false, templates }: {
         <summary>{[resolved.category, resolved.exercises.length ? resolved.exercises.length + " 个动作" : "视频跟练",
           resolved.minutes > 0 && resolved.minutes + " 分钟"].filter(Boolean).join(" · ")}</summary>
         {resolved.exercises.length > 0 && <ul className="sequence-moves">{resolved.exercises.map((item, index) => <li key={index}>
-          <span>{item.name} · {item.sets} 组</span>
+          <span>{item.name} · {item.sets} 组 · {exerciseTempo(item, fromCatalogue(catalogue, item), resolved.category).text}</span>
         </li>)}</ul>}
         {resolved.durationNote && <p className="muted">{resolved.durationNote}</p>}
       </details>
@@ -75,7 +78,12 @@ export function PlanFields({ value, change, template = false, templates }: {
           <label>组别<input maxLength={4} pattern="[A-Z](?:-[2-9]|-[12][0-9]|-30)?" placeholder="如 A 或 A-2；留空为独立动作" value={item.block ?? ""} onChange={(e) => editMove(index, { block: e.target.value.toUpperCase() || undefined })} /></label>
           <label>器械站<input maxLength={60} placeholder="如 哑铃＋可调凳" value={item.station ?? ""} onChange={(e) => editMove(index, { station: e.target.value || undefined })} /></label>
         </div>
-        <label>动作备注<input maxLength={220} value={item.cue ?? ""} onChange={(e) => editMove(index, { cue: e.target.value || undefined })} /></label>
+        <div className="field-grid">
+          <label>动作备注<input maxLength={220} value={item.cue ?? ""} onChange={(e) => editMove(index, { cue: e.target.value || undefined })} /></label>
+          <label>节奏<input maxLength={tempoMaxLength} title={tempoNotationHint} value={item.tempo ?? ""}
+            placeholder={exerciseTempo(item, fromCatalogue(catalogue, item), value.category).text}
+            onChange={(event) => editMove(index, { tempo: event.target.value || undefined })} /></label>
+        </div>
         <div className="move-grid">
           <label>组数<input aria-label={"动作 " + (index + 1) + " 组数"} type="number" min={1} max={30} value={item.sets || ""} onChange={(e) => editMove(index, { sets: Number(e.target.value) })} /></label>
           <label>次数<input aria-label={"动作 " + (index + 1) + " 次数"} type="number" min={0} max={999} value={item.reps} onChange={(e) => editMove(index, { reps: Number(e.target.value), repsMax: item.repsMax && item.repsMax >= Number(e.target.value) && Number(e.target.value) > 0 ? item.repsMax : undefined })} /></label>

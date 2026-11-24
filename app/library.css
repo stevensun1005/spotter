@@ -12,6 +12,7 @@
 .exercise-tabs button { display: flex; gap: 6px; align-items: center; justify-content: center; min-height: 40px; border-radius: 8px; color: var(--muted); font-size: .86rem; font-weight: 720; }
 .exercise-tabs button[aria-pressed=true] { background: #e3efd9; color: #304d2d; }
 .exercise-plan-cue { background: var(--mint); border-radius: 8px; padding: 8px 10px; font-size: .9rem; }
+.exercise-tempo-hint { display: block; margin-block-start: 4px; color: var(--muted); font-size: .78rem; }
 .exercise-plan-cue strong { margin-inline-end: 5px; }
 .custom-guide summary { cursor: pointer; font-weight: 740; min-height: 44px; align-content: center; }
 .custom-guide .form-fields { margin-top: 8px; }

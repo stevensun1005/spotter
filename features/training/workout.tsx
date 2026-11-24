@@ -12,6 +12,8 @@ import { ExercisePicker } from "@/features/exercises/exercise-picker";
 import type { Move } from "@/features/plans/model";
 import { pauseClock, resumeClock, workoutElapsed } from "./clock";
 import { parsePlanMove } from "@/features/exercises/move-name";
+import { fromCatalogue, useCatalogue, type ExerciseChoice } from "@/features/exercises/open-gym";
+import { exerciseTempo, tempoNotationHint } from "@/features/exercises/tempo";
 import { blockTitle, defaultRest, nextSet, restFor, trainingBlocks, type SetPosition } from "./sequence";
 
 const showTime = (seconds: number) => [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, "0")).join(":");
@@ -20,7 +22,7 @@ type Edit = SetTarget & { text: string; pristine: boolean };
 
 export function Workout({ data, update, finish, close, pending, error, sync, onExercise, trackProtein }: {
   data: Session; update: (next: Session) => void; finish: () => void; close: () => void;
-  pending: boolean; error: string; sync: string; onExercise?: (move: Move) => void; trackProtein?: boolean;
+  pending: boolean; error: string; sync: string; onExercise?: (choice: ExerciseChoice) => void; trackProtein?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [edit, setEdit] = useState<Edit | null>(null);
@@ -53,6 +55,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
 
   const plan = data.plan;
   const blocks = trainingBlocks(plan.exercises);
+  const { data: catalogue } = useCatalogue();
   const pendingSet = nextSet(plan, data.rows);
   const activeBlock = pendingSet && blocks.find((block) => block.moves.includes(pendingSet.move));
   const activeSlot = activeBlock && pendingSet && activeBlock.slots[activeBlock.moves.indexOf(pendingSet.move)];
@@ -221,17 +224,19 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
           {block.moves.map((i, slot) => {
             const item = plan.exercises[i];
             const { name, cue } = parsePlanMove(item.name);
-            const move = { ...item, name };
+            const move = { ...item, name, cue: item.cue ?? cue };
+            const tempo = exerciseTempo(move, fromCatalogue(catalogue, move), plan.category);
             return <details className="set-card" key={i} open={openedMove === i}>
           <summary onClick={(event) => { event.preventDefault(); setOpenedMove(openedMove === i ? -1 : i); }}>
             <span className="sequence-slot">{block.label ? block.slots[slot] : <Dumbbell size={17} />}</span>
             <strong>{move.name}</strong><span className="set-summary"><span className="muted">{data.rows[i].filter((line) => line.done).length}/{move.sets} 组</span><ChevronDown size={16} /></span>
           </summary>
-          {(move.cue || cue) && <p className="muted set-prescription">{move.cue ?? cue}</p>}
+          {move.cue && <p className="muted set-prescription">{move.cue}</p>}
+          <p className="muted set-prescription" title={tempo.numeric ? tempoNotationHint : undefined}>{tempo.label} {tempo.text}</p>
           {(move.repsMax || move.restSeconds) && <p className="muted set-prescription">{move.seconds ? move.seconds + " 秒／组" : move.reps + (move.repsMax && move.repsMax > move.reps ? "–" + move.repsMax : "") + " 次／组"}
             {move.restSeconds !== undefined ? " · " + (block.moves.length > 1 ? "轮间" : "组间") + "休息 " + move.restSeconds + " 秒" : ""}</p>}
           <div className="workout-exercise-actions" role="group" aria-label="动作操作">
-            {onExercise && <button type="button" className="button subtle" onClick={() => onExercise(move)}><BookOpen size={16} /> 查看动作详情</button>}
+            {onExercise && <button type="button" className="button subtle" onClick={() => onExercise({ ...move, trainingCategory: plan.category })}><BookOpen size={16} /> 查看动作详情</button>}
             <button type="button" className="button subtle" disabled={data.rows[i].some((line) => line.done)} onClick={() => setPicker(i)}>替换动作</button>
           </div>
           {data.rows[i].map((line, j) => <div id={"workout-set-" + i + "-" + j} key={j} className={pendingSet?.move === i && pendingSet.row === j ? "workout-next-set" : undefined}><SetRow move={move} line={line} index={j}

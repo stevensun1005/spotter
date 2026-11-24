@@ -13,4 +13,8 @@ https://github.com/melihcolpan/MuscleMap/tree/d53ddf4d480b65979f1008b203e6b6eda0
 https://github.com/ozansozuozgit/flow-exercise-dataset/tree/961bb2739015da373daa43b960c28ee839fe93e6
 许可和来源限制见 FLOW-ARTWORK-LICENSE.txt 与 FLOW-NOTICE.txt。
 
+部分目录动作的分帧示意来自 Workout Guide，由 Bryl Lim 创作，部分原始姿势由 Everkinetic 提供。
+这些帧根据 CC BY-SA 4.0 授权按原样转载。每帧的来源与改动记录见 workout-guide/attribution.json。
+https://github.com/bryllim/workout-guide/tree/aac599224bb9780305239607ef98540b7e0ce389
+
 原版 Gym visual 媒体需要独立许可。

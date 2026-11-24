@@ -7,6 +7,7 @@ from xml.etree import ElementTree
 
 muscle, flow, opengym = map(Path, sys.argv[1:4])
 output = Path("public/open-gym")
+corrections = json.loads((Path(__file__).resolve().parents[1] / "features/exercises/catalog-corrections.json").read_text(encoding="utf-8"))
 (output / "flow").mkdir(parents=True, exist_ok=True)
 (output / "thumb").mkdir(parents=True, exist_ok=True)
 converted = json.loads((opengym / "frontend/src/lib/body-paths.js").read_text(encoding="utf-8").split("export default ", 1)[1].strip())
@@ -59,6 +60,8 @@ known = []
 unmatched = {}
 for item in json.loads((flow / "data/exercises.json").read_text(encoding="utf-8")):
     id_ = item["id"]
+    if id_ in corrections:
+        continue
     animation = item.get("animation")
     if not animation or animation.get("license") != "CC0-1.0":
         continue

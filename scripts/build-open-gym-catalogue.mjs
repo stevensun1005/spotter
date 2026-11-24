@@ -3,6 +3,7 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import corrections from "../features/exercises/catalog-corrections.json" with { type: "json" };
 
 const upstream = resolve(process.argv[2] ?? "");
 const target = resolve(process.argv[3] ?? "public/open-gym");
@@ -54,7 +55,11 @@ function muscles(entry, override) {
 
 for (const entry of EXDB) {
   if (!/^\d{4,6}$/.test(entry.id)) throw new Error("Unexpected exercise id: " + entry.id);
+  if (corrections[entry.id]) continue;
   const raw = await read(join(upstream, "catalogue/exercises", entry.id + ".json"));
+  if (entry.eq.endsWith("barbell") && /\balternat(?:e|ing)\b/.test(entry.n) && /\b(?:biceps? curl|row)\b/.test(entry.n)) {
+    throw new Error("Review incompatible alternating barbell exercise: " + entry.id + " " + entry.n);
+  }
   const zh = localized[entry.id];
   const override = edited[entry.id];
   const weights = muscles(entry, override);
@@ -72,7 +77,18 @@ for (const entry of EXDB) {
   };
 }
 
+const variants = { ...EXALIAS };
+for (const [id, correction] of Object.entries(corrections)) {
+  if (catalog.find((row) => row.id === correction.id)?.name !== correction.name) {
+    throw new Error("Missing or renamed canonical exercise for " + id);
+  }
+  variants[id] = correction.id;
+}
+for (const [id, canonical] of Object.entries(variants)) {
+  variants[id] = corrections[canonical]?.id ?? canonical;
+}
+
 await mkdir(join(target, "details"), { recursive: true });
-await writeFile(join(target, "index.json"), JSON.stringify({ rows: catalog, variants: EXALIAS }));
+await writeFile(join(target, "index.json"), JSON.stringify({ rows: catalog, variants }));
 await Promise.all([...shards].map(([id, data]) => writeFile(join(target, "details", id + ".json"), JSON.stringify(data))));
-console.log(JSON.stringify({ exercises: catalog.length, variants: Object.keys(EXALIAS).length, details: shards.size, animations: catalog.filter(x=>x.animation).length }));
+console.log(JSON.stringify({ exercises: catalog.length, variants: Object.keys(variants).length, details: shards.size, animations: catalog.filter(x=>x.animation).length }));

@@ -12,7 +12,10 @@ registerHooks({ resolve(specifier, context, next) {
   }
   return next(specifier, context);
 } });
-const { agentFoodWrite, agentPlanWrite, agentRecordId, isAgentWriteTool } = await import("../features/agent/write-model.ts");
+const { agentFoodWrite, agentPlanWrite, agentRecordId, agentWriteTools, isAgentWriteTool } = await import("../features/agent/write-model.ts");
+
+const { parseImport } = await import("../features/import/parse.ts");
+const { exerciseTempo } = await import("../features/exercises/tempo.ts");
 
 const auth = { profileRef: "spotter_" + "a".repeat(32), confirmed: true };
 const plan = {
@@ -37,6 +40,21 @@ test("Agent plan writes normalize their stable IDs, default quantities, and priv
   assert.equal(agentPlanWrite.safeParse({ ...auth, plans: Array(21).fill(plan) }).success, false);
   assert.equal(agentPlanWrite.safeParse({ ...auth, owner: "untrusted", plans: [plan] }).success, false);
   assert.equal(agentPlanWrite.safeParse({ ...auth, confirmed: false, plans: [plan] }).success, false);
+});
+
+test("tempo survives plan import and defaults match the movement type for legacy plans", () => {
+  const [saved] = agentPlanWrite.parse({
+    ...auth, plans: [{ ...plan, exercises: [{ ...plan.exercises[0], tempo: " 3 / 1 / x / 0 " }] }],
+  }).plans;
+  assert.equal(saved.exercises[0].tempo, "3-1-X-0");
+  assert.equal(parseImport(JSON.stringify(saved), saved.date)[0].exercises[0].tempo, "3-1-X-0");
+  assert.equal(parseImport("哑铃卧推 3×10 · 节奏 3110", saved.date)[0].exercises[0].tempo, "3-1-1-0");
+  assert.equal(agentWriteTools[0].inputSchema.properties.plans.items.properties.exercises.items.properties.tempo.type, "string");
+  assert.deepEqual(exerciseTempo(saved.exercises[0]), { label: "计划节奏", text: "3-1-X-0", numeric: true });
+  assert.deepEqual(exerciseTempo(plan.exercises[0]), { label: "建议节奏", text: "2-0-1-0", numeric: true });
+  assert.equal(exerciseTempo({ name: "平板支撑", seconds: 30 }).text, "保持姿势并呼吸 30 秒");
+  assert.equal(exerciseTempo({ name: "健身单车" }, { type: "cardio" }).numeric, false);
+  assert.equal(exerciseTempo({ name: "敏捷球训练" }, { type: "plyometrics" }).text, "快速发力，稳定后再做下一次");
 });
 
 test("Agent food writes require complete numeric per-100g data and match only supported tools", async () => {
