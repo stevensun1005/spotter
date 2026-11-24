@@ -1,5 +1,6 @@
 import { normalizeSearch } from "./catalog-search";
 import type { CatalogEntry } from "./open-gym";
+import type { ExerciseFamily } from "./catalog-families";
 
 const sectionDefinitions = [
   ["pinned", "置顶", "置", []],
@@ -31,6 +32,25 @@ export type CatalogueSection = {
   rows: CatalogEntry[];
   customNames: string[];
 };
+
+export function collapseCatalogueRows(rows: readonly CatalogEntry[], families: ReadonlyMap<string, ExerciseFamily>,
+  scores: ReadonlyMap<string, number>, favorites: ReadonlySet<string>): CatalogEntry[] {
+  const visible = new Set(rows.map((row) => row.id));
+  const seen = new Set<string>();
+  const collapsed: CatalogEntry[] = [];
+  for (const row of rows) {
+    const family = families.get(row.id);
+    if (!family) {
+      collapsed.push(row);
+      continue;
+    }
+    if (seen.has(family.id)) continue;
+    seen.add(family.id);
+    const keepMatch = scores.get(row.id) === 4 || favorites.has(normalizeSearch(row.name));
+    collapsed.push(!keepMatch && visible.has(family.primary.id) ? family.primary : row);
+  }
+  return collapsed;
+}
 
 export function catalogueSections(rows: readonly CatalogEntry[], customNames: readonly string[] = [],
   favorites: ReadonlySet<string> = new Set()): CatalogueSection[] {

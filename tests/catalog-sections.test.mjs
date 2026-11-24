@@ -10,7 +10,8 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier, context);
 } });
 
-const { catalogueSections } = await import("../features/exercises/catalog-sections.ts");
+const { catalogueSections, collapseCatalogueRows } = await import("../features/exercises/catalog-sections.ts");
+const { filterRows } = await import("../features/exercises/catalog-search.ts");
 
 test("equipment sections group related apparatus and keep a pinned action in one place", () => {
   const rows = [
@@ -35,4 +36,19 @@ test("every catalogue row appears once across equipment sections", () => {
   assert.equal(all.length, rows.length);
   assert.deepEqual(new Set(all.map(({ id }) => id)), new Set(rows.map(({ id }) => id)));
   assert.deepEqual(catalogueSections([]), []);
+});
+
+test("a family browses once and exact-name search opens the matching variant", () => {
+  const standing = { id: "001", name: "绳索直杠三头下压", en: "cable bar pushdown", equipment: "cable", type: "strength", target: "triceps", part: "upper arms" };
+  const kneeling = { ...standing, id: "002", name: "绳索跪姿三头下压 v. 2", en: "cable kneeling pushdown v. 2" };
+  const family = { id: "cable-triceps", title: "绳索三头下压", aliases: ["绳索下压"], primary: standing, variants: [standing, kneeling] };
+  const families = new Map([[standing.id, family], [kneeling.id, family]]);
+  const rows = [kneeling, standing];
+  const favorites = new Set();
+  const options = { part: "", type: "", equipment: "", terms: [], any: false, gear: [], families };
+  const common = filterRows(rows, { ...options, query: "绳索下压" });
+  assert.deepEqual(collapseCatalogueRows(common.rows, families, common.score, favorites), [standing]);
+  const exact = filterRows(rows, { ...options, query: "绳索跪姿三头下压 v2" });
+  assert.deepEqual(collapseCatalogueRows(exact.rows, families, exact.score, favorites), [kneeling]);
+  assert.deepEqual(collapseCatalogueRows([kneeling], families, common.score, favorites), [kneeling]);
 });

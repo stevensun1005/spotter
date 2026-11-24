@@ -6,7 +6,9 @@ import { Dialog } from "@/shared/ui";
 import { exerciseName, type ExerciseProfile } from "@/features/library/model";
 import { Anatomy } from "./anatomy";
 import { equipmentOptions, filterRows, normalizeSearch } from "./catalog-search";
-import { catalogueSections } from "./catalog-sections";
+import { catalogueSections, collapseCatalogueRows } from "./catalog-sections";
+import { catalogFamilies, variantDetails, type ExerciseFamily } from "./catalog-families";
+import { FamilyChooser } from "./family-chooser";
 import { catalogueAreas, matchesCatalogueArea } from "./catalogue-areas";
 import { groups, label, muscleNames, termMuscles } from "./labels";
 import { useCatalogue, type CatalogEntry, type ExerciseChoice } from "./open-gym";
@@ -30,10 +32,12 @@ type Props = {
 
 export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sameMuscle, picker }: Props) {
   const { data, error, reload } = useCatalogue();
+  const families = useMemo(() => catalogFamilies(data?.rows ?? []), [data]);
   const [query, setQuery] = useState("");
   const search = useDeferredValue(canonicalMoveName(query.trim()));
   const [area, setArea] = useState("");
   const [customName, setCustomName] = useState<string>();
+  const [pickVariant, setPickVariant] = useState<{ family: ExerciseFamily; initial: CatalogEntry; quick: boolean }>();
   const [type, setType] = useState("");
   const [equipment, setEquipment] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -62,9 +66,9 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     return rows;
   }, [data, area, scope, chosen, favorites]);
   const filters = useMemo(() => filterRows(source, { query: search, part: "", type, equipment,
-    terms: byMuscle ? terms : [], any, gear: useGear ? gear : [],
-  }), [source, search, type, equipment, terms, byMuscle, any, gear, useGear]);
-  const rows = useMemo(() => {
+    terms: byMuscle ? terms : [], any, gear: useGear ? gear : [], families,
+  }), [source, search, type, equipment, terms, byMuscle, any, gear, useGear, families]);
+  const matched = useMemo(() => {
     const querying = Boolean(search.trim());
     return [...filters.rows].sort((a, b) => {
       const aName = querying || favorites.size ? normalizeSearch(a.name) : "";
@@ -75,7 +79,12 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
         pinnedFirst || Number(chosen.has(bName)) - Number(chosen.has(aName));
     });
   }, [filters, favorites, chosen, search]);
-  const known = useMemo(() => new Set(data?.rows.map((item) => normalizeSearch(item.name)) ?? []), [data]);
+  const rows = useMemo(() => collapseCatalogueRows(matched, families, filters.score, favorites),
+    [matched, families, filters.score, favorites]);
+  const known = useMemo(() => new Set([
+    ...(data?.rows ?? []).map((item) => normalizeSearch(item.name)),
+    ...[...new Set(families.values())].flatMap((family) => [family.title, ...(family.aliases ?? [])].map(normalizeSearch)),
+  ]), [data, families]);
   const custom = (area && area !== "custom") || type || equipment || byMuscle ? [] : personal.filter((name) => !known.has(normalizeSearch(name)) &&
     normalizeSearch(name).includes(normalizeSearch(search)) && (!scope || (scope === "favorites" ? favorites : chosen).has(normalizeSearch(name))));
   const searching = Boolean(search.trim());
@@ -87,9 +96,12 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
   const equipmentChips = [...primaryEquipment.filter((key) => filters.equipmentList.includes(key)),
     ...filters.equipmentList.filter((key) => !primaryEquipment.includes(key))];
   const activeOptions = Number(Boolean(filters.activeType)) + Number(Boolean(filters.activeEquipment));
+  const familyKey = (id: string) => families.get(id)?.id ?? id;
   const featured = !search && !scope && area !== "custom" && !byMuscle && !filters.activeType && !filters.activeEquipment
-    ? [...featuredIds.flatMap((id) => rows.find((row) => row.id === id) ?? []),
-      ...rows.filter((row) => row.animation && !featuredIds.includes(row.id)).slice(0, 3)].slice(0, 3)
+    ? [...new Set([
+      ...featuredIds.flatMap((id) => rows.find((row) => familyKey(row.id) === familyKey(id)) ?? []),
+      ...rows.filter((row) => row.animation).slice(0, 3),
+    ])].slice(0, 3)
     : [];
   const parsedCustom = exerciseName.safeParse(customName === undefined ? undefined : canonicalMoveName(customName.trim()));
   const customExists = (name: string) => known.has(normalizeSearch(name)) || personal.some((item) => normalizeSearch(item) === normalizeSearch(name));
@@ -126,18 +138,31 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     choose({ name: parsedCustom.data });
   }
 
+  function chooseExercise(name: string, row?: CatalogEntry, useQuick = false) {
+    const family = row && families.get(row.id);
+    if (row && family && (picker || useQuick)) {
+      setPickVariant({ family, initial: row, quick: useQuick });
+      return;
+    }
+    (useQuick ? quick : choose)?.({ name, catalogueId: row?.id }, row);
+  }
+
   function renderExercise(name: string, row?: CatalogEntry) {
-    const choice = { name, ...(row ? { catalogueId: row.id } : {}) };
+    const family = row && families.get(row.id);
+    const caption = family?.title ?? name;
+    const match = row && family && filters.score.get(row.id) === 4 && caption !== name
+      ? variantDetails(row, family).label : undefined;
     const pinned = favorites.has(normalizeSearch(name));
-    return <div className="catalogue-row" key={row?.id ?? "own:" + name}>
-      <button type="button" className="catalogue-exercise" onClick={() => choose(choice, row)}>
+    return <div className="catalogue-row" key={family?.id ?? row?.id ?? "own:" + name}>
+      <button type="button" className="catalogue-exercise" onClick={() => chooseExercise(name, row)}>
         <span className="catalogue-thumb" aria-hidden="true">{row?.animation
           ? <img src={"/open-gym/thumb/" + row.id + ".svg"} loading="lazy" alt="" />
           : <Dumbbell size={23} />}</span>
-        <span className="catalogue-exercise-text"><strong>{pinned && <Star size={13} fill="currentColor" aria-label="已置顶" />} {name}</strong>
-          <small>{row ? label(row.target) + " · " + label(row.equipment) : "自定义动作"}</small></span>
+        <span className="catalogue-exercise-text"><strong>{pinned && <Star size={13} fill="currentColor" aria-label="已置顶" />} {caption}</strong>
+          <small>{row ? [match ?? label(row.target), label(row.equipment), family && family.variants.length + " 个变式"].filter(Boolean).join(" · ") : "自定义动作"}</small></span>
       </button>
-      {quick && <button type="button" className="icon-button catalogue-add" aria-label={"添加 " + name} onClick={() => quick(choice, row)}><Plus size={17} /></button>}
+      {quick && <button type="button" className="icon-button catalogue-add"
+        aria-label={family ? "选择 " + caption + " 的变式" : "添加 " + name} onClick={() => chooseExercise(name, row, true)}><Plus size={17} /></button>}
     </div>;
   }
 
@@ -146,6 +171,18 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     try { localStorage.setItem(gearKey, JSON.stringify(next)); } catch { /* Still available in this view. */ }
     show(() => setGear(next));
   }
+
+  const chooser = pickVariant && <FamilyChooser family={pickVariant.family} initial={pickVariant.initial}
+    variants={pickVariant.family.variants.filter((row) => matchesCatalogueArea(row, area) &&
+      (!filters.activeEquipment || row.equipment === filters.activeEquipment) &&
+      (!filters.activeType || row.type === filters.activeType) &&
+      (!useGear || !gear.length || row.equipment === "body weight" || gear.includes(row.equipment)))}
+    inline={picker} onClose={() => setPickVariant(undefined)}
+    onChoose={(row) => {
+      setPickVariant(undefined);
+      (pickVariant.quick ? quick : choose)?.({ name: row.name, catalogueId: row.id }, row);
+    }} />;
+  if (picker && chooser) return chooser;
 
   return <section className="catalogue-browser feature-stack" aria-label={picker ? "动作选择器" : "完整动作库"}>
     <div className="catalogue-search-line" ref={searchLine}>
@@ -247,6 +284,7 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
         <button className="button primary" disabled={!parsedCustom.success || customExists(parsedCustom.data)}>继续</button>
       </form>
     </Dialog>}
+    {chooser}
     {showFilters && <Dialog title="筛选" className="catalogue-filter-dialog" onClose={() => setShowFilters(false)}>
       <div className="dialog-body feature-stack">
         <button type="button" className="button outline small" aria-pressed={byMuscle}

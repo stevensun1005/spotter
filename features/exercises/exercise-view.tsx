@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { BookOpen, ChartNoAxesCombined, ChevronRight, Clock3, ExternalLink, Film, GitBranch, Pin, Plus, Trash2 } from "lucide-react";
 import { Dialog, displayNumber } from "@/shared/ui";
 import { errorText } from "@/shared/client";
@@ -19,6 +19,8 @@ import { label as translate } from "./labels";
 import { exerciseMuscles, researchedGuide } from "./guidance";
 import { GuideEditor } from "./guide-editor";
 import { exerciseTempo, tempoNotationHint } from "./tempo";
+import { catalogFamilies, variantDetails } from "./catalog-families";
+import { FamilyVariantOptions } from "./family-chooser";
 
 const poseMotions: Record<string, string> = poseSources;
 const flowMotions: Record<string, string> = flowSources;
@@ -28,16 +30,48 @@ const sections = [
   { id: "chart", label: "图表", icon: ChartNoAxesCombined }, { id: "versions", label: "版本", icon: GitBranch },
 ] as const;
 
-export function ExerciseDetail({ choice, close, select, profiles, names, logs, owner, save, addToPlan }: {
+type ExerciseDetailProps = {
   choice: ExerciseChoice; close: () => void; select: (choice: ExerciseChoice) => void; profiles: ExerciseProfile[]; names: string[];
   logs: TrainingEntry[]; owner: string; save: (profile: ExerciseProfile) => Promise<void>; addToPlan?: (choice: ExerciseChoice, row?: CatalogEntry) => void;
+};
+
+export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
+  const { choice, profiles } = props;
+  const [variantId, setVariantId] = useState<string>();
+  const { data } = useCatalogue();
+  const families = useMemo(() => data && catalogFamilies(data.rows), [data]);
+  const personalBase = profiles.find((profile) => profile.name === choice.name)?.versionOf;
+  const original = fromCatalogue(data, { name: personalBase ?? choice.name, catalogueId: choice.catalogueId });
+  const family = !personalBase && original ? families?.get(original.id) : undefined;
+  const item = family?.variants.find((variant) => variant.id === variantId) ?? original;
+  const current = item && item.id !== original?.id
+    ? { name: item.name, catalogueId: item.id }
+    : choice;
+  const selected = family && item ? variantDetails(item, family) : undefined;
+
+  return <Dialog title={family?.title ?? choice.name} className="exercise-dialog" onClose={close}>
+    {family && item && selected && <div className="exercise-variant-picker">
+      <label><span>选择变式</span>
+        <select value={item.id} onChange={(event) => setVariantId(event.currentTarget.value)}>
+          <FamilyVariantOptions variants={family.variants} family={family} />
+        </select>
+      </label>
+      <p className="exercise-variant-tip" aria-live="polite">
+        {item.name !== selected.label && item.name !== family.title && <strong>{item.name}</strong>}
+        {selected.tip}
+      </p>
+    </div>}
+    <ExerciseVariantContent key={current.catalogueId ?? current.name} {...props} choice={current} item={item} data={data} />
+  </Dialog>;
+}
+
+function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data }: Omit<ExerciseDetailProps, "close"> & {
+  item: CatalogEntry | undefined; data: ReturnType<typeof useCatalogue>["data"];
 }) {
   const { name, catalogueId } = choice;
   const profile = profiles.find((item) => item.name === name) ?? blankProfile(name);
   const base = profile.versionOf ?? name;
   const guide = guides[base];
-  const { data } = useCatalogue();
-  const item = fromCatalogue(data, { name: base, catalogueId });
   const detail = useCatalogDetail(item?.id);
   const inherited = profiles.find((entry) => entry.name === base)?.guide;
   const personal = profile.guide ?? inherited;
@@ -80,7 +114,7 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
     event.preventDefault();
     void update({ ...profile, videos: [...profile.videos, { label, url }] }, () => { setLabel(""); setUrl(""); setAddingVideo(false); });
   }
-  return <Dialog title={name} className="exercise-dialog" onClose={close}>
+  return <>
     <div className="exercise-tabs" aria-label="动作详情页面">{sections.map(({ id, label, icon: Icon }) =>
       <button type="button" key={id} aria-pressed={tab === id} onClick={() => { setTab(id); setError(""); }}><Icon size={17} /><span>{label}</span></button>)}</div>
     <div className="dialog-body feature-stack">
@@ -92,7 +126,9 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
           item && <p className="muted catalogue-detail-label">此动作暂无已核对的动画。</p>}
         {referenceName !== base && <p className="muted catalogue-detail-label">{referenceName}</p>}
         <div className="exercise-toolbar"><span>{reference?.equipment || (item ? translate(item.equipment) : guide?.equipment ?? "自定义动作")}</span><div>
-          {addToPlan && <button type="button" className="button outline small" onClick={() => addToPlan(choice, item)}><Plus size={15} /> 加入计划</button>}
+          {addToPlan && <button type="button" className="button outline small" onClick={() => addToPlan(
+            item && !profile.versionOf && !catalogueId ? { ...choice, catalogueId: item.id } : choice, item
+          )}><Plus size={15} /> 加入计划</button>}
           <button type="button" className="button outline small" aria-pressed={profile.pinned} disabled={busy} onClick={() => void update({ ...profile, pinned: !profile.pinned })}><Pin size={15} /> {profile.pinned ? "取消置顶" : "置顶"}</button>
         </div></div>
         <section className="card padded feature-stack"><h3>动作步骤</h3>
@@ -150,5 +186,5 @@ export function ExerciseDetail({ choice, close, select, profiles, names, logs, o
         <form className="form-fields" onSubmit={addVersion}><label>新版本名称<input value={version} maxLength={100} required onChange={(event) => setVersion(event.target.value)} placeholder="例如 杠铃卧推（窄握）" /></label><button className="button primary" disabled={busy}><Plus size={17} /> 创建版本</button></form>
       </section>}
     </div>
-  </Dialog>;
+  </>;
 }

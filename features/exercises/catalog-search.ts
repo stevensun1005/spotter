@@ -1,8 +1,9 @@
 import type { CatalogEntry } from "./open-gym";
+import { preferredFamilyForQuery, type ExerciseFamily } from "./catalog-families";
 import { label, termMuscles, types } from "./labels";
 
 export function normalizeSearch(value: string) {
-  return value.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return value.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s*\bv\s*(\d+)\b/g, " v$1").trim();
 }
 
 export function equipmentOptions(rows: CatalogEntry[]) {
@@ -12,11 +13,15 @@ export function equipmentOptions(rows: CatalogEntry[]) {
 }
 
 export function filterRows(rows: CatalogEntry[], {
-  query, part, type, equipment, terms, any, gear,
+  query, part, type, equipment, terms, any, gear, families,
 }: {
   query: string; part: string; type: string; equipment: string; terms: string[]; any: boolean; gear: string[];
+  families?: ReadonlyMap<string, ExerciseFamily>;
 }) {
-  const words = normalizeSearch(query).split(" ").filter(Boolean);
+  const phrase = normalizeSearch(query);
+  const words = phrase.split(" ").filter(Boolean);
+  const preferredFamily = families && preferredFamilyForQuery(phrase);
+  const modifiers = phrase.match(/杠铃|哑铃|壶铃|绳索|弹力带|自重|史密斯|器械|上斜|下斜|平板|跪姿|坐姿|站姿|单臂|单腿|负重|助力|后踢/g) ?? [];
   const groups = terms.map(termMuscles);
   const score = new Map<string, number>();
   const scoped = rows.filter((row) => {
@@ -30,10 +35,15 @@ export function filterRows(rows: CatalogEntry[], {
     const name = normalizeSearch(row.name);
     const english = normalizeSearch(row.en);
     const category = normalizeSearch(label(row.part) + " " + label(row.equipment) + " " + label(row.target));
-    const text = name + " " + english + " " + category;
-    if (!words.every((word) => text.includes(word))) return false;
-    const phrase = words.join(" ");
-    score.set(row.id, name === phrase || english === phrase ? 3 : name.startsWith(phrase) || english.startsWith(phrase) ? 2 : 1);
+    const family = families?.get(row.id);
+    if (preferredFamily && family?.id !== preferredFamily) return false;
+    const commonNames = family ? [family.title, ...(family.aliases ?? [])].map(normalizeSearch) : [];
+    const ownText = [name, english, category].join(" ");
+    const relatedText = [ownText, ...commonNames].join(" ");
+    const familyMatch = modifiers.every((term) => ownText.includes(term)) && words.every((word) => relatedText.includes(word));
+    if (!words.every((word) => ownText.includes(word)) && !familyMatch) return false;
+    score.set(row.id, name === phrase || english === phrase ? 4 : familyMatch && commonNames.includes(phrase) ? 3 :
+      name.startsWith(phrase) || english.startsWith(phrase) ? 2 : 1);
     return true;
   });
   const found = new Set(scoped.map((row) => row.type));

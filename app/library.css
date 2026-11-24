@@ -8,6 +8,11 @@
 .exercise-dialog { width: min(100% - 20px, 690px); }
 .exercise-dialog .dialog-heading { z-index: 3; }
 .exercise-dialog .dialog-body { background: #f2f5ef; }
+.exercise-variant-picker { display: grid; gap: 6px; padding: 8px 13px; background: #f4f7f0; border-bottom: 1px solid var(--stroke); }
+.exercise-variant-picker label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: center; font-size: .85rem; font-weight: 760; }
+.exercise-variant-picker select { min-height: 37px; padding-block: 5px; font-size: 16px; text-overflow: ellipsis; }
+.exercise-variant-tip { color: var(--muted); line-height: 1.45; font-size: .8rem; }
+.exercise-variant-tip strong { color: var(--text); margin-inline-end: 6px; }
 .exercise-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 7px 13px; gap: 5px; border-bottom: 1px solid var(--stroke); position: sticky; top: 61px; z-index: 2; background: white; }
 .exercise-tabs button { display: flex; gap: 6px; align-items: center; justify-content: center; min-height: 40px; border-radius: 8px; color: var(--muted); font-size: .86rem; font-weight: 720; }
 .exercise-tabs button[aria-pressed=true] { background: #e3efd9; color: #304d2d; }
