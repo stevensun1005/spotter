@@ -4,6 +4,8 @@
 <dict>
     <key>CFBundleDisplayName</key>
     <string>训练搭子</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>NSCameraUsageDescription</key>
     <string>当你选择拍照记录饮食时，使用相机拍摄本次餐食，供你预览和识别。</string>
     <key>NSHealthShareUsageDescription</key>
