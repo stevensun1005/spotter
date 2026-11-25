@@ -260,6 +260,7 @@ struct NativeCatalogueBrowser: View {
             .animation(filterMotion, value: filters.equipment)
             .animation(filterMotion, value: filters.scope)
         }
+        .frame(height: 48)
         .accessibilityLabel("器械快捷筛选")
     }
 
