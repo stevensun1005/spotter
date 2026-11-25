@@ -633,6 +633,8 @@ private enum NativeSpotterSection: String {
 
 @MainActor
 private struct NativeSpotterTabs: View {
+    private static let compactCoachDetent = PresentationDetent.fraction(0.44)
+
     @ObservedObject var account: NativeAccount
     @StateObject private var workouts: NativeWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
@@ -641,7 +643,7 @@ private struct NativeSpotterTabs: View {
     @State private var selected: NativeSpotterSection = .today
     @State private var dockPosition = NativeDockPosition()
     @State private var showCoach = false
-    @State private var coachDetent: PresentationDetent = .medium
+    @State private var coachDetent = Self.compactCoachDetent
     @State private var showSettings = false
     @State private var showPlanImport = false
     @State private var showPrograms = false
@@ -771,10 +773,10 @@ private struct NativeSpotterTabs: View {
             stageInvite()
             Task { await workouts.load() }
         }) {
-            NativeCoachView(api: account.api, owner: owner, compact: coachDetent == .medium,
+            NativeCoachView(api: account.api, owner: owner, compact: coachDetent != .large,
                             onExpand: { coachDetent = .large },
                             onStartWorkout: { selected = .training; showCoach = false })
-                .presentationDetents([.medium, .large], selection: $coachDetent)
+                .presentationDetents([Self.compactCoachDetent, .large], selection: $coachDetent)
                 .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: $showSettings, onDismiss: {
@@ -1106,7 +1108,7 @@ private struct NativeSpotterTabs: View {
 
     private func openCoach() {
         guard !showCoach else { return }
-        coachDetent = .medium
+        coachDetent = Self.compactCoachDetent
         showCoach = true
     }
 
@@ -1247,11 +1249,9 @@ private struct NativeSpotterTabs: View {
             Image(systemName: "play.fill")
                 .font(.system(size: 19, weight: .semibold))
                 .offset(x: 1)
-                .foregroundStyle(SpotterPalette.deep)
-                .frame(width: 47, height: 47)
-                .contentShape(Circle())
-                .background(SpotterAccent.lime.fill, in: Circle())
-                .overlay { Circle().strokeBorder(SpotterPalette.deep.opacity(0.15)).allowsHitTesting(false) }
+                .foregroundStyle(accent.tint)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Capsule())
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(workouts.active == nil ? "开始训练" : "继续训练")

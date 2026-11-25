@@ -342,7 +342,6 @@ struct NativeCoachView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Environment(\.spotterInteractionMotion) private var controlMotion
-    @ScaledMetric(relativeTo: .body) private var composerHeight: CGFloat = 54
     @FocusState private var editingMessage: Bool
     @AppStorage private var sharingAllowed: Bool
     @ObservedObject private var session: Conversation
@@ -538,7 +537,7 @@ struct NativeCoachView: View {
             headerButton("xmark", label: "关闭 AI 教练") { dismiss() }
         }
         .spotterGlassCluster()
-        .padding(.horizontal, 17).padding(.top, 8).padding(.bottom, 3)
+        .padding(.horizontal, 17).padding(.top, 6).padding(.bottom, 3)
     }
 
     @ViewBuilder
@@ -617,7 +616,7 @@ struct NativeCoachView: View {
                         }
                         Color.clear.frame(height: 1).id("latest")
                     }
-                    .padding(.horizontal, 20).padding(.top, compact ? 14 : 24).padding(.bottom, 14)
+                    .padding(.horizontal, 20).padding(.top, compact ? 10 : 24).padding(.bottom, 10)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .task(id: layout) {
@@ -834,7 +833,7 @@ struct NativeCoachView: View {
     }
 
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 6) {
             if showsOptions {
                 VStack {
                     Toggle("附上个人训练安排", isOn: $includePlans)
@@ -858,7 +857,7 @@ struct NativeCoachView: View {
             }
             if let picture = session.picture, let image = UIImage(data: picture) {
                 HStack(spacing: 9) {
-                    Image(uiImage: image).resizable().scaledToFill().frame(width: 48, height: 48)
+                    Image(uiImage: image).resizable().scaledToFill().frame(width: 42, height: 42)
                         .clipShape(RoundedRectangle(cornerRadius: 9))
                         .accessibilityLabel(session.photoMealHistory.isEmpty ? "待发送的餐食照片" : "本轮对话的餐食照片")
                     SpotterMenuPicker("记入餐次", selection: mealSelection, options: mealOptions) {
@@ -876,7 +875,7 @@ struct NativeCoachView: View {
                             .frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.spotterPress).disabled(session.busy).accessibilityLabel("移除照片")
                 }
-                .font(.footnote).padding(8).coachPanel().transition(panelTransition)
+                .font(.footnote).padding(5).coachPanel().transition(panelTransition)
             } else if planMode || session.weightPrompt {
                 HStack {
                     Text(session.weightPrompt ? "记录体重" : "正在调整训练草稿")
@@ -911,7 +910,7 @@ struct NativeCoachView: View {
                 .transition(.opacity)
             }
         }
-        .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 8)
+        .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 6)
         .animation(controlMotion, value: showsOptions)
         .animation(controlMotion, value: showsContextChip)
         .animation(controlMotion, value: session.picture != nil)
@@ -931,7 +930,7 @@ struct NativeCoachView: View {
             }
         } label: {
             Image(systemName: "plus").font(.title3.weight(.medium)).foregroundStyle(CoachColors.text)
-                .frame(width: 26, height: 48)
+                .frame(width: 24, height: 44)
         }.accessibilityLabel("添加餐食照片").accessibilityIdentifier("coach-attachments")
         return coachChrome(menu).disabled(session.busy || hasReachedLimit)
     }
@@ -943,7 +942,8 @@ struct NativeCoachView: View {
             Button { sendComposer() } label: {
                 if session.picture != nil && session.photoMealHistory.isEmpty {
                     Text(looksLikeProteinPhoto(cleanText) || session.pendingProteinPhotoPrompt != nil ? "识别蛋白粉" : "识别并记餐")
-                        .font(.footnote.weight(.bold)).padding(.horizontal, 11).frame(minHeight: 44)
+                        .font(.footnote.weight(.bold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 11).frame(minHeight: 44)
                         .foregroundStyle(CoachColors.dark).background(accent.fill, in: Capsule())
                         .contentShape(Rectangle())
                         .transition(.opacity)
@@ -958,7 +958,7 @@ struct NativeCoachView: View {
             }.buttonStyle(.spotterPress).accessibilityIdentifier("coach-send")
                 .disabled(session.busy || hasReachedLimit || !canSendInput)
         }
-        .padding(4).frame(minHeight: 48)
+        .padding(3)
         .background(LinearGradient(colors: [CoachColors.indigo.opacity(0.54), CoachColors.dark, CoachColors.ocean.opacity(0.67)],
                                    startPoint: .leading, endPoint: .trailing), in: shape)
         .overlay(shape.strokeBorder(LinearGradient(colors: [CoachColors.pearl.opacity(editingMessage ? 0.53 : 0.30),
@@ -972,19 +972,13 @@ struct NativeCoachView: View {
     }
 
     private var composerField: some View {
-        TextEditor(text: $text)
-            .font(.body).scrollContentBackground(.hidden)
+        TextField(composerHint, text: $text, prompt: Text(composerHint).foregroundColor(CoachColors.muted), axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(.body).lineLimit(1...4)
+            .frame(minHeight: 44)
             .focused($editingMessage).disabled(session.busy)
-            .frame(height: composerHeight)
             .accessibilityLabel(composerHint).accessibilityIdentifier("coach-composer")
-            .overlay(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text(composerHint).font(.body).foregroundStyle(CoachColors.muted)
-                        .lineLimit(1).padding(.top, 8).padding(.leading, 5)
-                        .accessibilityHidden(true).allowsHitTesting(false)
-                }
-            }
-            .padding(.leading, 7)
+            .padding(.leading, 10)
     }
 
     private var suggestedReplies: some View {
@@ -1021,7 +1015,6 @@ struct NativeCoachView: View {
             .padding(.horizontal, 12).frame(minHeight: 44)
             .background(CoachColors.choice.opacity(0.72), in: Capsule())
             .contentShape(Capsule())
-            .padding(.vertical, 4)
         }.buttonStyle(.spotterPress).disabled(session.busy || hasReachedLimit)
     }
 
