@@ -69,7 +69,7 @@ struct NativePlanImportView: View {
                 .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 10))
                 .focused($editingText).disabled(busy)
             ViewThatFits(in: .horizontal) {
-                HStack { chooseFile; Spacer(); previewButton }
+                HStack { chooseFile; Spacer(); previewButton }.spotterGlassCluster()
                 VStack(alignment: .leading) { chooseFile; previewButton }
             }
         }.padding(14).spotterCard()
@@ -77,12 +77,12 @@ struct NativePlanImportView: View {
 
     private var chooseFile: some View {
         Button { editingText = false; showingFiles = true } label: { Label("选择文件", systemImage: "doc.badge.plus") }
-            .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(busy)
+            .buttonStyle(.spotterControl).disabled(busy)
     }
 
     private var previewButton: some View {
         Button { preview(input) } label: { Label("预览导入", systemImage: "list.bullet.clipboard") }
-            .buttonStyle(SpotterNativeButtonStyle(primary: true))
+            .buttonStyle(.spotterPrimaryControl)
             .disabled(busy || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 

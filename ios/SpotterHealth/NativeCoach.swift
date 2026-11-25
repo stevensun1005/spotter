@@ -499,6 +499,7 @@ struct NativeCoachView: View {
             headerMenu
             headerButton("xmark", label: "关闭 AI 教练") { dismiss() }
         }
+        .spotterGlassCluster()
         .padding(.horizontal, 17).padding(.top, 8).padding(.bottom, 3)
     }
 
@@ -515,7 +516,9 @@ struct NativeCoachView: View {
                 .controlSize(.regular)
         } else {
             button.buttonStyle(.spotterPress)
-                .frame(width: 42, height: 44).contentShape(Rectangle())
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+                .spotterGlass(in: Circle(), tint: CoachColors.choice, interactive: false)
         }
     }
 
@@ -835,7 +838,9 @@ struct NativeCoachView: View {
                             .spotterGlass(cornerRadius: 19, interactive: !reducesMotion)
                             .frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.spotterPress).disabled(busy).accessibilityLabel("移除照片")
-                }.font(.footnote).padding(8).coachPanel().transition(panelTransition)
+                }
+                .spotterGlassCluster()
+                .font(.footnote).padding(8).coachPanel().transition(panelTransition)
             } else if planMode || weightPrompt {
                 HStack {
                     Text(weightPrompt ? "记录体重" : "正在调整训练草稿")
@@ -960,6 +965,7 @@ struct NativeCoachView: View {
                     suggestion("拍照记饮食", icon: "camera") { showPhotoHelp() }
                 }
             }
+            .spotterGlassCluster(spacing: 5)
         }
         .accessibilityLabel("推荐回复").accessibilityIdentifier("coach-suggestions")
     }
@@ -970,10 +976,12 @@ struct NativeCoachView: View {
                 if let icon { Image(systemName: icon).accessibilityHidden(true) }
                 Text(title).fixedSize()
             }
-            .font(.footnote.weight(.semibold)).foregroundStyle(CoachColors.dark)
-            .padding(.horizontal, 12).padding(.vertical, 6).frame(minHeight: 36)
-            .background(CoachColors.pearl, in: RoundedRectangle(cornerRadius: 13))
-            .padding(.vertical, 4).contentShape(Rectangle())
+            .font(.footnote.weight(.semibold)).foregroundStyle(CoachColors.text)
+            .padding(.horizontal, 12).frame(minHeight: 44)
+            .contentShape(Capsule())
+            .spotterGlass(in: Capsule(), tint: CoachColors.choice.opacity(0.72),
+                          interactive: !reducesMotion && !busy && !hasReachedLimit)
+            .padding(.vertical, 4)
         }.buttonStyle(.spotterPress).disabled(busy || hasReachedLimit)
     }
 
@@ -1381,18 +1389,18 @@ struct NativeCoachView: View {
                     messageTitle("sparkles", "让你的 AI 起草或整理计划")
                     Text("把提示词发给常用的 AI，再导入生成的训练计划。")
                         .font(.subheadline).foregroundStyle(CoachColors.muted)
-                    Picker("AI 处理目标", selection: $ownPromptMode) {
-                        Text("起草新计划").tag("起草新计划")
-                        Text("整理已有计划").tag("整理已有计划")
-                    }.pickerStyle(.segmented)
+                    SpotterGlassSegments(options: ["起草新计划", "整理已有计划"], value: $ownPromptMode) { $0 }
+                        .accessibilityLabel("AI 处理目标")
                     HStack {
-                        coachPrimary("复制计划提示词") {
+                        Button("复制计划提示词") {
                             UIPasteboard.general.string = externalPrompt
                             ownNotice = "已复制。"
                         }
+                        .buttonStyle(.spotterPrimaryControl).disabled(busy)
                         Button(ownPromptVisible ? "收起提示词" : "查看提示词") { ownPromptVisible.toggle() }
-                            .buttonStyle(.spotterPress).font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                            .buttonStyle(.spotterControl)
                     }
+                    .spotterGlassCluster()
                     if ownPromptVisible {
                         Text(externalPrompt).font(.footnote.monospaced()).textSelection(.enabled)
                             .transition(panelTransition)
@@ -2094,10 +2102,10 @@ private struct NativePlanQuestions: View {
 
     private var movements: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker("动作类别", selection: $editingWarmup) {
-                Text("正式动作（\(work.count)）").tag(false)
-                Text("热身动作（\(warmup.count)）").tag(true)
-            }.pickerStyle(.segmented)
+            SpotterGlassSegments(options: [false, true], value: $editingWarmup) {
+                $0 ? "热身动作（\(warmup.count)）" : "正式动作（\(work.count)）"
+            }
+            .accessibilityLabel("动作类别")
             Button { search = ""; choosingMove = true } label: {
                 Label("从动作库添加", systemImage: "plus").font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -2141,15 +2149,14 @@ private struct NativePlanQuestions: View {
                     Button {
                         if selected { focus.remove(item.0) } else { focus.insert(item.0) }
                     } label: {
-                        Text(item.1).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
-                            .background(selected ? accent.fill : SpotterPalette.wash, in: Capsule())
-                            .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.ink)
+                        Text(item.1).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.spotterPress)
+                    .buttonStyle(SpotterGlassChoiceStyle(selected: selected, horizontalPadding: 4))
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .animation(stepMotion, value: selected)
                 }
             }
+            .spotterGlassCluster()
             if frequency * weeks > 12 {
                 Text("每份草稿最多 12 堂，请减少周数或每周次数。").font(.caption).foregroundStyle(.red).transition(.opacity)
             }
@@ -2161,11 +2168,9 @@ private struct NativePlanQuestions: View {
         HStack(spacing: 8) {
             if step > 0 {
                 Button { step -= 1 } label: {
-                    Label("上一步", systemImage: "chevron.left").font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 11).frame(minHeight: 44)
-                        .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+                    Label("上一步", systemImage: "chevron.left")
                 }
-                .buttonStyle(.spotterPress)
+                .buttonStyle(.spotterControl)
                 .transition(.opacity.combined(with: .offset(x: 4)))
             }
             Button {
@@ -2177,12 +2182,11 @@ private struct NativePlanQuestions: View {
                                  "work": work.map(\.fields), "warmup": warmup.map(\.fields)]))
                 }
             } label: {
-                Text(step == 4 ? "生成计划草稿" : "下一步").font(.subheadline.weight(.bold))
-                    .foregroundStyle(SpotterPalette.deep).frame(maxWidth: .infinity, minHeight: 44)
-                    .background(accent.fill.opacity(invalidStep ? 0.45 : 1), in: RoundedRectangle(cornerRadius: 10))
+                Text(step == 4 ? "生成计划草稿" : "下一步").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.spotterPress).disabled(invalidStep)
+            .buttonStyle(.spotterPrimaryControl).disabled(invalidStep)
         }
+        .spotterGlassCluster()
         .padding(.horizontal, 16).padding(.bottom, 10)
         .animation(stepMotion, value: step > 0)
     }

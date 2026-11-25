@@ -68,7 +68,7 @@ struct NativeProgramsView: View {
     private var actions: some View {
         HStack(spacing: 8) {
             Button { start(.create) } label: { Label("新建周期", systemImage: "plus") }
-                .buttonStyle(SpotterNativeButtonStyle(primary: true)).disabled(busy || !hasLoaded)
+                .buttonStyle(.spotterPrimaryControl).disabled(busy || !hasLoaded)
             SpotterMenu {
                 Button("导入周期", systemImage: "square.and.arrow.down") { start(.importDraft) }.disabled(busy || !hasLoaded)
                 Button("编排偏好", systemImage: "slider.horizontal.3") { start(.rules) }.disabled(busy || !hasLoaded)
@@ -78,6 +78,7 @@ struct NativeProgramsView: View {
                     .font(.title3)
             }.accessibilityLabel("周期操作")
         }
+        .spotterGlassCluster()
     }
 
     private func recordCard(_ record: NativeProgramRecord) -> some View {
@@ -322,10 +323,11 @@ private struct NativeTrainingProgramEditor: View {
             if dirty { Label("有未保存的修改", systemImage: "circle.dotted").font(.footnote.weight(.semibold)) }
             HStack(alignment: .top, spacing: 9) {
                 Button("保存草稿") { Task { await act { _ = try await saveDraft(); message = "周期草稿已保存。" } } }
-                    .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(!dirty || busy)
+                    .buttonStyle(.spotterControl).disabled(!dirty || busy)
                 Button(dirty ? "保存并预览排期" : "预览排入日历") { Task { await act { try await checkSchedule() } } }
-                    .buttonStyle(SpotterNativeButtonStyle(primary: true)).disabled(busy)
+                    .buttonStyle(.spotterPrimaryControl).disabled(busy)
             }
+            .spotterGlassCluster()
             if busy { ProgressView().accessibilityLabel("正在处理周期") }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14).spotterCard()
     }
@@ -337,6 +339,7 @@ private struct NativeTrainingProgramEditor: View {
                     weekButton(number)
                 }
             }
+            .spotterGlassCluster()
         }.accessibilityLabel("周期周次")
     }
 
@@ -344,10 +347,9 @@ private struct NativeTrainingProgramEditor: View {
         let selected = week == number
         return Button { withAnimation(motion) { week = number } } label: {
             Text("第 \(number) 周").font(.footnote.weight(.semibold)).lineLimit(1)
-                .padding(.horizontal, 12).frame(minHeight: 38)
-                .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.ink)
-                .background(selected ? accent.fill : SpotterPalette.wash, in: Capsule())
-        }.buttonStyle(.spotterPress).accessibilityAddTraits(selected ? [.isSelected] : [])
+        }
+        .buttonStyle(SpotterGlassChoiceStyle(selected: selected))
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private var weekContent: some View {
@@ -363,10 +365,11 @@ private struct NativeTrainingProgramEditor: View {
             }
             HStack(spacing: 10) {
                 Button("复制这一周", systemImage: "document.on.document") { sheet = .copy }
-                    .buttonStyle(.spotterPress).disabled(draft.weeks < 2 || sessions.isEmpty)
+                    .buttonStyle(.spotterControl).disabled(draft.weeks < 2 || sessions.isEmpty)
                 Button("批量调整", systemImage: "slider.horizontal.3") { sheet = .adjust }
-                    .buttonStyle(.spotterPress)
-            }.font(.footnote.weight(.semibold)).foregroundStyle(accent.tint)
+                    .buttonStyle(.spotterControl)
+            }
+            .spotterGlassCluster()
             if sessions.isEmpty { Text("这一周还没有训练。").font(.subheadline).foregroundStyle(SpotterPalette.muted) }
             ForEach(sessions) { sessionCard($0) }
             SpotterMenu {
@@ -683,7 +686,6 @@ private struct NativeCreateProgram: View {
     let save: (NativeTrainingProgram) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.spotterAccent) private var accent
     @State private var draft: NativeTrainingProgram
     @State private var days: [NativeTrainingProgram.BaseDay]
     @State private var editedDay: DayEditor?
@@ -738,18 +740,19 @@ private struct NativeCreateProgram: View {
 
     private var weeklyDays: some View {
         Section {
-            HStack(spacing: 3) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 3)], spacing: 3) {
                 ForEach(1...7, id: \.self) { day in
                     let selected = days.contains { $0.day == day }
                     Button { withAnimation(motion) { toggle(day) } } label: {
                         Text(draft.weekday(day)).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity, minHeight: 38)
-                            .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.ink)
-                            .background(selected ? accent.fill : SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 7))
-                    }.buttonStyle(.spotterPress).accessibilityLabel("第 \(day) 天 · \(draft.weekday(day))")
-                        .accessibilityAddTraits(selected ? [.isSelected] : [])
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(SpotterGlassChoiceStyle(selected: selected, horizontalPadding: 1))
+                    .accessibilityLabel("第 \(day) 天 · \(draft.weekday(day))")
+                    .accessibilityAddTraits(selected ? [.isSelected] : [])
                 }
             }
+            .spotterGlassCluster(spacing: 2)
             if let templateIssue { Text(templateIssue).font(.footnote).foregroundStyle(SpotterPalette.muted) }
             ForEach(Array(days.enumerated()), id: \.element.day) { index, day in
                 VStack(alignment: .leading, spacing: 7) {

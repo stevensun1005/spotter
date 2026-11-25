@@ -4,15 +4,16 @@ struct SpotterControlButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
+    var primary = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(configuration.role == .destructive ? Color.red : SpotterPalette.ink)
+            .foregroundStyle(configuration.role == .destructive ? Color.red : (primary ? SpotterPalette.deep : SpotterPalette.ink))
             .padding(.horizontal, 11)
             .frame(minWidth: 44, minHeight: 44)
-            .contentShape(Rectangle())
-            .spotterGlass(cornerRadius: 13, tint: accent.selection.opacity(0.38), interactive: enabled && motion != nil)
+            .contentShape(Capsule())
+            .spotterGlass(in: Capsule(), tint: primary ? accent.fill.opacity(0.72) : nil, interactive: enabled && motion != nil)
             .spotterPressFeedback(configuration.isPressed)
             .opacity(enabled ? 1 : 0.56)
     }
@@ -20,6 +21,97 @@ struct SpotterControlButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == SpotterControlButtonStyle {
     static var spotterControl: Self { .init() }
+    static var spotterPrimaryControl: Self { .init(primary: true) }
+}
+
+struct SpotterGlassChoiceStyle: ButtonStyle {
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.colorScheme) private var colorScheme
+    let selected: Bool
+    var horizontalPadding: CGFloat = 10
+    var minimumWidth: CGFloat = 44
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
+            .padding(.horizontal, horizontalPadding)
+            .frame(minWidth: minimumWidth, minHeight: 44)
+            .contentShape(Capsule())
+            .spotterGlass(in: Capsule(), tint: selected ? accent.fill.opacity(colorScheme == .dark ? 0.30 : 0.54) : nil,
+                          interactive: enabled && motion != nil)
+            .spotterPressFeedback(configuration.isPressed)
+            .opacity(enabled ? 1 : 0.56)
+    }
+}
+
+extension View {
+    func spotterGlassCluster(spacing: CGFloat = 4) -> some View {
+        SpotterGlassGroup(spacing: spacing) { self }
+    }
+
+    func spotterGlassToolbar() -> some View {
+        padding(4).spotterGlass(cornerRadius: 26, interactive: false)
+    }
+}
+
+struct SpotterGlassSegments<Option: Hashable>: View {
+    let options: [Option]
+    @Binding var value: Option
+    let title: (Option) -> String
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var colorScheme
+    @Namespace private var selection
+
+    var body: some View {
+        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 3)) : AnyLayout(HStackLayout(spacing: 3))
+        SpotterGlassGroup(spacing: 5) {
+            layout {
+                ForEach(options, id: \.self) { option in
+                    let selected = option == value
+                    Button {
+                        if !selected { withAnimation(motion) { value = option } }
+                    } label: {
+                        label(for: option, selected: selected)
+                    }
+                    .buttonStyle(.spotterPress)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+        }
+        .spotterGlassToolbar()
+        .animation(motion, value: value)
+    }
+
+    @ViewBuilder private func label(for option: Option, selected: Bool) -> some View {
+        let label = Text(title(option))
+            .font(.caption.weight(selected ? .bold : .semibold))
+            .lineLimit(textSize.isAccessibilitySize ? 2 : 1)
+            .minimumScaleFactor(0.76)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
+            .padding(.horizontal, 2)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Capsule())
+
+        if !selected {
+            label
+        } else if #available(iOS 26.0, *) {
+            label
+                .glassEffect(.regular.tint(accent.fill.opacity(colorScheme == .dark ? 0.30 : 0.46))
+                    .interactive(enabled && motion != nil), in: Capsule())
+                .glassEffectID("selection", in: selection)
+        } else {
+            label.background {
+                Capsule().fill(accent.selection)
+                    .matchedGeometryEffect(id: "selection", in: selection)
+            }
+        }
+    }
 }
 
 struct SpotterMenu<Items: View, Label: View>: View {

@@ -241,8 +241,10 @@ struct NativePlanMoveSheet: View {
                     .padding(.horizontal, 8).padding(.vertical, 4).background(accent.selection, in: Capsule())
             }
             if canShift {
+                let date = review.choice.date
+                let nextAvailable = review.choice.nextAvailable
                 scopePicker(selection: review.choice.shift) { newShift in
-                    Task { await inspect(plan, date: review.choice.date, shift: newShift, nextAvailable: review.choice.nextAvailable) }
+                    Task { await inspect(plan, date: date, shift: newShift, nextAvailable: nextAvailable) }
                 }
             }
             if operation == .preview {
@@ -261,30 +263,10 @@ struct NativePlanMoveSheet: View {
         .disabled(busy || store.isBusy)
     }
 
-    private func scopePicker(selection: Bool, choose: @escaping (Bool) -> Void) -> some View {
-        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 5)) : AnyLayout(HStackLayout(spacing: 5))
-        return layout {
-            scopeButton("只移动这一堂", value: false, selected: selection, choose: choose)
-            scopeButton("后续一起顺延", value: true, selected: selection, choose: choose)
+    private func scopePicker(selection: Bool, choose: @escaping @MainActor @Sendable (Bool) -> Void) -> some View {
+        SpotterGlassSegments(options: [false, true], value: Binding(get: { selection }, set: choose)) {
+            $0 ? "后续一起顺延" : "只移动这一堂"
         }
-        .padding(4)
-        .background(SpotterPalette.wash.opacity(0.55), in: RoundedRectangle(cornerRadius: 13))
-        .animation(motion, value: selection)
-    }
-
-    private func scopeButton(_ title: String, value: Bool, selected: Bool, choose: @escaping (Bool) -> Void) -> some View {
-        let isSelected = value == selected
-        return Button { if !isSelected { choose(value) } } label: {
-            Text(title).font(.subheadline.weight(isSelected ? .semibold : .regular))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 4)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .foregroundStyle(isSelected ? SpotterPalette.ink : SpotterPalette.muted)
-                .background(isSelected ? accent.selection : .clear, in: RoundedRectangle(cornerRadius: 10))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.spotterPress)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func changeRow(_ change: NativePlanMovePreview.Change) -> some View {

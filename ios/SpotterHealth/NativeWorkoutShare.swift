@@ -56,7 +56,8 @@ struct NativeWorkoutShareView: View {
                 Spacer(minLength: 0)
                 Button { dismiss() } label: {
                     Image(systemName: "xmark").font(.system(size: 17, weight: .semibold))
-                        .frame(width: 42, height: 42).spotterGlass(cornerRadius: 12, tint: theme.tile.opacity(0.48))
+                        .frame(width: 44, height: 44)
+                        .spotterGlass(in: Circle(), tint: theme.tile.opacity(0.48), interactive: motion != nil && !saving)
                 }
                 .buttonStyle(.spotterPress).accessibilityLabel("关闭分享卡").disabled(saving)
             }
@@ -120,6 +121,7 @@ struct NativeWorkoutShareView: View {
                     .frame(maxWidth: .infinity)
                 }
             }
+            .spotterGlassCluster()
             HStack(spacing: 12) {
                 Button {
                     withAnimation(motion) { includeHeart.toggle() }
@@ -128,7 +130,7 @@ struct NativeWorkoutShareView: View {
                     Label("附带心率", systemImage: includeHeart ? "checkmark.square.fill" : "square")
                         .frame(minHeight: 32)
                 }
-                .buttonStyle(.spotterPress)
+                .buttonStyle(SpotterGlassChoiceStyle(selected: includeHeart))
                 .accessibilityAddTraits(includeHeart ? .isSelected : [])
                 .disabled(api == nil)
                 Spacer(minLength: 5)
@@ -138,6 +140,7 @@ struct NativeWorkoutShareView: View {
                     }
                 }
             }
+            .spotterGlassCluster()
             .font(.subheadline.weight(.semibold)).foregroundStyle(theme.quiet)
             if let message { Text(message).font(.footnote).foregroundStyle(theme.quiet) }
             else if includeHeart {
@@ -162,10 +165,12 @@ struct NativeWorkoutShareView: View {
                 }
                 .buttonStyle(ShareControlStyle(theme: theme, isOutput: true, highlighted: true))
             }
+            .spotterGlassCluster()
             .disabled(saving || artwork == nil || shading?.entries != displayedLogs || (includeHeart && selectedHeart == nil))
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(theme.tile)
+        .environment(\.colorScheme, .light)
         .overlay(alignment: .top) { Rectangle().fill(theme.line).frame(height: 1).allowsHitTesting(false) }
     }
 
@@ -259,19 +264,20 @@ private enum ShareTheme: String, CaseIterable {
 
 private struct ShareControlStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.spotterInteractionMotion) private var motion
     let theme: ShareTheme
     var isOutput = false
     var highlighted = false
 
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 11)
         configuration.label.font(.subheadline.weight(.semibold))
             .lineLimit(1).minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity, minHeight: isOutput ? 46 : 44)
             .padding(.horizontal, 4)
             .foregroundStyle(theme.ink.opacity(enabled ? 1 : 0.44))
-            .background(highlighted ? theme.highlight : theme.light.opacity(enabled ? 0.20 : 0.10), in: shape)
-            .overlay(shape.strokeBorder(highlighted && theme == .sketch ? theme.ink : theme.line).allowsHitTesting(false))
+            .contentShape(Capsule())
+            .spotterGlass(in: Capsule(), tint: highlighted ? theme.highlight.opacity(0.72) : theme.light.opacity(0.20),
+                          interactive: enabled && motion != nil)
             .spotterPressFeedback(configuration.isPressed)
     }
 }

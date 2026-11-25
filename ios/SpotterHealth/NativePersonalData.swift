@@ -23,22 +23,11 @@ struct NativeRestSchedule: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 13) {
                     Text("每周不安排训练的日子").font(.headline)
-                    HStack(spacing: 4) {
-                        ForEach(Array("一二三四五六日").enumerated().map { ($0.offset, String($0.element)) }, id: \.0) { index, weekday in
-                            Button {
-                                if weekdays.contains(index) { weekdays.remove(index) }
-                                else { weekdays.insert(index) }
-                            } label: {
-                                Text("周" + weekday)
-                                    .font(.system(size: 12, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
-                                    .frame(maxWidth: .infinity, minHeight: 36)
-                                    .background(weekdays.contains(index) ? SpotterPalette.wash : SpotterPalette.card,
-                                                in: RoundedRectangle(cornerRadius: 8))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(SpotterPalette.line).allowsHitTesting(false))
-                            }
-                            .buttonStyle(.spotterPress)
-                            .disabled(!ready || busy || (weekdays.count >= 6 && !weekdays.contains(index)))
-                            .accessibilityAddTraits(weekdays.contains(index) ? .isSelected : [])
+                    ViewThatFits(in: .horizontal) {
+                        weekdayButtons(0..<7)
+                        VStack(alignment: .leading, spacing: 4) {
+                            weekdayButtons(0..<4)
+                            weekdayButtons(4..<7)
                         }
                     }
                     .animation(motion, value: weekdays)
@@ -86,6 +75,26 @@ struct NativeRestSchedule: View {
         }
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(busy)
+    }
+
+    private func weekdayButtons(_ indices: Range<Int>) -> some View {
+        let labels = Array("一二三四五六日")
+        return HStack(spacing: 4) {
+            ForEach(indices, id: \.self) { index in
+                let selected = weekdays.contains(index)
+                Button {
+                    if selected { weekdays.remove(index) }
+                    else { weekdays.insert(index) }
+                } label: {
+                    Text("周" + String(labels[index]))
+                        .font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SpotterGlassChoiceStyle(selected: selected, horizontalPadding: 2))
+                .disabled(!ready || busy || (weekdays.count >= 6 && !selected))
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }.spotterGlassCluster()
     }
 
     private func load() async {
@@ -292,10 +301,13 @@ struct NativeBodyData: View {
                     Button("取消编辑", action: clearReading)
                         .buttonStyle(.spotterControl).transition(.opacity)
                 }
-                Button(editing == nil ? "保存测量" : "更新记录") { Task { await saveReading() } }
-                    .buttonStyle(SpotterNativeButtonStyle(primary: true))
-                    .disabled(busy || !ready)
+                Button { Task { await saveReading() } } label: {
+                    Text(editing == nil ? "保存测量" : "更新记录").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.spotterPrimaryControl)
+                .disabled(busy || !ready)
             }
+            .spotterGlassCluster()
             .animation(motion, value: editing != nil)
         }
         .padding(14).spotterCard()

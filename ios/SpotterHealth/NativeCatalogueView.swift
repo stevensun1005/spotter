@@ -46,7 +46,6 @@ struct NativeCatalogueBrowser: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Namespace private var detailZoom
-    @Namespace private var scopeSelection
     @AppStorage("spotter.native.catalogue.cards") private var cards = true
     @AppStorage(NativeGymPreferences.storageKey) private var gymPreferences = Data()
     @AppStorage(NativePreferenceKey.equipment) private var legacyEquipment = ""
@@ -246,14 +245,14 @@ struct NativeCatalogueBrowser: View {
         let ordered = featured.filter(all.contains) + all.filter { !featured.contains($0) }
         return ScrollView(.horizontal, showsIndicators: false) {
             SpotterGlassGroup(spacing: 2) {
-                HStack(spacing: 5) {
-                    catalogueChip("置顶", symbol: "star", selected: filters.scope == .pinned, accent: accent) {
+                LazyHStack(spacing: 5) {
+                    catalogueChip("置顶", symbol: "star", selected: filters.scope == .pinned) {
                         filters.scope = filters.scope == .pinned ? .all : .pinned
                         filters.area = ""
                         filters.equipment = ""
                     }
                     ForEach(ordered, id: \.self) { gear in
-                        catalogueChip(index.label(gear), selected: filters.equipment == gear, accent: accent) {
+                        catalogueChip(index.label(gear), selected: filters.equipment == gear) {
                             filters.equipment = filters.equipment == gear ? "" : gear
                         }
                     }
@@ -275,11 +274,12 @@ struct NativeCatalogueBrowser: View {
                 filters.equipment = ""
             }
             Spacer(minLength: 0)
-            catalogueIconButton("slider.horizontal.3", label: "筛选", size: 35, radius: 10) {
+            catalogueIconButton("slider.horizontal.3", label: "筛选", size: 44) {
                 searchFocused = false
                 sheet = .filters
             }
         }
+        .spotterGlassCluster()
         .animation(filterMotion, value: filters.scope)
     }
 
@@ -292,17 +292,8 @@ struct NativeCatalogueBrowser: View {
                 .font(.system(size: 13, weight: .bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
-                .padding(.horizontal, 3)
-                .frame(height: 34)
-                .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
-                .overlay(alignment: .bottom) {
-                    if selected {
-                        Capsule().fill(SpotterPalette.accent).frame(height: 2)
-                            .matchedGeometryEffect(id: "catalogue-scope", in: scopeSelection)
-                    }
-                }
         }
-        .buttonStyle(.spotterPress)
+        .buttonStyle(SpotterGlassChoiceStyle(selected: selected, horizontalPadding: 6))
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
@@ -670,19 +661,15 @@ private func catalogueIconButton(
     .accessibilityLabel(label)
 }
 
-private func catalogueChip(_ title: String, symbol: String? = nil, selected: Bool, accent: SpotterAccent, action: @escaping () -> Void) -> some View {
+private func catalogueChip(_ title: String, symbol: String? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
     Button(action: action) {
         HStack(spacing: 4) {
             if let symbol { Image(systemName: symbol).font(.system(size: 11)) }
             Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
         }
         .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, 8)
-        .frame(height: 34)
-        .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
-        .spotterGlass(cornerRadius: 8, tint: selected ? accent.selection : SpotterPalette.card.opacity(0.85))
     }
-    .buttonStyle(.spotterPress)
+    .buttonStyle(SpotterGlassChoiceStyle(selected: selected, horizontalPadding: 8))
     .accessibilityAddTraits(selected ? [.isSelected] : [])
 }
 
@@ -722,7 +709,6 @@ private struct NativeCatalogueCover: View {
 }
 
 private struct NativeCatalogueFiltersSheet: View {
-    @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccountPreferences) private var accountPreferences
@@ -781,20 +767,19 @@ private struct NativeCatalogueFiltersSheet: View {
 
     private var muscleFilters: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("肌肉匹配", selection: $filters.anyMuscle) {
-                Text("同时命中").tag(false)
-                Text("任意命中").tag(true)
+            SpotterGlassSegments(options: [false, true], value: $filters.anyMuscle) {
+                $0 ? "任意命中" : "同时命中"
             }
-            .pickerStyle(.segmented)
+            .accessibilityLabel("肌肉匹配")
             chipGrid(index.groups.map(\.id)) { id in
                 let title = index.groups.first { $0.id == id }?.title ?? id
                 let term = "group:" + id
-                catalogueChip(title, selected: filters.muscles.contains(term), accent: accent) { toggleMuscle(term) }
+                catalogueChip(title, selected: filters.muscles.contains(term)) { toggleMuscle(term) }
             }
             ForEach(index.groups, id: \.id) { group in
                 Text(group.title).font(.subheadline.weight(.semibold))
                 chipGrid(group.muscles) { muscle in
-                    catalogueChip(index.muscleLabel(muscle), selected: filters.muscles.contains(muscle), accent: accent) { toggleMuscle(muscle) }
+                    catalogueChip(index.muscleLabel(muscle), selected: filters.muscles.contains(muscle)) { toggleMuscle(muscle) }
                 }
             }
             if !filters.muscles.isEmpty { Button("清除肌肉") { filters.muscles.removeAll() }.font(.footnote) }
@@ -811,7 +796,7 @@ private struct NativeCatalogueFiltersSheet: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(.headline)
             chipGrid(options) { option in
-                catalogueChip(option.isEmpty ? blank : index.label(option), selected: selection == option, accent: accent) { choose(option) }
+                catalogueChip(option.isEmpty ? blank : index.label(option), selected: selection == option) { choose(option) }
             }
         }
     }
@@ -820,6 +805,7 @@ private struct NativeCatalogueFiltersSheet: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 86), spacing: 5)], spacing: 6) {
             ForEach(options, id: \.self) { item($0) }
         }
+        .spotterGlassCluster()
     }
 }
 

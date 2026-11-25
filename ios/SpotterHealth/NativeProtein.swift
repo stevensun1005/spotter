@@ -136,7 +136,7 @@ struct NativeProteinView: View {
                                 recipeAction("设为训练默认", icon: "checkmark.circle") { Task { await store.chooseDefault(id) } }
                                     .transition(.opacity)
                             }
-                        }.disabled(store.busy || !store.loaded)
+                        }.spotterGlassCluster().disabled(store.busy || !store.loaded)
                     }
                     .padding(.vertical, 5)
                     .animation(motion, value: isDefault)
@@ -160,11 +160,9 @@ struct NativeProteinView: View {
     private func recipeAction(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.accent)
-                .padding(.horizontal, 10).frame(minHeight: 44)
-                .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 11))
+                .font(.footnote.weight(.semibold))
         }
-        .buttonStyle(.spotterPress)
+        .buttonStyle(.spotterControl)
     }
 
     private static func servingText(_ product: NativeJSON) -> String {

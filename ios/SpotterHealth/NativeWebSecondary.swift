@@ -22,54 +22,6 @@ private extension View {
     }
 }
 
-private struct SecondarySegment<Option: Hashable>: View {
-    let options: [Option]
-    @Binding var value: Option
-    let title: (Option) -> String
-    var glass = false
-    @Environment(\.spotterInteractionMotion) private var motion
-    @Environment(\.spotterAccent) private var accent
-    @Namespace private var selection
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(options, id: \.self) { option in
-                Button { value = option } label: {
-                    Text(title(option))
-                        .font(.caption.weight(value == option ? .bold : .semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .foregroundStyle(value == option ? SpotterPalette.ink : SpotterPalette.muted)
-                        .frame(maxWidth: .infinity, minHeight: glass ? 40 : 35)
-                        .background {
-                            if value == option {
-                                RoundedRectangle(cornerRadius: 8).fill(accent.selection)
-                                    .matchedGeometryEffect(id: "selection", in: selection)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                }.buttonStyle(.spotterPress)
-                    .accessibilityAddTraits(value == option ? .isSelected : [])
-            }
-        }
-        .animation(motion, value: value)
-        .padding(3)
-        .modifier(SecondarySegmentSurface(glass: glass))
-    }
-}
-
-private struct SecondarySegmentSurface: ViewModifier {
-    let glass: Bool
-
-    func body(content: Content) -> some View {
-        if glass {
-            content.spotterGlass(cornerRadius: 15, interactive: false)
-        } else {
-            content.secondaryCard(radius: 11)
-        }
-    }
-}
-
 private struct SecondarySelectionMenu<Option: Hashable>: View {
     let label: String
     let options: [Option]
@@ -118,27 +70,13 @@ private struct SecondaryActionHeader<Actions: View>: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 6) { actions }.fixedSize(horizontal: true, vertical: false)
+        HStack(spacing: 6) { actions }
+            .spotterGlassCluster()
+            .fixedSize(horizontal: true, vertical: false)
     }
 }
 
-private struct SecondaryButtonStyle: ButtonStyle {
-    @Environment(\.spotterAccent) private var accent
-    @Environment(\.isEnabled) private var enabled
-    var primary = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(primary ? SpotterPalette.deep : SpotterPalette.ink)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 42)
-            .background(primary ? accent.fill : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(SpotterPalette.line, lineWidth: 1).allowsHitTesting(false))
-            .spotterPressFeedback(configuration.isPressed)
-            .opacity(enabled ? 1 : 0.54)
-    }
-}
+private typealias SecondaryButtonStyle = SpotterControlButtonStyle
 
 private struct SecondaryBadge: View {
     let text: String
@@ -379,7 +317,7 @@ struct NativeSpotterStats: View {
 
     var body: some View {
         VStack(spacing: 9) {
-            SecondarySegment(options: Page.allCases, value: $page, title: \.rawValue, glass: true)
+            SpotterGlassSegments(options: Page.allCases, value: $page, title: \.rawValue)
                 .padding(.horizontal, 14)
             if page == .overview {
                 ScrollView {
@@ -491,9 +429,9 @@ struct NativeSpotterStats: View {
     private var rangePicker: some View {
         VStack(alignment: .leading, spacing: 7) {
             if let partner, !sharedLogs.isEmpty {
-                SecondarySegment(options: [false, true], value: $partnerSelected, title: { $0 ? "搭子 · \(partner.name)" : "我" }, glass: true)
+                SpotterGlassSegments(options: [false, true], value: $partnerSelected, title: { $0 ? "搭子 · \(partner.name)" : "我" })
             }
-            SecondarySegment(options: Period.allCases, value: $period, title: \.rawValue, glass: true)
+            SpotterGlassSegments(options: Period.allCases, value: $period, title: \.rawValue)
                 .onChange(of: period) { value in
                     step = 0
                     if value == .custom { editingDates = true }
@@ -519,6 +457,7 @@ struct NativeSpotterStats: View {
                 }
                 stepButton("下一周期", symbol: "chevron.right") { withAnimation(motion) { shiftPeriod(1) } }.disabled(!canStepForward)
             }
+            .spotterGlassCluster()
         }.padding(9).secondaryCard().animation(motion, value: period)
     }
 
@@ -772,6 +711,7 @@ private struct SecondaryDateRangeSheet: View {
                             .accessibilityHidden(true)
                         edgeButton(.end, date: end)
                     }
+                    .spotterGlassCluster()
                     DatePicker(edge == .start ? "开始日期" : "结束日期", selection: selectedDate,
                                in: firstDate...SecondaryDate.today, displayedComponents: .date)
                         .datePickerStyle(.graphical)
@@ -789,6 +729,7 @@ private struct SecondaryDateRangeSheet: View {
                             }.buttonStyle(.spotterControl)
                         }
                     }
+                    .spotterGlassCluster()
                     if !valid {
                         Label("日期范围最长 10 年", systemImage: "exclamationmark.circle")
                             .font(.footnote).foregroundStyle(.red)
@@ -825,7 +766,7 @@ private struct SecondaryDateRangeSheet: View {
                     .lineLimit(1).minimumScaleFactor(0.72)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-            .spotterGlass(cornerRadius: 14, tint: accent.selection.opacity(edge == value ? 0.85 : 0.20), interactive: motion != nil)
+            .spotterGlass(in: Capsule(), tint: edge == value ? accent.fill.opacity(0.46) : nil, interactive: motion != nil)
         }
         .buttonStyle(.spotterPress)
         .accessibilityAddTraits(edge == value ? .isSelected : [])
@@ -1121,7 +1062,7 @@ struct SecondaryAnatomy: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            SecondarySegment(options: Figure.allCases, value: $figure, title: \.title)
+            SpotterGlassSegments(options: Figure.allCases, value: $figure, title: \.title)
                 .accessibilityLabel("肌群图体型")
             if loaded, !artwork.isEmpty {
                 HStack(spacing: 9) {
@@ -1379,7 +1320,7 @@ struct SecondaryMusclePanel: View {
         VStack(alignment: .leading, spacing: 9) {
             Text("肌群训练分布").font(.headline)
             Text("按完成的正式组计数，不含热身。每组可能训练多个肌群。").font(.caption).foregroundStyle(SpotterPalette.muted)
-            SecondarySegment(options: Layer.allCases, value: $layer, title: \.rawValue, glass: true)
+            SpotterGlassSegments(options: Layer.allCases, value: $layer, title: \.rawValue)
             if let catalogue {
                 let (totals, counts) = distribution(catalogue)
                 let highest = max(1, totals.max() ?? 0)
@@ -1521,7 +1462,7 @@ private struct SecondaryPerformance: View {
         let gain = mostImproved(current, compared: prior)
         return VStack(alignment: .leading, spacing: 10) {
             Text("动作表现").font(.headline)
-            SecondarySegment(options: Metric.allCases, value: $metric, title: \.rawValue, glass: true)
+            SpotterGlassSegments(options: Metric.allCases, value: $metric, title: \.rawValue)
             if let gain {
                 Button { onRecord(gain.lift.entry) } label: {
                     HStack(spacing: 7) {
@@ -1763,6 +1704,7 @@ private struct SecondaryHistory: View {
             monthStep("上个月", symbol: "chevron.left", direction: -1)
             monthStep("下个月", symbol: "chevron.right", direction: 1)
         }
+        .spotterGlassCluster()
     }
 
     private func goToMonth(_ date: Date) {
@@ -1908,6 +1850,7 @@ private struct SecondaryHistory: View {
                             Button("排序我的训练") { withAnimation(motion) { draftOrder = ownIDs } }.buttonStyle(.spotterControl)
                         }
                     }
+                    .spotterGlassCluster()
                 }
                 if let orderError { SecondaryNotice(message: orderError, warning: true) }
                 if daily.isEmpty {
@@ -2932,14 +2875,13 @@ private struct NativeAppearancePreferences: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 57)
                             .foregroundStyle(SpotterPalette.ink)
-                            .background(accent == choice ? choice.selection : .clear, in: RoundedRectangle(cornerRadius: 10))
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.spotterPress)
+                        .buttonStyle(SpotterGlassChoiceStyle(selected: accent == choice, horizontalPadding: 2))
                         .accessibilityAddTraits(accent == choice ? .isSelected : [])
                         .accessibilityIdentifier("spotter-appearance-\(choice.rawValue)")
                     }
                 }
+                .spotterGlassCluster()
             }.padding(13)
             Divider()
             NativeSettingToggle(title: "加大文字", detail: "增大使用系统动态字体的文字。", value: $largerText)
@@ -3323,7 +3265,7 @@ struct NativeFriends: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                SecondarySegment(options: NativeFriendsPage.allCases, value: $page, title: \.rawValue)
+                SpotterGlassSegments(options: NativeFriendsPage.allCases, value: $page, title: \.rawValue)
                 if dialog == nil, let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
                 ZStack(alignment: .topLeading) {
                     switch page {
@@ -3380,7 +3322,9 @@ struct NativeFriends: View {
                 Spacer()
             }
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 7) { contactActions }.fixedSize(horizontal: true, vertical: false)
+                HStack(spacing: 7) { contactActions }
+                    .spotterGlassCluster()
+                    .fixedSize(horizontal: true, vertical: false)
                 VStack(alignment: .leading, spacing: 7) { contactActions }
             }
             Button { open(.requests) } label: {
@@ -3581,6 +3525,7 @@ struct NativeFriends: View {
                         appointmentButton("接受", action: "accept", item: appointment, primary: true)
                         appointmentButton("婉拒", action: "decline", item: appointment)
                     }
+                    .spotterGlassCluster()
                 } else if (appointment.sender == owner && appointment.status == "pending") || appointment.status == "accepted" {
                     appointmentButton("取消邀约", action: "cancel", item: appointment)
                 }
@@ -3829,7 +3774,7 @@ struct NativeFriends: View {
                 searchPanel
             } else {
                 SecondaryNotice(message: "添加后默认互相分享训练打卡、详情和饮食记录状态，具体范围遵循双方的分享设置。")
-                SecondarySegment(options: InviteTab.allCases, value: $inviteTab, title: \.rawValue)
+                SpotterGlassSegments(options: InviteTab.allCases, value: $inviteTab, title: \.rawValue)
                 ZStack(alignment: .topLeading) {
                     if inviteTab == .search { searchPanel } else { codePanel }
                 }.transition(.opacity).animation(motion, value: inviteTab)
@@ -3886,6 +3831,7 @@ struct NativeFriends: View {
                     Button("复制邀请码") { UIPasteboard.general.string = invite.code; report("已复制邀请码。") }
                         .buttonStyle(SecondaryButtonStyle())
                 }
+                .spotterGlassCluster()
                 Button("停用邀请码") { Task { await mutateList(["action": "revoke"], confirmation: "邀请码已停用。") } }
                     .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.accent).disabled(busy)
             } else {
@@ -3921,9 +3867,12 @@ struct NativeFriends: View {
                         Text(request.connectionKind.requestTitle).font(.caption).foregroundStyle(SpotterPalette.muted)
                     }
                     Spacer(minLength: 3)
-                    if incoming { requestButton("接受", request: request, decision: "accept", confirmation: request.connectionKind == .buddy ? "已连接训练搭子。" : "好友已添加。") }
-                    requestButton(incoming ? "拒绝" : "撤回", request: request, decision: incoming ? "decline" : "cancel",
-                                  confirmation: incoming ? "已拒绝申请。" : "申请已撤回。")
+                    HStack(spacing: 5) {
+                        if incoming { requestButton("接受", request: request, decision: "accept", confirmation: request.connectionKind == .buddy ? "已连接训练搭子。" : "好友已添加。") }
+                        requestButton(incoming ? "拒绝" : "撤回", request: request, decision: incoming ? "decline" : "cancel",
+                                      confirmation: incoming ? "已拒绝申请。" : "申请已撤回。")
+                    }
+                    .spotterGlassCluster()
                 }.padding(11)
             }
         }
@@ -4145,7 +4094,7 @@ private struct SecondaryFriendDetail: View {
                         DatePicker("好友记录日期", selection: $date, in: (SecondaryDate.parse("1900-01-01") ?? date)...SecondaryDate.today, displayedComponents: .date).labelsHidden()
                         Spacer()
                         stepButton("后一天", symbol: "chevron.right") { date = SecondaryDate.shift(date, 1) }.disabled(date >= SecondaryDate.today)
-                    }.background(SpotterPalette.wash.opacity(0.58), in: RoundedRectangle(cornerRadius: 9))
+                    }.spotterGlassCluster()
                 }.padding(12).secondaryCard()
                 ZStack(alignment: .topLeading) {
                     if let record {

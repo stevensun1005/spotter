@@ -1025,6 +1025,7 @@ private struct NativeSpotterTabs: View {
             .buttonStyle(.spotterPress)
             .accessibilityLabel("打开 AI 教练")
         }
+        .spotterGlassCluster(spacing: 4)
         .frame(maxWidth: 530)
         .padding(.horizontal, 10)
         .padding(.top, 4)
