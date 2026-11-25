@@ -266,7 +266,7 @@ extension NativeWatchWorkoutSnapshot {
                                     max: Self.maximumElapsedMilliseconds + Self.maximumRestMilliseconds)
         self.init(title: text(session.plan.title, fallback: "训练"),
                   elapsedMilliseconds: milliseconds(clock["elapsed"], max: Self.maximumElapsedMilliseconds) ?? session.elapsedMilliseconds(),
-                  runningSinceMilliseconds: milliseconds(clock["runningSince"], max: 9_999_999_999_999),
+                  runningSinceMilliseconds: milliseconds(clock["runningSince"], max: 9_999_999_999_999).map(Int64.init),
                   restElapsedDeadlineMilliseconds: deadline,
                   restLabel: deadline == nil ? nil : text(session.raw["rest"]["kind"].string, fallback: "组间休息", limit: 30),
                   next: next?.isValid == true ? next : nil, exercises: exercises)

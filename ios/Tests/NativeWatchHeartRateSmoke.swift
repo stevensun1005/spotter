@@ -40,7 +40,7 @@ struct NativeWatchHeartRateSmoke {
     static func testWorkoutMirror(at now: Date) {
         typealias Snapshot = NativeWatchWorkoutSnapshot
         typealias Command = NativeWatchWorkoutCommand
-        let nowMilliseconds = Int(now.timeIntervalSince1970 * 1_000)
+        let nowMilliseconds = Int64(now.timeIntervalSince1970 * 1_000)
         let position = Snapshot.Position(move: 0, row: 0)
         let reps = Snapshot.Exercise(index: 0, name: "锤式弯举", unit: "lb", isTimed: false,
                                      sets: [.init(index: 0, weight: 20, reps: 8, seconds: 0, done: false)])

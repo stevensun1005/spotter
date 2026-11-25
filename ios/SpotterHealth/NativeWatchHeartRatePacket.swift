@@ -61,16 +61,16 @@ struct NativeWatchWorkoutSnapshot: Codable, Equatable, Sendable {
     static let maximumRestMilliseconds = 600_000
     let title: String
     let elapsedMilliseconds: Int
-    let runningSinceMilliseconds: Int?
+    let runningSinceMilliseconds: Int64?
     let restElapsedDeadlineMilliseconds: Int?
     let restLabel: String?
     let next: Position?
     let exercises: [Exercise]
 
     func elapsed(at now: Date = .now) -> Int {
-        let nowMilliseconds = Int((now.timeIntervalSince1970 * 1_000).rounded())
-        let delta = runningSinceMilliseconds.map { max(0, nowMilliseconds - $0) } ?? 0
-        return min(Self.maximumElapsedMilliseconds, elapsedMilliseconds + delta)
+        let nowMilliseconds = (now.timeIntervalSince1970 * 1_000).rounded()
+        let delta = runningSinceMilliseconds.map { max(0, nowMilliseconds - Double($0)) } ?? 0
+        return Int(min(Double(Self.maximumElapsedMilliseconds), Double(elapsedMilliseconds) + delta))
     }
 
     func restRemainingSeconds(at now: Date = .now) -> Int? {

@@ -449,7 +449,7 @@ private struct SpotterWatchTrainingView: View {
     private struct RestCue: Equatable {
         let token: UUID
         let deadline: Int
-        let runningSince: Int
+        let runningSince: Int64
     }
 
     var body: some View {
