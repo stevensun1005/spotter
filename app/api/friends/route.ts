@@ -50,6 +50,9 @@ export const GET = api(async (request) => {
 export const POST = api(async (request) => {
   const { db, user } = await account();
   const body = await readJson(request, mutation, 2048);
+  if (body.action === "join" && body.expectedOwner && body.expectedOwner !== user.id) {
+    throw new HttpError(403, "当前登录账号已切换，请重新打开邀请。");
+  }
   const query = new URL(request.url).searchParams;
   if (body.action === "feed-cheer") {
     if (body.expectedOwner !== user.id) throw new HttpError(403, "当前登录账号已切换，请重新打开朋友圈。");

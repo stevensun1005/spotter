@@ -9,7 +9,7 @@ export const GET = api(async (request) => {
   const { id: owner } = await requireAccount();
   const id = workoutId.safeParse(new URL(request.url).searchParams.get("id"));
   if (!id.success) throw new HttpError(400, "训练编号无效。");
-  return json({ data: await readHeart(owner, id.data), whoop: whoopEnabled() });
+  return json({ data: await readHeart(owner, id.data), whoop: whoopEnabled(), automaticHeart: true });
 });
 
 export const POST = api(async (request) => {
@@ -17,7 +17,8 @@ export const POST = api(async (request) => {
   const item = await readJson(request, heartMutation, 48_000);
   if (item.action === "save") {
     if (item.expectedOwner && item.expectedOwner !== owner) throw new HttpError(403, "登录账号已切换，请重新打开训练。");
-    await saveHeart(owner, item.id, item.data);
+    const saved = await saveHeart(owner, item.id, item.data, item.onlyIfMissing);
+    if (item.onlyIfMissing) return json({ ok: true, saved });
   } else await removeHeart(owner, item.id);
   return json({ ok: true });
 });

@@ -16,7 +16,7 @@ import { buddyCheckins, friendCurrentDay, friendDateLimited, friendDateVisible }
 import { activePair, disconnectPair, joinPair, membership, sendPairCheer, validTimeZone } from "@/features/pair/server";
 import { publicPartnerSession } from "@/features/friends/public-training";
 import { anatomyVariant } from "@/features/body/profile";
-import { offsetDate } from "@/shared/dates";
+import { dateSchema, offsetDate } from "@/shared/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ const mutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("plans"), expectedOwner, skipExisting: z.boolean().optional(), reviseExisting: z.boolean().optional(), items: z.array(z.object({ id, data: planSchema, revision: planRevisionSchema.nullable().optional() })).min(1).max(20) }),
   moveChoiceSchema.extend({ action: z.literal("previewMove") }),
   moveChoiceSchema.extend({ action: z.literal("move"), token: z.string().regex(/^[a-f0-9]{64}$/) }),
-  z.object({ action: z.literal("delete"), id, kind: z.enum(["plan", "draft"]), revision: planRevisionSchema.optional() }),
+  z.object({ action: z.literal("delete"), id, kind: z.enum(["plan", "draft"]), revision: planRevisionSchema.optional(), expectedOwner }),
   z.object({ action: z.literal("draft"), id, data: draftSessionSchema, expectedOwner }),
   z.object({ action: z.literal("log"), id, data: sessionSchema, expectedOwner }),
   z.object({ action: z.literal("editLog"), id, data: sessionSchema, revision: z.string().min(1).max(40) }),
@@ -51,6 +51,20 @@ export async function GET(request?: Request) {
   const partner = member?.partnerId;
   const pair = partner && member ? [member.connectionId, me.id, partner] as const : null;
   const today = friendCurrentDay(request);
+  const search = request ? new URL(request.url).searchParams : undefined;
+  const scope = search?.get("scope");
+  const history = scope === "history" ? z.object({ from: dateSchema, to: dateSchema }).safeParse({
+    from: search?.get("from"), to: search?.get("to"),
+  }) : undefined;
+  if (history && (!history.success || history.data.to < history.data.from ||
+    Date.parse(history.data.to) - Date.parse(history.data.from) > 3_660 * 86_400_000)) {
+    return reply({ error: "训练历史的日期范围无效。" }, 400);
+  }
+  const historyFrom = scope === "overview" ? offsetDate(today, -62) : undefined;
+  const entryDay = "json_extract(e.payload, '$.date')";
+  const dateFilter = history?.success ? " AND e.kind = 'log' AND " + entryDay + " BETWEEN ? AND ?" :
+    historyFrom ? " AND (e.kind <> 'log' OR " + entryDay + " >= ?)" : "";
+  const dateArgs = history?.success ? [history.data.from, history.data.to] : historyFrom ? [historyFrom] : [];
   const partnerVisibility = friendDateVisible(me.id, "e.owner", "json_extract(e.payload, '$.date')", today);
   const ownCheer = pair ? " OR (e.kind = 'cheer' AND json_extract(e.payload, '$.connection') = ? " +
     "AND json_extract(e.payload, '$.recipient') = ? AND " + activePair + ")" : "";
@@ -60,19 +74,29 @@ export async function GET(request?: Request) {
     "OR (e.kind = 'cheer' AND json_extract(e.payload, '$.connection') = ? AND json_extract(e.payload, '$.recipient') = ?)))" : "";
   const ownCheerArgs = pair ? [pair[0], pair[2], ...pair] : [];
   const partnerArgs = pair ? [pair[2], ...pair, ...partnerVisibility.args, pair[0], me.id] : [];
-  const [rows, partnerCheckins, stillPaired, profiles] = await Promise.all([
+  const [rows, partnerCheckins, stillPaired, profiles, partnerPlans, completedPlans] = await Promise.all([
     env.DB.prepare("SELECT e.id, e.owner, e.kind, e.payload, e.updated, json_extract(t.payload, '$.plan') AS templatePlan FROM entries e" + ownTemplateJoin +
-      "WHERE (e.owner = ? AND (e.kind IN ('plan', 'draft', 'log')" + ownCheer + "))" + partnerFilter + " ORDER BY e.updated DESC")
-      .bind(me.id, me.id, ...ownCheerArgs, ...partnerArgs).all<Row>(),
-    pair ? buddyCheckins(env.DB, me.id, pair[2], pair[0], today) : undefined,
+      "WHERE ((e.owner = ? AND (e.kind IN ('plan', 'draft', 'log')" + ownCheer + "))" + partnerFilter + ")" +
+      dateFilter + " ORDER BY e.updated DESC")
+      .bind(me.id, me.id, ...ownCheerArgs, ...partnerArgs, ...dateArgs).all<Row>(),
+    pair && !history ? buddyCheckins(env.DB, me.id, pair[2], pair[0], today) : undefined,
     pair ? env.DB.prepare("SELECT " + friendDateLimited("?") + " AS recentOnly WHERE " + activePair)
       .bind(me.id, pair[2], ...pair).first<{ recentOnly: number }>() : undefined,
     env.DB.prepare("SELECT p.owner, json_extract(p.payload, '$.values.sex') AS variant FROM personal_library p " +
       "WHERE p.kind = 'body-profile' AND (p.owner = ?" +
       (pair ? " OR (p.owner = ? AND " + activePair + ")" : "") + ")")
       .bind(me.id, ...(pair ? [pair[2], ...pair] : [])).all<{ owner: string; variant: unknown }>(),
+    pair && history ? env.DB.prepare("SELECT e.id FROM entries e WHERE e.owner = ? AND " + activePair +
+      " AND e.kind = 'plan' AND json_extract(e.payload, '$.shared') = 1 AND " + partnerVisibility.condition)
+      .bind(pair[2], ...pair, ...partnerVisibility.args).all<{ id: string }>() : undefined,
+    historyFrom ? env.DB.prepare(
+      "SELECT DISTINCT json_extract(log.payload,'$.planId') AS id FROM entries log " +
+      "JOIN entries plan ON plan.owner=log.owner AND plan.id=json_extract(log.payload,'$.planId') AND plan.kind='plan' " +
+      "WHERE log.owner=? AND log.kind='log' AND json_extract(log.payload,'$.date') < ?"
+    ).bind(me.id, historyFrom).all<{ id: string }>() : undefined,
   ]);
-  const sharedPlanIds = new Set(rows.results.filter((row) => row.owner === partner && row.kind === "plan").map((row) => row.id));
+  const sharedPlanIds = new Set((partnerPlans?.results ??
+    rows.results.filter((row) => row.owner === partner && row.kind === "plan")).map((row) => row.id));
   const entries: Entry[] = rows.results.flatMap(({ payload, templatePlan, ...row }): Entry[] => {
     const entry = { ...row, data: JSON.parse(payload) } as Entry;
     const own = entry.owner === me.id;
@@ -106,7 +130,7 @@ export async function GET(request?: Request) {
       } : {}),
     } : null,
   };
-  return reply(state);
+  return reply(historyFrom ? { ...state, historyFrom, completedPlanIds: completedPlans?.results.map(({ id }) => id) ?? [] } : state);
 }
 
 export const POST = api(async (request) => {
@@ -142,6 +166,9 @@ export const POST = api(async (request) => {
   } else if (body.action === "move") {
     return reply(await reschedule(db, owner, body, body.token, now));
   } else if (body.action === "delete") {
+    if (!checkinOwnerMatches(owner, body.expectedOwner)) {
+      return reply({ error: "登录账号已切换，请切回记录训练的账号。", code: "account_mismatch" }, 403);
+    }
     if (body.kind === "plan") {
       await deletePlan(db, owner, body.id, body.revision, now);
       return reply({ ok: true });

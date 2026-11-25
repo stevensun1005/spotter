@@ -20,7 +20,8 @@ const shareOptions = z.object({
 export const friendMutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("invite") }),
   z.object({ action: z.literal("revoke") }),
-  z.object({ action: z.literal("join"), code: z.string().trim().toLowerCase().regex(/^[a-f0-9]{32}$/) }),
+  z.object({ action: z.literal("join"), code: z.string().trim().toLowerCase().regex(/^[a-f0-9]{32}$/),
+    expectedOwner: z.string().min(1).max(250).optional() }),
   z.object({ action: z.literal("share"), id: friendId, sharing: shareOptions }),
   z.object({ action: z.literal("remove"), id: friendId }),
 ]);

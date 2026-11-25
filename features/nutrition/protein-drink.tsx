@@ -2,31 +2,38 @@
 
 import { useState, type FormEvent } from "react";
 import { Dialog } from "@/shared/ui";
-import { errorText } from "@/shared/client";
 import { ProteinProductSummary } from "@/features/training/protein-check";
-import { proteinMeal } from "@/features/training/protein-nutrition";
 import type { ProteinProduct } from "@/features/training/protein";
+import { saveExistingProtein } from "./coach-protein-save";
 
-type ProteinMeal = NonNullable<ReturnType<typeof proteinMeal>>;
-
-export function ProteinDrink({ products, date, close, warehouse, save }: {
-  products: readonly ProteinProduct[]; date: string; close: () => void;
-  warehouse?: () => void; save: (record: ProteinMeal) => Promise<void>;
+export function ProteinDrink({ products, date, owner, close, warehouse, saved }: {
+  products: readonly ProteinProduct[]; date: string; owner: string; close: () => void;
+  warehouse?: () => void; saved: () => void;
 }) {
-  const [id] = useState(() => crypto.randomUUID());
+  const [id, setId] = useState(() => crypto.randomUUID());
   const [selectedId, setSelectedId] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [duplicate, setDuplicate] = useState(false);
   const recordable = products.filter(({ powder }) => powder);
   const selected = recordable.length === 1 ? recordable[0] : recordable.find(({ id }) => id === selectedId);
-  const record = selected ? proteinMeal(selected, date, id) : undefined;
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (pending || !record) return;
+    if (pending || !selected || !owner) return;
     setPending(true);
     setError("");
-    try { await save(record); close(); }
-    catch (reason) { setError(errorText(reason, "这杯蛋白粉还没保存，请重试。")); }
+    try {
+      const reply = await saveExistingProtein({ action: "record-saved", expectedOwner: owner, recordId: id,
+        localDate: date, text: "我喝了蛋白粉", productId: selected.id, ...(duplicate ? { anotherCup: true as const } : {}) });
+      if (reply.status !== "complete") {
+        setError(reply.status === "clarify" ? reply.message : "仓库已更新，请重新选择一款。");
+      } else if (reply.records[0]?.alreadyRecorded) {
+        setDuplicate(true);
+      } else {
+        saved();
+        close();
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "这杯蛋白粉还没保存，请重试。"); }
     finally { setPending(false); }
   }
   return <Dialog title="记录一杯蛋白粉" onClose={() => { if (!pending) close(); }}>
@@ -38,16 +45,20 @@ export function ProteinDrink({ products, date, close, warehouse, save }: {
           : <fieldset className="protein-product-choices" disabled={pending}>
             <legend>喝的是哪款？</legend>
             {recordable.map((product) => <label key={product.id} className="protein-product-option">
-              <input type="radio" name="protein-drink" checked={product.id === selectedId} onChange={() => setSelectedId(product.id)} />
+              <input type="radio" name="protein-drink" checked={product.id === selectedId} onChange={() => {
+                setSelectedId(product.id); setId(crypto.randomUUID()); setDuplicate(false); setError("");
+              }} />
               <ProteinProductSummary product={product} />
             </label>)}
           </fieldset>}
         {error && <p className="inline-error" role="alert">{error}</p>}
+        {duplicate && <p className="muted" role="status">饮食记录或训练打卡里已有这杯。</p>}
       </div>
       <div className="dialog-footer">
         {!recordable.length && warehouse
           ? <button type="button" className="button primary" onClick={warehouse}>打开蛋白粉仓库</button>
-          : <button type="submit" className="button primary" disabled={!record || pending}>{pending ? "保存中…" : "记录一杯"}</button>}
+          : <button type="submit" className="button primary" disabled={!selected || pending}>{pending ? "保存中…" :
+            duplicate ? "确实喝了另一杯，继续记" : "记录一杯"}</button>}
       </div>
     </form>
   </Dialog>;

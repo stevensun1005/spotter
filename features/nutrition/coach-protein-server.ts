@@ -52,6 +52,7 @@ export async function commitCoachProtein(owner: string, request: CoachProteinReq
 
   let warehouse: CoachProteinReceipt["warehouse"] = null;
   let defaultProductId: string | undefined;
+  let warehouseProductId: string | undefined;
   if (addToWarehouse) {
     const previous = results.find((row) => row.kind === "protein-warehouse") ?? null;
     const products = previous ? proteinWarehouse.parse(JSON.parse(previous.payload)).products : [];
@@ -62,10 +63,11 @@ export async function commitCoachProtein(owner: string, request: CoachProteinReq
     const canComplete = product.powder && (!existing?.powder || existing.powderEstimated && !product.powderEstimated);
     const selected = existing && (!canComplete || existingCount)
       ? existing : { ...product, id: existing?.id ?? product.id };
+    if (request.setTrainingDefault !== undefined) warehouseProductId = selected.id;
     const updatedProducts = existing ? products.map((item) => item.id === existing.id ? selected : item) : [...products, selected];
     const payload = selected === existing && previous ? previous.payload : JSON.stringify({ kind: warehouseId, products: updatedProducts });
     proposed.push({ id: warehouseId, kind: warehouseId, day: null, payload, previous });
-    if (selected.powder) {
+    if (selected.powder && request.setTrainingDefault !== false) {
       const priorRow = results.find((row) => row.kind === preferenceId) ?? null;
       const prior = priorRow ? proteinPreference.parse(JSON.parse(priorRow.payload)) : undefined;
       if (existingCount || prior?.enabled && prior.defaultProductId === selected.id) {
@@ -100,5 +102,6 @@ export async function commitCoachProtein(owner: string, request: CoachProteinReq
     ).bind(JSON.stringify(changes), owner, owner, updated).run();
     if (saved.meta.changes !== pending) throw changed();
   }
-  return { warehouse, recorded: records.length, ...(defaultProductId ? { defaultProductId } : {}) };
+  return { warehouse, recorded: records.length, ...(defaultProductId ? { defaultProductId } : {}),
+    ...(warehouseProductId ? { warehouseProductId } : {}) };
 }

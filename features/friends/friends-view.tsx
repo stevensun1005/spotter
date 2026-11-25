@@ -12,6 +12,7 @@ import { offsetDate, shortDate } from "@/shared/dates";
 import { avatar, Dialog, displayNumber } from "@/shared/ui";
 import type { Friend, FriendDay, FriendFeed as Feed, FriendList, FriendMutation, SharedMeal, SharedWorkout, SharedWorkoutSummary } from "./model";
 import type { FriendRequest, SocialMutation, SocialPerson, SocialPreferences, SocialState } from "./social-model";
+import { EngagementButton } from "./engagement-panel";
 
 const endpoint = "/api/friends";
 const handleSocialEndpoint = endpoint + "?section=social&includeBuddy=1";
@@ -588,7 +589,9 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
 
   async function copyInvite(code: string, link: boolean) {
     const url = new URL("/", window.location.origin);
-    url.hash = "friend-invite=" + code;
+    url.pathname = "/invite/" + code;
+    url.search = "";
+    url.hash = "";
     try {
       await navigator.clipboard.writeText(link ? url.href : code);
       setError("");
@@ -604,6 +607,7 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
     <a className="button primary" href={signInPath(joinCode ? "/#friend-invite=" + joinCode : "/")}>登录</a>
   </section>;
 
+  const buddy = friends?.friends.find((contact) => contact.buddy);
   const feedback = <>{error && <p className="inline-error" role="alert">{error}</p>}
     {status && <p className="friend-status" role="status">{status}</p>}</>;
 
@@ -683,12 +687,14 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
           </button>
         </section>
         {friendList}
+        {owner && buddy && <EngagementButton kind="appointments" owner={owner} buddy={buddy} />}
       </>}
-      {tab === "feed" && (feed.data ? <FriendFeed days={feed.data.days} today={today} open={openFriend}
+      {tab === "feed" && <>{owner && <EngagementButton kind="cheers" owner={owner} openOwnLog={openOwnLog} />}
+        {feed.data ? <FriendFeed days={feed.data.days} today={today} open={openFriend}
         openOwnLog={openOwnLog} setCheer={(friend, date, active) => void setFeedCheer(friend, date, active)} busy={busy} /> :
         feed.error ? <section className="card padded feature-stack"><p className="inline-error" role="alert">{feed.error}</p>
           <button className="button outline" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>重新读取</button></section> :
-          <p className="muted" role="status">正在读取朋友圈…</p>)}
+          <p className="muted" role="status">正在读取朋友圈…</p>}</>}
       {tab === "privacy" && privacy}
     </>}
     {requestsOpen && <Dialog title="新的朋友" onClose={() => { if (!busy) setRequestsOpen(false); }}>

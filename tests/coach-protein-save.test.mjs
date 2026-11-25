@@ -30,7 +30,7 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 
 const { POST } = await import("../app/api/coach-protein/route.ts");
-const { saveCoachProtein } = await import("../features/nutrition/coach-protein-save.ts");
+const { saveCoachProtein, saveExistingProtein } = await import("../features/nutrition/coach-protein-save.ts");
 const { defaultWorkoutProteinProduct } = await import("../features/training/protein.ts");
 const { proteinMeal } = await import("../features/training/protein-nutrition.ts");
 const origin = "https://coach.test";
@@ -53,6 +53,7 @@ function fixture(t) {
     const statement = db.prepare(sql);
     return { bind(...args) { return {
       async all() { return { results: statement.all(...args) }; },
+      async first() { return statement.get(...args) ?? null; },
       async run() {
         if (beforeWrite) {
           const update = beforeWrite;
@@ -172,4 +173,62 @@ test("adding the shake to the warehouse alone sets a complete estimated recipe a
   assert.equal(workoutFood.entry.grams, 630);
   assert.equal(workoutFood.entry.calories, 414);
   assert.match(workoutFood.entry.name, /估算/);
+});
+
+test("a saved recipe records once, recognizes the existing workout cup, and allows an explicit second cup", async (t) => {
+  const { rows, db, dropNextResponse } = fixture(t);
+  const input = submission();
+  await saveCoachProtein({ ...input, records: [] });
+  const workout = proteinMeal(input.product, "2026-11-23", crypto.randomUUID());
+  db.prepare("INSERT INTO personal_library VALUES (?,?,?,?,?,?)")
+    .run(owner, "nutrition", workout.id, workout.date, JSON.stringify({ ...workout, sourceWorkoutId: workout.id }), "2026-11-23T20:00:00.000Z");
+
+  const command = { action: "record-saved", expectedOwner: owner, recordId: crypto.randomUUID(),
+    localDate: "2026-11-24", text: "昨天和今天我喝了蛋白粉，各一杯" };
+  dropNextResponse();
+  await assert.rejects(saveExistingProtein(command), /response interrupted/);
+  const receipt = await saveExistingProtein(command);
+  assert.equal(receipt.status, "complete");
+  assert.deepEqual(receipt.records.map(({ date, alreadyRecorded, linkedWorkout }) => [date, alreadyRecorded, linkedWorkout]),
+    [["2026-11-23", true, workout.id], ["2026-11-24", false, undefined]]);
+  assert.equal(receipt.records[1].entry.protein, 42);
+  assert.equal(rows().filter(({ kind }) => kind === "nutrition").length, 2);
+  const repeated = await saveExistingProtein({ ...command, recordId: crypto.randomUUID(), text: "我喝了蛋白粉" });
+  assert.equal(repeated.records[0].alreadyRecorded, true);
+  const second = await saveExistingProtein({ ...command, recordId: crypto.randomUUID(), text: "我又喝了一杯蛋白粉", anotherCup: true });
+  assert.equal(second.records[0].alreadyRecorded, false);
+  assert.equal(rows().filter(({ kind }) => kind === "nutrition").length, 3);
+});
+
+test("saved drinks read the current account and ask which recipe when several are present", async (t) => {
+  const { rows } = fixture(t);
+  const input = submission();
+  await saveCoachProtein({ ...input, records: [] });
+  const other = { ...input.product, id: crypto.randomUUID(), name: "另一款合成乳清" };
+  await saveCoachProtein({ ...input, product: other, records: [], setTrainingDefault: false });
+  const command = { action: "record-saved", expectedOwner: owner, recordId: crypto.randomUUID(),
+    localDate: "2026-11-24", text: "我喝了蛋白粉" };
+  assert.equal((await saveExistingProtein(command)).products.length, 2);
+  assert.equal(rows().filter(({ kind }) => kind === "nutrition").length, 0);
+  const receipt = await saveExistingProtein({ ...command, text: "我喝了另一款合成乳清，加 300 mL 水和 40 g 粉" });
+  assert.equal(receipt.productId, other.id);
+  assert.equal(receipt.records[0].entry.grams, 340);
+  assert.equal(receipt.records[0].entry.protein, 32);
+  runtime.owner = "another-account";
+  await assert.rejects(saveExistingProtein(command), { status: 403 });
+  assert.equal(rows(runtime.owner).length, 0);
+});
+
+test("manual nutrition entry and coach entry arriving together only save one copy", async (t) => {
+  const { rows } = fixture(t);
+  const input = submission();
+  await saveCoachProtein({ ...input, records: [] });
+  const shared = { action: "record-saved", expectedOwner: owner, localDate: "2026-11-24", text: "我喝了蛋白粉" };
+  const replies = await Promise.all([
+    saveExistingProtein({ ...shared, recordId: crypto.randomUUID(), productId: input.product.id }),
+    saveExistingProtein({ ...shared, recordId: crypto.randomUUID() }),
+  ]);
+  assert.equal(replies.filter(({ records }) => records[0].alreadyRecorded).length, 1);
+  assert.equal(replies[0].records[0].id, replies[1].records[0].id);
+  assert.equal(rows().filter(({ kind }) => kind === "nutrition").length, 1);
 });

@@ -6,7 +6,7 @@ export function proteinMeal(product: ProteinProduct, date: string, id: string): 
   const nutrients = proteinServingNutrition(product);
   if (!nutrients) return;
   const name = product.powderEstimated || product.scoopEstimated ? product.name.slice(0, 96) + "（估算）" : product.name;
-  return { kind: "nutrition", id, date, entry: {
+  return { kind: "nutrition", id, date, proteinProductId: product.id, entry: {
     type: "meal", meal: "加餐", name, grams: proteinServingGrams(product), ...nutrients,
   } };
 }

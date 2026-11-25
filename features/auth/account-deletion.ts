@@ -23,6 +23,7 @@ async function deleteAccount(db: D1Database, owner: string, sessionHash: string)
     scoped("DELETE FROM friend_links WHERE (first_id=? OR second_id=?)", owner, owner),
     scoped("DELETE FROM friend_requests WHERE (first_id=? OR second_id=?)", owner, owner),
     scoped("DELETE FROM friend_feed_cheers WHERE (sender=? OR recipient=?)", owner, owner),
+    scoped("DELETE FROM buddy_workout_appointments WHERE (sender=? OR recipient=?)", owner, owner),
     scoped("DELETE FROM members WHERE (user=? OR room IN (SELECT id FROM rooms WHERE owner=?))", owner, owner),
     scoped("DELETE FROM rooms WHERE owner=?", owner),
     scoped("DELETE FROM coaching_invites WHERE (coach_id=? OR claimed_by=?)", owner, owner),

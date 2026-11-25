@@ -44,11 +44,13 @@ export async function saveLibrary(owner: string, item: LibraryItem, revision?: s
   const payload = JSON.stringify(item.kind === "template" ? { ...item, plan: withoutTemplateLink(item.plan) } : item);
   const protectedWrite = item.kind === "template" || item.kind === "schedule" || item.kind === "body-profile" || item.kind === "protein-warehouse";
   const createMeal = item.kind === "nutrition" && item.entry.type === "meal" && revision === null;
-  const updated = nextRevision(new Date().toISOString(), protectedWrite ? [revision] : []);
+  const editMeal = item.kind === "nutrition" && Boolean(revision);
+  const updated = nextRevision(new Date().toISOString(), protectedWrite || editMeal ? [revision] : []);
   const db = database();
-  const result = protectedWrite && revision ? await db.prepare(
-    "UPDATE personal_library SET payload=?, updated=? WHERE owner=? AND kind=? AND id=? AND updated=?"
-  ).bind(payload, updated, owner, item.kind, id, revision).run() : await db.prepare(
+  const result = (protectedWrite || editMeal) && revision ? await db.prepare(
+    "UPDATE personal_library SET day=?, payload=?, updated=? WHERE owner=? AND kind=? AND id=? AND updated=?" +
+    (editMeal ? " AND json_extract(payload, '$.sourceWorkoutId') IS NULL" : "")
+  ).bind(day, payload, updated, owner, item.kind, id, revision).run() : await db.prepare(
     "INSERT INTO personal_library (owner, kind, id, day, payload, updated) VALUES (?, ?, ?, ?, ?, ?) " +
     "ON CONFLICT (owner, kind, id) " +
     (protectedWrite || createMeal ? "DO NOTHING" : "DO UPDATE SET day=excluded.day,payload=excluded.payload,updated=excluded.updated") +
@@ -67,7 +69,9 @@ export async function saveLibrary(owner: string, item: LibraryItem, revision?: s
     if (item.kind === "protein-warehouse") throw new HttpError(409, "仓库已在另一台设备更新，请确认最新产品后重试。");
     throw staleLibraryItem();
   }
-  if (item.kind === "nutrition" && !result.meta.changes) throw new HttpError(409, "在对应的训练记录中编辑蛋白粉打卡。");
+  if (item.kind === "nutrition" && !result.meta.changes) {
+    throw new HttpError(409, editMeal ? "这条饮食记录已变更，请在饮食日记中查看。" : "在对应的训练记录中编辑蛋白粉打卡。");
+  }
   return updated;
 }
 
@@ -83,8 +87,11 @@ export async function removeLibrary(owner: string, kind: "template" | "nutrition
     if (!removed?.meta.changes) throw staleLibraryItem();
   } else {
     const removed = await db.prepare("DELETE FROM personal_library WHERE owner = ? AND kind = ? AND id = ? " +
-      "AND json_extract(payload, '$.sourceWorkoutId') IS NULL").bind(owner, kind, id).run();
+      "AND json_extract(payload, '$.sourceWorkoutId') IS NULL AND (? IS NULL OR updated=?)")
+      .bind(owner, kind, id, revision ?? null, revision ?? null).run();
     if (!removed.meta.changes && await db.prepare("SELECT 1 FROM personal_library WHERE owner = ? AND kind = ? AND id = ?")
-      .bind(owner, kind, id).first()) throw new HttpError(409, "在对应的训练记录中取消蛋白粉打卡。");
+      .bind(owner, kind, id).first()) throw new HttpError(409, revision
+        ? "这条饮食记录已变更，请在饮食日记中查看。"
+        : "在对应的训练记录中取消蛋白粉打卡。");
   }
 }

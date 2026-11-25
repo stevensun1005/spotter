@@ -4,6 +4,11 @@ export const maxCardioMinutes = 720;
 export const maxCardioSeconds = maxCardioMinutes * 60;
 export const maxCardioDistanceKm = 500;
 export const maxCardioSpeedKmh = 50;
+export const cardioActivityTitles = {
+  "incline-walk": "爬坡走",
+  cardio: "有氧训练",
+  hiit: "HIIT 训练",
+} as const;
 
 export const inclineReadings = {
   percent: { min: -100, max: 100, step: "any" },
@@ -11,7 +16,7 @@ export const inclineReadings = {
 } as const;
 
 export const cardioSchema = z.object({
-  activity: z.literal("incline-walk"),
+  activity: z.enum(["incline-walk", "cardio", "hiit"]),
   durationSeconds: z.number().int().min(1).max(maxCardioSeconds).optional(),
   incline: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("percent"), value: z.number().min(inclineReadings.percent.min).max(inclineReadings.percent.max).optional() }).strict(),
@@ -19,7 +24,7 @@ export const cardioSchema = z.object({
   ]).optional(),
   distanceKm: z.number().min(0).max(maxCardioDistanceKm).optional(),
   speedKmh: z.number().min(0).max(maxCardioSpeedKmh).optional(),
-}).strict();
+}).strict().refine(({ activity, incline }) => activity === "incline-walk" || incline === undefined);
 
 export type Cardio = z.infer<typeof cardioSchema>;
 

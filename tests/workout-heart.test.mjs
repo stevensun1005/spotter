@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { Encoder, Profile } from "@garmin/fitsdk";
 import { strToU8, zipSync } from "fflate";
 
 const root = new URL("../", import.meta.url);
+const testWorker = { DB: null };
+globalThis[Symbol.for("spotter-heart-test-worker")] = testWorker;
 registerHooks({ resolve(specifier, context, next) {
+  if (specifier === "cloudflare:workers") return {
+    url: "data:text/javascript,export const env = globalThis[Symbol.for('spotter-heart-test-worker')];",
+    shortCircuit: true,
+  };
   if (specifier.startsWith("@/")) return next(new URL(specifier.slice(2) + ".ts", root).href, context);
   if (specifier.startsWith(".") && context.parentURL?.endsWith(".ts")) {
     const typeScript = new URL(specifier + ".ts", context.parentURL);
@@ -19,6 +26,44 @@ const set = await import("../features/training/set-editor.ts");
 const training = await import("../features/training/model.ts");
 const { importHeartFile } = await import("../features/heart/file-import.ts");
 const { heartSchema } = await import("../features/heart/model.ts");
+
+test("automatic heart attachment matches the owner's workout window and never overwrites an existing upload", async (t) => {
+  const sqlite = new DatabaseSync(":memory:");
+  t.after(() => sqlite.close());
+  for (const migration of ["0000_bored_cardiac.sql", "0001_burly_prima.sql"]) {
+    sqlite.exec(readFileSync(new URL("drizzle/" + migration, root), "utf8"));
+  }
+  testWorker.DB = {
+    prepare(sql) {
+      const statement = sqlite.prepare(sql);
+      return { bind(...values) {
+        return {
+          async first() { return statement.get(...values) ?? null; },
+          async run() { return { meta: { changes: statement.run(...values).changes } }; },
+        };
+      } };
+    },
+  };
+  t.after(() => { testWorker.DB = null; });
+  const { readHeart, saveHeart } = await import("../features/heart/server.ts");
+  const owner = "owner";
+  const started = Date.parse("2026-11-24T16:00:00Z");
+  const ended = started + 40 * 60_000;
+  const id = crypto.randomUUID();
+  sqlite.prepare("INSERT INTO entries (owner, id, kind, payload, updated) VALUES (?, ?, 'log', ?, ?)")
+    .run(owner, id, JSON.stringify({ started, ended, minutes: 40 }), "2026-11-24");
+  const at = ended - 1;
+  const file = { source: "fit", from: at, to: at, samples: [{ at, bpm: 131 }] };
+  const watch = { source: "apple", from: at, to: at, samples: [{ at, bpm: 126 }] };
+  assert.equal(await saveHeart(owner, id, file), true);
+  assert.equal(await saveHeart(owner, id, watch, true), false);
+  assert.deepEqual(await readHeart(owner, id), file);
+  assert.equal(await saveHeart(owner, id, watch), true);
+  assert.deepEqual(await readHeart(owner, id), watch);
+  await assert.rejects(saveHeart("other-account", id, watch, true), { status: 404 });
+  const beyond = { source: "apple", from: ended + 1, to: ended + 1, samples: [{ at: ended + 1, bpm: 126 }] };
+  await assert.rejects(saveHeart(owner, id, beyond, true), { status: 400 });
+});
 
 test("documented custom exercises use the same cover as their demo and participate in filters", async () => {
   const { customCatalogueEntry, customCover, matchesCustomArea } = await import("../features/exercises/custom-catalogue.ts");

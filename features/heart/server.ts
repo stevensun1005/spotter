@@ -6,7 +6,11 @@ import { acceptsHeart, heartSchema, workoutWindow, type HeartData } from "./mode
 
 export const workoutId = z.string().uuid();
 export const heartMutation = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("save"), id: workoutId, data: heartSchema, expectedOwner: z.string().min(1).max(300).optional() }),
+  z.object({
+    action: z.literal("save"), id: workoutId, data: heartSchema,
+    expectedOwner: z.string().min(1).max(300).optional(),
+    onlyIfMissing: z.boolean().optional(),
+  }),
   z.object({ action: z.literal("remove"), id: workoutId }),
 ]);
 
@@ -29,13 +33,14 @@ export async function readHeart(owner: string, id: string) {
   return row ? JSON.parse(row.payload) as HeartData : null;
 }
 
-export async function saveHeart(owner: string, id: string, data: HeartData) {
+export async function saveHeart(owner: string, id: string, data: HeartData, onlyIfMissing = false) {
   const window = await requireHeartWorkout(owner, id);
   if (!acceptsHeart(window, data)) throw new HttpError(400, "心率活动与这次训练的时间不吻合。");
-  await database().prepare(
-    "INSERT INTO workout_heart (owner, workout_id, payload) VALUES (?, ?, ?) " +
-    "ON CONFLICT(owner, workout_id) DO UPDATE SET payload = excluded.payload"
+  const conflict = onlyIfMissing ? "DO NOTHING" : "DO UPDATE SET payload = excluded.payload";
+  const result = await database().prepare(
+    "INSERT INTO workout_heart (owner, workout_id, payload) VALUES (?, ?, ?) ON CONFLICT(owner, workout_id) " + conflict,
   ).bind(owner, id, JSON.stringify(data)).run();
+  return result.meta.changes > 0;
 }
 
 export async function removeHeart(owner: string, id: string) {

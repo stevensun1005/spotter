@@ -24,7 +24,7 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier, context);
 } });
 
-const { POST } = await import("../app/api/workout/route.ts");
+const { GET, POST } = await import("../app/api/workout/route.ts");
 const {
   finalizeCheckin, hasWorkoutCheckinKey, isCheckinQueued, mergePendingCheckins, queueCheckin, readCheckins, replayCheckin,
 } = await import("../features/training/checkin-outbox.ts");
@@ -267,6 +267,107 @@ test("incline walks keep exact workout time, machine units and zero-percent grad
   const { backupSchema, emptyBackup } = await import("../features/data/model.ts");
   const restored = backupSchema.parse({ ...emptyBackup(), training: [{ kind: "log", id: logId, data: changes }] });
   assert.deepEqual(restored.training[0].data.cardio, changes.cardio);
+});
+
+test("general cardio and HIIT accept duration-only check-ins from the shared app route", async (t) => {
+  const sql = database(t);
+  worker.owner = owner;
+  for (const [activity, id] of [["cardio", logId], ["hiit", secondId]]) {
+    const draft = startFreeSession(plan.date, activity);
+    draft.started = start;
+    draft.clock = { elapsed: 97_000, runningSince: null };
+    assert.equal(draftSessionSchema.safeParse(draft).success, true);
+    assert.equal(sessionSchema.safeParse(draft).success, false);
+    const finalized = finalizeCheckin(draft, end).data;
+    assert.deepEqual(finalized.cardio, { activity, durationSeconds: 97 });
+    assert.deepEqual(finalized.rows, []);
+    assert.equal(draftSessionSchema.safeParse({ ...draft, cardio: { activity, incline: { kind: "percent" } } }).success, false);
+    const response = await POST(request({ action: "log", id, expectedOwner: owner, data: finalized }));
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).data.cardio, finalized.cardio);
+  }
+  assert.equal(sql.prepare("SELECT COUNT(*) AS count FROM entries WHERE owner=? AND kind='log'").get(owner).count, 2);
+});
+
+test("an offline draft deletion stays account-scoped and cannot remove a completed workout", async (t) => {
+  const sql = database(t);
+  worker.owner = owner;
+  const draft = { action: "draft", id: logId, expectedOwner: owner, data: workout(false) };
+  const remove = { action: "delete", kind: "draft", id: logId, expectedOwner: owner };
+  assert.equal((await POST(request(draft))).status, 200);
+  worker.owner = another;
+  assert.equal((await POST(request(remove))).status, 403);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS count FROM entries WHERE owner=?").get(another).count, 0);
+  worker.owner = owner;
+  assert.equal((await POST(request(remove))).status, 200);
+  assert.equal((await POST(request(remove))).status, 200);
+  assert.equal((await POST(request(draft))).status, 409);
+  const completed = finalizeCheckin(workout(), end);
+  assert.equal((await POST(request({ action: "log", id: secondId, expectedOwner: owner, data: completed.data }))).status, 200);
+  assert.equal((await POST(request({ ...remove, id: secondId }))).status, 409);
+  assert.deepEqual(sql.prepare("SELECT kind FROM entries WHERE owner=? ORDER BY kind").all(owner).map(({ kind }) => kind),
+    ["deleted-draft", "log"]);
+});
+
+test("workout overview and explicit history keep private data scoped and preserve old completion state", async (t) => {
+  const sql = database(t);
+  sql.exec(`
+    CREATE TABLE rooms(id TEXT PRIMARY KEY, invite TEXT, owner TEXT);
+    CREATE TABLE members(user TEXT PRIMARY KEY, room TEXT, name TEXT);
+    CREATE TABLE spotter_access_accounts(id TEXT PRIMARY KEY, display_name TEXT);
+    CREATE TABLE spotter_account_handles(owner TEXT PRIMARY KEY, username TEXT, tag TEXT);
+    CREATE TABLE friend_profiles(owner TEXT PRIMARY KEY, recent_only INTEGER DEFAULT 0);
+    CREATE TABLE personal_library(owner TEXT, kind TEXT, id TEXT, payload TEXT);
+  `);
+  worker.owner = owner;
+  const today = Date.now();
+  const day = (offset) => new Date(today + offset * 86_400_000).toISOString().slice(0, 10);
+  const old = day(-120);
+  const cutoff = day(-62);
+  const recent = day(-1);
+  const buddy = "other-buddy";
+  const insert = sql.prepare("INSERT INTO entries VALUES (?, ?, ?, ?, ?)");
+  const seed = (who, id, kind, date, planId = "") => {
+    const data = kind === "plan" ? { ...plan, date, shared: who === buddy } :
+      { ...workout(), date, planId, ended: end, note: "Synthetic private note" };
+    insert.run(who, id, kind, JSON.stringify(data), "2026-11-24T00:00:00Z");
+  };
+  seed(owner, "old-plan", "plan", old);
+  seed(owner, "old-log", "log", old, "old-plan");
+  seed(owner, "old-draft", "draft", old);
+  seed(owner, "boundary-log", "log", cutoff);
+  seed(owner, "recent-log", "log", recent);
+  seed(buddy, "buddy-plan", "plan", old);
+  seed(buddy, "buddy-old-log", "log", old, "buddy-plan");
+  seed(buddy, "buddy-recent-log", "log", recent);
+  seed(another, "unrelated-log", "log", recent);
+  sql.prepare("INSERT INTO rooms VALUES (?, ?, ?)").run("shared-room", "synthetic-invite", owner);
+  sql.prepare("INSERT INTO members VALUES (?, ?, ?)").run(owner, "shared-room", "Synthetic Owner");
+  sql.prepare("INSERT INTO members VALUES (?, ?, ?)").run(buddy, "shared-room", "Synthetic Buddy");
+  const get = (query = "") => GET(new Request("https://spotter.example/api/workout" + query));
+  const identifiers = (state) => new Set(state.entries.map(({ id }) => id));
+  const overviewResponse = await get("?scope=overview");
+  assert.equal(overviewResponse.status, 200);
+  const overview = await overviewResponse.json();
+  assert.equal(overview.historyFrom, cutoff);
+  assert.deepEqual(overview.completedPlanIds, ["old-plan"]);
+  assert.deepEqual(identifiers(overview),
+    new Set(["old-plan", "old-draft", "boundary-log", "recent-log", "buddy-plan", "buddy-recent-log"]));
+  const historyQuery = `?scope=history&from=${old}&to=${old}`;
+  const older = await (await get(historyQuery)).json();
+  assert.deepEqual(identifiers(older), new Set(["old-log", "buddy-old-log"]));
+  const shared = older.entries.find(({ owner }) => owner === buddy).data;
+  assert.equal(shared.planId, "buddy-plan");
+  assert.equal(shared.ended, undefined);
+  assert.equal(shared.note, "");
+  const legacy = await (await get()).json();
+  assert.ok(identifiers(legacy).has("old-log"));
+  assert.equal(legacy.historyFrom, undefined);
+  assert.equal((await get("?scope=history&from=2000-01-01&to=2026-01-01")).status, 400);
+  sql.prepare("INSERT INTO friend_profiles VALUES (?, 1)").run(buddy);
+  assert.deepEqual(identifiers(await (await get(historyQuery)).json()), new Set(["old-log"]));
+  worker.owner = null;
+  assert.equal((await get("?scope=overview")).status, 401);
 });
 
 test("a rest reminder crosses only its active deadline once", () => {

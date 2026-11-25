@@ -20,7 +20,7 @@ import { ExerciseAnimation } from "@/features/exercises/exercise-animation";
 import { exerciseTempo, tempoNotationHint } from "@/features/exercises/tempo";
 import { blockTitle, isWarmupMove, nextSet, restFor, trainingBlocks, type SetPosition } from "./sequence";
 import { CardioFields } from "./cardio-fields";
-import { cardioSeconds } from "./cardio";
+import { cardioActivityTitles, cardioSeconds } from "./cardio";
 import { useRestReminder } from "./use-rest-reminder";
 import { useWorkoutWakeLock } from "./use-wake-lock";
 import { saveWorkoutPreferences, useWorkoutPreferences } from "@/features/settings/workout-prefs";
@@ -105,7 +105,7 @@ export function Workout({ data, update, finish, close, pending, error, sync, onE
   const progressTotal = total + Number(Boolean(plan.video));
   const cardio = data.cardio;
   const allowFinish = cardio ? cardioSeconds(cardio, elapsed) > 0 : done > 0 || data.finishedVideo;
-  const defaultTitle = cardio ? "爬坡走" : plan.category === "有氧训练" ? "有氧训练" : freeWorkoutTitle;
+  const defaultTitle = cardio ? cardioActivityTitles[cardio.activity] : plan.category === "有氧训练" ? "有氧训练" : freeWorkoutTitle;
 
   function activate(target: SetTarget, session = data) {
     const value = fieldValue(session.rows[target.move][target.row], target.field);

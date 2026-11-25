@@ -69,6 +69,7 @@ import { ProgramView } from "@/features/programs/program-view";
 import { CoachingView } from "@/features/coaching/coaching-view";
 import { AgentPack } from "@/features/agent/agent-pack";
 import { useDisplayPreferences } from "@/features/settings/display-preferences";
+import { useAccountWorkoutPreferences } from "@/features/settings/account-workout-client";
 import { SettingsHub, SettingsLink, SettingsRows, type SettingsPage } from "@/features/settings/settings-hub";
 import { SettingsContent } from "@/features/settings/settings-content";
 import { ProteinWarehouse } from "@/features/settings/protein-warehouse";
@@ -149,6 +150,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
     window.history.replaceState(window.history.state, "", url);
   }, [authNotice]);
   const { display, changeDisplay } = useDisplayPreferences();
+  useAccountWorkoutPreferences(viewer?.id);
   const { preferences: nutritionPreferences, update: updateNutrition } = useNutritionPreferences(viewer?.id ?? "guest", !display.nutrition);
   const orderedNutritionShortcuts: NutritionShortcut[] = [...nutritionPreferences.mealOrder, "饮水", "体重"];
   const homeNutritionShortcuts = orderedNutritionShortcuts.filter((shortcut) => nutritionPreferences.homeShortcuts.includes(shortcut));
@@ -989,6 +991,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
                   await reloadLibrary();
                   return receipt;
                 },
+                refreshed: () => { void reloadLibrary(); },
                 viewWarehouse: () => { go("settings"); openSetting("proteinWarehouse"); },
                 save: async (submission) => {
                   const meal = await saveCoachMeal(submission);

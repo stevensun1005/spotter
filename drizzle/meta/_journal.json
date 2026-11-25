@@ -134,6 +134,13 @@
       "when": 1795581578516,
       "tag": "0018_friend_feed_cheers",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1795584765482,
+      "tag": "0019_buddy_workout_appointments",
+      "breakpoints": true
     }
   ]
 }
