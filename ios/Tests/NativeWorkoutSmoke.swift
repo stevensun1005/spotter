@@ -80,6 +80,64 @@ struct NativeWorkoutSmoke {
                "Reuse copies actual left/right weights and reps")
         expect(!free.rows[1][0]["done"].bool && free.rows[1][0]["rpe"] == .null &&
                free.plan.exercises[1]["catalogueId"].string == "12345", "Reused sets remain unfinished and retain the stable catalogue ID")
+
+        var bench = NativePreferenceKey.newMove(name: "卧推", sets: 2, reps: 6, unit: "kg")
+        bench["catalogueId"] = .string("bench")
+        bench["repsMax"] = .number(10)
+        func benchLog(_ day: String, load: Double, first: Double, second: Double) -> NativeWorkoutEntry {
+            let prescription = NativePlan(raw: .object([
+                "title": .string("Synthetic push"), "category": .string("力量训练"), "exercises": .array([bench]),
+            ]))
+            var recorded = NativeWorkoutSession.start(plan: prescription, planId: "", now: started)
+            recorded.raw["date"] = .string(day)
+            for (row, reps) in [first, second].enumerated() {
+                recorded.setLine(move: 0, row: row, key: "weight", value: .number(load))
+                recorded.setLine(move: 0, row: row, key: "reps", value: .number(reps))
+                recorded.setLine(move: 0, row: row, key: "done", value: .bool(true))
+            }
+            return NativeWorkoutEntry(id: UUID().uuidString, owner: entry.owner, kind: "log", updated: day, data: recorded.raw)
+        }
+        let mostRecentBench = benchLog("2026-11-21", load: 50, first: 10, second: 10)
+        let priorBench = benchLog("2026-11-18", load: 50, first: 10, second: 10)
+        let olderBench = benchLog("2026-11-15", load: 50, first: 6, second: 6)
+        var friendBench = benchLog("2026-11-22", load: 80, first: 10, second: 10)
+        friendBench.owner = "not-the-signed-in-account"
+        var otherVariation = benchLog("2026-11-22", load: 70, first: 10, second: 10)
+        otherVariation.data["plan"]["exercises"] = .array([.object(["name": .string("卧推"), "catalogueId": .string("other")])])
+        let exerciseHistory = NativeExerciseHistory(logs: [olderBench, mostRecentBench, priorBench, friendBench, otherVariation, mostRecentBench], owner: entry.owner)
+        let benchProgress = exerciseHistory.matching(.init(bench))
+        expect(benchProgress.map(\.day) == ["2026-11-21", "2026-11-18", "2026-11-15"],
+               "Exercise history excludes other accounts, variants and duplicate logs")
+        expect(benchProgress.first?.bestReps(at: 50) == 10 && benchProgress.last?.bestReps(at: 50) == 6,
+               "Same-weight history tracks increases in reps separately from load")
+        let increase = exerciseHistory.increase(for: bench)
+        expect(increase?.weight == 52.5 && increase?.rightWeight == nil,
+               "Two successful sessions at the target produce a modest, opt-in increase")
+        let incompleteHistory = NativeExerciseHistory(logs: [mostRecentBench, olderBench], owner: entry.owner)
+        expect(incompleteHistory.increase(for: bench) == nil, "A session under the target blocks the increase")
+        var fixed = bench
+        fixed["loadPercent"] = .number(75)
+        expect(exerciseHistory.increase(for: fixed) == nil, "Progression respects a prescribed percent")
+
+        let splitHistory = NativeExerciseHistory(logs: [entry], owner: entry.owner)
+        let splitMove = result.plan.exercises[0]
+        if let previous = splitHistory.matching(.init(splitMove)).first,
+           let source = previous.rows.first {
+            var inPounds = splitMove
+            inPounds["unit"] = .string("lb")
+            let currentRow: NativeJSON = .object(["weight": .number(0), "reps": .number(6), "done": .bool(false), "rpe": .number(7)])
+            let matchedRows = NativeExerciseHistory.previousRows(for: [currentRow, currentRow], from: previous, move: inPounds)
+            expect(matchedRows.count == 2 && matchedRows[0] != nil && matchedRows[1] == nil,
+                   "Set positions preserve skipped rows")
+            let copied = NativeExerciseHistory.copied(currentRow, from: source, record: previous, move: inPounds)
+            expect(copied["weight"].number == 26.46 && copied["right"]["weight"].number == 30.86 &&
+                   copied["right"]["reps"].number == 8 && copied["rpe"].number == 7 && !copied["done"].bool,
+                   "Only recorded quantities copy into unfinished sets, converting both weights without changing today's RPE")
+            var completed = currentRow
+            completed["done"] = .bool(true)
+            expect(NativeExerciseHistory.copied(completed, from: source, record: previous, move: inPounds) == completed,
+                   "A completed set is protected")
+        } else { preconditionFailure("Personal split-set history is available") }
         for activity in [NativeWorkoutSession.CardioActivity.cardio, .hiit, .incline] {
             let scheduled = NativeWorkoutSession.free(cardio: activity, now: started)
             let log = try scheduled.finalizing(at: started + 97_000)

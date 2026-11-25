@@ -5,6 +5,43 @@ import Network
 import SwiftUI
 import UIKit
 
+enum NativeWorkoutSyncStatus: Equatable {
+    case localSaveFailed, waitingForNetwork, queued, uploading, synced
+
+    var title: String {
+        switch self {
+        case .localSaveFailed: return "本机保存失败"
+        case .waitingForNetwork: return "已保存到手机 · 等待联网"
+        case .queued: return "已保存到手机 · 等待同步"
+        case .uploading: return "正在同步"
+        case .synced: return "已同步"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .localSaveFailed: return "exclamationmark.triangle"
+        case .waitingForNetwork: return "wifi.slash"
+        case .queued: return "icloud.and.arrow.up"
+        case .uploading: return "arrow.triangle.2.circlepath"
+        case .synced: return "checkmark.icloud"
+        }
+    }
+}
+
+private struct NativeWorkoutSyncLabel: View {
+    let status: NativeWorkoutSyncStatus
+
+    var body: some View {
+        Label(status.title, systemImage: status.icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(status == .localSaveFailed ? Color.red : SpotterPalette.muted)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(status.title)
+            .accessibilityIdentifier("workout-sync-status")
+    }
+}
+
 @MainActor
 final class NativeWorkoutStore: ObservableObject {
     @Published private(set) var widgetRevision = 0
@@ -21,6 +58,13 @@ final class NativeWorkoutStore: ObservableObject {
     @Published private(set) var isBusy = false
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
+    @Published private(set) var networkAvailable: Bool?
+    @Published private(set) var syncProblem: String?
+    @Published private var draftNeedsSync = false
+    @Published private var draftSaveInFlight = false
+    @Published private var localDraftSaved = true
+    @Published private var uploading = false
+    @Published private var uploadingCheckinID: String?
     @Published private(set) var status = "正在连接"
     @Published private(set) var proteinProducts: [NativeJSON] = []
     @Published private(set) var defaultProteinProductID: String?
@@ -41,15 +85,13 @@ final class NativeWorkoutStore: ObservableObject {
     private let reachability = NWPathMonitor()
     private static let snapshotQueue = DispatchQueue(label: "app.spotter.health.workout-snapshot", qos: .utility)
     private var draftTask: Task<Void, Never>?
-    private var draftInFlight = false
     private var draftAgain = false
-    private var draftNeedsSync = false
-    private var uploading = false
+    private var syncRetryTask: Task<Void, Never>?
+    private var syncRetryAttempt = 0
     private var reloadAfterPlanWrite = false
     private var localRevision = 0
     private var entryRevision = 0
     private var localCompletedPlanIds: Set<String> = []
-    private var networkAvailable: Bool?
     private var lastSetCompletion: LastSetCompletion?
 
     private(set) var plans: [NativeWorkoutEntry] = []
@@ -64,6 +106,21 @@ final class NativeWorkoutStore: ObservableObject {
         return lastSetCompletion.completion.position
     }
     var pendingDraftRemovalCount: Int { discardedDrafts.count }
+    var hasPendingSync: Bool { draftNeedsSync || !pendingCheckins.isEmpty || !discardedDrafts.isEmpty }
+    var isSyncing: Bool { uploading || draftSaveInFlight }
+
+    var draftSyncStatus: NativeWorkoutSyncStatus {
+        if !draftNeedsSync { return .synced }
+        if draftSaveInFlight { return .uploading }
+        if !localDraftSaved { return .localSaveFailed }
+        return networkAvailable == false ? .waitingForNetwork : .queued
+    }
+
+    func checkinSyncStatus(id: String) -> NativeWorkoutSyncStatus {
+        if !pendingCheckins.contains(where: { $0.id == id }) { return .synced }
+        if uploadingCheckinID == id { return .uploading }
+        return networkAvailable == false ? .waitingForNetwork : .queued
+    }
     var todayPendingPlans: [NativeWorkoutEntry] { pendingPlans(on: NativeWorkoutSession.day()) }
     var partnerID: String { room["partner"]["id"].string }
     var partnerName: String {
@@ -139,8 +196,9 @@ final class NativeWorkoutStore: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let reconnected = networkAvailable == false && available
-                networkAvailable = available
+                if networkAvailable != available { networkAvailable = available }
                 guard reconnected else { return }
+                await syncLocalChanges()
                 if isLoading { reloadAfterPlanWrite = true }
                 else { await load() }
             }
@@ -148,7 +206,11 @@ final class NativeWorkoutStore: ObservableObject {
         reachability.start(queue: DispatchQueue(label: "app.spotter.health.workout-connectivity"))
     }
 
-    deinit { reachability.cancel() }
+    deinit {
+        reachability.cancel()
+        draftTask?.cancel()
+        syncRetryTask?.cancel()
+    }
 
     private struct LastSetCompletion: Codable {
         let workoutID: String
@@ -252,12 +314,12 @@ final class NativeWorkoutStore: ObservableObject {
             }
             if status != "云端已连接" { status = "云端已连接" }
             if errorMessage != nil { errorMessage = nil }
-            await retryPending()
-            await saveDraft()
+            await flushLocalChanges()
             await loadProteinPreferences()
         } catch {
             status = "暂未连接云端"
-            errorMessage = error.localizedDescription
+            if !hasPendingSync || networkAvailable != false { errorMessage = error.localizedDescription }
+            if hasPendingSync { await flushLocalChanges() }
         }
     }
 
@@ -353,6 +415,10 @@ final class NativeWorkoutStore: ObservableObject {
         localRevision &+= 1
         hasWidgetOverview = false
         draftTask?.cancel()
+        syncRetryTask?.cancel()
+        syncRetryTask = nil
+        syncRetryAttempt = 0
+        syncProblem = nil
         draftNeedsSync = false
         discardedDrafts = []
         completedPlanIds = []
@@ -545,12 +611,15 @@ final class NativeWorkoutStore: ObservableObject {
 
     private func changed() {
         draftNeedsSync = true
-        if persist() { status = "草稿已保存到本机，等待同步" }
+        let stored = persist()
+        if localDraftSaved != stored { localDraftSaved = stored }
+        if stored { status = "草稿已保存到本机，等待同步" }
         draftTask?.cancel()
         draftTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
-            await self?.saveDraft()
+            guard !Task.isCancelled, let self else { return }
+            draftTask = nil
+            await saveDraft()
         }
     }
 
@@ -558,12 +627,12 @@ final class NativeWorkoutStore: ObservableObject {
     private struct Receipt: Decodable { let data: NativeJSON; let updated: String }
 
     func saveDraft() async {
-        guard draftNeedsSync else { return }
-        guard !draftInFlight else { draftAgain = true; return }
+        guard draftNeedsSync, networkAvailable != false else { return }
+        guard !draftSaveInFlight else { draftAgain = true; return }
         guard let snapshot = active, snapshot.kind == "draft" else { return }
-        draftInFlight = true
+        draftSaveInFlight = true
         defer {
-            draftInFlight = false
+            draftSaveInFlight = false
             if draftAgain { draftAgain = false; Task { [weak self] in await self?.saveDraft() } }
         }
         do {
@@ -574,14 +643,15 @@ final class NativeWorkoutStore: ObservableObject {
             guard active?.id == snapshot.id, active?.kind == "draft" else { return }
             if active?.data == snapshot.data {
                 draftNeedsSync = false
-                persist()
+                localDraftSaved = persist()
                 status = "草稿已保存到云端"
+                clearRetryIfSynced()
             }
             else { draftAgain = true }
         } catch {
-            guard active?.id == snapshot.id else { return }
-            status = "草稿保留在本机，可联网重试"
-            errorMessage = error.localizedDescription
+            guard !Task.isCancelled, active?.id == snapshot.id else { return }
+            status = localDraftSaved ? "草稿已保存到本机，等待同步" : "本机保存失败"
+            retryIfTransient(error)
         }
     }
 
@@ -608,9 +678,13 @@ final class NativeWorkoutStore: ObservableObject {
     }
 
     func retryPending() async {
-        guard !uploading, !pendingCheckins.isEmpty || !discardedDrafts.isEmpty else { return }
+        guard networkAvailable != false, !uploading, !pendingCheckins.isEmpty || !discardedDrafts.isEmpty else { return }
         uploading = true
-        defer { uploading = false }
+        defer {
+            uploadingCheckinID = nil
+            uploading = false
+            clearRetryIfSynced()
+        }
         while let id = discardedDrafts.first {
             do {
                 let revision = localRevision
@@ -628,11 +702,13 @@ final class NativeWorkoutStore: ObservableObject {
                 if isLoading { reloadAfterPlanWrite = true }
                 else { Task { await load() } }
             } catch {
-                errorMessage = error.localizedDescription
+                guard !Task.isCancelled else { return }
+                retryIfTransient(error)
                 break
             }
         }
         while let pending = pendingCheckins.first, pending.owner == owner {
+            uploadingCheckinID = pending.id
             do {
                 let revision = localRevision
                 let body = Upload(action: "log", expectedOwner: owner, id: pending.id, data: pending.data)
@@ -649,10 +725,57 @@ final class NativeWorkoutStore: ObservableObject {
                 errorMessage = nil
                 if active == nil { status = "训练已打卡并保存到云端" }
             } catch {
+                guard !Task.isCancelled else { return }
                 status = "打卡已保存在本机，等待重试"
-                errorMessage = error.localizedDescription
+                retryIfTransient(error)
                 return
             }
+        }
+    }
+
+    func syncLocalChanges() async {
+        syncRetryTask?.cancel()
+        syncRetryTask = nil
+        syncRetryAttempt = 0
+        await flushLocalChanges()
+    }
+
+    private func flushLocalChanges() async {
+        await retryPending()
+        await saveDraft()
+    }
+
+    private func clearRetryIfSynced() {
+        guard !hasPendingSync else { return }
+        syncRetryTask?.cancel()
+        syncRetryTask = nil
+        syncRetryAttempt = 0
+        if syncProblem != nil { syncProblem = nil }
+    }
+
+    private func retryIfTransient(_ error: Error) {
+        guard networkAvailable != false, syncRetryTask == nil else { return }
+        let retryable: Bool
+        if let status = (error as? NativeAPIError)?.statusCode {
+            retryable = [408, 429, 500, 502, 503, 504].contains(status)
+        } else if let failure = error as? URLError {
+            retryable = [.timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotFindHost,
+                         .cannotConnectToHost, .dnsLookupFailed].contains(failure.code)
+        } else {
+            retryable = false
+        }
+        let delays: [UInt64] = [4, 12, 30]
+        guard retryable, delays.indices.contains(syncRetryAttempt) else {
+            syncProblem = retryable ? "暂时无法连接云端。可手动重试。" : error.localizedDescription
+            return
+        }
+        let delay = delays[syncRetryAttempt]
+        syncRetryAttempt += 1
+        syncRetryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            syncRetryTask = nil
+            await flushLocalChanges()
         }
     }
 
@@ -1010,6 +1133,7 @@ struct NativeWorkoutView: View {
     }
 
     @ViewBuilder private var todayLanding: some View {
+        let today = NativeWorkoutSession.day()
         let byPlan = completions
         let dayPlans = store.plans.filter {
             $0.day == selectedDay && byPlan[$0.key] == nil && ($0.owner != store.owner || !store.hasCompletedPlan(id: $0.id))
@@ -1028,7 +1152,7 @@ struct NativeWorkoutView: View {
         if !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
         weekStrip
         HStack {
-            Text(selectedDay == NativeWorkoutSession.day() ? "今日训练" : "\(shortDay(selectedDay))的训练")
+            Text(selectedDay == today ? "今日训练" : "\(shortDay(selectedDay))的训练")
                 .font(.system(size: 18, weight: .bold))
             Spacer()
             Button { openAllPlans?() } label: {
@@ -1037,7 +1161,7 @@ struct NativeWorkoutView: View {
                     .frame(minHeight: 44)
             }.buttonStyle(.spotterPress).foregroundStyle(accent.tint)
         }.padding(.top, 4)
-        if selectedDay == NativeWorkoutSession.day() {
+        if selectedDay == today {
             if let active = store.active { draftRow(active, current: true) }
             ForEach(store.drafts) { entry in draftRow(entry, current: false) }
         }
@@ -1049,10 +1173,15 @@ struct NativeWorkoutView: View {
                 Link(destination: url) { Label("打开跟练视频", systemImage: "play.circle").frame(maxWidth: .infinity).padding(14).spotterCard() }
                     .buttonStyle(.spotterPress)
             }
-        } else if dayRecords.isEmpty && (selectedDay != NativeWorkoutSession.day() || store.active == nil) {
+        } else if dayRecords.isEmpty && (selectedDay != today || store.active == nil) {
             compactUnscheduledDay
         }
         if !dayRecords.isEmpty { completedRows(dayRecords) }
+        if selectedDay == today {
+            let overdue = store.plans.filter { $0.day < today && store.canMovePlan($0) }
+                .sorted { ($0.day, $0.updated, $0.id) > ($1.day, $1.updated, $1.id) }
+            NativeMissedPlansCard(plans: overdue) { planScheduleAction = .move($0) }
+        }
         if openFriends != nil { partnerCard }
         if showCheckins { weeklyCheckins }
         if showPlanShortcut {
@@ -1406,7 +1535,8 @@ struct NativeWorkoutView: View {
     @ViewBuilder private func planActions(_ entry: NativeWorkoutEntry) -> some View {
         Button("编辑计划", systemImage: "pencil") { planEditor = NativePlanDraft(entry: entry) }
         if store.canMovePlan(entry) {
-            Button("移动或顺延", systemImage: "calendar.badge.clock") { planScheduleAction = .move(entry) }
+            Button(entry.day < NativeWorkoutSession.day() ? "预览调整日期" : "移动或顺延",
+                   systemImage: "calendar.badge.clock") { planScheduleAction = .move(entry) }
         }
         Button("另存为模板", systemImage: "bookmark") { planEditor = NativePlanDraft(copying: NativePlan(raw: entry.data)) }
         Button("删除计划", systemImage: "trash", role: .destructive) { planScheduleAction = .remove(entry) }
@@ -1670,14 +1800,19 @@ struct NativeWorkoutView: View {
 
     private var pendingCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("训练待同步", systemImage: "icloud.and.arrow.up").font(.subheadline.weight(.semibold))
+            Label(store.isSyncing ? "正在同步训练" : (store.networkAvailable == false ? "训练已保存到手机" : "训练待同步"),
+                  systemImage: store.networkAvailable == false ? "wifi.slash" : "icloud.and.arrow.up")
+                .font(.subheadline.weight(.semibold))
             if !store.pendingCheckins.isEmpty {
-                Text("\(store.pendingCheckins.count) 条打卡已保存在本机。").font(.footnote).foregroundStyle(SpotterPalette.muted)
+                Text("\(store.pendingCheckins.count) 条打卡等待同步，联网后自动上传。").font(.footnote).foregroundStyle(SpotterPalette.muted)
             }
             if store.pendingDraftRemovalCount > 0 {
                 Text("\(store.pendingDraftRemovalCount) 条草稿删除待同步。").font(.footnote).foregroundStyle(SpotterPalette.muted)
             }
-            Button("重试同步") { Task { await store.retryPending() } }.buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(store.isBusy)
+            if let problem = store.syncProblem, store.networkAvailable != false { Text(problem).font(.footnote).foregroundStyle(SpotterPalette.muted) }
+            Button("重试同步") { Task { await store.syncLocalChanges() } }
+                .buttonStyle(SpotterNativeButtonStyle(primary: false))
+                .disabled(store.isBusy || store.isSyncing || store.networkAvailable == false)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14).spotterCard()
     }
 
@@ -1887,7 +2022,7 @@ private struct NativeSetTarget: Equatable {
     var right = false
 }
 
-private enum NativeEditorPanel: String, Identifiable { case settings, note, add, finish; var id: String { rawValue } }
+private enum NativeEditorPanel: String, Identifiable { case settings, note, add, finish, progress; var id: String { rawValue } }
 
 struct NativeActiveWorkoutView: View {
     @Environment(\.spotterAccent) private var accent
@@ -1908,6 +2043,10 @@ struct NativeActiveWorkoutView: View {
     @State private var editText = ""
     @State private var pristine = true
     @State private var panel: NativeEditorPanel?
+    @State private var progressMove: NativeJSON?
+    @State private var exerciseHistory = NativeExerciseHistory()
+    @State private var hasIndexedExerciseHistory = false
+    @State private var lookedUpOlderHistory = false
     @State private var dismissAfterPanel = false
     @State private var changedIdleTimer = false
     @State private var lastRestRemaining: Int?
@@ -1918,6 +2057,10 @@ struct NativeActiveWorkoutView: View {
         keepAwake && phase == .active && store.active?.session?.isRunning == true
     }
 
+    private var earlierExerciseHistoryCutoff: String? {
+        hasIndexedExerciseHistory ? store.recentHistoryStart : nil
+    }
+
     var body: some View {
         Group {
             if let entry = store.active, let session = entry.session { workout(entry, session: session) }
@@ -1925,6 +2068,19 @@ struct NativeActiveWorkoutView: View {
         }
         .foregroundStyle(SpotterPalette.ink).tint(accent.tint)
         .task { await store.loadProteinPreferences() }
+        .task(id: store.logs) {
+            let logs = store.logs
+            let owner = store.owner
+            let indexed = await Task.detached(priority: .userInitiated) {
+                NativeExerciseHistory(logs: logs, owner: owner)
+            }.value
+            guard !Task.isCancelled else { return }
+            exerciseHistory = indexed
+            hasIndexedExerciseHistory = true
+        }
+        .task(id: earlierExerciseHistoryCutoff) {
+            if let cutoff = earlierExerciseHistoryCutoff { await readOlderExerciseHistoryIfNeeded(before: cutoff) }
+        }
         .onAppear { updateIdleTimer(needsIdleTimer) }
         .onChange(of: needsIdleTimer) { enabled in updateIdleTimer(enabled) }
         .onDisappear { updateIdleTimer(false) }
@@ -1936,6 +2092,8 @@ struct NativeActiveWorkoutView: View {
                 case .add: NativeWorkoutAddPanel(store: store) {
                     openedMove = max(0, (store.active?.session?.plan.exercises.count ?? 1) - 1)
                 }
+                case .progress:
+                    if let progressMove { NativeExerciseProgressView(store: store, move: progressMove, showsClose: true) }
                 case .finish:
                     NativeWorkoutFinishPanel(store: store) { record in
                         completed(record)
@@ -1944,7 +2102,7 @@ struct NativeActiveWorkoutView: View {
                     }
                 }
             }
-            .presentationDetents([.medium, .large])
+            .presentationDetents(item == .progress ? [.large] : [.medium, .large])
             .presentationDragIndicator(.visible)
             .interactiveDismissDisabled(item == .finish && store.isBusy)
         }
@@ -1954,6 +2112,16 @@ struct NativeActiveWorkoutView: View {
         guard dismissAfterPanel else { return }
         dismissAfterPanel = false
         dismiss()
+    }
+
+    private func readOlderExerciseHistoryIfNeeded(before cutoff: String) async {
+        guard !lookedUpOlderHistory, let moves = store.active?.session?.plan.exercises,
+              moves.contains(where: { exerciseHistory.matching(.init($0)).isEmpty }),
+              let cutoffDate = nativePlanDate(cutoff),
+              let before = Calendar.current.date(byAdding: .day, value: -1, to: cutoffDate),
+              let searchStart = Calendar.current.date(byAdding: .year, value: -1, to: .now) else { return }
+        lookedUpOlderHistory = true
+        await store.loadHistory(from: spotterDay(searchStart), through: spotterDay(before))
     }
 
     private func workout(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
@@ -2041,7 +2209,7 @@ struct NativeActiveWorkoutView: View {
                 }
             }
             HStack(spacing: 8) {
-                Text(store.status).font(.caption2).foregroundStyle(SpotterPalette.muted).lineLimit(2)
+                NativeWorkoutSyncLabel(status: store.draftSyncStatus).lineLimit(2)
                 Spacer(minLength: 0)
                 if let position = store.undoableSet, session.plan.exercises.indices.contains(position.move) {
                     Button(action: undoLatestSet) {
@@ -2051,6 +2219,14 @@ struct NativeActiveWorkoutView: View {
                     .disabled(store.isBusy)
                     .accessibilityIdentifier("workout-undo-set")
                     .accessibilityHint("\(session.plan.exercises[position.move]["name"].string)，第 \(position.row + 1) 组")
+                }
+            }
+            if let problem = store.syncProblem, store.networkAvailable != false {
+                HStack {
+                    Text(problem).font(.caption2).foregroundStyle(SpotterPalette.muted)
+                    Spacer(minLength: 8)
+                    Button("重试") { Task { await store.syncLocalChanges() } }
+                        .font(.caption.weight(.semibold)).buttonStyle(.spotterControl).disabled(store.isSyncing)
                 }
             }
             if session.raw["rest"] != .null { restTimer(session) }
@@ -2132,12 +2308,23 @@ struct NativeActiveWorkoutView: View {
             }.buttonStyle(.spotterPress)
                 .accessibilityValue(openedMove == index ? "已展开" : "已收起")
             if openedMove == index {
+                let rows = session.rows.indices.contains(index) ? session.rows[index] : []
+                let warmup = NativeExerciseLabel(move).warmup
+                let previous = exerciseHistory.matching(.init(move)).first {
+                    $0.isTimed == (move["seconds"].number > 0) &&
+                        $0.warmup == warmup
+                }
+                let reference = previous.map { NativeExerciseHistory.previousRows(for: rows, from: $0, move: move) }
+                let suggestion = session.plan.category == "力量训练" ? exerciseHistory.increase(for: move) : nil
                 VStack(alignment: .leading, spacing: 11) {
                     if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
                     Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
                     if showTempo && !move["tempo"].string.isEmpty { Text("节奏 \(move["tempo"].string)").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
-                    ForEach(Array((session.rows.indices.contains(index) ? session.rows[index] : []).enumerated()), id: \.offset) { row, line in
-                        setRow(index, row: row, move: move, line: line)
+                    exerciseHistoryActions(index, move: move, rows: rows, record: previous, reference: reference)
+                    if let suggestion { progressionButton(index, move: move, rows: rows, suggestion: suggestion) }
+                    ForEach(Array(rows.enumerated()), id: \.offset) { row, line in
+                        setRow(index, row: row, move: move, line: line,
+                               previous: reference?[row], previousUnit: previous?.unit)
                             .id(NativeWorkoutSession.SetPosition(move: index, row: row))
                     }
                     Button { withAnimation(motion) { store.mutate { $0.addSet(move: index) } } } label: { Label("增加一组", systemImage: "plus").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity) }
@@ -2147,7 +2334,100 @@ struct NativeActiveWorkoutView: View {
         }.padding(12).spotterCard()
     }
 
-    private func setRow(_ moveIndex: Int, row: Int, move: NativeJSON, line: NativeJSON) -> some View {
+    private func exerciseHistoryActions(_ index: Int, move: NativeJSON, rows: [NativeJSON],
+                                        record: NativeExerciseHistory.Record?, reference: [NativeJSON?]?) -> some View {
+        let action = Button {
+            edit = nil
+            progressMove = move
+            panel = .progress
+        } label: {
+            Label("动作进步", systemImage: "chart.line.uptrend.xyaxis")
+                .font(.caption.weight(.semibold))
+        }
+        let canCopy = record.map { previous in
+            zip(rows, reference ?? []).contains { row, source in
+                source.map { NativeExerciseHistory.copied(row, from: $0, record: previous, move: move) != row } ?? false
+            }
+        } ?? false
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                if let record {
+                    Text("上次 · " + record.day).font(.caption).foregroundStyle(SpotterPalette.muted).fixedSize()
+                }
+                Spacer(minLength: 0)
+                if canCopy, let record { reuseButton(index, move: move, record: record) }
+                action
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                if let record { Text("上次 · " + record.day).font(.caption).foregroundStyle(SpotterPalette.muted) }
+                HStack {
+                    if canCopy, let record { reuseButton(index, move: move, record: record) }
+                    action
+                }
+            }
+        }
+        .buttonStyle(.spotterControl)
+    }
+
+    private func reuseButton(_ index: Int, move: NativeJSON, record: NativeExerciseHistory.Record) -> some View {
+        Button {
+            edit = nil
+            changeExerciseRows(index, move: move) { rows in
+                let sources = NativeExerciseHistory.previousRows(for: rows, from: record, move: move)
+                return zip(rows, sources).map { row, previous in
+                    previous.map { NativeExerciseHistory.copied(row, from: $0, record: record, move: move) } ?? row
+                }
+            }
+            setFeedback.impactOccurred()
+        } label: {
+            Label("沿用上次", systemImage: "arrow.uturn.backward")
+                .font(.caption.weight(.semibold))
+        }
+        .disabled(store.isBusy)
+        .accessibilityIdentifier("workout-reuse-exercise")
+        .accessibilityHint("填入对应的未完成组，可以继续编辑")
+    }
+
+    @ViewBuilder private func progressionButton(_ index: Int, move: NativeJSON, rows: [NativeJSON],
+                                                suggestion: NativeExerciseHistory.Increase) -> some View {
+        if rows.contains(where: { NativeExerciseHistory.withIncrease($0, suggestion: suggestion) != $0 }) {
+            let unit = NativeExerciseHistory.unit(of: move)
+            let display = suggestion.rightWeight.map { "左 \(suggestion.weight.formatted()) · 右 \($0.formatted()) \(unit)" }
+                ?? "\(suggestion.weight.formatted()) \(unit)"
+            HStack(alignment: .center, spacing: 7) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("连续两次达到目标").font(.caption.weight(.semibold))
+                    Text("建议试 \(display)").font(.caption).foregroundStyle(SpotterPalette.muted)
+                }
+                Spacer(minLength: 0)
+                Button("采用重量") {
+                    edit = nil
+                    changeExerciseRows(index, move: move) { $0.map { NativeExerciseHistory.withIncrease($0, suggestion: suggestion) } }
+                    setFeedback.impactOccurred()
+                }
+                .buttonStyle(.spotterControl)
+                .font(.caption.weight(.semibold))
+                .disabled(store.isBusy)
+                .accessibilityIdentifier("workout-adopt-exercise-load")
+            }
+            .padding(9).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func changeExerciseRows(_ index: Int, move: NativeJSON, transform: ([NativeJSON]) -> [NativeJSON]) {
+        store.mutate { session in
+            var rows = session.rows
+            guard rows.indices.contains(index), session.plan.exercises.indices.contains(index),
+                  session.plan.exercises[index] == move else { return }
+            let updated = transform(rows[index])
+            guard updated != rows[index] else { return }
+            rows[index] = updated
+            session.raw["rows"] = .array(rows.map(NativeJSON.array))
+        }
+    }
+
+    private func setRow(_ moveIndex: Int, row: Int, move: NativeJSON, line: NativeJSON,
+                        previous: NativeJSON?, previousUnit: String?) -> some View {
         HStack(alignment: .top, spacing: 7) {
             VStack(spacing: 3) {
                 Text("\(row + 1)").font(.system(size: 16, weight: .bold))
@@ -2166,6 +2446,12 @@ struct NativeActiveWorkoutView: View {
                     }
                 }
                 if showEffort && line["rpe"] != .null { Text("RPE \(line["rpe"].number.formatted())").font(.system(size: 11, weight: .semibold)).padding(.horizontal, 7).padding(.vertical, 4).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 7)).frame(maxWidth: .infinity, alignment: .leading) }
+                if let previous, let previousUnit {
+                    Text("上次 " + NativeExerciseHistory.amount(previous, unit: previousUnit, showEffort: showEffort))
+                        .font(.caption2)
+                        .foregroundStyle(SpotterPalette.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             Button { toggleDone(move: moveIndex, row: row) } label: {
                 Image(systemName: line["done"].bool ? "checkmark.circle.fill" : "circle").font(.system(size: 24, weight: .medium)).frame(width: 38, height: 50)
@@ -2647,10 +2933,17 @@ struct NativeWorkoutDetailView: View {
                         if own, let video = URL(string: session.plan.video), video.scheme == "https" {
                             Link(destination: video) { Label("打开跟练视频", systemImage: "play.circle") }.buttonStyle(SpotterNativeButtonStyle(primary: false))
                         }
-                        if pending {
-                            Label("已在本机打卡，联网后自动同步", systemImage: "icloud.and.arrow.up")
-                                .font(.subheadline).foregroundStyle(SpotterPalette.muted)
-                        } else if own {
+                        if own {
+                            HStack {
+                                NativeWorkoutSyncLabel(status: store.checkinSyncStatus(id: entry.id))
+                                Spacer(minLength: 8)
+                                if pending, store.networkAvailable != false, !store.isSyncing {
+                                    Button("重试同步") { Task { await store.syncLocalChanges() } }
+                                        .buttonStyle(.spotterControl)
+                                }
+                            }
+                        }
+                        if own && !pending {
                             NativeHeartView(api: store.api, owner: store.owner, entry: current)
                         }
                         if session.completedSets > 0 {
@@ -2828,6 +3121,19 @@ struct NativeWorkoutDetailView: View {
                         .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 5))
                 }
                 Text(move["name"].string).font(.headline)
+                Spacer(minLength: 0)
+                if own {
+                    NavigationLink {
+                        NativeExerciseProgressView(store: store, move: move)
+                    } label: {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .foregroundStyle(SpotterPalette.accent)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.spotterPress)
+                    .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作进步")
+                }
             }
             if own {
                 Text("计划处方 · \(prescription(move))").font(.caption).foregroundStyle(SpotterPalette.muted)

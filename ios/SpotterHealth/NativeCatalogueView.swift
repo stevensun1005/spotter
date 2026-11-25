@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 import UIKit
 
@@ -984,6 +985,17 @@ private struct NativeCatalogueExerciseDetail: View {
                             if let selection = family.variants.first(where: { $0.id == id }) { entry = selection }
                         }), options: family.variants.map { ($0.id, $0.name) })
                     }
+                    NavigationLink {
+                        NativeExerciseProgressView(store: store, move: .object([
+                            "name": .string(entry.name),
+                            "sourceName": .string(entry.en),
+                            "catalogueId": .string(entry.isPersonal ? "" : entry.id),
+                        ]))
+                    } label: {
+                        Label("查看动作进步", systemImage: "chart.line.uptrend.xyaxis")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(SpotterNativeButtonStyle(primary: false))
                     guidance
                 }
                 .padding(16)
@@ -1038,5 +1050,273 @@ private struct NativeCatalogueExerciseDetail: View {
         next["pinned"] = .bool(!next["pinned"].bool)
         pinError = await store.saveExerciseProfile(next)
         savingPin = false
+    }
+}
+
+@MainActor
+struct NativeExerciseProgressView: View {
+    @ObservedObject var store: NativeWorkoutStore
+    let move: NativeJSON
+    var showsClose = false
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccent) private var accent
+    @State private var records: [NativeExerciseHistory.Record] = []
+    @State private var metric: Metric = .weight
+    @State private var selectedLoad: Double?
+    @State private var olderAnchor: String?
+    @State private var loadingMore = false
+    @State private var loadFailed = false
+
+    private enum Metric: String, CaseIterable {
+        case weight, reps, seconds
+
+        var title: String {
+            switch self {
+            case .weight: return "最高重量"
+            case .reps: return "同重次数"
+            case .seconds: return "最长时长"
+            }
+        }
+    }
+
+    private struct Point: Identifiable {
+        let id: String
+        let date: Date
+        let value: Double
+    }
+
+    private var name: String { NativeExerciseLabel(move).name }
+    private var bestLoad: Double? { records.compactMap(\.greatestWeightKg).max().flatMap { $0 > 0 ? $0 : nil } }
+    private var bestDuration: Double? { records.compactMap(\.longestSeconds).max() }
+    private var loads: [Double] {
+        Set(records.flatMap { record in
+            record.resultRows.compactMap(record.repsLoadKg)
+        }).sorted(by: >)
+    }
+    private var referenceLoad: Double? {
+        if let selectedLoad, loads.contains(selectedLoad) { return selectedLoad }
+        let latest = records.first { $0.greatestWeightKg != nil }
+        if let weight = latest?.greatestWeightKg, loads.contains(weight) { return weight }
+        return loads.first
+    }
+    private var metrics: [Metric] {
+        Metric.allCases.filter {
+            switch $0 {
+            case .weight: return bestLoad != nil
+            case .reps: return !loads.isEmpty
+            case .seconds: return bestDuration != nil
+            }
+        }
+    }
+    private var shownMetric: Metric { metrics.contains(metric) ? metric : metrics.first ?? .reps }
+    private var unit: String {
+        if move["unit"].string.isEmpty { return records.first?.unit ?? "kg" }
+        return NativeExerciseHistory.unit(of: move)
+    }
+    private var baseline: String {
+        if let olderAnchor { return olderAnchor }
+        if let start = store.recentHistoryStart { return start }
+        return spotterDay(Calendar.current.date(byAdding: .day, value: -62, to: .now) ?? .now)
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                heading
+                if records.isEmpty { empty }
+                if !metrics.isEmpty {
+                    recordsCard
+                    trendCard
+                }
+                if !records.isEmpty {
+                    Text("历史组次").font(.headline).accessibilityAddTraits(.isHeader)
+                    ForEach(records) { record in sessionCard(record) }
+                }
+                earlierButton
+            }
+            .padding(14)
+        }
+        .background(SpotterPalette.background)
+        .foregroundStyle(SpotterPalette.ink)
+        .navigationTitle("动作进步")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if showsClose { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
+        }
+        .task(id: store.logs) {
+            let logs = store.logs
+            let owner = store.owner
+            let identity = NativeExerciseHistory.Identity(move)
+            let matched = await Task.detached(priority: .userInitiated) {
+                NativeExerciseHistory(logs: logs, owner: owner).matching(identity)
+            }.value
+            if !Task.isCancelled { records = matched }
+        }
+        .task(id: store.recentHistoryStart) {
+            guard olderAnchor == nil, let start = store.recentHistoryStart else { return }
+            await readOlder(before: start)
+        }
+    }
+
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(name).font(.title2.bold()).accessibilityAddTraits(.isHeader)
+            let count = Set(records.map(\.workoutID)).count
+            if count > 0 {
+                Text("已读取 \(count) 次训练").font(.subheadline).foregroundStyle(SpotterPalette.muted)
+            }
+        }
+    }
+
+    private var empty: some View {
+        VStack(spacing: 9) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.title2.weight(.semibold)).foregroundStyle(accent.tint)
+            Text(loadingMore ? "正在读取训练记录" : "暂无这个动作的已完成组次")
+                .font(.subheadline.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .spotterCard()
+    }
+
+    private var recordsCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("个人纪录").font(.headline)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 8) { recordTiles }
+                VStack(alignment: .leading, spacing: 8) { recordTiles }
+            }
+        }
+        .padding(12)
+        .spotterCard()
+    }
+
+    @ViewBuilder private var recordTiles: some View {
+        if let bestLoad { recordTile("最高重量", value: loadLabel(bestLoad)) }
+        if let referenceLoad, let reps = records.compactMap({ $0.bestReps(at: referenceLoad) }).max() {
+            let title = referenceLoad > 0 ? "\(loadLabel(referenceLoad)) 最多次数" : "自重最多次数"
+            recordTile(title, value: "\(reps.formatted()) 次")
+        }
+        if let bestDuration { recordTile("最长时长", value: "\(bestDuration.formatted()) 秒") }
+    }
+
+    private func recordTile(_ title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.caption).foregroundStyle(SpotterPalette.muted)
+            Text(value).font(.system(.title3, design: .rounded, weight: .bold)).monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var trendCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("训练趋势").font(.headline)
+            if metrics.count > 1 {
+                SpotterMenuPicker("指标", selection: Binding(get: { shownMetric }, set: { metric = $0 }),
+                                   options: metrics.map { ($0, $0.title) })
+            }
+            if shownMetric == .reps, let referenceLoad, loads.count > 1 {
+                SpotterMenuPicker("重量", selection: Binding(get: { referenceLoad }, set: { selectedLoad = $0 }),
+                                   options: loads.map { ($0, $0 == 0 ? "自重" : loadLabel($0)) })
+            }
+            trend(shownMetric)
+        }
+        .padding(12)
+        .spotterCard()
+    }
+
+    private func trend(_ metric: Metric) -> some View {
+        let points = records.reversed().compactMap { record -> Point? in
+            guard let date = nativePlanDate(record.day) else { return nil }
+            let value: Double?
+            switch metric {
+            case .weight: value = record.greatestWeightKg.map { NativeExerciseHistory.convert($0, from: "kg", to: unit) }
+            case .reps: value = referenceLoad.flatMap(record.bestReps(at:))
+            case .seconds: value = record.longestSeconds
+            }
+            return value.map { Point(id: record.id, date: date, value: $0) }
+        }
+        let daily = Dictionary(grouping: points, by: \.date).values.compactMap { $0.max(by: { $0.value < $1.value }) }
+            .sorted { $0.date < $1.date }
+        return Chart(daily) { point in
+            LineMark(x: .value("日期", point.date), y: .value(metric.title, point.value))
+                .foregroundStyle(accent.tint)
+            PointMark(x: .value("日期", point.date), y: .value(metric.title, point.value))
+                .foregroundStyle(accent.tint)
+                .accessibilityLabel(point.date.formatted(date: .abbreviated, time: .omitted))
+                .accessibilityValue("\(point.value.formatted()) \(metric == .weight ? unit : metric == .seconds ? "秒" : "次")")
+        }
+        .chartYAxisLabel(metric == .weight ? unit : metric == .seconds ? "秒" : "次")
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisGridLine()
+                AxisValueLabel(format: .dateTime.month(.defaultDigits).day(.defaultDigits))
+            }
+        }
+        .frame(height: 165)
+    }
+
+    private func sessionCard(_ record: NativeExerciseHistory.Record) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(record.title).font(.subheadline.weight(.bold))
+                Spacer(minLength: 6)
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(record.day)
+                    if record.started > 0 {
+                        let time = Date(timeIntervalSince1970: record.started / 1_000)
+                        Text(time.formatted(date: .omitted, time: .shortened))
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(SpotterPalette.muted)
+                .fixedSize()
+            }
+            ForEach(Array(record.rows.enumerated()), id: \.offset) { index, row in
+                if row["done"].bool {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        let label = row["kind"].string == "warmup" ? "热身" : row["kind"].string == "drop" ? "递减" : "第 \(index + 1) 组"
+                        Text(label).font(.caption).foregroundStyle(SpotterPalette.muted).fixedSize()
+                        Text(NativeExerciseHistory.amount(row, unit: record.unit))
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+        .padding(12)
+        .spotterCard()
+    }
+
+    private var earlierButton: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if loadFailed { Text("暂时无法读取更早的训练。").font(.caption).foregroundStyle(SpotterPalette.muted) }
+            Button { Task { await readOlder(before: baseline) } } label: {
+                Label(loadingMore ? "正在读取" : loadFailed ? "重试读取" : "加载更早的训练", systemImage: "clock.arrow.circlepath")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(SpotterNativeButtonStyle(primary: false))
+            .disabled(loadingMore)
+        }
+    }
+
+    private func readOlder(before anchor: String) async {
+        guard !loadingMore else { return }
+        loadingMore = true
+        loadFailed = false
+        defer { loadingMore = false }
+        let from = await store.loadEarlierHistory(before: anchor)
+        guard !Task.isCancelled else { return }
+        if let from { olderAnchor = from } else { loadFailed = true }
+    }
+
+    private func loadLabel(_ kg: Double) -> String {
+        let amount = NativeExerciseHistory.convert(kg, from: "kg", to: unit)
+        return amount.formatted(.number.precision(.fractionLength(0...1))) + " " + unit
     }
 }

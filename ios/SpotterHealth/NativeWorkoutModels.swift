@@ -571,6 +571,229 @@ struct NativeExerciseLabel {
     }
 }
 
+struct NativeExerciseHistory: Sendable {
+    struct Identity: Hashable, Sendable {
+        let catalogueID: String
+        let names: Set<String>
+
+        init(_ move: NativeJSON) {
+            catalogueID = move["catalogueId"].string
+            names = Set(["name", "sourceName"].compactMap { field in
+                let normalized = NativeExerciseLabel(.object(["name": move[field]])).name
+                    .precomposedStringWithCompatibilityMapping.lowercased()
+                    .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                return normalized.isEmpty ? nil : normalized
+            })
+        }
+    }
+
+    struct Record: Identifiable, Sendable {
+        var id: String { workoutID + ":" + String(moveIndex) }
+        let workoutID: String
+        let day: String
+        let started: Double
+        let title: String
+        let moveIndex: Int
+        let move: NativeJSON
+        let identity: Identity
+        let rows: [NativeJSON]
+        let strength: Bool
+        let perSide: Bool
+        let warmup: Bool
+
+        var unit: String { NativeExerciseHistory.unit(of: move) }
+        var isTimed: Bool { move["seconds"].number > 0 }
+        var resultRows: [NativeJSON] {
+            guard !warmup else { return [] }
+            return rows.filter { $0["done"].bool && $0["kind"].string.isEmpty }
+        }
+        var greatestWeightKg: Double? { resultRows.compactMap(weightKg).max() }
+        var longestSeconds: Double? {
+            resultRows.map { $0["seconds"].number }.filter { $0 > 0 }.max()
+        }
+
+        func weightKg(_ line: NativeJSON) -> Double? {
+            guard !isTimed, Self.reps(line) > 0 else { return nil }
+            return NativeExerciseHistory.convert(max(line["weight"].number, line["right"]["weight"].number), from: unit, to: "kg")
+        }
+
+        func bestReps(at loadKg: Double) -> Double? {
+            resultRows.compactMap { row -> Double? in
+                guard let weight = repsLoadKg(row), abs(weight - loadKg) < 0.051 else { return nil }
+                return Self.reps(row)
+            }.max()
+        }
+
+        func repsLoadKg(_ row: NativeJSON) -> Double? {
+            guard let weight = weightKg(row) else { return nil }
+            if row["right"] != .null {
+                let right = NativeExerciseHistory.convert(row["right"]["weight"].number, from: unit, to: "kg")
+                let left = NativeExerciseHistory.convert(row["weight"].number, from: unit, to: "kg")
+                guard abs(right - left) < 0.051 else { return nil }
+            }
+            return weight
+        }
+
+        static func reps(_ line: NativeJSON) -> Double {
+            if line["right"] != .null { return min(line["reps"].number, line["right"]["reps"].number) }
+            return line["reps"].number
+        }
+    }
+
+    struct Increase: Equatable, Sendable {
+        let weight: Double
+        let rightWeight: Double?
+    }
+
+    private var records: [Record] = []
+    private var byCatalogue: [String: [Int]] = [:]
+    private var byName: [String: [Int]] = [:]
+
+    init(logs: [NativeWorkoutEntry] = [], owner: String = "") {
+        let ordered = logs.filter { $0.kind == "log" && $0.owner == owner }
+            .sorted {
+                if $0.day != $1.day { return $0.day > $1.day }
+                if $0.data["started"].number != $1.data["started"].number {
+                    return $0.data["started"].number > $1.data["started"].number
+                }
+                return $0.updated > $1.updated
+            }
+        var seen: Set<String> = []
+        for entry in ordered where seen.insert(entry.id).inserted {
+            guard let session = entry.session else { continue }
+            let groups = session.rows
+            for (index, move) in session.plan.exercises.enumerated() where groups.indices.contains(index) {
+                let rows = groups[index]
+                guard rows.contains(where: { $0["done"].bool }) else { continue }
+                let identity = Identity(move)
+                let position = records.count
+                records.append(Record(workoutID: entry.id, day: entry.day, started: entry.data["started"].number,
+                                      title: entry.displayTitle, moveIndex: index, move: move, identity: identity,
+                                      rows: rows, strength: session.plan.category == "力量训练",
+                                      perSide: NativeWorkoutSession.isPerSideLoad(move),
+                                      warmup: NativeExerciseLabel(move).warmup))
+                if !identity.catalogueID.isEmpty { byCatalogue[identity.catalogueID, default: []].append(position) }
+                for name in identity.names { byName[name, default: []].append(position) }
+            }
+        }
+    }
+
+    func matching(_ identity: Identity) -> [Record] {
+        let named = Set(identity.names.flatMap { byName[$0] ?? [] })
+        let identifiedNames = Set(named.map { records[$0].identity.catalogueID }.filter { !$0.isEmpty })
+        let legacy = named.filter { records[$0].identity.catalogueID.isEmpty }
+        if identity.catalogueID.isEmpty {
+            return (identifiedNames.count > 1 ? legacy : named).sorted().map { records[$0] }
+        }
+        let byID = Set(byCatalogue[identity.catalogueID] ?? [])
+        return (identifiedNames.subtracting([identity.catalogueID]).isEmpty ? byID.union(legacy) : byID)
+            .sorted().map { records[$0] }
+    }
+
+    static func previousRows(for current: [NativeJSON], from previous: Record, move: NativeJSON) -> [NativeJSON?] {
+        guard previous.isTimed == (move["seconds"].number > 0),
+              NativeExerciseLabel(move).warmup == previous.warmup else {
+            return Array(repeating: nil, count: current.count)
+        }
+        let source = Dictionary(grouping: previous.rows) { $0["kind"].string }
+        var indexes: [String: Int] = [:]
+        return current.map { row in
+            let kind = row["kind"].string
+            let index = indexes[kind, default: 0]
+            indexes[kind, default: 0] += 1
+            guard let candidates = source[kind], candidates.indices.contains(index), candidates[index]["done"].bool else { return nil }
+            return candidates[index]
+        }
+    }
+
+    static func copied(_ destination: NativeJSON, from previous: NativeJSON, record: Record, move: NativeJSON) -> NativeJSON {
+        guard !destination["done"].bool, previous["done"].bool,
+              destination["right"] == .null || previous["right"] != .null,
+              record.perSide == NativeWorkoutSession.isPerSideLoad(move) || previous["right"] != .null else { return destination }
+        var result = destination
+        let destinationUnit = unit(of: move)
+        let left = convert(previous["weight"].number, from: record.unit, to: destinationUnit)
+        let right = convert(previous["right"]["weight"].number, from: record.unit, to: destinationUnit)
+        guard max(left, right) <= 2000 else { return destination }
+        result["weight"] = .number(left)
+        result["reps"] = .number(previous["reps"].number)
+        result["seconds"] = .number(previous["seconds"].number)
+        if previous["right"] != .null {
+            result["right"] = .object(["weight": .number(right), "reps": previous["right"]["reps"]])
+        }
+        return result
+    }
+
+    func increase(for move: NativeJSON) -> Increase? {
+        guard move["seconds"].number <= 0, !move["fixedLoad"].bool, move["loadPercent"].number <= 0,
+              move["reps"].number >= 2, !NativeExerciseLabel(move).warmup else { return nil }
+        let comparable = matching(Identity(move)).filter { $0.strength && !$0.isTimed && !$0.warmup }
+        guard let latest = comparable.first, let earlier = comparable.first(where: { $0.workoutID != latest.workoutID }) else { return nil }
+        let perSide = NativeWorkoutSession.isPerSideLoad(move)
+        let destinationUnit = Self.unit(of: move)
+        let sessions = comparable.filter { $0.workoutID == latest.workoutID || $0.workoutID == earlier.workoutID }
+        let workingSets = sessions.map { record in record.rows.filter { $0["kind"].string.isEmpty } }
+        guard workingSets.allSatisfy({ !$0.isEmpty }), workingSets.reduce(0, { $0 + $1.count }) >= 3 else { return nil }
+        guard let baseline = workingSets.first?.first else { return nil }
+        let base = Self.convert(baseline["weight"].number, from: latest.unit, to: destinationUnit)
+        let split = baseline["right"] != .null
+        let baseRight = split ? Self.convert(baseline["right"]["weight"].number, from: latest.unit, to: destinationUnit) : base
+        let step = destinationUnit == "lb" ? 5.0 : 2.5
+        guard min(base, baseRight) > 0, step <= 0.1 * min(base, baseRight), max(base, baseRight) + step <= 2_000 else { return nil }
+        let effortLimit = move["targetRpe"].number > 0 ? min(8, move["targetRpe"].number) : 8
+        let reachedTargets = zip(sessions, workingSets).allSatisfy { record, rows in
+            let target = max(move["reps"].number, move["repsMax"].number, record.move["reps"].number, record.move["repsMax"].number)
+            return (record.perSide == perSide || split) && rows.allSatisfy { row in
+                guard row["done"].bool, Record.reps(row) >= target, (row["right"] != .null) == split,
+                      row["rpe"] == .null || row["rpe"].number <= effortLimit else { return false }
+                let weight = Self.convert(row["weight"].number, from: record.unit, to: destinationUnit)
+                let right = split ? Self.convert(row["right"]["weight"].number, from: record.unit, to: destinationUnit) : weight
+                return abs(weight - base) < 0.05 && abs(right - baseRight) < 0.05
+            }
+        }
+        guard reachedTargets else { return nil }
+        return Increase(weight: base + step, rightWeight: split ? baseRight + step : nil)
+    }
+
+    static func withIncrease(_ line: NativeJSON, suggestion: Increase) -> NativeJSON {
+        guard !line["done"].bool, line["kind"].string.isEmpty, line["seconds"].number <= 0,
+              line["weight"].number <= suggestion.weight,
+              line["right"]["weight"].number <= (suggestion.rightWeight ?? 0),
+              line["right"] == .null || suggestion.rightWeight != nil else { return line }
+        var next = line
+        next["weight"] = .number(suggestion.weight)
+        if let right = suggestion.rightWeight {
+            next["right"] = .object(["weight": .number(right), "reps": line["right"]["reps"] == .null ? line["reps"] : line["right"]["reps"]])
+        }
+        return next
+    }
+
+    static func unit(of move: NativeJSON) -> String { move["unit"].string == "lb" ? "lb" : "kg" }
+
+    static func convert(_ value: Double, from: String, to: String) -> Double {
+        guard value.isFinite, value >= 0 else { return 0 }
+        let factor = from == to ? 1 : from == "lb" ? 0.45359237 : 1 / 0.45359237
+        return (value * factor * 100).rounded() / 100
+    }
+
+    static func amount(_ row: NativeJSON, unit: String, showEffort: Bool = true) -> String {
+        func quantity(_ value: Double) -> String { value.formatted(.number.precision(.fractionLength(0...2))) }
+        let left = row["weight"].number > 0 ? quantity(row["weight"].number) + " " + unit + " × " : ""
+        let leftReps = left + quantity(row["reps"].number) + " 次"
+        let text: String
+        if row["seconds"].number > 0 {
+            text = quantity(row["seconds"].number) + " 秒" + (left.isEmpty ? "" : " · " + quantity(row["weight"].number) + " " + unit)
+        } else if row["right"] != .null {
+            let right = row["right"]
+            text = "左 " + leftReps + " · 右 " + quantity(right["weight"].number) + " " + unit + " × " + quantity(right["reps"].number) + " 次"
+        } else {
+            text = leftReps
+        }
+        if showEffort, row["rpe"] != .null { return text + " · RPE " + quantity(row["rpe"].number) }
+        return text
+    }
+}
+
 enum NativeWorkoutProblem: LocalizedError {
     case noCompletedSet, invalidCardioDuration, invalid, accountChanged
     var errorDescription: String? {

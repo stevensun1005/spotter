@@ -57,6 +57,53 @@ struct NativePlanMoveReceipt: Decodable {
     let date: String
 }
 
+struct NativeMissedPlansCard: View {
+    let plans: [NativeWorkoutEntry]
+    let open: (NativeWorkoutEntry) -> Void
+
+    @Environment(\.spotterAccent) private var accent
+
+    var body: some View {
+        if let latest = plans.first {
+            VStack(alignment: .leading, spacing: 9) {
+                Label("待调整训练", systemImage: "calendar.badge.clock")
+                    .font(.headline).accessibilityAddTraits(.isHeader)
+                planRow(latest)
+                if plans.count > 1 {
+                    SpotterDisclosure("查看其余 \(plans.count - 1) 节") {
+                        LazyVStack(spacing: 5) {
+                            ForEach(plans.dropFirst(), id: \.key) { plan in planRow(plan) }
+                        }
+                    }
+                }
+            }
+            .padding(13).spotterCard()
+        }
+    }
+
+    private func planRow(_ plan: NativeWorkoutEntry) -> some View {
+        Button { open(plan) } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(plan.displayTitle).font(.subheadline.weight(.semibold))
+                    Text("原定 \(plan.day)").font(.caption).foregroundStyle(SpotterPalette.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .frame(minHeight: 44)
+            .background(accent.selection.opacity(0.42), in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("预览日期调整")
+    }
+}
+
 @MainActor
 struct NativePlanMoveSheet: View {
     @ObservedObject var store: NativeWorkoutStore
@@ -65,11 +112,15 @@ struct NativePlanMoveSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var target: Date
     @State private var shift = false
     @State private var review: Review?
-    @State private var busy = false
+    @State private var operation: Operation?
     @State private var problem: String?
+
+    private enum Operation { case preview, commit }
 
     private struct Review {
         let choice: NativePlanMoveChoice
@@ -81,7 +132,8 @@ struct NativePlanMoveSheet: View {
         self.entry = entry
         self.didMove = didMove
         let current = nativePlanDate(entry.day) ?? .now
-        _target = State(initialValue: Calendar.current.date(byAdding: .day, value: 1, to: current) ?? current)
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: current) ?? current
+        _target = State(initialValue: max(Calendar.current.startOfDay(for: .now), tomorrow))
     }
 
     private var activePlan: NativeWorkoutEntry? { store.plansByKey[entry.key] }
@@ -90,20 +142,26 @@ struct NativePlanMoveSheet: View {
     private var canShift: Bool { !(activePlan?.data["programId"].string ?? "").isEmpty }
     private var extendsCycle: Bool { shift && canShift }
     private var isRestDay: Bool { store.isPlanRestDay(target) }
+    private var busy: Bool { operation != nil }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .center, spacing: 10) {
                         Image(systemName: "calendar.badge.clock").accessibilityHidden(true)
-                        Text((activePlan ?? entry).displayTitle).font(.headline)
-                        Spacer(minLength: 4)
-                        Text((activePlan ?? entry).day).font(.footnote).foregroundStyle(SpotterPalette.muted)
+                            .font(.body.weight(.semibold)).foregroundStyle(accent.tint)
+                            .frame(width: 40, height: 40).background(accent.selection, in: RoundedRectangle(cornerRadius: 12))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text((activePlan ?? entry).displayTitle).font(.headline)
+                            Text("原定 \((activePlan ?? entry).day)")
+                                .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }.padding(14).spotterCard()
 
                     if let plan = activePlan, canMove {
-                        if let review { reviewPanel(review).transition(.opacity) }
+                        if let review { reviewPanel(review, plan: plan).transition(.opacity) }
                         else { selectionPanel(plan).transition(.opacity) }
                     } else {
                         Text(activePlan == nil ? "计划已删除或不可用。" : "已开始或已完成的训练保留原日期。")
@@ -112,6 +170,13 @@ struct NativePlanMoveSheet: View {
                     if let problem {
                         Label(problem, systemImage: "exclamationmark.circle")
                             .font(.footnote).foregroundStyle(.red)
+                    }
+                    if let review, canMove {
+                        Button(operation == .commit ? "正在移动…" : "确认移动 \(review.preview.changes.count) 节") {
+                            Task { await commit(review) }
+                        }
+                        .buttonStyle(SpotterNativeButtonStyle(primary: true))
+                        .disabled(busy || store.isBusy)
                     }
                 }.padding(14)
                     .animation(motion, value: review != nil)
@@ -122,7 +187,10 @@ struct NativePlanMoveSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
         }
         .onChange(of: activePlan?.updated) { updated in
-            if let review, review.choice.revision != updated { self.review = nil }
+            if let review, review.choice.revision != updated {
+                self.review = nil
+                problem = "计划已变更，请重新核对日期。"
+            }
         }
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(busy)
@@ -132,8 +200,7 @@ struct NativePlanMoveSheet: View {
         VStack(alignment: .leading, spacing: 13) {
             DatePicker("新日期", selection: $target, displayedComponents: .date)
             if canShift {
-                Toggle("同时顺延本周期后续训练", isOn: $shift)
-                    .font(.subheadline.weight(.semibold))
+                scopePicker(selection: extendsCycle) { shift = $0 }
             }
             if extendsCycle {
                 Text("保留原间隔，跳过休息日和已占用的日期。已开始及已打卡的训练保留原日期。")
@@ -148,10 +215,12 @@ struct NativePlanMoveSheet: View {
             }
             if plan.day < spotterDay() {
                 Button("找下一个可训练日") {
-                    Task { await inspect(plan, date: spotterDay(), nextAvailable: true) }
+                    Task { await inspect(plan, date: spotterDay(), shift: extendsCycle, nextAvailable: true) }
                 }.buttonStyle(SpotterNativeButtonStyle(primary: false))
             }
-            Button("预览日期变更") { Task { await inspect(plan, date: targetDay, nextAvailable: false) } }
+            Button(operation == .preview ? "正在核对…" : "预览日期变更") {
+                Task { await inspect(plan, date: targetDay, shift: extendsCycle, nextAvailable: false) }
+            }
                 .buttonStyle(SpotterNativeButtonStyle(primary: true))
                 .disabled(isRestDay || targetDay == plan.day || (extendsCycle && targetDay < plan.day))
         }
@@ -162,52 +231,117 @@ struct NativePlanMoveSheet: View {
         .onChange(of: shift) { _ in problem = nil }
     }
 
-    private func reviewPanel(_ review: Review) -> some View {
+    private func reviewPanel(_ review: Review, plan: NativeWorkoutEntry) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("核对日期变更").font(.headline).accessibilityAddTraits(.isHeader)
-            ForEach(review.preview.changes) { change in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(NativePlan(raw: .object(["title": .string(change.title)])).displayTitle)
-                        .font(.subheadline.weight(.semibold))
-                    Text("\(change.from) → \(change.date)").font(.footnote).foregroundStyle(SpotterPalette.muted)
-                }.frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Text("核对日期变更").font(.headline).accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                Text("\(review.preview.changes.count) 节")
+                    .font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+                    .padding(.horizontal, 8).padding(.vertical, 4).background(accent.selection, in: Capsule())
             }
-            Button("修改日期或范围") { self.review = nil; problem = nil }
+            if canShift {
+                scopePicker(selection: review.choice.shift) { newShift in
+                    Task { await inspect(plan, date: review.choice.date, shift: newShift, nextAvailable: review.choice.nextAvailable) }
+                }
+            }
+            if operation == .preview {
+                ProgressView("正在核对日期…").font(.footnote)
+            }
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(review.preview.changes) { change in
+                    changeRow(change)
+                    if change.id != review.preview.changes.last?.id { Divider().overlay(SpotterPalette.line) }
+                }
+            }
+            Button("修改日期") { self.review = nil; problem = nil }
                 .buttonStyle(SpotterNativeButtonStyle(primary: false))
-            Button(busy ? "正在移动…" : "确认移动 \(review.preview.changes.count) 节") {
-                Task { await commit(review) }
-            }.buttonStyle(SpotterNativeButtonStyle(primary: true))
         }
         .padding(14).spotterCard()
         .disabled(busy || store.isBusy)
     }
 
-    private func inspect(_ plan: NativeWorkoutEntry, date: String, nextAvailable: Bool) async {
-        guard !busy else { return }
-        busy = true
+    private func scopePicker(selection: Bool, choose: @escaping (Bool) -> Void) -> some View {
+        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 5)) : AnyLayout(HStackLayout(spacing: 5))
+        return layout {
+            scopeButton("只移动这一堂", value: false, selected: selection, choose: choose)
+            scopeButton("后续一起顺延", value: true, selected: selection, choose: choose)
+        }
+        .padding(4)
+        .background(SpotterPalette.wash.opacity(0.55), in: RoundedRectangle(cornerRadius: 13))
+        .animation(motion, value: selection)
+    }
+
+    private func scopeButton(_ title: String, value: Bool, selected: Bool, choose: @escaping (Bool) -> Void) -> some View {
+        let isSelected = value == selected
+        return Button { if !isSelected { choose(value) } } label: {
+            Text(title).font(.subheadline.weight(isSelected ? .semibold : .regular))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 4)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(isSelected ? SpotterPalette.ink : SpotterPalette.muted)
+                .background(isSelected ? accent.selection : .clear, in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func changeRow(_ change: NativePlanMovePreview.Change) -> some View {
+        let title = NativePlan(raw: .object(["title": .string(change.title)])).displayTitle
+        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 5)) : AnyLayout(HStackLayout(spacing: 6))
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline.weight(.semibold))
+            layout {
+                Text(change.from).foregroundStyle(SpotterPalette.muted)
+                Image(systemName: "arrow.right").font(.caption2.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                Text(change.date).fontWeight(.semibold).foregroundStyle(accent.tint)
+                    .padding(.horizontal, 7).padding(.vertical, 4).background(accent.selection, in: Capsule())
+            }
+            .font(.footnote.monospacedDigit())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 9)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue("从 \(change.from) 移到 \(change.date)")
+    }
+
+    private func inspect(_ plan: NativeWorkoutEntry, date: String, shift: Bool, nextAvailable: Bool) async {
+        guard !busy, !store.isBusy else { return }
+        operation = .preview
         problem = nil
-        defer { busy = false }
-        let choice = NativePlanMoveChoice(plan: plan, date: date, shift: extendsCycle, nextAvailable: nextAvailable)
-        do { review = Review(choice: choice, preview: try await store.previewPlanMove(choice)) }
-        catch { await show(error) }
+        defer { operation = nil }
+        let choice = NativePlanMoveChoice(plan: plan, date: date, shift: shift && canShift, nextAvailable: nextAvailable)
+        do {
+            let preview = try await store.previewPlanMove(choice)
+            guard activePlan?.updated == choice.revision else {
+                review = nil
+                problem = "计划已变更，请重新核对日期。"
+                return
+            }
+            self.shift = choice.shift
+            if choice.nextAvailable, let moved = preview.changes.first(where: { $0.id == choice.id }),
+               let offered = nativePlanDate(moved.date) { target = offered }
+            review = Review(choice: choice, preview: preview)
+        } catch { await show(error, resetReview: false) }
     }
 
     private func commit(_ review: Review) async {
-        guard !busy else { return }
-        busy = true
+        guard !busy, !store.isBusy else { return }
+        operation = .commit
         problem = nil
-        defer { busy = false }
+        defer { operation = nil }
         do {
             let receipt = try await store.movePlan(review.choice, using: review.preview)
             didMove(receipt)
             dismiss()
-        } catch { await show(error) }
+        } catch { await show(error, resetReview: true) }
     }
 
-    private func show(_ error: Error) async {
+    private func show(_ error: Error, resetReview: Bool) async {
         problem = error.localizedDescription
         if (error as? NativeAPIError)?.statusCode == 409 {
-            review = nil
+            if resetReview { review = nil }
             await store.load()
         }
     }
