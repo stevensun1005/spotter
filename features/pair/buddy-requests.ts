@@ -1,4 +1,5 @@
 import { publicName } from "@/features/friends/public-name";
+import { accountName } from "@/features/auth/display-name";
 import { discoverablePerson } from "@/features/friends/discovery";
 import type { FriendRequest } from "@/features/friends/social-model";
 import { HttpError } from "@/server/http";
@@ -26,7 +27,9 @@ type BuddyRequestRow = {
 
 export async function buddyRequests(db: D1Database, owner: string): Promise<{ incoming: FriendRequest[]; outgoing: FriendRequest[] }> {
   const { results } = await db.prepare(
-    "SELECT r.*, s.username || '#' || s.tag AS sender_handle, t.username || '#' || t.tag AS receiver_handle " +
+    "SELECT r.id, r.sender, r.receiver, r.created_at, " + accountName("r.sender", "r.sender_name") + " AS sender_name, " +
+    accountName("r.receiver", "r.receiver_name") + " AS receiver_name, " +
+    "s.username || '#' || s.tag AS sender_handle, t.username || '#' || t.tag AS receiver_handle " +
     "FROM buddy_requests r JOIN spotter_account_handles s ON s.owner = r.sender " +
     "JOIN spotter_account_handles t ON t.owner = r.receiver " +
     "WHERE (r.first_id = ? OR r.second_id = ?) AND NOT " + paired + " ORDER BY r.created_at DESC, r.id"

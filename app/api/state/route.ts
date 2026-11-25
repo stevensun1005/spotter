@@ -4,6 +4,6 @@ import { api, json } from "@/server/http";
 export const dynamic = "force-dynamic";
 
 export const GET = api(async () => {
-  const { id } = await requireAccount();
-  return json({ me: { id } });
+  const me = await requireAccount();
+  return json({ me });
 });

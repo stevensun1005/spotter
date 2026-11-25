@@ -1,4 +1,5 @@
 import { HttpError } from "@/server/http";
+import { accountName } from "@/features/auth/display-name";
 import { offsetDate } from "@/shared/dates";
 import { planSchema, type Plan } from "@/features/plans/model";
 import { resolvePlanTemplate, withoutTemplateLink } from "@/features/plans/template-link";
@@ -22,7 +23,10 @@ type AssignmentMetadata = Pick<AssignmentRow, "id" | "link_id" | "coach_id" | "s
 };
 const noAccess = () => new HttpError(403, "这项操作需要有效的教练与学员关系及相应身份。");
 const stale = () => new HttpError(409, "邀请、下发计划或关系已变化，请刷新后重新核对。");
-const joinedAssignments = "SELECT a.*, l.coach_name, l.student_name, l.share_details, l.ended_at AS link_ended_at FROM coaching_assignments a JOIN coaching_links l ON l.id = a.link_id ";
+const relationshipNames = accountName("l.coach_id", "l.coach_name") + " AS coach_name, " +
+  accountName("l.student_id", "l.student_name") + " AS student_name";
+const linkColumns = "l.id, l.coach_id, l.student_id, l.share_details, l.created_at, l.ended_at, " + relationshipNames;
+const joinedAssignments = "SELECT a.*, " + relationshipNames + ", l.share_details, l.ended_at AS link_ended_at FROM coaching_assignments a JOIN coaching_links l ON l.id = a.link_id ";
 const ownAssignment = (row: AssignmentRow, owner: string) => row.student_id === owner;
 const programOf = (row: AssignmentRow) => programSchema.parse(JSON.parse(row.payload));
 async function digest(value: string) {
@@ -130,8 +134,8 @@ async function sourceList(db: D1Database, owner: string): Promise<CoachingSource
 }
 export async function coachingHome(db: D1Database, actor: CoachingActor): Promise<CoachingHome> {
   const [links, assignments, sources] = await Promise.all([
-    db.prepare("SELECT * FROM coaching_links WHERE (coach_id = ? OR student_id = ?) AND ended_at IS NULL ORDER BY created_at DESC LIMIT 200").bind(actor.id, actor.id).all<LinkRow>(),
-    db.prepare("SELECT a.id,a.link_id,a.coach_id,a.student_id,a.kind,a.note,a.status,a.created_at,a.accepted_at,a.program_id,l.coach_name,l.student_name," +
+    db.prepare("SELECT " + linkColumns + " FROM coaching_links l WHERE (l.coach_id = ? OR l.student_id = ?) AND l.ended_at IS NULL ORDER BY l.created_at DESC LIMIT 200").bind(actor.id, actor.id).all<LinkRow>(),
+    db.prepare("SELECT a.id,a.link_id,a.coach_id,a.student_id,a.kind,a.note,a.status,a.created_at,a.accepted_at,a.program_id," + relationshipNames + "," +
       "json_extract(a.payload,'$.title') AS title,json_extract(a.payload,'$.startDate') AS start_date,json_extract(a.payload,'$.weeks') AS weeks,json_array_length(a.payload,'$.sessions') AS session_count " +
       "FROM coaching_assignments a JOIN coaching_links l ON l.id=a.link_id WHERE a.coach_id=? OR a.student_id=? ORDER BY a.created_at DESC LIMIT 100")
       .bind(actor.id, actor.id).all<AssignmentMetadata>(),
@@ -165,7 +169,9 @@ export async function coachingDetail(db: D1Database, owner: string, id: string):
 }
 
 async function inspectInvite(db: D1Database, owner: string, code: string) {
-  const row = await db.prepare("SELECT * FROM coaching_invites WHERE code_hash = ? AND claimed_by IS NULL AND expires_at > ?").bind(await digest(code), new Date().toISOString()).first<InviteRow>();
+  const row = await db.prepare("SELECT i.coach_id, i.code_hash, i.expires_at, i.claimed_by, " + accountName("i.coach_id", "i.coach_name") +
+    " AS coach_name FROM coaching_invites i WHERE i.code_hash = ? AND i.claimed_by IS NULL AND i.expires_at > ?")
+    .bind(await digest(code), new Date().toISOString()).first<InviteRow>();
   if (!row) throw new HttpError(409, "教练邀请码已失效、已使用或已过期。");
   if (row.coach_id === owner) throw new HttpError(400, "不能使用自己的教练邀请码。");
   return row;
@@ -205,7 +211,7 @@ export async function changeCoaching(db: D1Database, actor: CoachingActor, input
         .bind(id, actor.id, actor.name, Number(input.shareDetails), now, invite.code_hash, nonce),
     ]);
     if (!results[0].meta.changes || !results[1].meta.changes) throw stale();
-    const row = await db.prepare("SELECT * FROM coaching_links WHERE id=?").bind(id).first<LinkRow>();
+    const row = await db.prepare("SELECT " + linkColumns + " FROM coaching_links l WHERE l.id=?").bind(id).first<LinkRow>();
     return { link: link(row!) };
   }
   if (input.action === "sharing") {

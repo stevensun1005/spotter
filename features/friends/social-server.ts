@@ -1,4 +1,5 @@
 import { HttpError } from "@/server/http";
+import { accountName } from "@/features/auth/display-name";
 import { parseHandleQuery } from "@/features/auth/profile";
 import { readAccountProfile } from "@/features/auth/profile-server";
 import { buddyRequests, canPair, respondBuddyRequest, sendBuddyRequest } from "@/features/pair/buddy-requests";
@@ -40,7 +41,8 @@ function connected(first: string, second: string) {
 export async function socialState(db: D1Database, owner: string, includeBuddy = false): Promise<SocialState> {
   const [preferences, { results }, buddy] = await Promise.all([
     readSocialPreferences(db, owner),
-    db.prepare("SELECT id, sender, receiver, sender_name, receiver_name, created_at FROM friend_requests r " +
+    db.prepare("SELECT r.id, r.sender, r.receiver, " + accountName("r.sender", "r.sender_name") + " AS sender_name, " +
+      accountName("r.receiver", "r.receiver_name") + " AS receiver_name, r.created_at FROM friend_requests r " +
       "WHERE (sender = ? OR receiver = ?) AND NOT " + connected("r.first_id", "r.second_id") +
       " ORDER BY created_at DESC, id").bind(owner, owner).all<RequestRow>(),
     includeBuddy ? buddyRequests(db, owner) : null,
@@ -68,7 +70,7 @@ export async function searchPeople(db: D1Database, owner: string, raw: string, m
     if (!match) return [];
     const available = mode === "buddy" ? canPair("v.id", "h.owner") : "NOT " + connected("MIN(v.id, h.owner)", "MAX(v.id, h.owner)");
     const { results } = await db.prepare(
-      "WITH viewer(id) AS (VALUES (?)) SELECT h.owner AS id, COALESCE(p.name, a.display_name) AS name, " +
+      "WITH viewer(id) AS (VALUES (?)) SELECT h.owner AS id, " + accountName("h.owner") + " AS name, " +
       "h.username || '#' || h.tag AS handle FROM spotter_account_handles h " +
       "JOIN spotter_access_accounts a ON a.id = h.owner LEFT JOIN friend_profiles p ON p.owner = h.owner CROSS JOIN viewer v " +
       "WHERE h.owner <> v.id AND COALESCE(p.discoverable, 1) = 1 AND h.username = ? " +
@@ -80,7 +82,7 @@ export async function searchPeople(db: D1Database, owner: string, raw: string, m
   if (!query || query.includes("@") || (query.length < 2 && !/[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(query))) return [];
   const { results } = await db.prepare(
     "WITH viewer(id) AS (VALUES (?)) " +
-    "SELECT p.owner AS id, p.name FROM friend_profiles p CROSS JOIN viewer v " +
+    "SELECT p.owner AS id, " + accountName("p.owner", "p.name") + " AS name FROM friend_profiles p CROSS JOIN viewer v " +
     "WHERE p.owner <> v.id AND p.discoverable = 1 AND instr(p.search_name, ?) > 0 AND NOT " +
     connected("MIN(v.id, p.owner)", "MAX(v.id, p.owner)") +
     " ORDER BY CASE WHEN p.search_name = ? THEN 0 WHEN instr(p.search_name, ?) = 1 THEN 1 ELSE 2 END, p.search_name, p.owner LIMIT 20"

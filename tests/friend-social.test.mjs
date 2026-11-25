@@ -15,11 +15,11 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 
 const { changeSocial, searchPeople, socialState } = await import("../features/friends/social-server.ts");
-const { readAccountProfile, saveAccountUsername } = await import("../features/auth/profile-server.ts");
+const { readAccountProfile, saveAccountNickname, saveAccountUsername } = await import("../features/auth/profile-server.ts");
 const { updateProfileInput } = await import("../features/auth/profile.ts");
 const { defaultSocialPreferences } = await import("../features/friends/social-model.ts");
 const { changeFriends, listFriends } = await import("../features/friends/server.ts");
-const { disconnectPair, joinPair } = await import("../features/pair/server.ts");
+const { disconnectPair, joinPair, membership } = await import("../features/pair/server.ts");
 
 function fixture(t, beforeMigration = () => {}) {
   const sqlite = new DatabaseSync(":memory:");
@@ -114,6 +114,38 @@ test("tag migration leaves existing handles untouched and permits a new distinct
   addAccount(db, sam);
   assert.equal((await saveAccountUsername(db, sam.id, "existing", "0015")).handle, "existing#0015");
   await assert.rejects(saveAccountUsername(db, sam.id, "existing", "0014"), { status: 409 });
+});
+
+test("nickname changes reach existing buddies and friends without changing their handles or sharing flags", async (t) => {
+  const db = fixture(t);
+  const unnamed = { ...alex, name: "Spotter 用户" };
+  for (const person of [unnamed, sam, lee]) {
+    addAccount(db, person);
+    await readAccountProfile(db, person.id);
+  }
+  const { handle } = await saveAccountUsername(db, alex.id, "alex.fit", "0042");
+  await save(db, unnamed, { discoverable: true, closed: true, recentOnly: true });
+  assert.deepEqual(await searchPeople(db, sam.id, handle, "buddy"), [{ id: alex.id, name: handle, handle }]);
+  await request(db, lee, unnamed);
+  const [friendInvite] = (await socialState(db, unnamed.id)).incoming;
+  await changeSocial(db, unnamed, { action: "request", kind: "buddy", id: sam.id, expectedOwner: unnamed.id });
+  const [buddyInvite] = (await socialState(db, sam.id, true)).incoming;
+  await saveAccountNickname(db, unnamed.id, "训练小队");
+  assert.equal((await socialState(db, sam.id, true)).incoming[0].name, "训练小队");
+  assert.equal((await socialState(db, lee.id)).outgoing[0].name, "训练小队");
+  assert.deepEqual(await searchPeople(db, sam.id, handle, "buddy"), [{ id: alex.id, name: "训练小队", handle }]);
+  await respond(db, unnamed, friendInvite.id, "accept");
+  await respond(db, sam, buddyInvite.id, "accept");
+  assert.equal((await membership(db, sam.id)).partnerName, "训练小队");
+
+  assert.deepEqual(await saveAccountNickname(db, unnamed.id, "阿力"), {
+    name: "阿力", username: "alex.fit", tag: "0042", handle, discoverable: true,
+  });
+  assert.equal((await membership(db, sam.id)).partnerName, "阿力");
+  assert.equal((await listFriends(db, sam.id)).friends[0].name, "阿力");
+  assert.equal((await listFriends(db, lee.id)).friends[0].name, "阿力");
+  assert.deepEqual((await socialState(db, unnamed.id)).preferences, { discoverable: true, closed: true, recentOnly: true });
+  assert.equal((await readAccountProfile(db, sam.id)).name, sam.name);
 });
 
 test("username buddy requests remain separate until accepted by the recipient", async (t) => {

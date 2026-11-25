@@ -2,9 +2,9 @@ export class ClientError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-export async function send(path: string, body: unknown) {
+export async function send(path: string, body: unknown, method: "POST" | "PATCH" = "POST") {
   const response = await fetch(path, {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method, headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body), signal: AbortSignal.timeout(12000),
   });
   if (!response.ok) {

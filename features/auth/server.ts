@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { accountName } from "./display-name";
 
 export const sessionCookieName = "__Host-spotter_session";
 const sessionSeconds = 7 * 24 * 60 * 60;
@@ -28,7 +29,7 @@ export async function sessionTokenHash(token?: string) {
 export async function readSession(db: D1Database, token: string) {
   if (!hex256.test(token)) return null;
   const account = await db.prepare(
-    "SELECT a.id, a.email, a.display_name FROM spotter_access_sessions s JOIN spotter_access_accounts a " +
+    "SELECT a.id, a.email, " + accountName("a.id") + " AS display_name FROM spotter_access_sessions s JOIN spotter_access_accounts a " +
     "ON s.account_id = a.id WHERE s.token_hash = ? AND s.expires_at > ?",
   ).bind(await hash(token), nowSeconds()).first<Account>();
   return account && {

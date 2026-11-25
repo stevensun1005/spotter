@@ -1,4 +1,5 @@
 import { HttpError } from "@/server/http";
+import { accountName } from "@/features/auth/display-name";
 import { asDate, dateSchema, offsetDate } from "@/shared/dates";
 import { anatomyVariant } from "@/features/body/profile";
 import type { MealEntry } from "@/features/library/model";
@@ -27,6 +28,9 @@ const inviteLifetime = 24 * 60 * 60 * 1000;
 const buddySubquery = (alias: "f") =>
   "SELECT 1 FROM members m JOIN members p ON p.room = m.room WHERE m.user = " + alias + ".first_id AND p.user = " + alias + ".second_id";
 const activeLink = "(f.linked = 1 OR EXISTS (" + buddySubquery("f") + "))";
+const linkNames = "f.first_id, f.second_id, " + accountName("f.first_id", "f.first_name") + " AS first_name, " +
+  accountName("f.second_id", "f.second_name") + " AS second_name, f.first_training, f.second_training, " +
+  "f.first_nutrition, f.second_nutrition, f.first_nutrition_status, f.second_nutrition_status";
 const friendMissing = () => new HttpError(404, "找不到这位好友。");
 
 function sides(owner: string, friend: string) {
@@ -35,7 +39,7 @@ function sides(owner: string, friend: string) {
 }
 
 function getBuddy(db: D1Database, owner: string) {
-  return db.prepare("SELECT p.user AS id, p.name, m.share_nutrition AS selfNutrition, p.share_nutrition AS peerNutrition " +
+  return db.prepare("SELECT p.user AS id, " + accountName("p.user", "p.name") + " AS name, m.share_nutrition AS selfNutrition, p.share_nutrition AS peerNutrition " +
     "FROM members m JOIN members p ON p.room = m.room AND p.user <> m.user WHERE m.user = ?").bind(owner).first<Buddy>();
 }
 
@@ -67,7 +71,7 @@ async function getFriend(db: D1Database, owner: string, id: string) {
   if (owner === id) throw friendMissing();
   const { first, second } = sides(owner, id);
   const [row, buddy] = await Promise.all([
-    db.prepare("SELECT f.* FROM friend_links f WHERE f.first_id = ? AND f.second_id = ? AND " + activeLink).bind(first, second).first<Link>(),
+    db.prepare("SELECT " + linkNames + " FROM friend_links f WHERE f.first_id = ? AND f.second_id = ? AND " + activeLink).bind(first, second).first<Link>(),
     getBuddy(db, owner),
   ]);
   if (row) return friendFromLink(row, owner, buddy);
@@ -93,7 +97,7 @@ export function friendDateVisible(owner: string, peer: string, day: string, toda
 
 export async function listFriends(db: D1Database, owner: string, day?: string, today = friendCurrentDay()): Promise<FriendList> {
   const [links, invite, buddy] = await Promise.all([
-    db.prepare("SELECT f.* FROM friend_links f WHERE (f.first_id = ? OR f.second_id = ?) AND " + activeLink).bind(owner, owner).all<Link>(),
+    db.prepare("SELECT " + linkNames + " FROM friend_links f WHERE (f.first_id = ? OR f.second_id = ?) AND " + activeLink).bind(owner, owner).all<Link>(),
     db.prepare("SELECT code, expires_at AS expiresAt FROM friend_invites WHERE owner = ? AND expires_at > ?")
       .bind(owner, new Date().toISOString()).first<NonNullable<FriendList["invite"]>>(),
     getBuddy(db, owner),
