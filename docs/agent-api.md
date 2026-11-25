@@ -11,11 +11,12 @@
 
 个人令牌不是 Sites 平台绕过令牌，不能绕过私密站点的访问策略。若自定义 HTTP 请求先收到登录页、跳转或平台拒绝，应用层 Bearer 校验尚未执行；不要将其描述为 API 已连接。优先使用平台支持的 MCP 连接，或后续提供独立、受支持的 API 授权入口。当前未改变 Sites 访问权限，也未向 Agent 下发平台级 bypass token。
 
-## 在网页创建连接
+## 创建个人连接
 
-在「添加计划 → 用自己的 AI」的 Agent 连接设置中为每个 Agent 单独创建连接，默认仅选择读取上下文和提交草稿。有效期为 1–90 天，最多 20 个有效连接。
+在 iPhone App 的「设置 → 外部 AI Agent」，或网页的「添加计划 → 用自己的 AI」中，为每个 Agent 单独创建连接。默认仅选择读取编排上下文和提交草稿。有效期为 1–90 天，最多 20 个有效连接。
 
 - `read:context`：读取自己的动作库、模板、编排规则、周期概要及内置动作搜索。
+- `training:read`、`nutrition:read`、`templates:read`：分别授权读取个人训练计划和打卡、餐食和饮水、个人训练模板。Apple 健康读数、身体数据、好友和搭子记录保持私密。
 - `plans:draft`：提交或读取个人计划、周期草稿，不能自动排入日历。
 - `plans:write`：在用户明确授权并提供确认字段后，将已预览的草稿排入日历。此权限由用户显式勾选，不默认授予。
 - `training:write`、`nutrition:write`、`body:write`、`templates:write`：分别授权新增已完成训练、饮食和水及常用食物、身体数据、个人模板。创建连接时分别勾选。
@@ -23,6 +24,8 @@
 原始令牌仅在创建响应中展示一次，服务端只保存 SHA-256 哈希。网页列表显示名称、权限、有效期和最近使用时间；可随时撤销。新请求会检查过期和撤销状态；已在处理的请求可能完成。每个令牌每分钟最多 60 个请求，超出返回 429。
 
 将个人令牌配置到 Agent 工具运行环境的凭据栏，不作为模型 API key，不放进普通聊天提示、URL、Git 或日志。账号说明编号 `profileRef` 只用于核对账号，不能代替授权令牌。
+
+App 提供分析记录、安排训练及记餐三种可复制指令。能配置 Streamable HTTP 和自定义认证头的 Agent 使用 `/api/agent/mcp`。支持自定义 HTTP 工具的 Agent 可使用 `/api/agent/schema`。把令牌存入工具连接设置，再把复制的指令发给 Agent。
 
 ## REST 工作流
 
@@ -72,6 +75,11 @@
 
 如果只授予草稿权限，用户在网页预览、编辑并确认即可。返回实际 `added`、`skipped`、日期范围和计划 ID；重复确认返回已记录的结果，不重复插入。日期设置、草稿或相关记录变化时返回 409，需重新预览。这个接口只追加计划，不覆盖已完成、进行中或已经修改的记录，计划默认私密。
 
+## 读取记录与记餐
+
+- `GET /api/agent/records?profileRef=...&scope=training&from=2026-11-01&to=2026-11-30` 按对应权限读取一类记录。选 `nutrition` 读取餐食和饮水，选 `templates` 读取个人训练模板。日期包含首尾，训练和饮食最多查 366 天，省略两端时查最近 30 天。用返回的 `nextOffset` 继续分页，每页最多 50 条。模板查询无需日期。
+- `POST /api/agent/meals` 接受 `profileRef`、`confirmed: true` 以及最多 20 项的 `meals`。每项提供 `id`、`date`、`meal`、`name`、`calories`、`protein`、`carbs`、`fat` 和可选的 `grams`。热量用千卡，份量和宏量营养用克。餐次为早餐、午餐、晚餐或加餐。明确记餐后才写入，重试复用原 UUID。
+
 ## 完整多周周期
 
 `Program` 使用稳定 UUID 关联周期、阶段和每次训练，不依赖标题解析。最多 52 周、364 次训练，请求不超过 1.5 MB；超过限制会拒绝，不会截断。结构见 `/api/agent/schema` 的 `components.schemas.Program`。
@@ -94,7 +102,7 @@
 
 新增工具的输入均要求核对 `profileRef`。旧站点连接由已认证的 Sites 账号确定 owner；API 令牌连接的 owner 由令牌确定，不接收调用者传入 owner。
 
-`/api/agent/mcp` 按令牌权限提供编排及新增记录工具，并在调用时再次检查权限。支持 JSON Streamable HTTP 的请求、响应和通知。发现、初始化和工具调用兼容相应协议版本。 [MCP 官方协议版本说明](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)
+`/api/agent/mcp` 按令牌权限提供编排及记录工具，并在调用时再次检查权限。按需提供 `read_spotter_records` 和 `add_spotter_meals`。支持 JSON Streamable HTTP 的请求、响应和通知。发现、初始化和工具调用兼容相应协议版本。 [MCP 官方协议版本说明](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)
 
 ### 直接添加记录
 

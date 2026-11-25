@@ -289,6 +289,32 @@ test("general cardio and HIIT accept duration-only check-ins from the shared app
   assert.equal(sql.prepare("SELECT COUNT(*) AS count FROM entries WHERE owner=? AND kind='log'").get(owner).count, 2);
 });
 
+test("expanded native cardio activities keep their kind and measurements through saved drafts and check-ins", async (t) => {
+  const sql = database(t);
+  worker.owner = owner;
+  const activities = ["running", "treadmill-running", "cycling", "stationary-cycling", "rowing",
+    "elliptical", "walking", "stair-climbing", "swimming", "jump-rope"];
+  for (const activity of activities) {
+    const id = crypto.randomUUID();
+    const draft = startFreeSession(plan.date, "cardio");
+    draft.started = start;
+    draft.clock = { elapsed: 97_000, runningSince: null };
+    draft.cardio = { activity, ...(!["stair-climbing", "jump-rope"].includes(activity) && {
+      distanceKm: 0.35, speedKmh: activity.includes("cycling") ? 56 : 10,
+    }) };
+    assert.equal((await POST(request({ action: "draft", id, expectedOwner: owner, data: draft }))).status, 200);
+    const log = finalizeCheckin(draft, end).data;
+    const response = await POST(request({ action: "log", id, expectedOwner: owner, data: log }));
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).data.cardio, { ...draft.cardio, durationSeconds: 97 });
+  }
+  const draft = startFreeSession(plan.date, "cardio");
+  assert.equal(draftSessionSchema.safeParse({ ...draft, cardio: { activity: "running", speedKmh: 56 } }).success, false);
+  assert.equal(draftSessionSchema.safeParse({ ...draft, cardio: { activity: "cycling", speedKmh: 121 } }).success, false);
+  assert.equal(draftSessionSchema.safeParse({ ...draft, cardio: { activity: "unknown" } }).success, false);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS count FROM entries WHERE owner=? AND kind='log'").get(owner).count, activities.length);
+});
+
 test("an offline draft deletion stays account-scoped and cannot remove a completed workout", async (t) => {
   const sql = database(t);
   worker.owner = owner;

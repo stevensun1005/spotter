@@ -153,6 +153,12 @@ npx --no-install wrangler deploy --config dist/server/wrangler.production.json
 
 在 Cloudflare Worker 设置中将 `ANTHROPIC_API_KEY` 配置为秘密，并设置 `AI_COACH_ENABLED=true`。所有已登录账号均可使用站内 AI，每个账号每个 UTC 自然月最多消耗 US$10。现有 Worker 运行时变量会在重新部署时保留。
 
+### 社交通知
+
+通知服务使用 `0020_social_notifications.sql`。内测部署将 `SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS` 设置为逗号分隔的已核对账号邮箱或 ID。未设置名单的本地环境允许合成测试账号。现有好友分享范围、接收设置和 15 分钟搭子提醒间隔由服务端校验。
+
+系统推送使用只授权给 `app.spotter.health` 的 Apple APNs 密钥。通过 Worker Secrets 配置 `SPOTTER_APNS_TEAM_ID`、`SPOTTER_APNS_KEY_ID` 和 `SPOTTER_APNS_PRIVATE_KEY`。开发环境可另外配置 `SPOTTER_APNS_SANDBOX_KEY_ID` 和 `SPOTTER_APNS_SANDBOX_PRIVATE_KEY`。Secrets 不进入 Git。APNs 失败时，已写入的通知仍可在站内查看。
+
 ## Diagnostic Commands
 
 - `npm run install:ci`: perform the one locked dependency install

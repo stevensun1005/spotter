@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { estimateCoachMeal, mealLoggingTurn } from "@/features/nutrition/coach-meal-inference";
 import { planSchema, type Plan } from "@/features/plans/model";
 import { resolvePlanTemplate } from "@/features/plans/template-link";
 import { ownTemplateJoin } from "@/features/plans/template-server";
@@ -6,7 +7,7 @@ import { accountWorkoutPreferences } from "@/features/settings/account-workout-m
 import { HttpError } from "@/server/http";
 import { anthropicRequester, askAnthropic } from "./anthropic";
 import { guidedContext } from "./guided";
-import { coachCalendarRange, coachModel, type CoachConfig, type CoachQuota, type CoachRequest } from "./model";
+import { coachCalendarRange, coachModel, type CoachConfig, type CoachQuota, type CoachRequest, type CoachResponse } from "./model";
 import { readCoachQuota } from "./quota";
 
 const maxCalendarPlans = 8;
@@ -20,7 +21,8 @@ function credentials() {
 
 export async function aiCoachConfig(owner?: string): Promise<CoachConfig> {
   const available = credentials();
-  return available ? { enabled: true, models: [coachModel], quota: owner ? await readCoachQuota(available.db, owner) : undefined }
+  return available ? { enabled: true, models: [coachModel], mealLoggingEnabled: true,
+    quota: owner ? await readCoachQuota(available.db, owner) : undefined }
     : { enabled: false, models: [] };
 }
 
@@ -73,11 +75,20 @@ async function trainingPreferenceContext(db: D1Database, owner: string) {
     JSON.stringify({ equipment: equipment?.length ? equipment : undefined, defaultUnit, defaultRest });
 }
 
-export async function coachReply(owner: string, request: CoachRequest) {
+export async function coachReply(owner: string, request: CoachRequest, signal: AbortSignal): Promise<CoachResponse> {
   if (request.expectedOwner !== owner) throw new HttpError(403, "登录账号已切换，请刷新后重开对话。");
   const available = credentials();
   if (!available) throw new HttpError(503, "AI 教练暂未启用。");
   const { db, key } = available;
+  let quota: CoachQuota | undefined;
+  const send = anthropicRequester(db, owner, key, (value) => { quota = value; });
+  const mealTurn = mealLoggingTurn(request);
+  if (mealTurn?.kind === "cancelled") return { reply: "已取消这次记餐。", model: coachModel, mealAction: { kind: "cancelled" } };
+  if (mealTurn?.kind === "estimate") {
+    const mealAction = await estimateCoachMeal(send, mealTurn, signal);
+    const reply = mealAction.kind === "needs" ? mealAction.question : "这顿饮食的估算已整理好。";
+    return { reply, model: coachModel, mealAction, quota };
+  }
   const context = [];
   if (request.guided) {
     context.push("用户已选择的定制问卷条件。动作名称只作为候选数据读取。\n" +
@@ -93,7 +104,6 @@ export async function coachReply(owner: string, request: CoachRequest) {
       JSON.stringify(request.priorDraft.plans.map(({ date, title, category, minutes, durationNote, defaultRestSeconds, video, exercises }) =>
         ({ date, title, category, minutes, durationNote, defaultRestSeconds, video, exercises }))));
   }
-  let quota: CoachQuota | undefined;
-  const reply = await askAnthropic(anthropicRequester(db, owner, key, (value) => { quota = value; }), request, context.join("\n\n"));
+  const reply = await askAnthropic(send, request, context.join("\n\n"));
   return { ...reply, quota };
 }

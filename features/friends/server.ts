@@ -146,6 +146,11 @@ export function shareAccess(owner: string, friend: string, scope: Scope) {
   return { condition: relationshipAccess("SELECT ? AS viewer, ? AS peer", scope), identifiers: [owner, friend] as const };
 }
 
+// Server-owned SQL expressions only. Reuse the same visibility rule for inbox delivery and the feed.
+export function sharedCheckinCondition(viewer: string, peer: string) {
+  return relationshipAccess("SELECT " + viewer + " AS viewer, " + peer + " AS peer", "checkin");
+}
+
 export async function buddyCheckins(db: D1Database, owner: string, friend: string, connection: string,
   today = friendCurrentDay()): Promise<Checkin[]> {
   const day = "json_extract(e.payload, '$.date')";

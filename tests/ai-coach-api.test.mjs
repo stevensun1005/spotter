@@ -148,6 +148,71 @@ function photoPost(user, body, suppliedOrigin = origin) {
 }
 const photoTool = (name, input) => () => providerMessage({ stop_reason: "tool_use", content: [{ type: "tool_use", name, input }] });
 
+test("text meal logging estimates the confirmed meal in the same conversation", async (t) => {
+  const { calls, respond, sqlite } = setup(t);
+  const localDate = "2026-11-26";
+  const food = "我中午现在吃了十个汤圆和两个蛋挞";
+  const command = "帮我加进饮食里";
+  const ask = "这顿还有别的食物吗？";
+  const messages = [{ role: "user", content: food }, { role: "assistant", content: "你想记录这顿吗？" },
+    { role: "user", content: command }];
+  const draft = { name: "汤圆 × 10、蛋挞 × 2", grams: 420, calories: 733, protein: 15, carbs: 101, fat: 30 };
+  const estimate = "汤圆按普通大小、每个约 30 克，蛋挞每个约 60 克。";
+  respond(photoTool("prepare_meal_log", { meal: "午餐", ...draft, estimate }));
+  const prepared = await checked(post(owner, { ...chat, messages, includePlans: true, mealLogging: { date: localDate } }));
+  assert.deepEqual(prepared.mealAction, { kind: "ready", meal: "午餐", date: localDate, draft, estimate });
+  assert.equal(prepared.quota.dailyRemaining, 199);
+  assert.equal(calls[0].tools[0].name, "prepare_meal_log");
+  assert.match(calls[0].system, /不要声称已写入饮食/u);
+  assert.ok(calls[0].messages[0].content.endsWith(JSON.stringify(messages)));
+
+  respond(photoTool("ask_meal_log_details", { question: ask }));
+  assert.deepEqual((await checked(post(owner, { ...chat, messages, mealLogging: { date: localDate } }))).mealAction,
+    { kind: "needs", question: ask });
+  respond(photoTool("prepare_meal_log", { meal: "午餐", ...draft, estimate }));
+  const continued = [...messages, { role: "assistant", content: ask }, { role: "user", content: "就这些" }];
+  const meal = await checked(post(owner, { ...chat, messages: continued, mealLogging: { pending: true, date: localDate } }));
+  assert.deepEqual(meal.mealAction, prepared.mealAction);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM personal_library").get().count, 0);
+});
+
+test("text meal recognition requires current authorization and respects date and nutrition bounds", async (t) => {
+  const { calls, respond } = setup(t);
+  const command = "帮我加进饮食里";
+  const ask = "这顿是哪天吃的？";
+  const continuing = [{ role: "user", content: command }, { role: "assistant", content: ask }, { role: "user", content: "就这些" }];
+  for (const payload of [
+    { messages: continuing },
+    { messages: continuing, mealLogging: { pending: true, historyStart: 2 } },
+    { messages: [{ role: "user", content: "如果午餐吃两个蛋挞，帮我记一下" }], mealLogging: {} },
+    { messages: [{ role: "user", content: "不要帮我加进饮食里" }], mealLogging: {} },
+    { messages: [{ role: "user", content: "怎么记录午餐？" }], mealLogging: {} },
+    { messages: [{ role: "user", content: "汤圆和蛋挞能不能一起吃？" }], mealLogging: { pending: true } },
+    { messages: [{ role: "user", content: "你觉得这顿怎么样？" }, { role: "assistant", content: command },
+      { role: "user", content: "就这些" }], mealLogging: { pending: true } },
+  ]) {
+    const response = await checked(post(owner, { ...chat, ...payload }));
+    assert.equal(response.mealAction, undefined);
+    assert.equal(calls.at(-1).tools, undefined);
+  }
+  const cancelled = await checked(post(owner, { ...chat, messages: [...continuing.slice(0, 2), { role: "user", content: "取消刚才的记餐" }], mealLogging: { pending: true } }));
+  assert.deepEqual(cancelled.mealAction, { kind: "cancelled" });
+  assert.equal(calls.length, 7);
+  await checked(post(owner, { ...chat, mealLogging: { historyStart: 1 } }), 400);
+  await checked(post(second, { ...chat, mealLogging: {}, expectedOwner: owner.userId }), 403);
+  assert.equal(calls.length, 7);
+
+  const ready = { meal: "晚餐", name: "汤圆和蛋挞", grams: 420, calories: 733, protein: 15, carbs: 101, fat: 30 };
+  const input = { ...chat, messages: [{ role: "user", content: "帮我记昨天的晚餐，十个汤圆和两个蛋挞" }], mealLogging: { date } };
+  respond(photoTool("prepare_meal_log", { ...ready, grams: 1 }));
+  await checked(post(owner, input), 502);
+  respond(photoTool("prepare_meal_log", ready));
+  assert.equal((await checked(post(owner, input))).mealAction.date, "2026-11-24");
+  const future = await checked(post(owner, { ...input, messages: [{ role: "user", content: "帮我记录明天的晚餐，两个蛋挞" }] }));
+  assert.equal(future.mealAction.kind, "needs");
+  assert.equal(calls.length, 9);
+});
+
 test("in-site photo shares the monthly Claude budget with chat and returns only a draft", async (t) => {
   const { calls, charged, sqlite, respond } = setup(t);
   runtime.user = owner;
@@ -275,14 +340,14 @@ test("AI coach enables every signed-in account when configured and validates ide
   const { calls } = setup(t);
   await checked(get(null), 401);
   await checked(post(null, chat), 401);
-  assert.deepEqual(await checked(get(outsider)), { enabled: true, models: ["haiku"], quota: blankQuota });
+  assert.deepEqual(await checked(get(outsider)), { enabled: true, models: ["haiku"], mealLoggingEnabled: true, quota: blankQuota });
   runtime.env.AI_COACH_ENABLED = "false";
   assert.deepEqual(await checked(get(owner)), { enabled: false, models: [] });
   runtime.env.AI_COACH_ENABLED = "true";
   delete runtime.env.ANTHROPIC_API_KEY;
   assert.deepEqual(await checked(get(owner)), { enabled: false, models: [] });
   runtime.env.ANTHROPIC_API_KEY = key;
-  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"], quota: blankQuota });
+  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"], mealLoggingEnabled: true, quota: blankQuota });
   await checked(post(owner, chat, "https://not-my-site.invalid"), 403);
   await checked(post(owner, chat, null), 403);
   await checked(post(owner, { ...chat, owner: second.userId }), 400);
@@ -294,7 +359,7 @@ test("AI coach enables every signed-in account when configured and validates ide
   await checked(post(owner, { ...draftRequest, model: "unknown" }), 400);
   assert.equal(calls.length, 0);
   runtime.env.AI_COACH_SONNET_ENABLED = "true";
-  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"], quota: blankQuota });
+  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"], mealLoggingEnabled: true, quota: blankQuota });
   await checked(post(outsider, chat));
 });
 

@@ -54,3 +54,34 @@ export function asksForTrainingPlan(message: string) {
       return asksInChinese(clause) || asksInEnglish(clause);
     });
 }
+
+const mealCancellation = /^(?:取消\s*(?:(?:这次|本次|刚才)的?)?(?:记餐|饮食记录|记录)?|算了|先不记了?|不记了?|不用(?:了|记(?:了)?)|不要(?:再)?记(?:了)?|别(?:再)?记(?:了)?|cancel(?: it)?)\s*[。！.!]*$/iu;
+const noMealWrite = /(?:不用|不必|不要|不想|不需要|先不|暂不|别|不能)\s*(?:再\s*)?(?:(?:帮|给|替)我\s*)?(?:记|补记|添加|加[入进到上]|写入|放进|存入)|(?:已经|刚刚)记(?:过|了|录)|已经(?:加进|加到|保存)|\b(?:do not|don't|no need to|already)\s+(?:log|record|save|add)\b/iu;
+const mealHypothetical = /如果|假设|假如|比如|例如|(?:打算|准备|计划|考虑|想)(?:要)?(?:吃|喝)|还没(?:吃|喝)|没吃过|并没(?:有)?(?:吃|喝)|怎么(?:记|加)|如何(?:记|加)|\b(?:if i (?:eat|drink)|hypothetically|for example|how (?:do i|can i) (?:log|record|add)|planning to eat|going to eat)\b/iu;
+const mealNoun = /饮食|餐食|[早午晚]餐|加餐|[早午晚]饭|这(?:一)?顿|饭菜|食物|记餐|刚(?:吃|喝)|(?:吃|喝)(?:了|的)|\b(?:meal|food|calorie|breakfast|lunch|dinner|snack|food diary|nutrition log)\b/iu;
+const mealAction = "补记|记(?:录|下|上|入|进|到|一下|餐)|添加|加(?:入|到|进|上)|(?:写|存|放)(?:入|进|到)";
+const mealWrite = new RegExp(`(?:^|[，,。；;！!\\n]\\s*|帮我|替我|给我|请|麻烦(?:你)?|我(?:想|要|需要))\\s*(?:把[^。！？；;\\n]{1,80})?\\s*(?:${mealAction})`, "u");
+const directMealWrite = /(?:^|[，,。；;！!\n]\s*|帮我|替我|给我|请|我要|我想)\s*记\s*(?:(?:今天|昨天|刚才)的?\s*)?(?:饮食|[早午晚]餐|加餐|[早午晚]饭|这(?:一)?顿)/u;
+const englishMealWrite = /^(?:(?:please|(?:could|can|would) you|help me|i (?:want|need) (?:you )?to)\s+)*(?:log|record|save|add)\b/iu;
+const politeMealWrite = /(?:帮我|替我|给我|麻烦(?:你)?|请)|^(?:please|could you|can you|would you)\b/iu;
+
+export function cancelsMealLogging(text: string) {
+  return mealCancellation.test(text.normalize("NFKC").trim());
+}
+
+export function asksToLogMeal(text: string) {
+  const request = text.normalize("NFKC").trim();
+  return !cancelsMealLogging(request) && !noMealWrite.test(request) && !mealHypothetical.test(request) &&
+    !/^(?:取消|撤销|删除|怎样|怎么|如何|我该|我应该|你说|举例|查(?:看)?|看(?:看|一下)|\b(?:cancel|undo|delete|what|why|how)\b)/iu.test(request) &&
+    !/(?:记过了吗|记了吗|加过了吗|加好了吗|记完了吗|记录在哪|\b(?:did you|did i|have you)\b)/iu.test(request) &&
+    (!/[?？]|吗[。.!！]*$/u.test(request) || politeMealWrite.test(request)) &&
+    mealNoun.test(request) && (mealWrite.test(request) || directMealWrite.test(request) || englishMealWrite.test(request));
+}
+
+export function continuesMealLogging(text: string) {
+  const reply = text.normalize("NFKC").trim();
+  if (cancelsMealLogging(reply) || noMealWrite.test(reply) || mealHypothetical.test(reply) || /[?？]|(?:怎么|如何|建议|应该|能吃|适合吃|值不值|是什么|多少热量|热量多少|吗[。.!！]?$)/u.test(reply)) return false;
+  if (!mealNoun.test(reply) && /(?:训练|体重|锻炼|运动|健身|卧推|深蹲|硬拉|心率|步数|跑步|\b(?:workout|exercise|weigh|training)\b)/iu.test(reply)) return false;
+  return /^(?:就这些|就那两样|就这(?:些|两样)|只有这些|没(?:有)?别的(?:了)?|没(?:有)?其他(?:的)?(?:了)?|对(?:的)?|是的|嗯|好(?:的)?|确认|没错|对了|可以|按(?:常见|估算)|就按|that['’]s (?:all|it)|yes|correct)(?:[。.!！\s]|$)/iu.test(reply) ||
+    /(?:早餐|午餐|晚餐|加餐|中午|今早|上午|下午|晚上|昨[天晚]|前天|今天|刚才|刚刚|吃(?:了|的)|喝(?:了|的)|\d{1,4}[年月日\-/]|[一二两三四五六七八九十半\d]+\s*(?:个|枚|杯|碗|勺|份|块|包|克|毫升)|\b(?:breakfast|lunch|dinner|snack|today|yesterday|grams?|ml)\b)/iu.test(reply);
+}

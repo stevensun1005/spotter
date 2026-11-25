@@ -6,7 +6,10 @@ import type { Plan } from "@/features/plans/model";
 export const recordWriteScopes = {
   training: "training:write", nutrition: "nutrition:write", body: "body:write", templates: "templates:write",
 } as const;
-export const agentScopes = ["read:context", "plans:draft", "plans:write", ...Object.values(recordWriteScopes)] as const;
+export const recordReadScopes = {
+  training: "training:read", nutrition: "nutrition:read", templates: "templates:read",
+} as const;
+export const agentScopes = ["read:context", "plans:draft", "plans:write", ...Object.values(recordReadScopes), ...Object.values(recordWriteScopes)] as const;
 export type AgentScope = typeof agentScopes[number];
 export const connectionCreate = z.object({
   action: z.literal("create"), name: z.string().trim().min(1).max(60),

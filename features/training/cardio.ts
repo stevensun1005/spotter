@@ -4,11 +4,31 @@ export const maxCardioMinutes = 720;
 export const maxCardioSeconds = maxCardioMinutes * 60;
 export const maxCardioDistanceKm = 500;
 export const maxCardioSpeedKmh = 50;
+const maxCyclingSpeedKmh = 120;
+const cardioActivities = [
+  "incline-walk", "cardio", "hiit", "running", "treadmill-running", "cycling",
+  "stationary-cycling", "rowing", "elliptical", "walking", "stair-climbing", "swimming", "jump-rope",
+] as const;
+
 export const cardioActivityTitles = {
   "incline-walk": "爬坡走",
   cardio: "有氧训练",
   hiit: "HIIT 训练",
-} as const;
+  running: "跑步",
+  "treadmill-running": "跑步机",
+  cycling: "户外骑行",
+  "stationary-cycling": "室内骑行",
+  rowing: "划船机",
+  elliptical: "椭圆机",
+  walking: "步行",
+  "stair-climbing": "登阶机",
+  swimming: "游泳",
+  "jump-rope": "跳绳",
+} satisfies Record<(typeof cardioActivities)[number], string>;
+
+export function cardioMaximumSpeedKmh(activity: (typeof cardioActivities)[number]) {
+  return activity === "cycling" || activity === "stationary-cycling" ? maxCyclingSpeedKmh : maxCardioSpeedKmh;
+}
 
 export const inclineReadings = {
   percent: { min: -100, max: 100, step: "any" },
@@ -16,15 +36,16 @@ export const inclineReadings = {
 } as const;
 
 export const cardioSchema = z.object({
-  activity: z.enum(["incline-walk", "cardio", "hiit"]),
+  activity: z.enum(cardioActivities),
   durationSeconds: z.number().int().min(1).max(maxCardioSeconds).optional(),
   incline: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("percent"), value: z.number().min(inclineReadings.percent.min).max(inclineReadings.percent.max).optional() }).strict(),
     z.object({ kind: z.literal("level"), value: z.number().min(inclineReadings.level.min).max(inclineReadings.level.max).optional() }).strict(),
   ]).optional(),
   distanceKm: z.number().min(0).max(maxCardioDistanceKm).optional(),
-  speedKmh: z.number().min(0).max(maxCardioSpeedKmh).optional(),
-}).strict().refine(({ activity, incline }) => activity === "incline-walk" || incline === undefined);
+  speedKmh: z.number().min(0).max(maxCyclingSpeedKmh).optional(),
+}).strict().refine(({ activity, incline, speedKmh }) =>
+  (activity === "incline-walk" || incline === undefined) && (speedKmh === undefined || speedKmh <= cardioMaximumSpeedKmh(activity)));
 
 export type Cardio = z.infer<typeof cardioSchema>;
 

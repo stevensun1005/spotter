@@ -1,0 +1,1 @@
+ALTER TABLE `buddy_requests` ADD `sender_share_nutrition` integer;
