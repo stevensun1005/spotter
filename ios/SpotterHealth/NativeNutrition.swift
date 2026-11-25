@@ -491,10 +491,12 @@ private struct NativeNutritionEditor: View {
         error = nil
         defer { busy = false }
         do {
-            try await api.spotterSend("/api/library", body: [
+            var payload: [String: Any] = [
                 "action": "save", "expectedOwner": owner,
                 "data": ["kind": "nutrition", "id": id, "date": date, "entry": entry]
-            ])
+            ]
+            if shortcut.isMeal { payload["revision"] = NSNull() }
+            try await api.spotterSend("/api/library", body: payload)
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             dismiss()
         } catch { self.error = error.localizedDescription }

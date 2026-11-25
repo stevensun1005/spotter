@@ -584,6 +584,311 @@ private struct SecondaryActivityCalendar: View {
     }
 }
 
+private struct SecondarySVGPath {
+    private let bytes: [UInt8]
+    private var index = 0
+
+    init(_ source: String) { bytes = Array(source.utf8) }
+
+    mutating func parse() -> Path? {
+        var path = Path()
+        var point = CGPoint.zero
+        var start = CGPoint.zero
+        var command: UInt8 = 0
+        while true {
+            skipSeparators()
+            guard index < bytes.count else { return path.isEmpty ? nil : path }
+            if (65...90).contains(bytes[index]) || (97...122).contains(bytes[index]) {
+                command = bytes[index]
+                index += 1
+            }
+            let relative = command >= 97
+            let base = relative ? point : .zero
+            switch command {
+            case 77, 109: // M, m
+                guard let next = pair(base) else { return nil }
+                path.move(to: next)
+                point = next
+                start = next
+                command = relative ? 108 : 76
+            case 76, 108: // L, l
+                guard let next = pair(base) else { return nil }
+                path.addLine(to: next)
+                point = next
+            case 72, 104: // H, h
+                guard let x = number() else { return nil }
+                point.x = base.x + x
+                path.addLine(to: point)
+            case 86, 118: // V, v
+                guard let y = number() else { return nil }
+                point.y = base.y + y
+                path.addLine(to: point)
+            case 67, 99: // C, c
+                guard let first = pair(base), let second = pair(base), let next = pair(base) else { return nil }
+                path.addCurve(to: next, control1: first, control2: second)
+                point = next
+            case 81, 113: // Q, q
+                guard let control = pair(base), let next = pair(base) else { return nil }
+                path.addQuadCurve(to: next, control: control)
+                point = next
+            case 65, 97: // A, a
+                guard let rx = number(), let ry = number(), let angle = number(),
+                      let large = flag(), let sweep = flag(), let next = pair(base) else { return nil }
+                Self.addArc(to: &path, from: point, target: next, rx: rx, ry: ry, rotation: angle, large: large, sweep: sweep)
+                point = next
+            case 90, 122: // Z, z
+                path.closeSubpath()
+                point = start
+                command = 0
+            default: return nil
+            }
+        }
+    }
+
+    private mutating func skipSeparators() {
+        while index < bytes.count, bytes[index] == 44 || bytes[index] <= 32 { index += 1 }
+    }
+
+    private mutating func number() -> CGFloat? {
+        skipSeparators()
+        let begin = index
+        if index < bytes.count, bytes[index] == 43 || bytes[index] == 45 { index += 1 }
+        while index < bytes.count, (48...57).contains(bytes[index]) { index += 1 }
+        if index < bytes.count, bytes[index] == 46 {
+            index += 1
+            while index < bytes.count, (48...57).contains(bytes[index]) { index += 1 }
+        }
+        if index < bytes.count, bytes[index] == 69 || bytes[index] == 101 {
+            index += 1
+            if index < bytes.count, bytes[index] == 43 || bytes[index] == 45 { index += 1 }
+            while index < bytes.count, (48...57).contains(bytes[index]) { index += 1 }
+        }
+        guard index > begin, let value = Double(String(decoding: bytes[begin..<index], as: UTF8.self)), value.isFinite else { return nil }
+        return CGFloat(value)
+    }
+
+    private mutating func pair(_ base: CGPoint) -> CGPoint? {
+        guard let x = number(), let y = number() else { return nil }
+        return CGPoint(x: base.x + x, y: base.y + y)
+    }
+
+    private mutating func flag() -> Bool? {
+        skipSeparators()
+        guard index < bytes.count, bytes[index] == 48 || bytes[index] == 49 else { return nil }
+        let value = bytes[index] == 49
+        index += 1
+        return value
+    }
+
+    // SVG 2, Appendix B.2: convert the ellipse endpoints to a transformed unit circle.
+    private static func addArc(to path: inout Path, from begin: CGPoint, target end: CGPoint,
+                               rx: CGFloat, ry: CGFloat, rotation: CGFloat, large: Bool, sweep: Bool) {
+        guard begin != end else { return }
+        var radiusX = abs(rx)
+        var radiusY = abs(ry)
+        guard radiusX > 0, radiusY > 0 else { path.addLine(to: end); return }
+        let radians = rotation.truncatingRemainder(dividingBy: 360) * .pi / 180
+        let cosine = cos(radians)
+        let sine = sin(radians)
+        let dx = (begin.x - end.x) / 2
+        let dy = (begin.y - end.y) / 2
+        let x = cosine * dx + sine * dy
+        let y = -sine * dx + cosine * dy
+        let radiusScale = max(1, hypot(x / radiusX, y / radiusY))
+        radiusX *= radiusScale
+        radiusY *= radiusScale
+        let unitX = x / radiusX
+        let unitY = y / radiusY
+        let distance = unitX * unitX + unitY * unitY
+        guard distance > 0 else { path.addLine(to: end); return }
+        let multiplier = (large == sweep ? -1.0 : 1.0) * sqrt(max(0, 1 / distance - 1))
+        let centerX = multiplier * unitY * radiusX
+        let centerY = -multiplier * unitX * radiusY
+        let from = atan2((y - centerY) / radiusY, (x - centerX) / radiusX)
+        let to = atan2((-y - centerY) / radiusY, (-x - centerX) / radiusX)
+        var delta = to - from
+        if sweep && delta < 0 { delta += 2 * .pi }
+        if !sweep && delta > 0 { delta -= 2 * .pi }
+        let transform = CGAffineTransform(a: cosine * radiusX, b: sine * radiusX,
+                                          c: -sine * radiusY, d: cosine * radiusY,
+                                          tx: cosine * centerX - sine * centerY + (begin.x + end.x) / 2,
+                                          ty: sine * centerX + cosine * centerY + (begin.y + end.y) / 2)
+        path.addRelativeArc(center: .zero, radius: 1, startAngle: .radians(from), delta: .radians(delta), transform: transform)
+    }
+}
+
+private struct SecondaryAnatomy: View {
+    let counts: [String: Int]
+    @State private var figure = Figure.male
+    @State private var artwork = [String: Drawing]()
+    @State private var selected: String?
+    @State private var loaded = false
+
+    private enum Figure: String, CaseIterable {
+        case male, female
+        var title: String { self == .male ? "男性图" : "女性图" }
+    }
+
+    private enum Side: String, CaseIterable {
+        case front, back
+        var title: String { self == .front ? "正面" : "背面" }
+    }
+
+    private struct Source: Decodable { let viewBox: String; let regions: [String: [String]] }
+    private struct Region: Sendable { let key: String; let paths: [Path] }
+    private struct Drawing: Sendable {
+        let box: CGRect
+        let regions: [Region]
+
+        func placement(in size: CGSize) -> (scale: CGFloat, offset: CGPoint) {
+            let scale = min(size.width / box.width, size.height / box.height)
+            return (scale, CGPoint(x: (size.width - box.width * scale) / 2 - box.minX * scale,
+                                   y: (size.height - box.height * scale) / 2 - box.minY * scale))
+        }
+    }
+
+    private static let colors = [0xd5e3ff, 0xb3c9ff, 0x8caaff, 0x4f72cb, 0x273e9c].map { SpotterPalette.color(UInt32($0)) }
+    private static let neutral = SpotterPalette.color(0xdce4ef)
+    private static let exterior = SpotterPalette.color(0xf3f6fc)
+    private static let outline = SpotterPalette.color(0xf7f9fe)
+    private static let aliases = [
+        "upper-chest": "chest", "lower-chest": "chest", "upper-abs": "abs", "lower-abs": "abs",
+        "front-deltoid": "front-delts", "rear-deltoid": "rear-delts", "deltoids": "side-delts",
+        "upper-trapezius": "trapezius", "lower-trapezius": "trapezius", "inner-quad": "quadriceps",
+        "outer-quad": "quadriceps", "rhomboids": "upper-back", "rotator-cuff": "rear-delts"
+    ]
+    private static let names = [
+        "chest": "胸大肌", "upper-chest": "胸大肌上束", "lower-chest": "胸大肌中下束", "serratus": "前锯肌",
+        "trapezius": "斜方肌", "upper-trapezius": "上斜方肌", "lower-trapezius": "下斜方肌", "lats": "背阔肌",
+        "upper-back": "上背", "lower-back": "下背／竖脊肌", "rhomboids": "菱形肌", "rotator-cuff": "肩袖",
+        "front-delts": "三角肌前束", "side-delts": "三角肌中束", "rear-delts": "三角肌后束", "biceps": "肱二头肌",
+        "triceps": "肱三头肌", "forearm": "前臂", "abs": "腹直肌", "upper-abs": "上腹", "lower-abs": "下腹",
+        "obliques": "腹斜肌", "gluteal": "臀肌", "quadriceps": "股四头肌", "inner-quad": "股四头肌内侧",
+        "outer-quad": "股四头肌外侧", "hamstring": "腘绳肌", "adductors": "大腿内收肌", "hip-flexors": "髋屈肌",
+        "calves": "小腿后侧", "tibialis": "胫骨前肌"
+    ]
+
+    var body: some View {
+        VStack(spacing: 8) {
+            SecondarySegment(options: Figure.allCases, value: $figure, title: \.title)
+                .accessibilityLabel("肌群图体型")
+            if loaded, !artwork.isEmpty {
+                HStack(spacing: 9) {
+                    ForEach(Side.allCases, id: \.self) { side in
+                        if let drawing = artwork["\(figure.rawValue)-\(side.rawValue)"] { diagram(drawing, side: side) }
+                    }
+                }
+                Text(selected.map(description) ?? "点图上任一区域可以查看名称")
+                    .font(.caption).foregroundStyle(SpotterPalette.muted)
+                HStack(spacing: 4) {
+                    Text("未训练")
+                    colorChip(Self.neutral)
+                    Text("少")
+                    ForEach(Self.colors.indices, id: \.self) { index in colorChip(Self.colors[index]) }
+                    Text("多")
+                }
+                .font(.caption2).foregroundStyle(SpotterPalette.muted)
+                .accessibilityLabel("蓝色越深代表完成组数越多")
+            } else if loaded { SecondaryNotice(message: "肌肉图暂时无法读取。") }
+            else { ProgressView("正在读取肌肉图…") }
+        }
+        .onChange(of: figure) { _ in selected = nil }
+        .task {
+            artwork = await Task.detached(priority: .utility) { Self.loadArtwork() }.value
+            loaded = true
+        }
+    }
+
+    private func name(_ region: String) -> String? { Self.names[region] ?? Self.aliases[region].flatMap { Self.names[$0] } }
+    private func count(_ region: String) -> Int { counts[region] ?? Self.aliases[region].flatMap { counts[$0] } ?? 0 }
+    private func description(_ region: String) -> String { "\(name(region) ?? region) · \(count(region)) 组" }
+
+    private func colorChip(_ color: Color) -> some View {
+        RoundedRectangle(cornerRadius: 3).fill(color).frame(width: 13, height: 9).accessibilityHidden(true)
+    }
+
+    private func diagram(_ drawing: Drawing, side: Side) -> some View {
+        let highest = max(1, counts.values.max() ?? 0)
+        let accessible = drawing.regions.filter { name($0.key) != nil && count($0.key) > 0 }.map { description($0.key) }
+        return VStack(spacing: 4) {
+            GeometryReader { geometry in
+                Canvas { context, size in
+                    let placement = drawing.placement(in: size)
+                    var canvas = context
+                    canvas.translateBy(x: placement.offset.x, y: placement.offset.y)
+                    canvas.scaleBy(x: placement.scale, y: placement.scale)
+                    for region in drawing.regions {
+                        let total = count(region.key)
+                        let level = max(0, min(4, Int(ceil(Double(total) / Double(highest) * 5)) - 1))
+                        let fill = total > 0 ? Self.colors[level] : name(region.key) == nil ? Self.exterior : Self.neutral
+                        for path in region.paths {
+                            canvas.fill(path, with: .color(fill))
+                            canvas.stroke(path, with: .color(Self.outline), lineWidth: 2.3)
+                        }
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(SpatialTapGesture().onEnded { event in
+                    let placement = drawing.placement(in: geometry.size)
+                    guard placement.scale > 0 else { return }
+                    let point = CGPoint(x: (event.location.x - placement.offset.x) / placement.scale,
+                                        y: (event.location.y - placement.offset.y) / placement.scale)
+                    if let region = drawing.regions.last(where: { name($0.key) != nil && $0.paths.contains { $0.contains(point) } }) {
+                        selected = region.key
+                        UIAccessibility.post(notification: .announcement, argument: description(region.key))
+                    }
+                })
+            }
+            .frame(height: 193)
+            .accessibilityLabel("\(figure == .female ? "女性" : "男性")\(side.title)肌肉解剖图")
+            .accessibilityValue(accessible.isEmpty ? "未训练" : accessible.joined(separator: "，"))
+            .accessibilityAddTraits(.isImage)
+            Text(side.title).font(.caption2).foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
+        }.frame(maxWidth: .infinity)
+    }
+
+    nonisolated private static func loadArtwork() -> [String: Drawing] {
+        guard let url = Bundle.main.url(forResource: "anatomy", withExtension: "json"),
+              let data = try? Data(contentsOf: url), let source = try? JSONDecoder().decode([String: Source].self, from: data) else { return [:] }
+        let json = String(decoding: data, as: UTF8.self)
+        let figureStarts = source.keys.compactMap { key in
+            json.range(of: "\"\(key)\"").map { (key, $0.lowerBound) }
+        }.sorted { $0.1 < $1.1 }
+        let layers = ["head", "hair", "feet", "hands", "knees", "ankles", "neck", "gluteal", "quadriceps", "chest", "abs", "trapezius", "upper-back", "deltoids"]
+        var drawings = [String: Drawing]()
+        for (index, location) in figureStarts.enumerated() {
+            let (key, start) = location
+            guard let figure = source[key] else { continue }
+            let size = figure.viewBox.split(separator: " ").compactMap { Double($0) }
+            guard size.count == 4, size[2] > 0, size[3] > 0 else { continue }
+            let end = figureStarts.indices.contains(index + 1) ? figureStarts[index + 1].1 : json.endIndex
+            let original = json[start..<end]
+            // The web keeps original JSON order for regions outside its explicit layer list.
+            let positions = figure.regions.keys.reduce(into: [String: String.Index]()) { result, name in
+                result[name] = original.range(of: "\"\(name)\"")?.lowerBound
+            }
+            let keys = figure.regions.keys.sorted { left, right in
+                let a = layers.firstIndex(of: left) ?? layers.count
+                let b = layers.firstIndex(of: right) ?? layers.count
+                return a == b ? (positions[left] ?? end) < (positions[right] ?? end) : a < b
+            }
+            var regions = [Region]()
+            for name in keys {
+                let commands = figure.regions[name, default: []]
+                let paths = commands.compactMap { command in
+                    var parser = SecondarySVGPath(command)
+                    return parser.parse()
+                }
+                guard paths.count == commands.count else { break }
+                regions.append(Region(key: name, paths: paths))
+            }
+            guard regions.count == keys.count else { continue }
+            drawings[key] = Drawing(box: CGRect(x: size[0], y: size[1], width: size[2], height: size[3]), regions: regions)
+        }
+        return drawings
+    }
+}
+
 private struct SecondaryMusclePanel: View {
     let entries: [NativeWorkoutEntry]
     @State private var layer = Layer.primary
@@ -608,8 +913,9 @@ private struct SecondaryMusclePanel: View {
             Text("按完成的正式组计数，不含热身。每组可能训练多个肌群。").font(.caption).foregroundStyle(SpotterPalette.muted)
             SecondarySegment(options: Layer.allCases, value: $layer, title: \.rawValue)
             if let catalogue {
-                let totals = distribution(catalogue)
+                let (totals, counts) = distribution(catalogue)
                 let highest = max(1, totals.max() ?? 0)
+                SecondaryAnatomy(counts: counts)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 7) {
                     ForEach(Self.groups.indices, id: \.self) { index in
                         VStack(alignment: .leading, spacing: 5) {
@@ -647,8 +953,9 @@ private struct SecondaryMusclePanel: View {
         return Catalog(byID: byID, byName: byName)
     }
 
-    private func distribution(_ catalogue: Catalog) -> [Int] {
+    private func distribution(_ catalogue: Catalog) -> ([Int], [String: Int]) {
         var totals = Array(repeating: 0, count: Self.groups.count)
+        var regionCounts = [String: Int]()
         for entry in entries {
             guard let session = entry.session else { continue }
             for (index, move) in session.plan.exercises.enumerated() where session.rows.indices.contains(index) && !move["warmup"].bool {
@@ -657,12 +964,13 @@ private struct SecondaryMusclePanel: View {
                 let muscles = catalogue.byID[move["catalogueId"].string] ?? catalogue.byName[Self.nameKey(move["name"].string)] ?? [:]
                 let regions = Set(muscles.compactMap { name, intensity -> String? in
                     let value = intensity.number
-                    return value > 0 && (layer == .primary ? value >= 75 : value < 75) ? name : nil
+                    return name != "cardiovascular system" && value > 0 && (layer == .primary ? value >= 75 : value < 75) ? name : nil
                 })
+                for region in regions { regionCounts[region, default: 0] += count }
                 for index in Self.groups.indices where !Self.groups[index].1.isDisjoint(with: regions) { totals[index] += count }
             }
         }
-        return totals
+        return (totals, regionCounts)
     }
 }
 

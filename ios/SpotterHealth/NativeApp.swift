@@ -211,6 +211,8 @@ private struct NativeSpotterTabs: View {
     @State private var coachDetent: PresentationDetent = .medium
     @State private var showSettings = false
     @State private var showNutrition = false
+    @State private var showRest = false
+    @State private var showBody = false
     let owner: String
 
     init(account: NativeAccount, owner: String) {
@@ -229,6 +231,8 @@ private struct NativeSpotterTabs: View {
                     openAllPlans: { selected = .training },
                     openCoach: openCoach,
                     openFriends: { selected = .friends },
+                    openRest: { showRest = true },
+                    openBody: { showBody = true },
                     homeNutrition: AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs) { showNutrition = true })
                 )
             }
@@ -263,6 +267,12 @@ private struct NativeSpotterTabs: View {
         }
         .fullScreenCover(isPresented: $showNutrition) {
             NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs)
+        }
+        .sheet(isPresented: $showRest, onDismiss: { Task { await workouts.load() } }) {
+            NativeRestSchedule(api: account.api, owner: owner)
+        }
+        .fullScreenCover(isPresented: $showBody, onDismiss: { Task { await workouts.load() } }) {
+            NativeBodyData(api: account.api, owner: owner)
         }
     }
 
