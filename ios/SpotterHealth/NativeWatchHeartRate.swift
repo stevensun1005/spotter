@@ -230,6 +230,7 @@ struct NativeWatchHeartRateStrip: View {
                         Text(live.bpm.formatted()).font(.title3.bold()).monospacedDigit()
                         Text("BPM").font(.caption2.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
                     }
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel("实时心率 \(live.bpm) 次每分钟")
                     .accessibilityIdentifier("workout-watch-current-bpm")
                     .privacySensitive()
@@ -239,6 +240,7 @@ struct NativeWatchHeartRateStrip: View {
             .padding(7)
             .background(SpotterPalette.card.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workout-watch-heart-rate")
     }
 
