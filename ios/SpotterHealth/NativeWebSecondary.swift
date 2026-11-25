@@ -2048,6 +2048,7 @@ struct NativeSettings: View {
         case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", planImport = "粘贴已有内容", programs = "训练周期", reminders = "训练提醒"
         case units = "单位与统计", equipment = "器械", appearance = "外观与辅助功能", modules = "功能模块", data = "数据导入与导出"
         case watches = "手表与健康", integrations = "集成", coach = "AI 教练", about = "关于与更新"
+        case notifications = "通知"
         var id: Self { self }
 
         var detail: String {
@@ -2060,6 +2061,7 @@ struct NativeSettings: View {
             case .planImport: return "训练文本、计划 JSON 和跟练视频"
             case .programs: return "多周训练、周期草稿和排期"
             case .reminders: return "待训练计划、每日提醒时间"
+            case .notifications: return "搭子提醒、好友打卡、iPhone 通知权限"
             case .units: return "新动作的重量单位、动作名称、1RM 估算方式"
             case .equipment: return "健身房配置和可用器械"
             case .appearance: return "主题、强调色、文字大小和减少动画"
@@ -2082,6 +2084,7 @@ struct NativeSettings: View {
             case .planImport: return "list.bullet.clipboard"
             case .programs: return "calendar.badge.plus"
             case .reminders: return "bell"
+            case .notifications: return "bell.badge"
             case .units: return "ruler"
             case .equipment: return "slider.horizontal.3"
             case .appearance: return "textformat.size"
@@ -2130,7 +2133,7 @@ struct NativeSettings: View {
                 if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     accountHeader
                     rows([.workout, .protein, .timer, .schedule, .reminders], title: "训练")
-                    rows([.units, .equipment, .appearance, .modules], title: "首选项")
+                    rows([.notifications, .units, .equipment, .appearance, .modules], title: "首选项")
                     rows([.watches, .integrations, .coach], title: "连接")
                     rows([.data], title: "数据")
                     rows([.about])
@@ -2199,6 +2202,7 @@ struct NativeSettings: View {
                     case .planImport: EmptyView()
                     case .programs: EmptyView()
                     case .reminders: NativeTrainingReminderSettings(owner: owner)
+                    case .notifications: NativeSocialNotificationSettings(owner: owner)
                     case .units: NativeUnitsPreferences(sync: trainingPreferences)
                     case .equipment: EmptyView()
                     case .appearance: NativeAppearancePreferences()
@@ -2515,6 +2519,78 @@ private struct NativeSettingToggle: View {
                 Text(detail).font(.caption).foregroundStyle(SpotterPalette.muted)
             }
         }.tint(SpotterPalette.accent).padding(13)
+    }
+}
+
+@MainActor
+private struct NativeSocialNotificationSettings: View {
+    @EnvironmentObject private var notifications: NativeSocialNotifications
+    @Environment(\.openURL) private var openURL
+    @State private var showInbox = false
+    let owner: String
+
+    private var isScoped: Bool { notifications.belongs(to: owner) }
+    private var unreadCount: Int { isScoped ? notifications.unreadCount : 0 }
+
+    var body: some View {
+        SecondaryGroup(title: "好友和搭子") {
+            if isScoped, notifications.preferences != nil {
+                NativeSettingToggle(title: "搭子提醒我训练", detail: "接收当前训练搭子发给你的提醒。", value: binding(\.buddyReminders))
+                Divider()
+                NativeSettingToggle(title: "好友完成训练", detail: "好友完成训练并向你共享打卡后发送提醒。", value: binding(\.friendWorkouts))
+            } else if notifications.loading {
+                ProgressView("正在读取通知设置…").padding(13)
+            }
+            if isScoped, let error = notifications.error {
+                SecondaryNotice(message: error, warning: true).padding(10)
+                Button("重试") { Task { await notifications.refresh() } }
+                    .buttonStyle(SecondaryButtonStyle()).padding(.horizontal, 13).padding(.bottom, 8)
+            }
+            Divider()
+            Button { showInbox = true } label: {
+                SecondaryRow(title: "通知收件箱", detail: unreadCount > 0 ? "\(unreadCount) 条未读" : nil,
+                             icon: "tray", color: SpotterPalette.wash)
+            }.buttonStyle(.spotterPress)
+        }.disabled(notifications.saving)
+        SecondaryGroup(title: "在 iPhone 上接收") {
+            if isScoped, notifications.canUseSystemPush {
+                if let issue = notifications.registrationIssue {
+                    SecondaryNotice(message: issue, warning: true).padding(10)
+                }
+                Button {
+                    if notifications.authorizationStatus != .denied, !notifications.deviceRegistered {
+                        Task { await notifications.enableSystemPush() }
+                    } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                } label: {
+                    if notifications.authorizationStatus != .denied, !notifications.deviceRegistered {
+                        SecondaryRow(title: notifications.authorizationStatus == .notDetermined ? "允许 iPhone 通知" : "连接 iPhone 通知",
+                                     detail: "在 App 关闭时仍可收到训练通知。",
+                                     icon: "bell", color: SpotterPalette.wash)
+                    } else {
+                        SecondaryRow(title: "打开 iPhone 通知设置", detail: notifications.authorizationStatus == .denied ? "系统通知权限已关闭" : "管理横幅、声音和锁屏显示",
+                                     icon: "gearshape", color: SpotterPalette.wash)
+                    }
+                }.buttonStyle(.spotterPress)
+            } else {
+                SecondaryRow(title: "站内通知", detail: "这台设备暂不能接收系统推送。你仍可在 App 内查看通知。",
+                             icon: "bell.badge", color: SpotterPalette.wash, accessory: nil)
+            }
+        }
+        .task { await notifications.refreshPermission(); await notifications.refresh() }
+        .sheet(isPresented: $showInbox) {
+            NativeNotificationInbox(owner: owner) { item in Task { await notifications.read(item) } }
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func binding(_ key: WritableKeyPath<NativeSocialNotificationPreferences, Bool>) -> Binding<Bool> {
+        Binding(get: { isScoped && notifications.preferences?[keyPath: key] == true }, set: { value in
+            guard isScoped, var preferences = notifications.preferences else { return }
+            preferences[keyPath: key] = value
+            Task { await notifications.updatePreferences(preferences) }
+        })
     }
 }
 
@@ -3216,12 +3292,14 @@ struct NativeFriends: View {
     let api: NativeAPI
     let owner: String
     let buddySearchRequest: Int
+    let notificationRequest: NativeSocialNotification?
     let openOwnLog: (@MainActor (String) -> Void)?
     let openOwnLogDay: (@MainActor (String, String) -> Void)?
     let refreshPlans: @MainActor () async -> Void
     @AppStorage(NativePreferenceKey.coachingEntry) private var showsCoaching = false
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
+    @EnvironmentObject private var notifications: NativeSocialNotifications
 
     @State private var page: NativeFriendsPage
     @State private var data: SecondaryFriendList?
@@ -3247,6 +3325,9 @@ struct NativeFriends: View {
     @State private var appointmentNote = ""
     @State private var appointmentID = UUID().uuidString.lowercased()
     @State private var selectedCheerWorkout: (id: String, date: String)?
+    @State private var showNotifications = false
+    @State private var inboxSelection: NativeSocialNotification?
+    @State private var notificationDestination: FriendDestination?
 
     private enum Dialog: String, Identifiable {
         case invite = "添加好友", requests = "新的朋友", cheers = "收到的加油", appointments = "约下次训练"
@@ -3260,14 +3341,20 @@ struct NativeFriends: View {
         let date: String
         let value: SecondaryFriendFeed.Day.Item.Cheer
     }
+    private struct FriendDestination {
+        let friend: SecondaryFriend
+        let day: String?
+    }
 
     init(api: NativeAPI, owner: String, initialPage: NativeFriendsPage = .contacts, initialBuddySearch: Bool = false,
-         buddySearchRequest: Int = 0, openOwnLog: (@MainActor (String) -> Void)? = nil,
+         buddySearchRequest: Int = 0, notificationRequest: NativeSocialNotification? = nil,
+         openOwnLog: (@MainActor (String) -> Void)? = nil,
          openOwnLogDay: (@MainActor (String, String) -> Void)? = nil,
          refreshPlans: @escaping @MainActor () async -> Void) {
         self.api = api
         self.owner = owner
         self.buddySearchRequest = buddySearchRequest
+        self.notificationRequest = notificationRequest
         self.openOwnLog = openOwnLog
         self.openOwnLogDay = openOwnLogDay
         self.refreshPlans = refreshPlans
@@ -3286,7 +3373,10 @@ struct NativeFriends: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                SpotterGlassSegments(options: NativeFriendsPage.allCases, value: $page, title: \.rawValue)
+                HStack(spacing: 8) {
+                    SpotterGlassSegments(options: NativeFriendsPage.allCases, value: $page, title: \.rawValue)
+                    notificationButton
+                }
                 if dialog == nil, let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
                 ZStack(alignment: .topLeading) {
                     switch page {
@@ -3301,6 +3391,7 @@ struct NativeFriends: View {
         }
         .foregroundStyle(SpotterPalette.ink).background(SpotterPalette.background)
         .task { await load() }
+        .task(id: notificationRequest?.id) { await openRequestedNotification() }
         .onAppear { presentRequestedBuddySearch() }
         .onChange(of: buddySearchRequest) { _ in presentRequestedBuddySearch() }
         .onChange(of: search) { _ in results = nil }
@@ -3308,6 +3399,20 @@ struct NativeFriends: View {
             if page == .feed { await loadFeed() }
         }
         .refreshable { await load(); if page == .feed { await loadFeed() } }
+        .navigationDestination(isPresented: Binding(get: { notificationDestination != nil }, set: { if !$0 { notificationDestination = nil } })) {
+            if let destination = notificationDestination { friendDetail(destination.friend, day: destination.day) }
+        }
+        .sheet(isPresented: $showNotifications, onDismiss: {
+            if let item = inboxSelection {
+                inboxSelection = nil
+                Task {
+                    await notifications.open(item)
+                    await openNotificationDestination(item)
+                }
+            }
+        }) {
+            NativeNotificationInbox(owner: owner) { inboxSelection = $0 }.presentationDragIndicator(.visible)
+        }
         .sheet(item: $dialog, onDismiss: openSelectedCheerWorkout) { item in
             NavigationStack {
                 ScrollView {
@@ -3332,6 +3437,34 @@ struct NativeFriends: View {
             .presentationDetents(item == .invite ? [.medium, .large] : [.large])
             .presentationDragIndicator(.visible)
             .interactiveDismissDisabled(busy)
+        }
+    }
+
+    private var notificationButton: some View {
+        let unreadCount = notifications.belongs(to: owner) ? notifications.unreadCount : 0
+        return Button { showNotifications = true } label: {
+            Image(systemName: unreadCount == 0 ? "bell" : "bell.badge.fill")
+                .font(.headline).frame(width: 44, height: 44).secondaryCard(radius: 13)
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel("通知")
+        .accessibilityValue(unreadCount > 0 ? "\(unreadCount) 条未读" : "无未读")
+    }
+
+    private func openRequestedNotification() async {
+        guard let item = notificationRequest else { return }
+        await openNotificationDestination(item)
+    }
+
+    private func openNotificationDestination(_ item: NativeSocialNotification) async {
+        if data == nil { await load() }
+        guard !Task.isCancelled, notifications.belongs(to: owner), notifications.requestedItem?.id == item.id else { return }
+        notifications.clearRequest(item.id)
+        if let actor = item.actorId, let friend = data?.friends.first(where: { $0.id == actor }) {
+            page = .contacts
+            notificationDestination = FriendDestination(friend: friend, day: item.date)
+        } else {
+            page = item.kind == .friendWorkout ? .feed : .contacts
         }
     }
 
@@ -3399,7 +3532,7 @@ struct NativeFriends: View {
     }
 
     private func friendDetail(_ friend: SecondaryFriend, day: String? = nil) -> some View {
-        SecondaryFriendDetail(api: api, friend: data?.friends.first(where: { $0.id == friend.id }) ?? friend,
+        SecondaryFriendDetail(api: api, owner: owner, friend: data?.friends.first(where: { $0.id == friend.id }) ?? friend,
                               initialDay: day, listPath: listPath) {
             invalidateFeed()
             if page == .feed { await loadFeed() }
@@ -4064,12 +4197,14 @@ private struct SecondaryToggle: View {
 @MainActor
 private struct SecondaryFriendDetail: View {
     let api: NativeAPI
+    let owner: String
     let friend: SecondaryFriend
     let listPath: String
     let changed: @MainActor () async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
+    @EnvironmentObject private var notifications: NativeSocialNotifications
     @State private var date: Date
     @State private var record: Record?
     @State private var sharing: SecondaryFriend.Sharing?
@@ -4078,6 +4213,10 @@ private struct SecondaryFriendDetail: View {
     @State private var showRemove = false
     @State private var error: String?
     @State private var loadRevision = 0
+    @State private var reminderSending = false
+    @State private var reminderReceipt: String?
+    @State private var reminderFailed = false
+    @State private var reminderSent = false
 
     private struct Record: Decodable {
         let restricted: Bool?
@@ -4087,9 +4226,10 @@ private struct SecondaryFriendDetail: View {
         let nutrition: [NativeJSON]?
     }
 
-    init(api: NativeAPI, friend: SecondaryFriend, initialDay: String?, listPath: String,
+    init(api: NativeAPI, owner: String, friend: SecondaryFriend, initialDay: String?, listPath: String,
          changed: @escaping @MainActor () async -> Void) {
         self.api = api
+        self.owner = owner
         self.friend = friend
         self.listPath = listPath
         self.changed = changed
@@ -4105,6 +4245,14 @@ private struct SecondaryFriendDetail: View {
                     avatar(friend.name, buddy: friend.buddy)
                     Text(friend.name).font(.title2.weight(.heavy))
                     if friend.buddy { SecondaryBadge(text: "训练搭子", green: true) }
+                }
+                if friend.buddy {
+                    Button { Task { await remindBuddy() } } label: {
+                        Label(reminderSent ? "提醒已发送" : "提醒训练", systemImage: reminderSent ? "checkmark" : "bell.badge")
+                    }
+                    .buttonStyle(SecondaryButtonStyle(primary: !reminderSent))
+                    .disabled(reminderSending || reminderSent)
+                    if let reminderReceipt { SecondaryNotice(message: reminderReceipt, warning: reminderFailed) }
                 }
                 VStack(alignment: .leading, spacing: 7) {
                     Text(date == SecondaryDate.today ? "今天的记录" : "\(spotterDay(date).suffix(5)) 的记录").font(.headline)
@@ -4138,6 +4286,22 @@ private struct SecondaryFriendDetail: View {
                 Button("确认移除", role: .destructive) { Task { await mutate(["action": "remove", "id": friend.id], remove: true) } }
                 Button("取消", role: .cancel) {}
             } message: { Text("移除后，你和\(friend.name)在好友页的分享会停止。") }
+    }
+
+    private func remindBuddy() async {
+        guard friend.buddy, !reminderSending, !reminderSent else { return }
+        reminderSending = true
+        reminderReceipt = nil
+        defer { reminderSending = false }
+        do {
+            try await notifications.sendReminder(to: friend.id, owner: owner)
+            reminderSent = true
+            reminderFailed = false
+            reminderReceipt = "已提醒 \(friend.name) 训练。"
+        } catch {
+            reminderFailed = true
+            reminderReceipt = error.localizedDescription
+        }
     }
 
     private func dailyRecords(_ record: Record) -> some View {

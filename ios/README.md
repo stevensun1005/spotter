@@ -34,6 +34,14 @@ npm run test:health-native
 
 截至本轮检查：Xcode 可用、发现已配对 iPhone 和有效开发证书；设备签名尝试提示 `app.spotter.health` 缺少 iOS App Development provisioning profile。因用户当前不便操作设备，本轮未安装、未请求真机健康授权，也未声称 Apple Watch 真机闭环通过。签名团队、Bundle ID 与 HealthKit provisioning 仍需上面步骤核验。
 
+### 搭子提醒与好友打卡通知
+
+通知中心和偏好使用已登录账号。系统推送还需要为 `app.spotter.health` 启用 Push Notifications，并安装包含 `aps-environment` 的 provisioning profile。TestFlight 使用生产 APNs。只有通过系统通知授权的设备才注册推送。没有 APNs 配置时，支持通知的后端仍可提供站内通知。
+
+归档 TestFlight 时，给 Xcode 传入 `SPOTTER_PHONE_ENTITLEMENTS=SpotterHealth/SpotterHealthPush.entitlements` 和 `SPOTTER_APNS_ENVIRONMENT=production`。使用开发签名及独立测试凭据时，环境值设为 `development`。系统推送 entitlement 仅加在 iPhone 宿主，不影响 Widget 和手表签名。
+
+真机验证使用两个同意测试的账号。先在接收设备的「设置 → 通知」开启锁屏提醒。分别验证当前搭子发出提醒、好友打卡、重复同步、关闭各类通知，以及点击通知打开对应联系人。
+
 ## 同步行为与权限边界
 
 - 可选今天、14/30/90/365 天或自定义日期。日期按 iPhone 当前时区解释，传输使用绝对毫秒时间和 IANA 时区。心率按照网页保存的实际起止时间读取，旧训练沿用现有结束时间估算口径；不会按「同一天」粗匹配。

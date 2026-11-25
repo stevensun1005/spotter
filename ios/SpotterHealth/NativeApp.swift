@@ -245,6 +245,7 @@ func spotterDay(_ date: Date = .now) -> String {
 @MainActor
 struct NativeSpotterApp: View {
     @StateObject private var account = NativeAccount()
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(SpotterTheme.storageKey) private var theme: SpotterTheme = .light
     @AppStorage(SpotterAccent.storageKey) private var accent: SpotterAccent = .lime
     @State private var sawSignIn = false
@@ -269,10 +270,16 @@ struct NativeSpotterApp: View {
         .tint(accent.tint)
         .buttonStyle(.spotterPress)
         .environment(\.spotterAccent, accent)
+        .environmentObject(NativeSocialNotifications.shared)
         .background { SpotterWindowAppearance(theme: theme).accessibilityHidden(true) }
         .task {
             NativeWidgetMealAction.api = account.api
             await account.restore()
+        }
+        .task(id: notificationTaskKey) {
+            let notifications = NativeSocialNotifications.shared
+            notifications.useAccount(account.api, owner: account.profile?.id)
+            if scenePhase == .active { await notifications.runWhileActive() }
         }
         .onChange(of: account.isRestoring) { restoring in
             if !restoring {
@@ -296,6 +303,10 @@ struct NativeSpotterApp: View {
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { acceptInviteURL(url) }
         }
+    }
+
+    private var notificationTaskKey: String {
+        (account.profile?.id ?? "") + (scenePhase == .active ? ":active" : ":inactive")
     }
 
     private func openExternalURL(_ url: URL) {
@@ -626,6 +637,7 @@ private struct NativeSpotterTabs: View {
     @StateObject private var workouts: NativeWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
+    @EnvironmentObject private var socialNotifications: NativeSocialNotifications
     @State private var selected: NativeSpotterSection = .today
     @State private var dockPosition = NativeDockPosition()
     @State private var showCoach = false
@@ -653,6 +665,7 @@ private struct NativeSpotterTabs: View {
     @State private var widgetNutritionEntry: NativeNutritionWidgetEntry?
     @State private var widgetCheerPartner: String?
     @State private var widgetCheerMessage: String?
+    @State private var showNotificationInbox = false
     @StateObject private var trainingPreferences: NativeAccountPreferences
     @AppStorage private var reminderEnabled: Bool
     @AppStorage private var reminderMinute: Int
@@ -695,6 +708,8 @@ private struct NativeSpotterTabs: View {
     var body: some View {
         navigationTabs
         .background(SpotterPalette.background.ignoresSafeArea())
+        .overlay(alignment: .top) { notificationBanner }
+        .animation(allowsMotion ? .easeInOut(duration: 0.23) : nil, value: socialNotifications.banner?.id)
         .task { await refreshHome() }
         .onAppear {
             if offerWelcome, !UserDefaults.standard.bool(forKey: welcomeKey) {
@@ -702,6 +717,7 @@ private struct NativeSpotterTabs: View {
             } else {
                 stageInvite()
                 stageWidgetDestination()
+                stageSocialNotification()
             }
         }
         .task(id: workouts.widgetRevision) {
@@ -712,8 +728,9 @@ private struct NativeSpotterTabs: View {
         }
         .onChange(of: widgetDestination) { _ in stageWidgetDestination() }
         .onChange(of: isAvailableForWidget) { available in
-            if available { stageWidgetDestination() }
+            if available { stageWidgetDestination(); stageSocialNotification() }
         }
+        .onChange(of: socialNotifications.requestedItem) { _ in stageSocialNotification() }
         .onChange(of: inboundInvite) { _ in stageInvite() }
         .onChange(of: showsFriends) { visible in if !visible && selected == .friends { selected = .today } }
         .onChange(of: scenePhase) { phase in
@@ -793,6 +810,10 @@ private struct NativeSpotterTabs: View {
                 NativeProgramsView(api: account.api, owner: owner, didSchedule: { await workouts.load() }, store: workouts)
             }.presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showNotificationInbox) {
+            NativeNotificationInbox(owner: owner) { item in Task { await socialNotifications.read(item) } }
+                .presentationDragIndicator(.visible)
+        }
         .fullScreenCover(isPresented: $showNutrition, onDismiss: { widgetNutritionEntry = nil }) {
             NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs,
                                   initialWidgetEntry: widgetNutritionEntry)
@@ -816,6 +837,7 @@ private struct NativeSpotterTabs: View {
         .fullScreenCover(isPresented: $showActiveWorkout, onDismiss: {
             showWorkoutReceipt()
             stageWidgetDestination()
+            stageSocialNotification()
         }) {
             NativeActiveWorkoutView(store: workouts) { finishedWorkout = $0 }
         }
@@ -878,6 +900,25 @@ private struct NativeSpotterTabs: View {
                 $0.animation = nil
                 $0.disablesAnimations = true
             }
+        }
+    }
+
+    @ViewBuilder private var notificationBanner: some View {
+        if socialNotifications.belongs(to: owner), let item = socialNotifications.banner {
+            NativeSocialNotificationBanner(item: item, open: { Task { await socialNotifications.open(item) } },
+                                           dismiss: socialNotifications.dismissBanner)
+                .padding(.horizontal, 12).padding(.top, 5)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private func stageSocialNotification() {
+        guard isAvailableForWidget, !showActiveWorkout, socialNotifications.belongs(to: owner),
+              let item = socialNotifications.requestedItem else { return }
+        if showsFriends { selected = .friends }
+        else {
+            socialNotifications.clearRequest(item.id)
+            showNotificationInbox = true
         }
     }
 
@@ -1170,6 +1211,8 @@ private struct NativeSpotterTabs: View {
                            widgetStatsRequest: $widgetStatsRequest)
         case .friends:
             NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest,
+                          notificationRequest: selected == .friends && isAvailableForWidget && socialNotifications.belongs(to: owner)
+                              ? socialNotifications.requestedItem : nil,
                           openOwnLog: { openOwnFeedWorkout($0) },
                           openOwnLogDay: { id, day in openOwnFeedWorkout(id, day: day) },
                           refreshPlans: { await workouts.load() })
