@@ -281,6 +281,7 @@ struct NativeSpotterStats: View {
     let api: NativeAPI
     let owner: String
     var dockTop: CGFloat? = nil
+    var widgetHistoryRequest: Binding<Bool>? = nil
 
     private enum Page: String, CaseIterable { case overview = "训练统计", history = "打卡历史" }
     private enum Period: String, CaseIterable { case week = "周", month = "月", quarter = "季", year = "年", recent = "最近", custom = "自定义" }
@@ -406,6 +407,8 @@ struct NativeSpotterStats: View {
         .foregroundStyle(SpotterPalette.ink)
         .background(SpotterPalette.background)
         .animation(motion, value: page)
+        .onAppear(perform: openWidgetHistory)
+        .onChange(of: widgetHistoryRequest?.wrappedValue) { _ in openWidgetHistory() }
         .task { await loadPartner() }
         .task(id: page == .overview ? historyKey : nil) {
             if page == .overview { await loadStatsHistory() }
@@ -423,6 +426,12 @@ struct NativeSpotterStats: View {
             NavigationStack { NativeWorkoutDetailView(store: store, entry: entry, showsClose: true) }
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    private func openWidgetHistory() {
+        guard let request = widgetHistoryRequest, request.wrappedValue else { return }
+        page = .history
+        request.wrappedValue = false
     }
 
     private var historyKey: String {

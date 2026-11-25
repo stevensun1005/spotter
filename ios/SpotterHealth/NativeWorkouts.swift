@@ -7,10 +7,16 @@ import UIKit
 
 @MainActor
 final class NativeWorkoutStore: ObservableObject {
-    @Published private(set) var entries: [NativeWorkoutEntry] = [] { didSet { rebuildEntries() } }
-    @Published private(set) var active: NativeWorkoutEntry?
+    @Published private(set) var widgetRevision = 0
+    private(set) var hasWidgetOverview = false
+    @Published private(set) var entries: [NativeWorkoutEntry] = [] {
+        didSet { rebuildEntries(); widgetRevision &+= 1 }
+    }
+    @Published private(set) var active: NativeWorkoutEntry? {
+        didSet { widgetRevision &+= 1 }
+    }
     @Published private(set) var pendingCheckins: [NativeWorkoutEntry] = [] {
-        didSet { rebuildLogs() }
+        didSet { rebuildLogs(); widgetRevision &+= 1 }
     }
     @Published private(set) var isBusy = false
     @Published private(set) var isLoading = false
@@ -23,7 +29,9 @@ final class NativeWorkoutStore: ObservableObject {
     @Published private(set) var room: NativeJSON = .null
     @Published private(set) var viewerName = "我"
     @Published private(set) var recentHistoryStart: String?
-    @Published private var completedPlanIds: Set<String> = []
+    @Published private var completedPlanIds: Set<String> = [] {
+        didSet { widgetRevision &+= 1 }
+    }
     @Published private var discardedDrafts: [String] = []
     let owner: String
     let api: NativeAPI
@@ -119,6 +127,7 @@ final class NativeWorkoutStore: ObservableObject {
         }
         if let snapshotURL, let data = try? Data(contentsOf: snapshotURL), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
            snapshot.owner == owner, snapshot.origin == api.origin {
+            hasWidgetOverview = true
             completedPlanIds = Set(snapshot.completedPlanIds ?? [])
             recentHistoryStart = snapshot.historyFrom
             entries = snapshot.entries.filter { $0.owner == owner }
@@ -211,6 +220,10 @@ final class NativeWorkoutStore: ObservableObject {
             let value = try await api.spotterRead("/api/workout?scope=overview", as: NativeWorkoutState.self)
             guard revision == localRevision, edit == entryRevision else { return }
             guard value.me.id == owner else { entries = []; throw NativeWorkoutProblem.accountChanged }
+            if !hasWidgetOverview {
+                hasWidgetOverview = true
+                widgetRevision &+= 1
+            }
             let currentRoom = value.room ?? .null
             let cutoff = value.historyFrom ?? ""
             let incomingCompleted = Set(value.completedPlanIds ?? [])
@@ -338,6 +351,7 @@ final class NativeWorkoutStore: ObservableObject {
 
     func clearLocalData() {
         localRevision &+= 1
+        hasWidgetOverview = false
         draftTask?.cancel()
         draftNeedsSync = false
         discardedDrafts = []

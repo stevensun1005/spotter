@@ -12,6 +12,7 @@ const checks = [
   ["health-binding", [...shared, "ios/Tests/HealthAccountGateSmoke.swift"]],
   ["account-session", [...shared, "ios/SpotterHealth/AppSession.swift", "ios/Tests/AppSessionSmoke.swift"]],
   ["native-workout", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/Tests/NativeWorkoutSmoke.swift"]],
+  ["training-widget", ["ios/SpotterWidgetShared/SpotterWidgetSnapshot.swift", "ios/Tests/SpotterWidgetSnapshotSmoke.swift"]],
   ["native-program", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/SpotterHealth/NativeProgramModel.swift", "ios/Tests/NativeProgramSmoke.swift"]],
   ["native-catalogue", ["ios/SpotterHealth/AppConfiguration.swift", "ios/SpotterHealth/NativeWorkoutModels.swift",
     "ios/SpotterHealth/NativeCatalogueData.swift", "ios/Tests/NativeCatalogueSmoke.swift"]],

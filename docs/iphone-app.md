@@ -35,6 +35,12 @@
 | 训练心率 | Apple 健康原生读取与 FIT、TCX、时间戳 CSV、WHOOP CSV／ZIP 文件导入。文件在本机解析，核对后仅保存匹配本次训练的心率。WHOOP 在线授权与同步仍通过网页。 |
 | 外观 | 跟随系统、浅色和深色，青柠、薄荷、天空蓝和丁香紫强调色，以及文字大小和减少动态效果。外观偏好保存在本机。 |
 
+## iPhone 小组件
+
+登录 App 并加载训练后，长按主屏空白处，选择添加小组件并搜索「训练搭子」。小号显示下一堂课或当前训练，中号还显示本周打卡。点训练区域回到今日，有未完成的训练时直接继续。点中号的打卡入口打开打卡历史。
+
+在锁屏编辑器中也可以添加圆形或矩形小组件。锁屏只显示训练状态和进度。App 在同步训练、完成打卡和回到前台时更新摘要，退出账号时清除摘要。
+
 ## 构建
 
 ```sh
@@ -48,6 +54,6 @@ npm run ios:package
 
 `ios:package` 在构建前后核对 `origin/main`、健康同步分支和 iPhone 开发分支，并核对 App 连接的 Cloudflare 提交。产物位于 `outputs/`，包括模拟器 ZIP 和构建清单。iPhone 安装使用 Xcode 签名或 TestFlight。
 
-TestFlight 使用同一 **Spotter** scheme 的 Release 归档，分发目标是 App Store Connect 的 `app.spotter.health` 应用。签名描述文件须支持 HealthKit 以及 Sign in with Apple。原生 Apple 服务端使用 `APPLE_OAUTH_NATIVE_CLIENT_ID=app.spotter.health`。网页的 Apple Services ID 与原生 App ID 在同一 Apple Developer 配置下管理，详情见 [登录配置](cloudflare-login.md)。
+TestFlight 使用同一 **Spotter** scheme 的 Release 归档，分发目标是 App Store Connect 的 `app.spotter.health` 应用。主 App 的签名描述文件须支持 HealthKit、Sign in with Apple 和 Associated Domains。在 Apple Developer 将 App Group `group.app.spotter.health` 分配给 `app.spotter.health` 和 `app.spotter.health.widget`，再更新两个目标的描述文件。原生 Apple 服务端使用 `APPLE_OAUTH_NATIVE_CLIENT_ID=app.spotter.health`。网页的 Apple Services ID 与原生 App ID 在同一 Apple Developer 配置下管理，详情见 [登录配置](cloudflare-login.md)。
 
 私密 Sites 与独立 Node 自托管服务各有账号和数据。配对码和批量健康同步协议另见 [健康设备同步](health-device-sync.md)。

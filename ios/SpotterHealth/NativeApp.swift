@@ -1,6 +1,8 @@
+import CryptoKit
 import SwiftUI
 import UIKit
 import UserNotifications
+import WidgetKit
 
 enum SpotterTheme: String, CaseIterable, Identifiable {
     case system, light, dark
@@ -239,6 +241,7 @@ struct NativeSpotterApp: View {
     @AppStorage(SpotterAccent.storageKey) private var accent: SpotterAccent = .lime
     @State private var sawSignIn = false
     @State private var friendInvite: String?
+    @State private var widgetDestination: NativeWidgetDestination?
 
     var body: some View {
         Group {
@@ -247,7 +250,8 @@ struct NativeSpotterApp: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(SpotterPalette.background)
             } else if let profile = account.profile {
-                NativeSpotterTabs(account: account, owner: profile.id, offerWelcome: sawSignIn, inboundInvite: $friendInvite)
+                NativeSpotterTabs(account: account, owner: profile.id, offerWelcome: sawSignIn,
+                                  inboundInvite: $friendInvite, widgetDestination: $widgetDestination)
                     .id(profile.id)
             } else {
                 NativeSignIn(account: account).onAppear { sawSignIn = true }
@@ -259,7 +263,11 @@ struct NativeSpotterApp: View {
         .environment(\.spotterAccent, accent)
         .background { SpotterWindowAppearance(theme: theme).accessibilityHidden(true) }
         .task { await account.restore() }
+        .onChange(of: account.isRestoring) { restoring in
+            if !restoring { NativeTrainingWidgetBridge.useAccount(account.profile?.id, origin: account.api.origin) }
+        }
         .onChange(of: account.profile?.id) { owner in
+            NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
             if owner == nil {
                 Task {
                     await NativeTrainingNotifications.shared.scheduleRest(nil)
@@ -267,9 +275,17 @@ struct NativeSpotterApp: View {
                 }
             }
         }
-        .onOpenURL(perform: acceptInviteURL)
+        .onOpenURL(perform: openExternalURL)
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { acceptInviteURL(url) }
+        }
+    }
+
+    private func openExternalURL(_ url: URL) {
+        if let destination = NativeWidgetDestination(url) {
+            widgetDestination = destination
+        } else {
+            acceptInviteURL(url)
         }
     }
 
@@ -287,6 +303,72 @@ struct NativeSpotterApp: View {
         if let code, code.range(of: "^[a-fA-F0-9]{32}$", options: .regularExpression) != nil {
             friendInvite = code.lowercased()
         }
+    }
+}
+
+private enum NativeWidgetDestination: String {
+    case training, history
+
+    init?(_ url: URL) {
+        guard url.scheme == "spotter", url.host == "widget", url.user == nil, url.password == nil,
+              url.port == nil, url.query == nil, url.fragment == nil else { return nil }
+        switch url.path {
+        case "/training": self = .training
+        case "/history": self = .history
+        default: return nil
+        }
+    }
+}
+
+@MainActor
+private enum NativeTrainingWidgetBridge {
+    private static let scopeKey = "spotter.native.widget.owner-scope"
+
+    static func useAccount(_ owner: String?, origin: String) {
+        let scope = owner.map { owner in
+            SHA256.hash(data: Data((origin + "\n" + owner).utf8))
+                .map { String(format: "%02x", $0) }.joined()
+        }
+        let defaults = UserDefaults.standard
+        let previous = defaults.string(forKey: scopeKey)
+        guard scope == nil || previous != scope else { return }
+        let removed = SpotterWidgetStore.shared.remove()
+        defaults.set(scope, forKey: scopeKey)
+        if removed || previous != nil { reload() }
+    }
+
+    static func publish(_ store: NativeWorkoutStore, now: Date = .now) {
+        var calendar = Calendar(identifier: .gregorian)
+        let timeZone = TimeZone.current
+        calendar.timeZone = timeZone
+        let day = SpotterWidgetSnapshot.dayKey(for: now, timeZone: timeZone)
+        calendar.firstWeekday = 2
+        calendar.minimumDaysInFirstWeek = 4
+        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return }
+
+        let logDates = store.logs.filter { $0.owner == store.owner }.map(\.day)
+        let checkedInDates = Set(logDates)
+        let weekCheckins = (0..<7).map { offset in
+            guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else { return false }
+            return checkedInDates.contains(SpotterWidgetSnapshot.dayKey(for: date, timeZone: timeZone))
+        }
+        let next = (store.todayPendingPlans.first ?? store.nextPlan(after: day)).map {
+            SpotterWidgetSnapshot.Workout(title: $0.displayTitle, day: $0.day, minutes: $0.durationMinutes)
+        }
+        let active = store.active.flatMap { entry -> SpotterWidgetSnapshot.Active? in
+            guard entry.owner == store.owner, let session = entry.session else { return nil }
+            return .init(title: entry.displayTitle, completedSets: session.completedSets,
+                         totalSets: session.rows.reduce(0) { $0 + $1.count }, isRunning: session.isRunning)
+        }
+        let snapshot = SpotterWidgetSnapshot(updatedAt: now, day: day,
+                                             todayCompleted: min(10_000, logDates.filter { $0 == day }.count),
+                                             weekStart: SpotterWidgetSnapshot.dayKey(for: weekStart, timeZone: timeZone),
+                                             weekCheckins: weekCheckins, nextWorkout: next, activeWorkout: active)
+        if SpotterWidgetStore.shared.write(snapshot) { reload() }
+    }
+
+    private static func reload() {
+        WidgetCenter.shared.reloadTimelines(ofKind: SpotterWidgetStore.widgetKind)
     }
 }
 
@@ -464,6 +546,7 @@ private struct NativeSpotterTabs: View {
     @State private var inviteBusy = false
     @State private var inviteMessage: String?
     @State private var friendsRevision = 0
+    @State private var widgetHistoryRequest = false
     @StateObject private var trainingPreferences: NativeAccountPreferences
     @AppStorage private var reminderEnabled: Bool
     @AppStorage private var reminderMinute: Int
@@ -478,6 +561,7 @@ private struct NativeSpotterTabs: View {
     let owner: String
     let offerWelcome: Bool
     @Binding var inboundInvite: String?
+    @Binding var widgetDestination: NativeWidgetDestination?
 
     private enum TrainingLaunch {
         case workout(String)
@@ -488,11 +572,13 @@ private struct NativeSpotterTabs: View {
 
     private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
 
-    init(account: NativeAccount, owner: String, offerWelcome: Bool, inboundInvite: Binding<String?>) {
+    init(account: NativeAccount, owner: String, offerWelcome: Bool, inboundInvite: Binding<String?>,
+         widgetDestination: Binding<NativeWidgetDestination?>) {
         self.account = account
         self.owner = owner
         self.offerWelcome = offerWelcome
         _inboundInvite = inboundInvite
+        _widgetDestination = widgetDestination
         _workouts = StateObject(wrappedValue: NativeWorkoutStore(api: account.api, owner: owner))
         _trainingPreferences = StateObject(wrappedValue: NativeAccountPreferences(api: account.api, owner: owner))
         _reminderEnabled = AppStorage(wrappedValue: false, NativePreferenceKey.reminderKey(owner, field: "enabled"))
@@ -508,12 +594,27 @@ private struct NativeSpotterTabs: View {
                 showWelcome = true
             } else {
                 stageInvite()
+                stageWidgetDestination()
             }
+        }
+        .task(id: workouts.widgetRevision) {
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+                refreshWidget()
+            } catch {}
+        }
+        .onChange(of: widgetDestination) { _ in stageWidgetDestination() }
+        .onChange(of: isAvailableForWidget) { available in
+            if available { stageWidgetDestination() }
         }
         .onChange(of: inboundInvite) { _ in stageInvite() }
         .onChange(of: showsFriends) { visible in if !visible && selected == .friends { selected = .today } }
         .onChange(of: scenePhase) { phase in
             if phase == .active { Task { await refreshHome() } }
+            if phase == .background { refreshWidget() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            refreshWidget()
         }
         .onChange(of: workouts.pendingCheckins.map(\.id)) { _ in
             Task { await attachHealthHeartRate() }
@@ -545,6 +646,7 @@ private struct NativeSpotterTabs: View {
             NavigationStack {
                 NativeSettings(account: account, owner: owner, onDeleted: {
                                    workouts.clearLocalData()
+                                   NativeTrainingWidgetBridge.useAccount(nil, origin: account.api.origin)
                                    NativeCoachView.removeSavedConversation(api: account.api, owner: owner)
                                    trainingPreferences.clear()
                                },
@@ -594,6 +696,7 @@ private struct NativeSpotterTabs: View {
         .fullScreenCover(isPresented: $showWelcome, onDismiss: {
             welcomeCoachGoal = nil
             stageInvite()
+            stageWidgetDestination()
             Task { await workouts.load() }
         }) {
             if let goal = welcomeCoachGoal {
@@ -666,8 +769,36 @@ private struct NativeSpotterTabs: View {
         trainingPreferences.activate()
         async let preferences: Void = trainingPreferences.sync()
         await workouts.load()
+        refreshWidget()
         await attachHealthHeartRate()
         await preferences
+    }
+
+    private func refreshWidget() {
+        guard account.profile?.id == owner else { return }
+        guard workouts.hasWidgetOverview || workouts.active != nil || !workouts.pendingCheckins.isEmpty else { return }
+        NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
+        NativeTrainingWidgetBridge.publish(workouts)
+    }
+
+    private var isAvailableForWidget: Bool {
+        !showWelcome && !showCoach && !showSettings && !showPlanImport && !showPrograms &&
+        !showNutrition && !showRest && !showBody && !showTrainingLaunch &&
+        workoutReceipt == nil && inboundInviteConfirmation == nil
+    }
+
+    private func stageWidgetDestination() {
+        guard isAvailableForWidget, let destination = widgetDestination else { return }
+        widgetDestination = nil
+        switch destination {
+        case .training:
+            selected = .today
+            if workouts.active != nil { openActiveWorkout() }
+        case .history:
+            showActiveWorkout = false
+            widgetHistoryRequest = true
+            selected = .stats
+        }
     }
 
     private func attachHealthHeartRate() async {
@@ -800,7 +931,8 @@ private struct NativeSpotterTabs: View {
             NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: { openCoach() },
                               openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
         case .stats:
-            NativeSpotterStats(store: workouts, api: account.api, owner: owner, dockTop: dockTop)
+            NativeSpotterStats(store: workouts, api: account.api, owner: owner, dockTop: dockTop,
+                               widgetHistoryRequest: $widgetHistoryRequest)
         case .friends:
             NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest,
                           openOwnLog: { openOwnFeedWorkout($0) },

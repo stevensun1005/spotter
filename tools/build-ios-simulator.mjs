@@ -8,10 +8,14 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const baselines = ["origin/main", "origin/codex/health-device-sync", "origin/codex/spotter-iphone-app"];
 const app = "work/app-derived/Build/Products/Debug-iphonesimulator/Spotter.app";
 
-function checkedWebRelease(plist) {
-  const { SpotterWebRelease: release } = JSON.parse(execFileSync("plutil", ["-convert", "json", "-o", "-", plist], {
+function readPlist(plist) {
+  return JSON.parse(execFileSync("plutil", ["-convert", "json", "-o", "-", plist], {
     cwd: root, encoding: "utf8",
   }));
+}
+
+function checkedWebRelease(plist) {
+  const { SpotterWebRelease: release } = readPlist(plist);
   const url = new URL(release?.origin);
   const sha = /^[a-f0-9]{40}$/;
   const sitesSnapshot = /^origin\/sites\/[a-zA-Z0-9._-]+$/.test(release.exportRef);
@@ -33,6 +37,17 @@ function checkedWebRelease(plist) {
   return release;
 }
 
+function checkedWidget() {
+  const host = readPlist(join(app, "Info.plist"));
+  const widget = readPlist(join(app, "PlugIns", "SpotterWidget.appex", "Info.plist"));
+  if (widget.CFBundleIdentifier !== `${host.CFBundleIdentifier}.widget` ||
+      widget.CFBundleVersion !== host.CFBundleVersion ||
+      widget.CFBundleShortVersionString !== host.CFBundleShortVersionString ||
+      widget.NSExtension?.NSExtensionPointIdentifier !== "com.apple.widgetkit-extension") {
+    throw new Error("模拟器 App 缺少同版本的训练搭子小组件。");
+  }
+}
+
 function checkedSource() {
   const source = checkAppSource({ cwd: root, fetch: true, upstreams: baselines });
   if (source.status !== "ready") throw new Error(source.message + " " + source.reasons.join(", "));
@@ -48,13 +63,14 @@ try {
   const webBefore = checkedWebRelease("ios/SpotterHealth/Info.plist");
   run("xcodebuild", ["-quiet", "-project", "ios/SpotterHealth.xcodeproj", "-scheme", "Spotter", "-sdk", "iphonesimulator",
     "-configuration", "Debug", "-destination", "generic/platform=iOS Simulator", "-derivedDataPath", "work/app-derived",
-    "CODE_SIGNING_ALLOWED=NO", "build"]);
+    "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_ALLOWED=YES", "build"]);
   const after = checkedSource();
   if (before.head !== after.head) throw new Error("构建期间源码发生变化，请重新打包。");
   const webRelease = checkedWebRelease(join(app, "Info.plist"));
   if (!Object.keys(webBefore).every((key) => webBefore[key] === webRelease[key])) {
     throw new Error("App 内的网页版本记录与源码不一致，请重新打包。");
   }
+  checkedWidget();
   await mkdir(join(root, "outputs"), { recursive: true });
   const name = "Spotter-Simulator-" + after.head.slice(0, 8);
   const archive = join(root, "outputs", name + ".zip");
