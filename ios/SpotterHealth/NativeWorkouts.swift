@@ -1,6 +1,8 @@
 import CryptoKit
 import Foundation
+import AudioToolbox
 import SwiftUI
+import UIKit
 
 @MainActor
 final class NativeWorkoutStore: ObservableObject {
@@ -206,7 +208,7 @@ final class NativeWorkoutStore: ObservableObject {
             if session.rows[move][row]["done"].bool && session.rows.flatMap({ $0 }).contains(where: { !$0["done"].bool }) {
                 let moveRest = session.plan.exercises[move]["restSeconds"]
                 let rest = session.raw["defaultRestOverride"] != .null ? session.raw["defaultRestOverride"].number :
-                    (moveRest != .null ? moveRest.number : session.plan.raw["defaultRestSeconds"] != .null ? session.plan.raw["defaultRestSeconds"].number : 30)
+                    (moveRest != .null ? moveRest.number : session.plan.raw["defaultRestSeconds"] != .null ? session.plan.raw["defaultRestSeconds"].number : Double(NativePreferenceKey.restSeconds))
                 if rest > 0 { raw["rest"] = .object(["until": .number(Double(session.elapsedMilliseconds()) + rest * 1000), "kind": .string("组间休息")]) }
             }
             session.raw = .object(raw)
@@ -403,6 +405,8 @@ struct NativeWorkoutView: View {
     var homeNutrition: AnyView? = nil
     @Environment(\.scenePhase) private var phase
     @AppStorage("spotter.native.home.nutritionCollapsed") private var nutritionCollapsed = false
+    @AppStorage(NativePreferenceKey.weeklyCheckins) private var showCheckins = true
+    @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
     @State private var selectedDate = Date()
     @State private var opensWorkout = false
     @State private var showsLaunch = false
@@ -492,7 +496,7 @@ struct NativeWorkoutView: View {
 
     @ViewBuilder private var todayLanding: some View {
         HStack(spacing: 8) {
-            if nutritionCollapsed {
+            if nutritionCollapsed && openNutrition != nil {
                 nativeIconButton("fork.knife", label: "展开饮食记录") { nutritionCollapsed = false }
             }
             Button { showsLaunch = true } label: { Label("训练", systemImage: "play.fill").font(.system(size: 15, weight: .bold)) }
@@ -500,7 +504,7 @@ struct NativeWorkoutView: View {
             Spacer()
             nativeIconButton("gearshape", label: "设置") { openSettings?() }
         }
-        if !nutritionCollapsed {
+        if !nutritionCollapsed && openNutrition != nil {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("饮食记录").font(.system(size: 18, weight: .bold))
@@ -517,7 +521,7 @@ struct NativeWorkoutView: View {
                 }
             }
         }
-        partnerCard
+        if openFriends != nil { partnerCard }
         weekStrip
         HStack {
             Text(selectedDay == NativeWorkoutSession.day() ? "今日训练" : "\(shortDay(selectedDay))的训练")
@@ -540,14 +544,16 @@ struct NativeWorkoutView: View {
             emptyCard(store.logs.contains { $0.day == selectedDay } && selectedDay == NativeWorkoutSession.day() ? "今天已完成打卡" : "这天还没有安排", symbol: "dumbbell")
         }
         if !dayCompleted.isEmpty { planRows(dayCompleted, completed: true) }
-        weeklyCheckins
-        Button { openCoach?() } label: {
-            HStack(spacing: 12) {
-                tile("sparkles", color: Color(red: 0.57, green: 0.45, blue: 0.78))
-                VStack(alignment: .leading, spacing: 4) { Text("添加计划").font(.system(size: 16, weight: .bold)); Text("用 AI 起草训练计划").font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
-                Spacer(); Image(systemName: "chevron.right").foregroundStyle(SpotterPalette.muted)
-            }.padding(15).spotterCard()
-        }.buttonStyle(.plain)
+        if showCheckins { weeklyCheckins }
+        if showPlanShortcut {
+            Button { openCoach?() } label: {
+                HStack(spacing: 12) {
+                    tile("sparkles", color: Color(red: 0.57, green: 0.45, blue: 0.78))
+                    VStack(alignment: .leading, spacing: 4) { Text("添加计划").font(.system(size: 16, weight: .bold)); Text("用 AI 起草训练计划").font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
+                    Spacer(); Image(systemName: "chevron.right").foregroundStyle(SpotterPalette.muted)
+                }.padding(15).spotterCard()
+            }.buttonStyle(.plain)
+        }
     }
 
     private var partnerCard: some View {
@@ -946,13 +952,13 @@ private struct NativeCataloguePlanMove: Identifiable {
 
     static func planMove(_ entry: NativeCatalogEntry) -> NativeJSON {
         let timed = entry.hold || entry.type == "isometric" || entry.type == "cardio"
-        let repetitions = entry.distance ? 1.0 : 10.0
+        let repetitions = entry.distance ? 1.0 : Double(NativePreferenceKey.newMoveReps)
         var move: NativeJSON = .object([
             "name": .string(String(entry.name.prefix(100))),
-            "sets": .number(3),
+            "sets": .number(Double(NativePreferenceKey.newMoveSets)),
             "reps": .number(timed ? 0 : repetitions),
             "weight": .number(0),
-            "unit": .string("kg"),
+            "unit": .string(NativePreferenceKey.newMoveUnit),
             "seconds": .number(timed ? 30 : 0),
         ])
         if !entry.isPersonal { move["catalogueId"] = .string(entry.id) }
@@ -1022,11 +1028,25 @@ private enum NativeEditorPanel: String, Identifiable { case settings, note, add,
 private struct NativeActiveWorkoutView: View {
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var phase
+    @AppStorage(NativePreferenceKey.showNext) private var showNext = true
+    @AppStorage(NativePreferenceKey.showTempo) private var showTempo = true
+    @AppStorage(NativePreferenceKey.showEffort) private var showEffort = true
+    @AppStorage(NativePreferenceKey.autoAdvance) private var autoAdvance = false
+    @AppStorage(NativePreferenceKey.restSound) private var restSound = false
+    @AppStorage(NativePreferenceKey.restHaptics) private var restHaptics = false
+    @AppStorage(NativePreferenceKey.keepAwake) private var keepAwake = false
     @State private var openedMove = 0
     @State private var edit: NativeSetTarget?
     @State private var editText = ""
     @State private var pristine = true
     @State private var panel: NativeEditorPanel?
+    @State private var changedIdleTimer = false
+    @State private var lastRestRemaining: Int?
+
+    private var needsIdleTimer: Bool {
+        keepAwake && phase == .active && store.active?.session?.isRunning == true
+    }
 
     var body: some View {
         Group {
@@ -1035,6 +1055,9 @@ private struct NativeActiveWorkoutView: View {
         }
         .foregroundStyle(SpotterPalette.ink).tint(SpotterPalette.accent)
         .task { await store.loadProteinPreferences() }
+        .onAppear { updateIdleTimer(needsIdleTimer) }
+        .onChange(of: needsIdleTimer) { enabled in updateIdleTimer(enabled) }
+        .onDisappear { updateIdleTimer(false) }
         .sheet(item: $panel) { item in
             NavigationStack {
                 switch item {
@@ -1055,7 +1078,7 @@ private struct NativeActiveWorkoutView: View {
                     let total = session.rows.flatMap { $0 }.count + (session.plan.video.isEmpty ? 0 : 1)
                     if total > 0 { ProgressView(value: Double(session.completedSets + (session.raw["finishedVideo"].bool ? 1 : 0)), total: Double(total)).tint(SpotterPalette.accent).padding(.horizontal, 2) }
                     if !session.plan.raw["durationNote"].string.isEmpty { Text(session.plan.raw["durationNote"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
-                    if let next = nextSet(session) {
+                    if showNext, let next = nextSet(session) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text("下一组").font(.system(size: 13))
                             Text(session.plan.exercises[next.move]["name"].string).font(.system(size: 14, weight: .bold)).lineLimit(2)
@@ -1117,12 +1140,19 @@ private struct NativeActiveWorkoutView: View {
             Text(store.status).font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
             if session.raw["rest"] != .null {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    let remaining = max(0, Int((session.raw["rest"]["until"].number - Double(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1000)))) / 1000))
+                    let remaining = max(0, Int(ceil((session.raw["rest"]["until"].number - Double(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1000)))) / 1000)))
                     HStack {
                         Text(remaining > 0 ? "\(session.raw["rest"]["kind"].string) \(NativeWorkoutView.duration(remaining * 1000))" : "休息结束").font(.system(size: 13, weight: .semibold))
                         Spacer()
                         Button(remaining > 0 ? "跳过" : "关闭") { store.mutate { session in var raw = session.raw.object; raw.removeValue(forKey: "rest"); session.raw = .object(raw) } }.font(.system(size: 12))
-                    }.padding(.top, 5)
+                    }.padding(.top, 5).onAppear { lastRestRemaining = remaining }
+                        .onChange(of: remaining) { current in
+                        if (lastRestRemaining ?? 0) > 0, current == 0, phase == .active {
+                            if restSound { AudioServicesPlaySystemSound(1057) }
+                            if restHaptics { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+                        }
+                        lastRestRemaining = current
+                    }
                 }
             }
         }.padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 12)
@@ -1142,7 +1172,7 @@ private struct NativeActiveWorkoutView: View {
             if openedMove == index {
                 if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
                 Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
-                if !move["tempo"].string.isEmpty { Text("节奏 \(move["tempo"].string)").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
+                if showTempo && !move["tempo"].string.isEmpty { Text("节奏 \(move["tempo"].string)").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
                 ForEach(Array((session.rows.indices.contains(index) ? session.rows[index] : []).enumerated()), id: \.offset) { row, line in setRow(index, row: row, move: move, line: line) }
                 Button { store.mutate { $0.addSet(move: index) } } label: { Label("增加一组", systemImage: "plus").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity) }
                     .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled((session.rows.indices.contains(index) ? session.rows[index].count : 30) >= 30)
@@ -1168,13 +1198,34 @@ private struct NativeActiveWorkoutView: View {
                         setNumber(NativeSetTarget(move: moveIndex, row: row, key: "reps", right: true), label: "右 次数", value: line["right"]["reps"].number, done: line["done"].bool)
                     }
                 }
-                if line["rpe"] != .null { Text("RPE \(line["rpe"].number.formatted())").font(.system(size: 11, weight: .semibold)).padding(.horizontal, 7).padding(.vertical, 4).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 7)).frame(maxWidth: .infinity, alignment: .leading) }
+                if showEffort && line["rpe"] != .null { Text("RPE \(line["rpe"].number.formatted())").font(.system(size: 11, weight: .semibold)).padding(.horizontal, 7).padding(.vertical, 4).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 7)).frame(maxWidth: .infinity, alignment: .leading) }
             }
-            Button { edit = nil; store.toggleDone(move: moveIndex, row: row) } label: {
+            Button { toggleDone(move: moveIndex, row: row) } label: {
                 Image(systemName: line["done"].bool ? "checkmark.circle.fill" : "circle").font(.system(size: 24, weight: .medium)).frame(width: 38, height: 50)
                     .foregroundStyle(line["done"].bool ? SpotterPalette.accent : SpotterPalette.muted.opacity(0.55))
             }.buttonStyle(.plain).accessibilityLabel("标记第\(row + 1)组\(line["done"].bool ? "未完成" : "完成")")
         }.padding(7).background(line["done"].bool ? SpotterPalette.wash : SpotterPalette.background, in: RoundedRectangle(cornerRadius: 11))
+    }
+
+    private func toggleDone(move: Int, row: Int) {
+        edit = nil
+        store.toggleDone(move: move, row: row)
+        guard autoAdvance, let session = store.active?.session,
+              session.rows.indices.contains(move), session.rows[move].allSatisfy({ $0["done"].bool }),
+              let next = session.rows.indices.dropFirst(move + 1).first(where: { index in
+                  session.rows[index].contains { !$0["done"].bool }
+              }) else { return }
+        openedMove = next
+    }
+
+    private func updateIdleTimer(_ enabled: Bool) {
+        if enabled && !UIApplication.shared.isIdleTimerDisabled {
+            UIApplication.shared.isIdleTimerDisabled = true
+            changedIdleTimer = true
+        } else if !enabled && changedIdleTimer {
+            UIApplication.shared.isIdleTimerDisabled = false
+            changedIdleTimer = false
+        }
     }
 
     private func setNumber(_ target: NativeSetTarget, label: String, value: Double, done: Bool) -> some View {
@@ -1567,7 +1618,7 @@ private struct NativePlanEditorPanel: View {
     }
     private func addMove() {
         var moves = draft.plan["exercises"].array
-        moves.append(.object(["name": .string(String(moveName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))), "sets": .number(3), "reps": .number(10), "weight": .number(0), "unit": .string("kg"), "seconds": .number(0)]))
+        moves.append(NativePreferenceKey.newMove(name: String(moveName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))))
         draft.plan["exercises"] = .array(moves); moveName = ""
         if linked { draft.plan["ownExercises"] = .bool(true) }
     }

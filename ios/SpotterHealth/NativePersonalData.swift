@@ -6,6 +6,7 @@ import UIKit
 struct NativeRestSchedule: View {
     let api: NativeAPI
     let owner: String
+    var addToday = true
 
     @Environment(\.dismiss) private var dismiss
     @State private var weekdays = Set<Int>()
@@ -93,7 +94,7 @@ struct NativeRestSchedule: View {
             weekdays = Set(row?["values"]["weekdays"].array.map { Int($0.number) } ?? [])
             dates = Set(row?["values"]["dates"].array.map(\.string) ?? [])
             let weekday = (Calendar(identifier: .gregorian).component(.weekday, from: today) + 5) % 7
-            if !weekdays.contains(weekday) && dates.count < 180 { dates.insert(spotterDay(today)) }
+            if addToday && !weekdays.contains(weekday) && dates.count < 180 { dates.insert(spotterDay(today)) }
             revision = row?["updated"].string
             ready = true
             message = nil

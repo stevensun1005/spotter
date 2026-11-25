@@ -112,98 +112,272 @@ struct NativeHeartView: View {
 
 @MainActor
 struct NativeHealthSummary: View {
+    private struct Snapshot {
+        let data: NativeHealthReadings
+        let calendar: Calendar
+    }
+
+    private struct CloudBody: Decodable {
+        struct Row: Decodable { let id: String? }
+        let rows: [Row]
+    }
+
     var api: NativeAPI? = nil
     var owner: String? = nil
-    @State private var selection: HealthSelection = .steps
-    @State private var days = 1
-    @State private var summary: String?
-    @State private var payload: HealthRecordsPayload?
-    @State private var busy = false
+    private let groups: [NativeHealthGroup]
+    private let metrics: Set<NativeHealthMetric>
+    @State private var selected: Set<NativeHealthMetric>
+    @State private var uploadSelection: Set<NativeHealthMetric> = []
+    @State private var days = 7
+    @State private var snapshot: Snapshot?
+    @State private var message: String?
+    @State private var operation: Task<Void, Never>?
 
-    private let items: [HealthSelection] = [.steps, .activeEnergy, .exerciseTime, .bodyMass, .workouts]
+    init(api: NativeAPI? = nil, owner: String? = nil, initialGroup: NativeHealthGroup? = nil) {
+        self.api = api
+        self.owner = owner
+        groups = initialGroup.map { [$0] } ?? NativeHealthGroup.allCases
+        metrics = Set(groups.flatMap(\.metrics))
+        _selected = State(initialValue: metrics)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             Label("Apple 健康", systemImage: "heart.text.square").font(.headline)
-            HStack {
-                Picker("数据类型", selection: $selection) {
-                    ForEach(items) { item in Text(item.title).tag(item) }
-                }
-                Picker("日期范围", selection: $days) {
-                    Text("今天").tag(1)
-                    Text("近 7 天").tag(7)
-                    Text("近 30 天").tag(30)
-                }
+            Text("查看所选范围的健康数据。需要开启的项目由 Apple 健康逐项授权。")
+                .font(.footnote).foregroundStyle(SpotterPalette.muted)
+            Picker("日期范围", selection: $days) {
+                Text("今天").tag(1)
+                Text("近 7 天").tag(7)
+                Text("近 30 天").tag(30)
+                Text("近 90 天").tag(90)
+                Text("近一年").tag(365)
             }
-            Button("读取所选数据") { Task { await read() } }
-                .buttonStyle(.bordered)
-                .disabled(busy)
-            if let summary { Text(summary).font(.subheadline).foregroundStyle(.secondary) }
-            if let payload, selection == .bodyMass, !payload.bodyMass.isEmpty, let api, let owner {
-                Button("同步体重到账号") { Task { await uploadWeights(api: api, owner: owner, records: payload.bodyMass) } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(busy)
+            .disabled(operation != nil)
+            selectionView.disabled(operation != nil)
+            Button {
+                operation = Task { await read() }
+            } label: {
+                Text("读取所选数据").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(SpotterNativeButtonStyle(primary: true))
+            .disabled(operation != nil || selected.isEmpty)
+            if operation != nil {
+                ProgressView("正在处理…").font(.footnote)
+            }
+            if let message {
+                Text(message).font(.footnote).foregroundStyle(SpotterPalette.muted)
+            }
+            if let snapshot {
+                results(snapshot.data)
+                if let api, let owner {
+                    uploadView(snapshot, api: api, owner: owner)
+                }
             }
         }
-        .onChange(of: selection) { _ in payload = nil; summary = nil }
-        .onChange(of: days) { _ in payload = nil; summary = nil }
+        .onChange(of: selected) { _ in clearResults() }
+        .onChange(of: days) { _ in clearResults() }
+        .onDisappear {
+            operation?.cancel()
+            clearResults()
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(spotterCardPadding)
         .spotterCard()
     }
 
-    private func read() async {
-        let type = selection
-        let dayCount = days
-        let calendar = Calendar.current
-        let now = Date.now
-        guard let begin = calendar.date(byAdding: .day, value: 1 - dayCount, to: calendar.startOfDay(for: now)) else { return }
-        busy = true
-        defer { busy = false }
-        do {
-            let health = HealthKitReader()
-            try await health.authorize(type)
-            let value = try await health.records(selected: [type], from: begin, to: now, calendar: calendar)
-            guard selection == type, days == dayCount else { return }
-            payload = value
-            if value.count == 0 {
-                summary = "这段时间没有可读取的样本，请检查健康权限和日期范围。"
-                return
+    private var selectionView: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 8) {
+                Button(selected == metrics ? "清空" : "选择全部") {
+                    selected = selected == metrics ? [] : metrics
+                }
+                .buttonStyle(.bordered)
+                ForEach(groups) { group in
+                    DisclosureGroup(group.title) {
+                        ForEach(group.metrics) { metric in
+                            Toggle(metric.title, isOn: enabled(metric, in: $selected))
+                                .padding(.top, 4)
+                        }
+                    }
+                }
             }
-            switch type {
-            case .steps:
-                summary = "\(Int(value.activity.compactMap(\.steps).reduce(0, +))) 步"
-            case .activeEnergy:
-                summary = "\(Int(value.activity.compactMap(\.activeEnergyKcal).reduce(0, +).rounded())) 千卡"
-            case .exerciseTime:
-                summary = "\(Int(value.activity.compactMap(\.exerciseMinutes).reduce(0, +).rounded())) 分钟"
-            case .bodyMass:
-                if let latest = value.bodyMass.last { summary = latest.value.formatted(.number.precision(.fractionLength(1))) + " kg" }
-            case .workouts:
-                let minutes = value.workouts.map(\.durationSeconds).reduce(0, +) / 60
-                summary = "\(value.workouts.count) 次系统运动，共 \(Int(minutes.rounded())) 分钟"
-            case .heartRate: break
-            }
-        } catch { summary = error.localizedDescription }
+            .padding(.top, 8)
+        } label: {
+            Text("读取项目（\(selected.count)/\(metrics.count)）").font(.subheadline.weight(.semibold))
+        }
     }
 
-    private func uploadWeights(api: NativeAPI, owner: String, records: [BodyMassRecord]) async {
-        busy = true
-        defer { busy = false }
-        var saved = 0
+    private func results(_ data: NativeHealthReadings) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(groups) { group in
+                let visible = group.metrics.filter { selected.contains($0) }
+                if !visible.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(group.title).font(.subheadline.weight(.bold))
+                        ForEach(visible) { metric in
+                            readingRow(metric, data.values[metric], failed: data.failed.contains(metric))
+                        }
+                    }
+                }
+            }
+            Text("无可读样本可能表示当前范围内没有记录，或此项目尚未获准读取。")
+                .font(.caption).foregroundStyle(SpotterPalette.muted)
+        }
+    }
+
+    private func readingRow(_ metric: NativeHealthMetric, _ value: NativeHealthReading?, failed: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent {
+                Text(value.map { display($0, metric: metric) } ?? (failed ? "暂不可读取" : "无可读样本"))
+                    .monospacedDigit()
+            } label: {
+                Text(metric.isAverage ? "平均" + metric.title : metric.title)
+            }
+            .font(.subheadline)
+
+            switch value {
+            case let .quantity(_, latest):
+                if let latest { measurementDate(latest) }
+            case let .body(samples):
+                if let latest = samples.last { measurementDate(latest.date) }
+            case let .workouts(workouts):
+                DisclosureGroup("最近 \(min(10, workouts.count)) 次运动") {
+                    ForEach(Array(workouts.suffix(10).reversed()), id: \.id) { session in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(session.activity + " · " + minutes(session.durationSeconds))
+                            if let energy = session.activeEnergyKcal {
+                                Text(energy.formatted(.number.precision(.fractionLength(0))) + " 千卡")
+                            }
+                            measurementDate(Date(timeIntervalSince1970: Double(session.from) / 1_000))
+                        }
+                        .padding(.vertical, 3)
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(SpotterPalette.muted)
+            case let .sleep(_, inBedSeconds):
+                if let inBedSeconds { Text("在床时间 \(minutes(inBedSeconds))").font(.caption).foregroundStyle(SpotterPalette.muted) }
+            case nil: EmptyView()
+            }
+        }
+    }
+
+    private func measurementDate(_ date: Date) -> some View {
+        Text(date, format: .dateTime.month().day().hour().minute())
+            .font(.caption).foregroundStyle(SpotterPalette.muted)
+    }
+
+    private func display(_ reading: NativeHealthReading, metric: NativeHealthMetric) -> String {
+        switch reading {
+        case let .quantity(value, _):
+            return value.formatted(.number.precision(.fractionLength(0...2))) + " " + metric.symbol
+        case let .body(records):
+            return records.last.map { $0.value.formatted(.number.precision(.fractionLength(0...2))) + " " + metric.symbol } ?? "无可读样本"
+        case let .workouts(records):
+            return "\(records.count) 次 · " + minutes(records.reduce(0) { $0 + $1.durationSeconds })
+        case let .sleep(seconds, _):
+            return seconds.map(minutes) ?? "无睡眠时长"
+        }
+    }
+
+    private func minutes(_ seconds: TimeInterval) -> String {
+        (seconds / 60).formatted(.number.precision(.fractionLength(0))) + " 分钟"
+    }
+
+    @ViewBuilder private func uploadView(_ snapshot: Snapshot, api: NativeAPI, owner: String) -> some View {
+        let available = bodySamples(snapshot.data)
+        let writable = Set(available.map(\.metric))
+        let chosen = available.filter { uploadSelection.contains($0.metric) }
+        if !available.isEmpty {
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("同步身体记录到账号").font(.subheadline.weight(.bold))
+                Text("将所选测量保存到训练搭子的身体数据。其他健康读数仅在此处查看。")
+                    .font(.caption).foregroundStyle(SpotterPalette.muted)
+                ForEach(NativeHealthGroup.body.metrics.filter { writable.contains($0) }) { metric in
+                    Toggle(metric.title, isOn: enabled(metric, in: $uploadSelection))
+                }
+                Button("同步 \(chosen.count) 条记录") {
+                    operation = Task { await upload(chosen, calendar: snapshot.calendar, api: api, owner: owner) }
+                }
+                .buttonStyle(.bordered)
+                .disabled(chosen.isEmpty)
+            }
+            .disabled(operation != nil)
+        }
+    }
+
+    private func enabled(_ metric: NativeHealthMetric, in selection: Binding<Set<NativeHealthMetric>>) -> Binding<Bool> {
+        Binding(get: { selection.wrappedValue.contains(metric) }, set: { enabled in
+            if enabled { selection.wrappedValue.insert(metric) }
+            else { selection.wrappedValue.remove(metric) }
+        })
+    }
+
+    private func bodySamples(_ readings: NativeHealthReadings) -> [NativeHealthBodySample] {
+        NativeHealthGroup.body.metrics.flatMap { metric -> [NativeHealthBodySample] in
+            guard case let .body(records)? = readings.values[metric], let measurement = metric.accountMeasurement else { return [] }
+            return records.filter { measurement.range.contains($0.value) }
+        }
+    }
+
+    private func clearResults() {
+        snapshot = nil
+        uploadSelection = []
+        message = nil
+    }
+
+    private func read() async {
+        defer { operation = nil }
+        clearResults()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let now = Date.now
+        guard let begin = calendar.date(byAdding: .day, value: 1 - days, to: calendar.startOfDay(for: now)) else { return }
         do {
-            for weight in records where (10...700).contains(weight.value) {
+            let data = try await HealthKitReader().readNativeMetrics(selected, from: begin, to: now, calendar: calendar)
+            try Task.checkCancellation()
+            snapshot = Snapshot(data: data, calendar: calendar)
+            uploadSelection = Set(bodySamples(data).map(\.metric))
+        } catch is CancellationError {
+        } catch { message = error.localizedDescription }
+    }
+
+    private func upload(_ samples: [NativeHealthBodySample], calendar: Calendar, api: NativeAPI, owner: String) async {
+        var saved = 0
+        var skipped = 0
+        defer {
+            operation = nil
+            if saved > 0 { NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil) }
+        }
+        message = nil
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        do {
+            let cloud = try await api.spotterRead("/api/library?section=body", as: CloudBody.self)
+            var existing = Set(cloud.rows.compactMap(\.id).map { $0.lowercased() })
+            for sample in samples {
                 try Task.checkCancellation()
+                guard !existing.contains(sample.id) else { skipped += 1; continue }
+                let entry: [String: Any]
+                if let key = sample.metric.accountMeasurement?.key {
+                    entry = ["type": "measurement", "metric": key, "value": sample.value]
+                } else {
+                    entry = ["type": "weight", "kg": sample.value]
+                }
                 _ = try await api.spotterSend("/api/library", body: [
                     "action": "save", "expectedOwner": owner,
-                    "data": ["kind": "nutrition", "id": weight.id.lowercased(),
-                             "date": spotterDay(Date(timeIntervalSince1970: Double(weight.at) / 1000)),
-                             "entry": ["type": "weight", "kg": weight.value]]
+                    "data": ["kind": "nutrition", "id": sample.id, "date": formatter.string(from: sample.date), "entry": entry]
                 ])
+                existing.insert(sample.id)
                 saved += 1
             }
-            summary = "已同步 \(saved) 条体重记录。"
-            if saved > 0 { NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil) }
-        } catch { summary = "已同步 \(saved) 条。\(error.localizedDescription)" }
+            message = "已同步 \(saved) 条，跳过已有的 \(skipped) 条。"
+        } catch is CancellationError {
+        } catch { message = "已同步 \(saved) 条。\(error.localizedDescription)" }
     }
 }

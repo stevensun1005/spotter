@@ -42,7 +42,8 @@ struct NativeCatalogueBrowser: View {
     let addToPlan: (NativeCatalogEntry) -> Void
 
     @AppStorage("spotter.native.catalogue.cards") private var cards = true
-    @AppStorage("spotter.native.catalogue.gear") private var equipmentPreference = ""
+    @AppStorage(NativePreferenceKey.equipment) private var equipmentPreference = ""
+    @AppStorage(NativePreferenceKey.exerciseLanguage) private var language = "zh"
     @State private var index: NativeCatalogIndex?
     @State private var results: NativeCatalogResults?
     @State private var filters = NativeCatalogueFilters()
@@ -426,7 +427,11 @@ struct NativeCatalogueBrowser: View {
     }
 
     private func entryRow(_ entry: NativeCatalogEntry, index: NativeCatalogIndex, vertical: Bool) -> some View {
-        let title = index.family(for: entry)?.title ?? entry.name
+        let chinese = index.family(for: entry)?.title ?? entry.name
+        let title: String
+        if entry.en.isEmpty || entry.en == chinese || language == "zh" { title = chinese }
+        else if language == "en" { title = entry.en }
+        else { title = chinese + " · " + entry.en }
         let key = index.nameKey(entry.name)
         let isPinned = profiles.contains { $0["pinned"].bool && index.nameKey($0["name"].string) == key }
         let row = Button {

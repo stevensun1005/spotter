@@ -246,28 +246,30 @@ private struct NativeSpotterTabs: View {
     @State private var showNutrition = false
     @State private var showRest = false
     @State private var showBody = false
+    @State private var buddySearchRequest = 0
+    @State private var showTrainingReminder = false
+    @AppStorage private var reminderEnabled: Bool
+    @AppStorage private var reminderMinute: Int
+    @AppStorage(NativePreferenceKey.friendsTab) private var showsFriends = true
+    @AppStorage(NativePreferenceKey.nutritionModule) private var showsNutrition = true
+    @AppStorage(NativePreferenceKey.reduceMotion) private var reduceMotion = false
+    @AppStorage(NativePreferenceKey.largerText) private var largerText = false
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.dynamicTypeSize) private var systemTextSize
     let owner: String
 
     init(account: NativeAccount, owner: String) {
         self.account = account
         self.owner = owner
         _workouts = StateObject(wrappedValue: NativeWorkoutStore(api: account.api, owner: owner))
+        _reminderEnabled = AppStorage(wrappedValue: false, NativePreferenceKey.reminderKey(owner, field: "enabled"))
+        _reminderMinute = AppStorage(wrappedValue: 18 * 60, NativePreferenceKey.reminderKey(owner, field: "minute"))
     }
 
     var body: some View {
         TabView(selection: $selected) {
             section(.today) {
-                NativeWorkoutView(
-                    store: workouts,
-                    openSettings: { showSettings = true },
-                    openNutrition: { showNutrition = true },
-                    openAllPlans: { selected = .training },
-                    openCoach: openCoach,
-                    openFriends: { selected = .friends },
-                    openRest: { showRest = true },
-                    openBody: { showBody = true },
-                    homeNutrition: AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs) { showNutrition = true })
-                )
+                today
             }
             section(.training) {
                 NativeWorkoutView(store: workouts, showsAllPlans: true, openSettings: { showSettings = true },
@@ -276,15 +278,28 @@ private struct NativeSpotterTabs: View {
             section(.stats) {
                 NativeSpotterStats(store: workouts, api: account.api, owner: owner)
             }
-            section(.friends) {
-                NativeFriends(api: account.api, owner: owner) { await workouts.load() }
+            if showsFriends {
+                section(.friends) {
+                    NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest) { await workouts.load() }
+                }
             }
         }
         .background(SpotterPalette.background.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) { dock }
         .task { await workouts.load() }
+        .onChange(of: showsFriends) { visible in if !visible && selected == .friends { selected = .today } }
         .onChange(of: scenePhase) { phase in
             if phase == .active { Task { await workouts.load() } }
+        }
+        .task(id: reminderEnabled && scenePhase == .active && !showSettings) {
+            guard reminderEnabled, scenePhase == .active, !showSettings else { return }
+            while !Task.isCancelled {
+                checkTrainingReminder()
+                do { try await Task.sleep(nanoseconds: 15_000_000_000) } catch { return }
+            }
+        }
+        .alert("训练提醒", isPresented: $showTrainingReminder) { Button("好", role: .cancel) {} } message: {
+            Text(NativePreferenceKey.reminderTitle)
         }
         .sheet(isPresented: $showCoach, onDismiss: { Task { await workouts.load() } }) {
             NativeCoachView(api: account.api, owner: owner, compact: coachDetent == .medium,
@@ -295,7 +310,8 @@ private struct NativeSpotterTabs: View {
         }
         .fullScreenCover(isPresented: $showSettings, onDismiss: { Task { await workouts.load() } }) {
             NavigationStack {
-                NativeSettings(account: account, owner: owner, onDeleted: workouts.clearLocalData)
+                NativeSettings(account: account, owner: owner, onDeleted: workouts.clearLocalData,
+                               refreshPlans: { await workouts.load() }, openTraining: { selected = .training; showSettings = false })
             }
         }
         .fullScreenCover(isPresented: $showNutrition) {
@@ -307,6 +323,42 @@ private struct NativeSpotterTabs: View {
         .fullScreenCover(isPresented: $showBody, onDismiss: { Task { await workouts.load() } }) {
             NativeBodyData(api: account.api, owner: owner)
         }
+        .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
+        .transaction { if reduceMotion || systemReduceMotion { $0.animation = nil } }
+    }
+
+    private var today: some View {
+        var view = NativeWorkoutView(store: workouts)
+        view.openSettings = { showSettings = true }
+        view.openAllPlans = { selected = .training }
+        view.openCoach = openCoach
+        view.openRest = { showRest = true }
+        view.openBody = { showBody = true }
+        if showsFriends { view.openFriends = openFriends }
+        if showsNutrition {
+            view.openNutrition = { showNutrition = true }
+            view.homeNutrition = AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs) { showNutrition = true })
+        }
+        return view
+    }
+
+    private func openFriends() {
+        if workouts.room["partner"]["id"].string.isEmpty { buddySearchRequest += 1 }
+        selected = .friends
+    }
+
+    private func checkTrainingReminder() {
+        let now = Date()
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: now)
+        let minute = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        guard minute >= reminderMinute else { return }
+        let today = NativeWorkoutSession.day(now)
+        let deliveredKey = NativePreferenceKey.reminderKey(owner, field: "delivered")
+        guard UserDefaults.standard.string(forKey: deliveredKey) != today else { return }
+        let completed = Set(workouts.logs.map { $0.data["planId"].string })
+        guard workouts.plans.contains(where: { $0.owner == owner && $0.day == today && !completed.contains($0.id) }) else { return }
+        UserDefaults.standard.set(today, forKey: deliveredKey)
+        showTrainingReminder = true
     }
 
     private func openCoach() {
@@ -327,7 +379,7 @@ private struct NativeSpotterTabs: View {
         SpotterGlassGroup(spacing: 4) {
             HStack(spacing: 8) {
                 HStack(spacing: 2) {
-                    ForEach(NativeSpotterSection.allCases, id: \.self) { section in
+                    ForEach(NativeSpotterSection.allCases.filter { showsFriends || $0 != .friends }, id: \.self) { section in
                         Button {
                             selected = section
                         } label: {

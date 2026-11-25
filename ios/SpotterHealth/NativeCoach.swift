@@ -26,6 +26,24 @@ extension Notification.Name {
     static let spotterNativeNutritionUpdated = Self("spotter.native.nutrition.updated")
 }
 
+enum NativeCoachConsent {
+    static func isAllowed(owner: String) -> Bool {
+        !owner.isEmpty && UserDefaults.standard.bool(forKey: key(owner))
+    }
+
+    static func allow(owner: String) {
+        guard !owner.isEmpty else { return }
+        UserDefaults.standard.set(true, forKey: key(owner))
+    }
+
+    static func revoke(owner: String) {
+        guard !owner.isEmpty else { return }
+        UserDefaults.standard.removeObject(forKey: key(owner))
+    }
+
+    private static func key(_ owner: String) -> String { "spotter.native.coach.consent." + owner }
+}
+
 private enum CoachColors {
     static let canvas = Color(red: 0.08, green: 0.125, blue: 0.102)
     static let panel = Color(red: 0.125, green: 0.18, blue: 0.145)
@@ -93,6 +111,7 @@ struct NativeCoachView: View {
     var onExpand: (() -> Void)? = nil
     var onStartWorkout: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @FocusState private var editingMessage: Bool
     @State private var lines: [Line] = []
     @State private var text = ""
@@ -125,7 +144,6 @@ struct NativeCoachView: View {
     @State private var ownNotice: String?
     @State private var ownDrafts: [PlanDraft] = []
 
-    private var sharingKey: String { "spotter.native.coach.consent." + owner }
     private var cleanText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -174,15 +192,19 @@ struct NativeCoachView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        .confirmationDialog("允许将本次内容发送给 AI 教练？", isPresented: $consentNeeded, titleVisibility: .visible) {
+        .confirmationDialog("允许 AI 教练处理内容？", isPresented: $consentNeeded, titleVisibility: .visible) {
             Button("允许并继续") {
-                UserDefaults.standard.set(true, forKey: sharingKey)
+                NativeCoachConsent.allow(owner: owner)
                 if let kind = pendingRequest { Task { await send(kind) } }
                 pendingRequest = nil
             }
+            Button("查看隐私说明") {
+                pendingRequest = nil
+                if let url = URL(string: AppConfiguration.defaultOrigin + "/privacy#external-ai") { openURL(url) }
+            }
             Button("取消", role: .cancel) { pendingRequest = nil }
         } message: {
-            Text("本次对话或你选中的照片、训练选项和备注会发送给 Anthropic 处理。")
+            Text("你发送的对话、选中的照片和训练资料会交由外部 AI 服务处理。授权可在设置中撤销。")
         }
     }
 
@@ -401,9 +423,6 @@ struct NativeCoachView: View {
                 }.buttonStyle(.plain).disabled(busy || (picture == nil && cleanText.isEmpty))
             }
             .padding(4).coachPanel(radius: 24)
-            Text(picture == nil ? "记体重和查统计在训练搭子内处理。训练问答会发送相关对话给 Anthropic。"
-                 : "由 Anthropic 识别选中的照片和备注，信息够时直接记入饮食。")
-                .font(.caption).foregroundStyle(CoachColors.muted).padding(.horizontal, 2)
         }
         .padding(.horizontal, 15).padding(.bottom, 8)
     }
@@ -655,12 +674,12 @@ struct NativeCoachView: View {
     private func submit(_ kind: RequestKind) {
         guard !busy, !cleanText.isEmpty || kind == .photo || kind == .guided else { return }
         editingMessage = false
-        if UserDefaults.standard.bool(forKey: sharingKey) { Task { await send(kind) } }
+        if NativeCoachConsent.isAllowed(owner: owner) { Task { await send(kind) } }
         else { pendingRequest = kind; consentNeeded = true }
     }
 
     private func send(_ kind: RequestKind) async {
-        guard !busy else { return }
+        guard !busy, NativeCoachConsent.isAllowed(owner: owner) else { return }
         busy = true
         error = nil
         defer { busy = false }

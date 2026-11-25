@@ -1,5 +1,50 @@
 import Foundation
 
+enum NativePreferenceKey {
+    static let sets = "spotter.native.workout.sets"
+    static let reps = "spotter.native.workout.reps"
+    static let showNext = "spotter.native.workout.showNext"
+    static let showTempo = "spotter.native.workout.showTempo"
+    static let showEffort = "spotter.native.workout.showEffort"
+    static let autoAdvance = "spotter.native.workout.autoAdvance"
+    static let defaultRest = "spotter.native.workout.defaultRest"
+    static let restSound = "spotter.native.workout.restSound"
+    static let restHaptics = "spotter.native.workout.restHaptics"
+    static let keepAwake = "spotter.native.workout.keepAwake"
+    static let unit = "spotter.native.workout.unit"
+    static let exerciseLanguage = "spotter.native.catalogue.language"
+    static let oneRepMax = "spotter.native.stats.1rm"
+    static let equipment = "spotter.native.catalogue.gear"
+    static let reduceMotion = "spotter.native.appearance.reduceMotion"
+    static let largerText = "spotter.native.appearance.largerText"
+    static let friendsTab = "spotter.native.modules.friends"
+    static let nutritionModule = "spotter.native.modules.nutrition"
+    static let weeklyCheckins = "spotter.native.modules.weeklyCheckins"
+    static let planShortcut = "spotter.native.modules.planShortcut"
+    static let reminderTitle = "到训练时间了，今天还有计划未完成。"
+
+    static func reminderKey(_ owner: String, field: String) -> String {
+        "spotter.native.reminder.\(field).\(owner)"
+    }
+
+    static var newMoveSets: Int { bounded(sets, default: 3, range: 1...30) }
+    static var newMoveReps: Int { bounded(reps, default: 10, range: 1...100) }
+    static var newMoveUnit: String { UserDefaults.standard.string(forKey: unit) == "lb" ? "lb" : "kg" }
+    static var restSeconds: Int { bounded(defaultRest, default: 30, range: 0...600) }
+
+    static func newMove(name: String, sets: Int = newMoveSets, reps: Int = newMoveReps, unit: String = newMoveUnit) -> NativeJSON {
+        .object(["name": .string(name), "sets": .number(Double(sets)), "reps": .number(Double(reps)),
+                 "weight": .number(0), "unit": .string(unit), "seconds": .number(0)])
+    }
+
+    private static func bounded(_ key: String, default initial: Int, range: ClosedRange<Int>) -> Int {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: key) != nil else { return initial }
+        return min(range.upperBound, max(range.lowerBound, defaults.integer(forKey: key)))
+    }
+}
+
+
 /// Keeps optional fields from the current Cloudflare schema intact when editing native sets.
 enum NativeJSON: Codable, Equatable, Sendable {
     case object([String: NativeJSON]), array([NativeJSON]), string(String), number(Double), bool(Bool), null
@@ -120,10 +165,13 @@ struct NativeWorkoutSession: Equatable, Sendable {
         let title = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
         guard !title.isEmpty, plan.exercises.count < 30 else { return }
         var moves = plan.exercises
-        moves.append(.object(["name": .string(title), "sets": .number(3), "reps": .number(10), "weight": .number(0), "unit": .string("kg"), "seconds": .number(0)]))
+        let new = NativePreferenceKey.newMove(name: title)
+        moves.append(new)
         raw["plan"]["exercises"] = .array(moves)
         var groups = raw["rows"].array
-        groups.append(.array((0..<3).map { _ in .object(["weight": .number(0), "reps": .number(10), "seconds": .number(0), "done": .bool(false)]) }))
+        groups.append(.array((0..<Int(new["sets"].number)).map { _ in
+            .object(["weight": .number(0), "reps": new["reps"], "seconds": .number(0), "done": .bool(false)])
+        }))
         raw["rows"] = .array(groups)
     }
     mutating func setLine(move: Int, row: Int, key: String, value: NativeJSON) {

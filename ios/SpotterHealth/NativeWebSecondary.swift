@@ -1,6 +1,7 @@
 import Charts
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 private let secondaryLilac = Color(red: 0.92, green: 0.90, blue: 0.96)
 private let secondaryTeal = Color(red: 0.86, green: 0.94, blue: 0.92)
@@ -1033,6 +1034,7 @@ private struct SecondaryPerformance: View {
     let entries: [NativeWorkoutEntry]
     let compared: [NativeWorkoutEntry]?
     @State private var metric = Metric.maximum
+    @AppStorage(NativePreferenceKey.oneRepMax) private var oneRepMax = "epley"
 
     private enum Metric: String, CaseIterable { case maximum = "1RM 估算", weight = "最大重量" }
     private struct Result: Identifiable {
@@ -1084,7 +1086,8 @@ private struct SecondaryPerformance: View {
                         let weight = side["weight"].number * factor
                         let reps = side["reps"].number
                         guard weight > 0, reps > 0, metric == .weight || reps <= 10 else { continue }
-                        let value = metric == .weight || reps == 1 ? weight : weight * (1 + reps / 30)
+                        let value = metric == .weight || reps == 1 ? weight :
+                            oneRepMax == "brzycki" ? weight * 36 / (37 - reps) : weight * (1 + reps / 30)
                         if value > (result[key]?.value ?? 0) {
                             result[key] = Result(id: key, title: title, day: entry.day, value: value, weight: weight, reps: reps)
                         }
@@ -1242,17 +1245,38 @@ struct NativeSettings: View {
     @State private var note: String?
     @State private var deleted = false
     @State private var revokeInSettings = false
+    @State private var handle: NativeHandleProfile?
+    @State private var username = ""
+    @State private var handleBusy = false
+    @State private var handleNotice: String?
+    @State private var handleError = false
+    @State private var showRestSchedule = false
+    @State private var showCoachConsent = false
+    @State private var coachConsentRevoked = false
     let owner: String
     var onDeleted: () -> Void
+    var refreshPlans: @MainActor () async -> Void = {}
+    var openTraining: (() -> Void)? = nil
 
     private enum Page: String, CaseIterable, Identifiable {
-        case account = "账号", protein = "蛋白粉仓库", watches = "手表与健康", integrations = "集成", coach = "AI 教练", about = "关于与更新"
+        case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", reminders = "训练提醒"
+        case units = "单位与统计", equipment = "器械偏好", appearance = "外观与辅助功能", modules = "功能模块", data = "数据导入与导出"
+        case watches = "手表与健康", integrations = "集成", coach = "AI 教练", about = "关于与更新"
         var id: Self { self }
 
         var detail: String {
             switch self {
-            case .account: return "个人资料、云端同步和隐私"
+            case .account: return "用户名、登录绑定、云端同步和隐私"
+            case .workout: return "默认组数和次数、下一组、动作节奏"
             case .protein: return "常喝的蛋白粉、一勺粉量和杯量"
+            case .timer: return "休息时间、提示声音和震动、保持屏幕常亮"
+            case .schedule: return "训练计划、固定休息日和临时休息"
+            case .reminders: return "待训练计划、每日提醒时间"
+            case .units: return "新动作的重量单位、动作名称、1RM 估算方式"
+            case .equipment: return "动作库可用的训练器械"
+            case .appearance: return "文字大小和减少动画"
+            case .modules: return "首页营养、训练计划、每周打卡和好友入口"
+            case .data: return "导出训练资料、恢复 Spotter 备份"
             case .watches: return "Apple Watch 与 Apple 健康"
             case .integrations: return "健康数据、AI 工具"
             case .coach: return "训练对话、计划草稿与 Agent 连接"
@@ -1263,7 +1287,16 @@ struct NativeSettings: View {
         var icon: String {
             switch self {
             case .account: return "person.crop.circle"
+            case .workout: return "dumbbell"
             case .protein: return "shippingbox"
+            case .timer: return "timer"
+            case .schedule: return "calendar"
+            case .reminders: return "bell"
+            case .units: return "ruler"
+            case .equipment: return "slider.horizontal.3"
+            case .appearance: return "textformat.size"
+            case .modules: return "square.grid.2x2"
+            case .data: return "externaldrive"
             case .watches: return "applewatch"
             case .integrations: return "powerplug"
             case .coach: return "sparkles"
@@ -1306,8 +1339,10 @@ struct NativeSettings: View {
 
                 if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     accountHeader
-                    rows([.protein], title: "训练")
+                    rows([.workout, .protein, .timer, .schedule, .reminders], title: "训练")
+                    rows([.units, .equipment, .appearance, .modules], title: "首选项")
                     rows([.watches, .integrations, .coach], title: "连接")
+                    rows([.data], title: "数据")
                     rows([.about])
                 } else if matches.isEmpty {
                     SecondaryNotice(message: "没有匹配的设置")
@@ -1319,6 +1354,10 @@ struct NativeSettings: View {
         .background(SpotterPalette.background.ignoresSafeArea())
         .navigationDestination(for: Page.self) { destination($0) }
         .toolbar(.hidden, for: .navigationBar)
+        .task { await loadHandle() }
+        .sheet(isPresented: $showRestSchedule, onDismiss: { Task { await refreshPlans() } }) {
+            NativeRestSchedule(api: account.api, owner: owner, addToday: false)
+        }
     }
 
     private var accountHeader: some View {
@@ -1330,7 +1369,7 @@ struct NativeSettings: View {
                     .background(SpotterPalette.wash, in: Circle()).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(name).font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.ink)
-                    Text("云端账号").font(.caption).foregroundStyle(SpotterPalette.muted)
+                    Text(handle?.handle ?? "云端账号").font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
                 Spacer()
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
@@ -1355,19 +1394,28 @@ struct NativeSettings: View {
     @ViewBuilder private func destination(_ page: Page) -> some View {
         switch page {
         case .protein: NativeProteinView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
-        case .coach: NativeCoachView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(page.rawValue).font(.system(.largeTitle, weight: .heavy)).foregroundStyle(SpotterPalette.ink).accessibilityAddTraits(.isHeader)
                     switch page {
                     case .account: accountContent
+                    case .workout: NativeWorkoutPreferences()
+                    case .timer: NativeTimerPreferences()
+                    case .schedule: scheduleContent
+                    case .reminders: NativeTrainingReminderSettings(owner: owner)
+                    case .units: NativeUnitsPreferences()
+                    case .equipment: NativeEquipmentPreferences()
+                    case .appearance: NativeAppearancePreferences()
+                    case .modules: NativeModulePreferences()
+                    case .data: NativeBackupSettings(api: account.api, owner: owner, didImport: refreshPlans)
                     case .watches: NativeHealthSummary(api: account.api, owner: owner)
                     case .integrations:
                         rows([.watches], title: "健康与设备")
                         rows([.coach], title: "数据和 AI")
+                    case .coach: coachContent
                     case .about: aboutContent
-                    default: EmptyView()
+                    case .protein: EmptyView()
                     }
                 }.secondaryPage()
             }
@@ -1378,8 +1426,44 @@ struct NativeSettings: View {
         }
     }
 
+    private var scheduleContent: some View {
+        SecondaryGroup(title: "训练安排") {
+            if let openTraining {
+                Button(action: openTraining) {
+                    SecondaryRow(title: "我的计划", detail: "在训练页查看和编辑计划", icon: "list.clipboard")
+                }.buttonStyle(.plain)
+                Divider()
+            }
+            Button { showRestSchedule = true } label: {
+                SecondaryRow(title: "管理休息日", detail: "每周固定休息日和临时休息日期", icon: "calendar.badge.clock")
+            }.buttonStyle(.plain)
+        }
+    }
+
+    private var coachContent: some View {
+        let consent = !coachConsentRevoked && NativeCoachConsent.isAllowed(owner: owner)
+        return SecondaryGroup {
+            NavigationLink {
+                NativeCoachView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
+                    .onDisappear { coachConsentRevoked = false }
+            } label: { SecondaryRow(title: "打开 AI 教练", icon: "sparkles") }.buttonStyle(.plain)
+            Divider()
+            Button { showCoachConsent = true } label: {
+                SecondaryRow(title: "AI 数据授权", detail: consent ? "已授权，点此撤回" : "尚未授权", icon: "hand.raised",
+                             accessory: consent ? "chevron.right" : nil)
+            }.buttonStyle(.plain).disabled(!consent)
+        }.confirmationDialog("撤回 AI 数据授权？", isPresented: $showCoachConsent, titleVisibility: .visible) {
+            Button("撤回授权", role: .destructive) {
+                NativeCoachConsent.revoke(owner: owner)
+                coachConsentRevoked = true
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
     private var accountContent: some View {
         VStack(alignment: .leading, spacing: 15) {
+            usernameContent
             VStack(alignment: .leading, spacing: 10) {
                 Text("绑定登录方式").font(.headline).accessibilityAddTraits(.isHeader)
                 Text("绑定后，Apple 和 Google 都会打开这个训练搭子账号。")
@@ -1390,6 +1474,16 @@ struct NativeSettings: View {
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading).secondaryCard()
 
             SecondaryGroup(title: "账户与同步") {
+                NavigationLink { NativeBodyData(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar) } label: {
+                    SecondaryRow(title: "身体档案", detail: "查看体重、身体数据与性别", icon: "person.text.rectangle")
+                }.buttonStyle(.plain)
+                Divider()
+                Button {
+                    Task { await refreshPlans(); await loadHandle() }
+                } label: {
+                    SecondaryRow(title: "立即同步", icon: "arrow.clockwise", accessory: nil)
+                }.buttonStyle(.plain).disabled(handleBusy || account.isBusy)
+                Divider()
                 Button { Task { await account.signOut() } } label: {
                     SecondaryRow(title: "退出当前账号", icon: "rectangle.portrait.and.arrow.right", accessory: nil)
                 }.buttonStyle(.plain).disabled(account.isBusy)
@@ -1397,7 +1491,13 @@ struct NativeSettings: View {
 
             SecondaryGroup(title: "关系与隐私") {
                 NavigationLink {
-                    NativeFriends(api: account.api, owner: owner, initialPage: .privacy, refreshPlans: {})
+                    NativeFriends(api: account.api, owner: owner, initialBuddySearch: true, refreshPlans: refreshPlans)
+                        .toolbar(.visible, for: .navigationBar)
+                } label: { SecondaryRow(title: "搭子空间", detail: "通过用户名找训练搭子", icon: "person.2") }
+                    .buttonStyle(.plain)
+                Divider()
+                NavigationLink {
+                    NativeFriends(api: account.api, owner: owner, initialPage: .privacy, refreshPlans: refreshPlans)
                         .toolbar(.visible, for: .navigationBar)
                 } label: { SecondaryRow(title: "好友分享设置", detail: "调整好友和搭子可见的数据", icon: "lock.shield") }
                     .buttonStyle(.plain)
@@ -1428,6 +1528,74 @@ struct NativeSettings: View {
         } message: {
             if revokeInSettings { Text("可在 iPhone「设置 → 你的姓名 → 通过 Apple 登录」中撤销训练搭子的 Apple 授权。") }
         }
+    }
+
+    private var usernameContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("用户名").font(.headline).accessibilityAddTraits(.isHeader)
+            if let handle {
+                HStack {
+                    Text(handle.handle).font(.system(.subheadline, design: .monospaced)).textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        UIPasteboard.general.string = handle.handle
+                        handleNotice = "已复制用户名。"; handleError = false
+                    } label: { Label("复制用户名", systemImage: "doc.on.doc") }
+                    .labelStyle(.iconOnly).buttonStyle(SecondaryButtonStyle())
+                }
+                HStack(spacing: 6) {
+                    TextField("输入新的用户名", text: $username)
+                        .textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .submitLabel(.done).onSubmit { Task { await saveHandle() } }
+                        .accessibilityLabel("新的用户名")
+                    Text("#" + handle.tag).font(.system(.subheadline, design: .monospaced)).foregroundStyle(SpotterPalette.muted)
+                    Button("保存") { Task { await saveHandle() } }
+                        .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(!canSaveHandle)
+                }
+                Text("用户名不可重复，使用 3–24 位英文字母、数字、点或下划线。首尾需为字母或数字，# 后的编号由系统保留。")
+                    .font(.caption).foregroundStyle(SpotterPalette.muted)
+            } else if handleBusy {
+                ProgressView("正在读取用户名…")
+            } else {
+                Button("重新读取用户名") { Task { await loadHandle() } }.buttonStyle(SecondaryButtonStyle())
+            }
+            if let handleNotice { SecondaryNotice(message: handleNotice, warning: handleError) }
+        }.padding(14).frame(maxWidth: .infinity, alignment: .leading).secondaryCard()
+    }
+
+    private var proposedUsername: String {
+        username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var canSaveHandle: Bool {
+        guard let handle, !handleBusy, !account.isBusy, proposedUsername != handle.username else { return false }
+        return proposedUsername.range(of: "^[a-z0-9][a-z0-9._]{1,22}[a-z0-9]$", options: .regularExpression) != nil
+    }
+
+    private func loadHandle() async {
+        guard !handleBusy else { return }
+        handleBusy = true
+        defer { handleBusy = false }
+        do {
+            let result = try await account.api.spotterRead("/api/auth/profile", as: NativeHandleResponse.self)
+            handle = result.profile
+            username = result.profile.username
+            handleNotice = nil
+        } catch is CancellationError { }
+        catch { handleNotice = error.localizedDescription; handleError = true }
+    }
+
+    private func saveHandle() async {
+        guard canSaveHandle else { return }
+        handleBusy = true
+        defer { handleBusy = false }
+        do {
+            let result = try await account.api.spotterSend("/api/auth/profile", body: ["username": proposedUsername, "expectedOwner": owner])
+            let updated = try JSONDecoder().decode(NativeHandleResponse.self, from: result).profile
+            handle = updated
+            username = updated.username
+            handleNotice = "已更新用户名。"; handleError = false
+        } catch { handleNotice = error.localizedDescription; handleError = true }
     }
 
     private var aboutContent: some View {
@@ -1461,10 +1629,357 @@ struct NativeSettings: View {
             let result = try JSONSerialization.jsonObject(with: response) as? [String: Any]
             revokeInSettings = result?["appleRevocation"] as? String == "manual"
             onDeleted()
-            UserDefaults.standard.removeObject(forKey: "spotter.native.coach.consent." + owner)
+            NativeCoachConsent.revoke(owner: owner)
             deleted = true
         } catch { note = error.localizedDescription }
     }
+}
+
+private struct NativeHandleProfile: Decodable {
+    let username: String
+    let tag: String
+    let handle: String
+}
+
+private struct NativeHandleResponse: Decodable { let profile: NativeHandleProfile }
+
+private struct NativeSettingToggle: View {
+    let title: String
+    let detail: String
+    @Binding var value: Bool
+
+    var body: some View {
+        Toggle(isOn: $value) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(SpotterPalette.muted)
+            }
+        }.tint(SpotterPalette.accent).padding(13)
+    }
+}
+
+private struct NativeWorkoutPreferences: View {
+    @AppStorage(NativePreferenceKey.sets) private var sets = 3
+    @AppStorage(NativePreferenceKey.reps) private var reps = 10
+    @AppStorage(NativePreferenceKey.showNext) private var showNext = true
+    @AppStorage(NativePreferenceKey.showTempo) private var showTempo = true
+    @AppStorage(NativePreferenceKey.showEffort) private var showEffort = true
+    @AppStorage(NativePreferenceKey.autoAdvance) private var autoAdvance = false
+
+    var body: some View {
+        SecondaryGroup(title: "新动作") {
+            Stepper("默认组数 · \(sets) 组", value: $sets, in: 1...30).padding(13)
+            Divider()
+            Stepper("默认次数 · \(reps) 次", value: $reps, in: 1...100).padding(13)
+        }
+        SecondaryGroup(title: "训练记录") {
+            NativeSettingToggle(title: "显示下一组", detail: "在训练详情顶部显示下一个未完成组。", value: $showNext)
+            Divider()
+            NativeSettingToggle(title: "自动切换动作", detail: "完成一个动作的所有组后，打开下一个待练动作。", value: $autoAdvance)
+            Divider()
+            NativeSettingToggle(title: "显示动作节奏", detail: "显示计划写明的动作节奏。", value: $showTempo)
+            Divider()
+            NativeSettingToggle(title: "显示 RPE", detail: "在组次下方显示已录入的主观用力程度。", value: $showEffort)
+        }
+    }
+}
+
+private struct NativeTimerPreferences: View {
+    @AppStorage(NativePreferenceKey.defaultRest) private var rest = 30
+    @AppStorage(NativePreferenceKey.restSound) private var sound = false
+    @AppStorage(NativePreferenceKey.restHaptics) private var haptics = false
+    @AppStorage(NativePreferenceKey.keepAwake) private var keepAwake = false
+
+    var body: some View {
+        SecondaryGroup(title: "组间休息") {
+            Stepper("默认休息 · \(rest) 秒", value: $rest, in: 0...600, step: 5).padding(13)
+            Divider()
+            NativeSettingToggle(title: "提示声音", detail: "训练页面打开时，组间休息倒数结束后提示。", value: $sound)
+            Divider()
+            NativeSettingToggle(title: "提示触感", detail: "训练页面打开时，组间休息倒数结束后振动。", value: $haptics)
+        }
+        SecondaryGroup(title: "训练计时") {
+            NativeSettingToggle(title: "训练时保持常亮", detail: "训练页面打开且计时进行时延缓自动锁屏。", value: $keepAwake)
+        }
+    }
+}
+
+private struct NativeTrainingReminderSettings: View {
+    @AppStorage private var enabled: Bool
+    @AppStorage private var minute: Int
+    @State private var showPreview = false
+
+    init(owner: String) {
+        _enabled = AppStorage(wrappedValue: false, NativePreferenceKey.reminderKey(owner, field: "enabled"))
+        _minute = AppStorage(wrappedValue: 18 * 60, NativePreferenceKey.reminderKey(owner, field: "minute"))
+    }
+
+    private var time: Binding<Date> {
+        Binding(get: {
+            Calendar.current.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: Date()) ?? Date()
+        }, set: { value in
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: value)
+            minute = (parts.hour ?? 18) * 60 + (parts.minute ?? 0)
+        })
+    }
+
+    var body: some View {
+        SecondaryGroup {
+            NativeSettingToggle(title: "每日训练提醒", detail: "在 App 打开时提醒当天未完成的训练。", value: $enabled)
+            Divider()
+            DatePicker("提醒时间", selection: time, displayedComponents: .hourAndMinute).padding(13).disabled(!enabled)
+            Divider()
+            Button { showPreview = true } label: {
+                SecondaryRow(title: "试试提醒", icon: "bell.badge", accessory: nil)
+            }.buttonStyle(.plain)
+        }
+        .alert("训练提醒", isPresented: $showPreview) { Button("好", role: .cancel) {} } message: {
+            Text(NativePreferenceKey.reminderTitle)
+        }
+    }
+}
+
+private struct NativeUnitsPreferences: View {
+    @AppStorage(NativePreferenceKey.unit) private var unit = "kg"
+    @AppStorage(NativePreferenceKey.exerciseLanguage) private var language = "zh"
+    @AppStorage(NativePreferenceKey.oneRepMax) private var oneRepMax = "epley"
+
+    var body: some View {
+        SecondaryGroup {
+            Picker("新动作的重量单位", selection: $unit) {
+                Text("千克（kg）").tag("kg")
+                Text("磅（lb）").tag("lb")
+            }.padding(13)
+            Divider()
+            Picker("动作库名称", selection: $language) {
+                Text("中文").tag("zh")
+                Text("English").tag("en")
+                Text("中英文").tag("both")
+            }.padding(13)
+            Divider()
+            Picker("1RM 估算方式", selection: $oneRepMax) {
+                Text("Epley").tag("epley")
+                Text("Brzycki").tag("brzycki")
+            }.padding(13)
+        }
+        SecondaryNotice(message: "切换单位只影响新添加的动作。训练容量和统计会统一换算为 kg。")
+    }
+}
+
+private struct NativeEquipmentPreferences: View {
+    @AppStorage(NativePreferenceKey.equipment) private var gear = ""
+    @State private var index: NativeCatalogIndex?
+    @State private var problem: String?
+
+    private var selected: Set<String> { Set(gear.split(separator: "\n").map(String.init)) }
+
+    var body: some View {
+        SecondaryNotice(message: "在动作库开启「只看可用器械」时，仍可看到自重动作。")
+        if let index {
+            SecondaryGroup(title: "可用器械") {
+                ForEach(index.equipmentOptions.filter { $0 != "body weight" }, id: \.self) { option in
+                    Toggle(index.label(option), isOn: Binding(get: { selected.contains(option) }, set: { enabled in
+                        var next = selected
+                        if enabled { next.insert(option) } else { next.remove(option) }
+                        gear = next.sorted().joined(separator: "\n")
+                    })).tint(SpotterPalette.accent).padding(.horizontal, 13).padding(.vertical, 8)
+                }
+            }
+        } else if let problem { SecondaryNotice(message: problem, warning: true) }
+        else { ProgressView("正在读取器械…").task { await load() } }
+    }
+
+    private func load() async {
+        do { index = try await Task.detached(priority: .userInitiated) { try NativeCatalogIndex.load() }.value }
+        catch { problem = "无法读取动作库器械。" }
+    }
+}
+
+private struct NativeAppearancePreferences: View {
+    @AppStorage(NativePreferenceKey.largerText) private var largerText = false
+    @AppStorage(NativePreferenceKey.reduceMotion) private var reduceMotion = false
+
+    var body: some View {
+        SecondaryGroup {
+            NativeSettingToggle(title: "加大文字", detail: "增大使用系统动态字体的文字。", value: $largerText)
+            Divider()
+            NativeSettingToggle(title: "减少动画", detail: "减少应用内的界面过渡。", value: $reduceMotion)
+        }
+    }
+}
+
+private struct NativeModulePreferences: View {
+    @AppStorage(NativePreferenceKey.friendsTab) private var friends = true
+    @AppStorage(NativePreferenceKey.nutritionModule) private var nutrition = true
+    @AppStorage(NativePreferenceKey.weeklyCheckins) private var checkins = true
+    @AppStorage(NativePreferenceKey.planShortcut) private var plans = true
+
+    var body: some View {
+        SecondaryGroup {
+            NativeSettingToggle(title: "好友入口", detail: "在底栏和今日页显示好友与搭子。", value: $friends)
+            Divider()
+            NativeSettingToggle(title: "今日饮食", detail: "在今日页显示饮食记录。", value: $nutrition)
+            Divider()
+            NativeSettingToggle(title: "每周打卡", detail: "在今日页显示本周训练打卡。", value: $checkins)
+            Divider()
+            NativeSettingToggle(title: "计划快捷入口", detail: "在今日页显示添加计划快捷入口。", value: $plans)
+        }
+    }
+}
+
+private struct NativeBackupDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json, .commaSeparatedText] }
+    let bytes: Data
+
+    init(bytes: Data) { self.bytes = bytes }
+    init(configuration: ReadConfiguration) throws {
+        guard let bytes = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
+        self.bytes = bytes
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: bytes) }
+}
+
+@MainActor
+private struct NativeBackupSettings: View {
+    let api: NativeAPI
+    let owner: String
+    let didImport: @MainActor () async -> Void
+
+    @State private var scope = Scope.all
+    @State private var format = Format.json
+    @State private var exportDocument: NativeBackupDocument?
+    @State private var exportType = UTType.json
+    @State private var filename = "spotter"
+    @State private var isExporting = false
+    @State private var isImporting = false
+    @State private var showRestore = false
+    @State private var selectedFile: Data?
+    @State private var preview: String?
+    @State private var notice: String?
+    @State private var warning = false
+    @State private var busy = false
+
+    private enum Scope: String, CaseIterable {
+        case all, training, nutrition, body, templates
+        var name: String {
+            switch self {
+            case .all: return "全部数据"
+            case .training: return "训练资料"
+            case .nutrition: return "饮食记录"
+            case .body: return "身体数据"
+            case .templates: return "训练模板"
+            }
+        }
+        var supportsCSV: Bool { self == .training || self == .body }
+    }
+
+    private enum Format: String, CaseIterable {
+        case json, csv
+        var type: UTType { self == .json ? .json : .commaSeparatedText }
+    }
+
+    private struct RestoreResult: Decodable { let added: Int; let skipped: Int }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SecondaryGroup(title: "导出备份") {
+                Picker("数据范围", selection: $scope) {
+                    ForEach(Scope.allCases, id: \.self) { Text($0.name).tag($0) }
+                }.padding(13)
+                Divider()
+                Picker("文件格式", selection: $format) {
+                    ForEach(Format.allCases.filter { $0 == .json || scope.supportsCSV }, id: \.self) { Text($0.rawValue.uppercased()).tag($0) }
+                }.padding(13)
+                Divider()
+                Button { Task { await export() } } label: { SecondaryRow(title: "保存备份文件", icon: "square.and.arrow.up") }
+                    .buttonStyle(.plain).disabled(busy)
+            }
+            SecondaryGroup(title: "恢复备份") {
+                Button { isImporting = true } label: {
+                    SecondaryRow(title: "选择 Spotter JSON 备份", detail: "将缺少的条目恢复到当前账号。", icon: "square.and.arrow.down")
+                }.buttonStyle(.plain).disabled(busy)
+            }
+            if let notice { SecondaryNotice(message: notice, warning: warning) }
+        }
+        .onChange(of: scope) { value in if !value.supportsCSV { format = .json } }
+        .fileExporter(isPresented: $isExporting, document: exportDocument, contentType: exportType, defaultFilename: filename) { result in
+            switch result {
+            case .success: report("备份文件已保存。")
+            case .failure(let error): report(error.localizedDescription, failed: true)
+            }
+            exportDocument = nil
+        }
+        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json]) { result in
+            Task { await loadFile(result) }
+        }
+        .confirmationDialog("恢复到当前账号？", isPresented: $showRestore, titleVisibility: .visible) {
+            Button("恢复备份") { Task { await restore() } }
+            Button("取消", role: .cancel) { selectedFile = nil }
+        } message: { Text(preview ?? "") }
+    }
+
+    private func report(_ message: String, failed: Bool = false) { notice = message; warning = failed }
+
+    private func export() async {
+        guard !busy else { return }
+        let chosenScope = scope
+        let chosenFormat = format
+        busy = true
+        defer { busy = false }
+        do {
+            let bytes = try await api.request("/api/data?scope=\(chosenScope.rawValue)&format=\(chosenFormat.rawValue)")
+            exportDocument = NativeBackupDocument(bytes: bytes)
+            exportType = chosenFormat.type
+            filename = "spotter-\(chosenScope.rawValue)-\(spotterDay())"
+            isExporting = true
+        } catch { report(error.localizedDescription, failed: true) }
+    }
+
+    private func loadFile(_ result: Result<URL, Error>) async {
+        do {
+            let url = try result.get()
+            let (data, label) = try await Task.detached(priority: .userInitiated) {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+                guard let size, size <= 8_000_000 else { throw CocoaError(.fileReadTooLarge) }
+                let data = try Data(contentsOf: url)
+                guard data.count <= 8_000_000 else { throw CocoaError(.fileReadTooLarge) }
+                let file = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                guard file?["format"] as? String == "spotter-backup", file?["version"] as? Int == 1,
+                      let training = file?["training"] as? [Any], let library = file?["library"] as? [Any], let heart = file?["heart"] as? [Any] else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                return (data, "\(training.count) 条训练、\(library.count) 条个人资料、\(heart.count) 条心率记录。")
+            }.value
+            selectedFile = data
+            preview = label
+            showRestore = true
+        } catch { report("无法读取 Spotter 备份。请选择 8 MB 以内的 Spotter JSON 文件。", failed: true) }
+    }
+
+    private func restore() async {
+        guard !busy, let selectedFile else { return }
+        busy = true
+        defer { busy = false; self.selectedFile = nil }
+        do {
+            var components = URLComponents()
+            components.path = "/api/data"
+            components.queryItems = [URLQueryItem(name: "expectedOwner", value: owner)]
+            guard let path = components.string else { throw URLError(.badURL) }
+            let response = try await api.request(path, method: "POST", json: selectedFile)
+            let result = try JSONDecoder().decode(RestoreResult.self, from: response)
+            report("已恢复 \(result.added) 条，跳过 \(result.skipped) 条。")
+            await didImport()
+        } catch { report(error.localizedDescription, failed: true) }
+    }
+}
+
+private enum NativeConnectionKind: String {
+    case friend, buddy
+
+    var invitationTitle: String { self == .buddy ? "找训练搭子" : "添加好友" }
+    var requestTitle: String { self == .buddy ? "搭子申请" : "好友申请" }
 }
 
 private struct SecondaryFriend: Decodable, Identifiable {
@@ -1478,6 +1993,7 @@ private struct SecondaryFriend: Decodable, Identifiable {
 
     let id: String
     let name: String
+    let handle: String?
     let buddy: Bool
     let checkedIn: Bool?
     let sharing: Sharing?
@@ -1503,6 +2019,9 @@ private struct SecondarySocial: Decodable {
         let id: String
         let personId: String
         let name: String
+        let kind: String?
+
+        var connectionKind: NativeConnectionKind { kind == "buddy" ? .buddy : .friend }
     }
     let preferences: Preferences
     let incoming: [Request]
@@ -1537,6 +2056,7 @@ enum NativeFriendsPage: String, CaseIterable { case contacts = "联系人", feed
 struct NativeFriends: View {
     let api: NativeAPI
     let owner: String
+    let buddySearchRequest: Int
     let refreshPlans: @MainActor () async -> Void
 
     @State private var page: NativeFriendsPage
@@ -1545,6 +2065,8 @@ struct NativeFriends: View {
     @State private var feed: SecondaryFriendFeed?
     @State private var dialog: Dialog?
     @State private var inviteTab = InviteTab.search
+    @State private var inviteKind = NativeConnectionKind.friend
+    @State private var handledBuddyRequest = 0
     @State private var code = ""
     @State private var search = ""
     @State private var results: [SearchPerson]?
@@ -1553,20 +2075,24 @@ struct NativeFriends: View {
     @State private var busy = false
 
     private enum Dialog: String, Identifiable { case invite = "添加好友", requests = "新的朋友"; var id: Self { self } }
-    private enum InviteTab: String, CaseIterable { case search = "搜索昵称", code = "邀请链接" }
-    private struct SearchPerson: Decodable, Identifiable { let id: String; let name: String }
+    private enum InviteTab: String, CaseIterable { case search = "搜索用户名", code = "邀请链接" }
+    private struct SearchPerson: Decodable, Identifiable { let id: String; let name: String; let handle: String? }
     private struct SearchResponse: Decodable { let results: [SearchPerson] }
 
-    init(api: NativeAPI, owner: String, initialPage: NativeFriendsPage = .contacts,
+    init(api: NativeAPI, owner: String, initialPage: NativeFriendsPage = .contacts, initialBuddySearch: Bool = false,
+         buddySearchRequest: Int = 0,
          refreshPlans: @escaping @MainActor () async -> Void) {
         self.api = api
         self.owner = owner
+        self.buddySearchRequest = buddySearchRequest
         self.refreshPlans = refreshPlans
         _page = State(initialValue: initialPage)
+        _dialog = State(initialValue: initialBuddySearch ? .invite : nil)
+        _inviteKind = State(initialValue: initialBuddySearch ? .buddy : .friend)
     }
 
     private var listPath: String { friendPath([URLQueryItem(name: "today", value: spotterDay())]) }
-    private var socialPath: String { "/api/friends?section=social" }
+    private var socialPath: String { "/api/friends?section=social&includeBuddy=1" }
     private var cleanedCode: String { code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
     var body: some View {
@@ -1590,6 +2116,9 @@ struct NativeFriends: View {
         }
         .foregroundStyle(SpotterPalette.ink).background(SpotterPalette.background)
         .task { await load() }
+        .onAppear { presentRequestedBuddySearch() }
+        .onChange(of: buddySearchRequest) { _ in presentRequestedBuddySearch() }
+        .onChange(of: search) { _ in results = nil }
         .task(id: page) {
             if page == .feed, feed == nil { await loadFeed() }
         }
@@ -1603,7 +2132,7 @@ struct NativeFriends: View {
                         if let notice { SecondaryNotice(message: notice, warning: error) }
                     }.secondaryPage()
                 }.background(SpotterPalette.background)
-                    .navigationTitle(item.rawValue).navigationBarTitleDisplayMode(.inline)
+                    .navigationTitle(item == .invite ? inviteKind.invitationTitle : item.rawValue).navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) { Button("完成") { closeDialog() }.disabled(busy) }
                     }
@@ -1617,8 +2146,12 @@ struct NativeFriends: View {
                 Text("联系人").font(.headline)
                 if let data { SecondaryBadge(text: "\(data.friends.count) 位") }
                 Spacer()
+            }
+            HStack(spacing: 7) {
                 Button { open(.invite) } label: { Label("添加好友", systemImage: "person.badge.plus") }
                     .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy)
+                Button { open(.invite, kind: .buddy) } label: { Label("找搭子", systemImage: "person.2") }
+                    .buttonStyle(SecondaryButtonStyle()).disabled(busy)
             }
             Button { open(.requests) } label: {
                 let count = social?.incoming.count ?? 0
@@ -1662,6 +2195,7 @@ struct NativeFriends: View {
                         if friend.buddy { SecondaryBadge(text: "训练搭子", green: true) }
                         if friend.checkedIn == true { SecondaryBadge(text: "已打卡", green: true) }
                     }
+                    if let handle = friend.handle { Text(handle).font(.caption.monospaced()).foregroundStyle(SpotterPalette.muted) }
                     if day == nil { Text("查看每日记录").font(.caption).foregroundStyle(SpotterPalette.muted) }
                     else if summary.isEmpty { Text("已打卡").font(.caption).foregroundStyle(SpotterPalette.muted) }
                     ForEach(summary) { workout in
@@ -1701,7 +2235,7 @@ struct NativeFriends: View {
                 HStack { SecondaryTile(icon: "lock", color: secondaryLilac); Text("朋友圈权限").font(.headline) }
                 if let social {
                     privacySwitch("关闭朋友圈", detail: "向普通好友隐藏训练和饮食记录。搭子的共享设置照常生效。", value: social.preferences.closed, key: \.closed)
-                    privacySwitch("允许通过昵称搜索到我", detail: "其他用户可通过站内昵称找到你。", value: social.preferences.discoverable, key: \.discoverable)
+                    privacySwitch("允许通过用户名找到我", detail: "其他用户可输入你的用户名或完整的用户名#编号。", value: social.preferences.discoverable, key: \.discoverable)
                     privacySwitch("仅显示最近 3 天", detail: "你与搭子、好友互相查看最近 3 天的活动。", value: social.preferences.recentOnly, key: \.recentOnly)
                 } else if !error { ProgressView("正在读取朋友圈权限…") }
                 else { Button("重新读取") { Task { await load() } }.buttonStyle(SecondaryButtonStyle()) }
@@ -1727,33 +2261,44 @@ struct NativeFriends: View {
 
     private var invitation: some View {
         VStack(alignment: .leading, spacing: 11) {
-            SecondaryNotice(message: "添加后默认互相分享训练打卡、详情和饮食记录状态，具体范围遵循双方的分享设置。")
-            SecondarySegment(options: InviteTab.allCases, value: $inviteTab, title: \.rawValue)
-            if inviteTab == .search { searchPanel } else { codePanel }
+            if inviteKind == .buddy {
+                SecondaryNotice(message: "对方接受申请后，双方成为训练搭子。分享范围遵循各自的隐私设置。")
+                searchPanel
+            } else {
+                SecondaryNotice(message: "添加后默认互相分享训练打卡、详情和饮食记录状态，具体范围遵循双方的分享设置。")
+                SecondarySegment(options: InviteTab.allCases, value: $inviteTab, title: \.rawValue)
+                if inviteTab == .search { searchPanel } else { codePanel }
+            }
         }
     }
 
     private var searchPanel: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text("好友昵称").font(.subheadline.weight(.semibold))
+            Text("对方的用户名").font(.subheadline.weight(.semibold))
             HStack {
-                TextField("输入对方的站内昵称", text: $search).textFieldStyle(.roundedBorder).submitLabel(.search)
+                TextField("例如 spotter#1234", text: $search).textFieldStyle(.roundedBorder).submitLabel(.search)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityLabel("对方的用户名")
                     .onSubmit { Task { await findFriends() } }
                 Button { Task { await findFriends() } } label: { Label("搜索", systemImage: "magnifyingglass") }
                     .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy || search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if let results {
-                if results.isEmpty { SecondaryNotice(message: "暂无匹配用户。可以请对方开启昵称搜索，或改用邀请码。") }
+                if results.isEmpty {
+                    SecondaryNotice(message: inviteKind == .buddy ? "暂无匹配用户。请核对用户名，或请对方开启用户名搜索。" : "暂无匹配用户。请核对用户名、请对方开启用户名搜索，或使用邀请码。")
+                }
                 ForEach(results) { result in
-                    let waiting = social?.outgoing.contains { $0.personId == result.id } == true
-                    let received = social?.incoming.contains { $0.personId == result.id } == true
+                    let waiting = social?.outgoing.contains { $0.personId == result.id && $0.connectionKind == inviteKind } == true
+                    let received = social?.incoming.contains { $0.personId == result.id && $0.connectionKind == inviteKind } == true
                     HStack {
                         avatar(result.name)
-                        Text(result.name).font(.subheadline.weight(.semibold))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(result.name).font(.subheadline.weight(.semibold))
+                            if let handle = result.handle { Text(handle).font(.caption.monospaced()).foregroundStyle(SpotterPalette.muted) }
+                        }
                         Spacer()
                         Button(received ? "处理申请" : waiting ? "已申请" : "发送申请") {
                             if received { open(.requests) }
-                            else { Task { await mutateSocial(["action": "request", "id": result.id], confirmation: "好友申请已发送。") } }
+                            else { Task { await mutateSocial(["action": "request", "id": result.id, "kind": inviteKind.rawValue], confirmation: inviteKind.requestTitle + "已发送。") } }
                         }.buttonStyle(SecondaryButtonStyle()).disabled(busy || waiting)
                     }.padding(.vertical, 5)
                 }
@@ -1794,7 +2339,7 @@ struct NativeFriends: View {
     private var requests: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let social {
-                if social.incoming.isEmpty && social.outgoing.isEmpty { SecondaryNotice(message: "还没有好友申请。") }
+                if social.incoming.isEmpty && social.outgoing.isEmpty { SecondaryNotice(message: "还没有好友或搭子申请。") }
                 if !social.incoming.isEmpty { requestGroup("收到的申请", values: social.incoming, incoming: true) }
                 if !social.outgoing.isEmpty { requestGroup("发出的申请", values: social.outgoing, incoming: false) }
             } else if !error { ProgressView("正在读取好友申请…") }
@@ -1806,9 +2351,12 @@ struct NativeFriends: View {
             ForEach(values) { request in
                 HStack(spacing: 7) {
                     avatar(request.name)
-                    Text(request.name).font(.subheadline.weight(.semibold))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(request.name).font(.subheadline.weight(.semibold))
+                        Text(request.connectionKind.requestTitle).font(.caption).foregroundStyle(SpotterPalette.muted)
+                    }
                     Spacer(minLength: 3)
-                    if incoming { requestButton("接受", request: request, decision: "accept", confirmation: "好友已添加。") }
+                    if incoming { requestButton("接受", request: request, decision: "accept", confirmation: request.connectionKind == .buddy ? "已连接训练搭子。" : "好友已添加。") }
                     requestButton(incoming ? "拒绝" : "撤回", request: request, decision: incoming ? "decline" : "cancel",
                                   confirmation: incoming ? "已拒绝申请。" : "申请已撤回。")
                 }.padding(11)
@@ -1821,11 +2369,23 @@ struct NativeFriends: View {
             .buttonStyle(SecondaryButtonStyle(primary: decision == "accept")).disabled(busy)
     }
 
-    private func open(_ item: Dialog) {
+    private func open(_ item: Dialog, kind: NativeConnectionKind = .friend) {
         notice = nil
         error = false
-        if item == .invite { inviteTab = .search }
+        if item == .invite {
+            inviteTab = .search
+            inviteKind = kind
+            search = ""
+            results = nil
+        }
         dialog = item
+    }
+
+    private func presentRequestedBuddySearch() {
+        guard buddySearchRequest > handledBuddyRequest else { return }
+        handledBuddyRequest = buddySearchRequest
+        page = .contacts
+        open(.invite, kind: .buddy)
     }
 
     private func closeDialog() { dialog = nil; notice = nil; error = false }
@@ -1847,11 +2407,15 @@ struct NativeFriends: View {
 
     private func findFriends() async {
         let value = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = inviteKind
         guard !busy, !value.isEmpty else { return }
+        guard value.count <= 29 else { report("请输入用户名或完整的用户名#编号。", failure: true); return }
+        notice = nil
         busy = true
         defer { busy = false }
         do {
-            let result = try await api.spotterRead(friendPath([URLQueryItem(name: "search", value: String(value.prefix(80)))]), as: SearchResponse.self)
+            let result = try await api.spotterRead(friendPath([URLQueryItem(name: "search", value: value), URLQueryItem(name: "mode", value: kind.rawValue)]), as: SearchResponse.self)
+            guard dialog == .invite, inviteKind == kind, search.trimmingCharacters(in: .whitespacesAndNewlines) == value else { return }
             results = result.results
         } catch { report(error.localizedDescription, failure: true) }
     }
@@ -1873,7 +2437,9 @@ struct NativeFriends: View {
         busy = true
         defer { busy = false }
         do {
-            let response = try await api.spotterSend(socialPath, body: body)
+            var request = body
+            request["expectedOwner"] = owner
+            let response = try await api.spotterSend("/api/friends?includeBuddy=1", body: request)
             social = try JSONDecoder().decode(SecondarySocial.self, from: response)
             if body["decision"] as? String == "accept" { await load(); await refreshPlans() }
             if body["action"] as? String == "social-preferences" { feed = nil }
