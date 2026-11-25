@@ -4,7 +4,7 @@ import { categories } from "@/features/plans/model";
 import { HttpError } from "@/server/http";
 import { anthropicUsageCost, reserveAiBudget, settleAiBudget } from "./budget";
 import { coachDraftEnd, coachModel, maxCoachMessageLength, maxDraftMoves, maxDraftPlans, normalizeCoachDraft,
-  type CoachRequest, type CoachResponse } from "./model";
+  type CoachQuota, type CoachRequest, type CoachResponse } from "./model";
 
 const messageUrl = "https://api.anthropic.com/v1/messages";
 const providerError = z.object({ error: z.object({
@@ -75,10 +75,11 @@ async function postAnthropicMessage(key: string, body: Parameters<AnthropicReque
   return response;
 }
 
-export function anthropicRequester(db: D1Database, owner: string, key: string): AnthropicRequester {
+export function anthropicRequester(db: D1Database, owner: string, key: string, receivedQuota?: (quota: CoachQuota) => void): AnthropicRequester {
   return async (body, signal) => {
     signal.throwIfAborted();
-    const reservation = await reserveAiBudget(db, owner, body.max_tokens);
+    const reservation = await reserveAiBudget(db, owner, body.max_tokens, new Date(), Boolean(receivedQuota));
+    if (reservation.quota) receivedQuota?.(reservation.quota);
     const response = await postAnthropicMessage(key, body, signal);
     if (!response.ok) throw new HttpError(503, "站内 AI 服务暂时不可用，请稍后重试。");
     const decoded: unknown = await response.json();

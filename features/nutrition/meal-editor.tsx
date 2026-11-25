@@ -21,7 +21,7 @@ const nutrients = [
 type Mode = "lookup" | "manual" | "personal" | "photo" | "meal-photo";
 type Values = Food["per100g"];
 
-export function MealEditor({ owner, meal, initial, initialFood, initialGrams, initialQuery = "", coachDate, preferAll = false,
+export function MealEditor({ owner, meal, initial, initialFood, initialGrams, initialQuery = "", coachDate, fromCoach, preferAll = false,
   personal, recent, savedPortions, close, onLog, onSaveFood, onSavePortions, onMealPhoto }: {
   owner: string;
   meal: MealEntry["meal"];
@@ -30,6 +30,7 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
   initialGrams?: number;
   initialQuery?: string;
   coachDate?: string;
+  fromCoach?: boolean;
   preferAll?: boolean;
   personal: PersonalFood[];
   recent: RecentMealFood[];
@@ -128,7 +129,7 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
 
   const form = <form onSubmit={save}>
       <div className="dialog-body feature-stack">
-        {photo ? <FoodPhoto owner={owner} onBack={coachDate ? undefined : () => setMode("lookup")}
+        {photo ? <FoodPhoto owner={owner} fromCoach={fromCoach} onBack={coachDate ? undefined : () => setMode("lookup")}
           onManual={() => setManual(mode === "meal-photo" ? "manual" : "personal")} onMeal={mode === "meal-photo" ? (draft) => {
           setName(draft.name.slice(0, 96) + "（估算）");
           setAmount(String(draft.grams ?? ""));
@@ -224,9 +225,11 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
     className="food-dialog" onClose={() => { if (!busy) close(); }}>{form}</Dialog>;
 }
 
-export type CoachMealRequest = { owner: string; id: string; date: string; meal: MealEntry["meal"] };
+export type CoachMealRequest = { owner: string; id: string; date: string; meal: MealEntry["meal"]; fromCoach?: boolean };
 
-export function CoachMealPhoto({ request: { owner, id, date, meal }, onSaved }: { request: CoachMealRequest; onSaved: (entry: MealEntry) => void }) {
+export function CoachMealPhoto({ request: { owner, id, date, meal, fromCoach }, onSaved }: {
+  request: CoachMealRequest; onSaved: (entry: MealEntry) => void;
+}) {
   const store = useLibrary(true, date);
   const save = (item: PersonalFood | FoodPortions) => store.save(item, undefined, owner);
   const active = useRef(false);
@@ -235,7 +238,7 @@ export function CoachMealPhoto({ request: { owner, id, date, meal }, onSaved }: 
     return () => { active.current = false; };
   }, []);
 
-  return <MealEditor owner={owner} meal={meal} coachDate={date} close={() => { }}
+  return <MealEditor owner={owner} meal={meal} coachDate={date} fromCoach={fromCoach} close={() => { }}
     personal={store.rows.filter((item) => item.kind === "food")} recent={store.recentMeals}
     savedPortions={store.rows.filter((item) => item.kind === "food-portions")} onSaveFood={save} onSavePortions={save}
     onLog={async (entry) => {

@@ -25,6 +25,8 @@ const second = { userId: "synthetic-second", email: "second@example.invalid" };
 const outsider = { userId: "synthetic-outsider", email: "outsider@example.invalid" };
 const date = "2026-11-25";
 const timestamp = date + "T12:00:00Z";
+const blankQuota = { dailyLimit: 200, monthlyLimit: 2000, dailyRemaining: 200, monthlyRemaining: 2000,
+  dailyResetsAt: "2026-11-26T00:00:00.000Z", monthlyResetsAt: "2026-12-01T00:00:00.000Z" };
 const monthlyCap = 10_000_000_000;
 const usage = { input_tokens: 300, output_tokens: 40, inference_geo: "global", service_tier: "standard" };
 const knownCost = 50_000;
@@ -66,9 +68,22 @@ function setup(t) {
     prepare(sql) {
       const statement = sqlite.prepare(sql);
       return { bind(...args) {
-        return { async all() { return { results: statement.all(...args) }; },
-          async run() { return { meta: { changes: Number(statement.run(...args).changes) } }; } };
+        const execute = () => statement.columns().length ? { results: statement.all(...args), meta: { changes: 0 } }
+          : { results: [], meta: { changes: Number(statement.run(...args).changes) } };
+        return { execute, async first() { return statement.get(...args) ?? null; },
+          async all() { return execute(); }, async run() { return execute(); } };
       } };
+    },
+    async batch(statements) {
+      sqlite.exec("BEGIN IMMEDIATE");
+      try {
+        const results = statements.map((statement) => statement.execute());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
     },
   };
   Object.assign(runtime.env, { DB: db, ANTHROPIC_API_KEY: key, AI_COACH_ENABLED: "true" });
@@ -96,7 +111,10 @@ function setup(t) {
   const charged = (account, month = date.slice(0, 7)) => sqlite.prepare(
     "SELECT charged_nanos FROM ai_coach_budget WHERE month = ? AND owner = ?",
   ).get(month, account.userId)?.charged_nanos ?? 0;
-  return { sqlite, calls, charged, respond: (respond) => { nextResponse = respond; } };
+  const seedMessages = (account, day, count) => sqlite.prepare(
+    "INSERT INTO ai_coach_quota (day, owner, requests) VALUES (?, ?, ?)",
+  ).run(Date.parse(day) / 86_400_000, account.userId, count);
+  return { sqlite, calls, charged, seedMessages, respond: (respond) => { nextResponse = respond; } };
 }
 
 function get(user) {
@@ -143,11 +161,15 @@ test("in-site photo shares the monthly Claude budget with chat and returns only 
   respond(providerText);
   await checked(post(owner, chat));
   assert.equal(charged(owner), 2 * knownCost);
+  const quota = { ...blankQuota, dailyRemaining: 199, monthlyRemaining: 1999 };
+  assert.deepEqual((await checked(get(owner))).quota, quota);
   assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM personal_library").get().count, 0);
   sqlite.prepare("UPDATE ai_coach_budget SET charged_nanos = ? WHERE owner = ?").run(monthlyCap, owner.userId);
   assert.match((await checked(post(owner, chat), 429)).error, /本月 AI 额度不足/);
   assert.match((await checked(post(owner, draftRequest), 429)).error, /本月 AI 额度不足/);
   assert.match((await checked(photoPost(owner, photo), 429)).error, /本月 AI 额度不足/);
+  assert.match((await checked(photoPost(owner, { ...photo, inCoach: true }), 429)).error, /本月 AI 额度不足/);
+  assert.deepEqual((await checked(get(owner))).quota, quota, "A failed spend reservation should not consume a message");
   assert.equal(calls.length, 2);
 });
 
@@ -218,14 +240,14 @@ test("AI coach enables every signed-in account when configured and validates ide
   const { calls } = setup(t);
   await checked(get(null), 401);
   await checked(post(null, chat), 401);
-  assert.deepEqual(await checked(get(outsider)), { enabled: true, models: ["haiku"] });
+  assert.deepEqual(await checked(get(outsider)), { enabled: true, models: ["haiku"], quota: blankQuota });
   runtime.env.AI_COACH_ENABLED = "false";
   assert.deepEqual(await checked(get(owner)), { enabled: false, models: [] });
   runtime.env.AI_COACH_ENABLED = "true";
   delete runtime.env.ANTHROPIC_API_KEY;
   assert.deepEqual(await checked(get(owner)), { enabled: false, models: [] });
   runtime.env.ANTHROPIC_API_KEY = key;
-  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"] });
+  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"], quota: blankQuota });
   await checked(post(owner, chat, "https://not-my-site.invalid"), 403);
   await checked(post(owner, chat, null), 403);
   await checked(post(owner, { ...chat, owner: second.userId }), 400);
@@ -237,7 +259,7 @@ test("AI coach enables every signed-in account when configured and validates ide
   await checked(post(owner, { ...draftRequest, model: "unknown" }), 400);
   assert.equal(calls.length, 0);
   runtime.env.AI_COACH_SONNET_ENABLED = "true";
-  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"] });
+  assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"], quota: blankQuota });
   await checked(post(outsider, chat));
 });
 
@@ -358,6 +380,52 @@ test("monthly usage is isolated by signed-in account and resets at the UTC month
   assert.equal(charged(owner, "2026-12"), knownCost);
   assert.equal(charged(second, "2026-12"), 0);
   assert.equal(charged(owner), 21 * knownCost);
+});
+
+test("concurrent conversation requests allow the 200th message, then block until the next UTC day", async (t) => {
+  const { seedMessages, calls, charged } = setup(t);
+  seedMessages(owner, date, 199);
+  const history = [{ role: "user", content: "之前的提问" }, { role: "assistant", content: "之前的答复" }, ...chat.messages];
+  const attempts = await Promise.all([post(owner, { ...chat, messages: history }), post(owner, chat)]);
+  const allowed = attempts.find((response) => response.status === 200);
+  const denied = attempts.find((response) => response.status === 429);
+  const quota = { ...blankQuota, dailyRemaining: 0, monthlyRemaining: 1800 };
+  assert.deepEqual((await checked(allowed)).quota, quota);
+  const blocked = await checked(denied, 429);
+  assert.equal(blocked.code, "coach_daily_limit");
+  assert.deepEqual(blocked.quota, quota);
+  assert.equal(calls.length, 1);
+  assert.equal(charged(owner), knownCost);
+  assert.deepEqual((await checked(get(second))).quota, blankQuota);
+
+  t.mock.timers.setTime(Date.parse("2026-11-26T00:00:00Z"));
+  const next = await checked(post(owner, chat));
+  assert.deepEqual(next.quota, { ...blankQuota, dailyRemaining: 199, monthlyRemaining: 1799, dailyResetsAt: "2026-11-27T00:00:00.000Z" });
+});
+
+test("conversation photos share the 2000-message UTC monthly cap and unrelated photo tools do not", async (t) => {
+  const { seedMessages, calls, respond, charged } = setup(t);
+  for (let day = 1; day <= 10; day++) seedMessages(owner, `2026-11-${String(day).padStart(2, "0")}`, day === 10 ? 199 : 200);
+  t.mock.timers.setTime(Date.parse("2026-11-30T23:59:59Z"));
+  const draft = { name: "米饭和煎蛋", grams: 215, calories: 346.25, protein: 14, carbs: 49, fat: 10 };
+  respond(photoTool("prepare_food_photo", draft));
+  const quota = { ...blankQuota, dailyRemaining: 199, monthlyRemaining: 0, dailyResetsAt: "2026-12-01T00:00:00.000Z" };
+  assert.deepEqual(await checked(photoPost(owner, { ...photo, inCoach: true })), { draft, quota });
+  for (const denied of [post(owner, chat), photoPost(owner, { ...photo, inCoach: true })]) {
+    const blocked = await checked(denied, 429);
+    assert.equal(blocked.code, "coach_monthly_limit");
+    assert.deepEqual(blocked.quota, quota);
+  }
+  assert.equal(calls.length, 1);
+  assert.equal(charged(owner), knownCost);
+  assert.deepEqual(await checked(photoPost(owner, photo)), { draft });
+  assert.deepEqual((await checked(get(owner))).quota, quota);
+
+  t.mock.timers.setTime(Date.parse("2026-12-01T00:00:00Z"));
+  respond(providerText);
+  assert.deepEqual((await checked(post(owner, chat))).quota, { ...blankQuota, dailyRemaining: 199, monthlyRemaining: 1999,
+    dailyResetsAt: "2026-12-02T00:00:00.000Z", monthlyResetsAt: "2027-01-01T00:00:00.000Z" });
+  assert.equal(charged(owner, "2026-12"), knownCost);
 });
 
 test("a missing provider usage record keeps the held funds with no paid retry", async (t) => {

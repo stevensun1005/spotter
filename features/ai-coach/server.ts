@@ -5,7 +5,8 @@ import { ownTemplateJoin } from "@/features/plans/template-server";
 import { HttpError } from "@/server/http";
 import { anthropicRequester, askAnthropic } from "./anthropic";
 import { guidedContext } from "./guided";
-import { coachCalendarRange, coachModel, type CoachConfig, type CoachRequest } from "./model";
+import { coachCalendarRange, coachModel, type CoachConfig, type CoachQuota, type CoachRequest } from "./model";
+import { readCoachQuota } from "./quota";
 
 const maxCalendarPlans = 8;
 const maxCalendarMoves = 8;
@@ -16,16 +17,16 @@ function credentials() {
   return { key, db: env.DB };
 }
 
-export function aiCoachConfig(): CoachConfig {
+export async function aiCoachConfig(owner?: string): Promise<CoachConfig> {
   const available = credentials();
-  return available ? { enabled: true, models: [coachModel] }
+  return available ? { enabled: true, models: [coachModel], quota: owner ? await readCoachQuota(available.db, owner) : undefined }
     : { enabled: false, models: [] };
 }
 
-export function coachAiRequester(owner: string) {
+export function coachAiRequester(owner: string, receivedQuota?: (quota: CoachQuota) => void) {
   const available = credentials();
   if (!available) throw new HttpError(503, "站内 AI 暂未启用。");
-  return anthropicRequester(available.db, owner, available.key);
+  return anthropicRequester(available.db, owner, available.key, receivedQuota);
 }
 
 function projectPlan(plan: Plan, maxMoves: number) {
@@ -72,5 +73,7 @@ export async function coachReply(owner: string, request: CoachRequest) {
       JSON.stringify(request.priorDraft.plans.map(({ date, title, category, minutes, durationNote, defaultRestSeconds, video, exercises }) =>
         ({ date, title, category, minutes, durationNote, defaultRestSeconds, video, exercises }))));
   }
-  return askAnthropic(anthropicRequester(db, owner, key), request, context.join("\n\n"));
+  let quota: CoachQuota | undefined;
+  const reply = await askAnthropic(anthropicRequester(db, owner, key, (value) => { quota = value; }), request, context.join("\n\n"));
+  return { ...reply, quota };
 }

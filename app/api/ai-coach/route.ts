@@ -1,6 +1,7 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { aiCoachConfig, coachReply } from "@/features/ai-coach/server";
 import { coachRequestSchema } from "@/features/ai-coach/model";
+import { CoachQuotaError } from "@/features/ai-coach/quota";
 import { HttpError, json, readJson } from "@/server/http";
 
 export const dynamic = "force-dynamic";
@@ -13,13 +14,14 @@ function coachApi(handler: (owner: string, request: Request) => Promise<Response
       return await handler(user.userId, request);
     } catch (error) {
       // Raw exceptions can contain private request text or provider details.
+      if (error instanceof CoachQuotaError) return json({ error: error.message, code: error.code, quota: error.quota }, error.status);
       return error instanceof HttpError ? json({ error: error.message }, error.status)
         : json({ error: "AI 教练暂时无法处理请求，请稍后重试。" }, 500);
     }
   };
 }
 
-export const GET = coachApi(() => json(aiCoachConfig()));
+export const GET = coachApi(async (owner) => json(await aiCoachConfig(owner)));
 
 export const POST = coachApi(async (owner, request) => {
   const input = await readJson(request, coachRequestSchema, 128_000);

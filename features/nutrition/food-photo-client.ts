@@ -1,6 +1,7 @@
 import { foodPhotoDraftSchema, mealPhotoDraftSchema, photoNeedsSchema, proteinPhotoProductSchema,
   type FoodPhotoDraft, type MealPhotoDraft, type ProteinPhotoProduct } from "./food-photo-model";
 import { maxPhotoBase64Length, type FoodPhotoRequest } from "./food-photo-request";
+import type { CoachQuota } from "@/features/ai-coach/model";
 
 const photoEndpoint = "/api/food-photo";
 const unreadablePhoto = "照片无法读取，请重新拍摄或选择一张 JPG 或 PNG。";
@@ -78,23 +79,29 @@ export async function fetchFoodPhotoConfiguration(owner: string, signal: AbortSi
   return Boolean(owner && result.enabled === true);
 }
 
-async function postPhoto(source: PhotoSource, notes: string, owner: string, mode: FoodPhotoRequest["mode"], cancel: AbortSignal) {
+async function postPhoto(source: PhotoSource, notes: string, owner: string, mode: FoodPhotoRequest["mode"], cancel: AbortSignal,
+  inCoach = false, onQuota?: (quota: CoachQuota) => void) {
   if (!owner) throw new Error("请先登录训练搭子。");
   const signal = AbortSignal.any([cancel, AbortSignal.timeout(45_000)]);
   const image = await encodeSource(source, signal);
   signal.throwIfAborted();
   const response = await fetch(photoEndpoint, {
     method: "POST", headers: { "Content-Type": "application/json" }, signal,
-    body: JSON.stringify({ expectedOwner: owner, mode, image, notes: mode === "protein" ? undefined : notes.trim() }),
+    body: JSON.stringify({ expectedOwner: owner, mode, image, notes: mode === "protein" ? undefined : notes.trim(),
+      inCoach: inCoach ? true : undefined }),
   });
-  const result = await response.json().catch(() => null) as { draft?: unknown; product?: unknown; needs?: string[]; error?: string } | null;
+  const result = await response.json().catch(() => null) as {
+    draft?: unknown; product?: unknown; needs?: string[]; error?: string; quota?: CoachQuota;
+  } | null;
   signal.throwIfAborted();
+  if (result?.quota) onQuota?.(result.quota);
   if (!response.ok) throw new Error(result?.error || photoRetryMessage);
   return result;
 }
 
-export async function recognizeMealPhoto(source: PhotoSource, notes: string, owner: string, signal: AbortSignal): Promise<PhotoNeeds | PhotoDraft<MealPhotoDraft & { grams: number }>> {
-  const result = await postPhoto(source, notes, owner, "meal", signal);
+export async function recognizeMealPhoto(source: PhotoSource, notes: string, owner: string, signal: AbortSignal,
+  inCoach = false, onQuota?: (quota: CoachQuota) => void): Promise<PhotoNeeds | PhotoDraft<MealPhotoDraft & { grams: number }>> {
+  const result = await postPhoto(source, notes, owner, "meal", signal, inCoach, onQuota);
   const details = photoNeedsSchema.safeParse(result);
   if (details.success) return { kind: "needs", needs: details.data.needs };
   const parsed = mealPhotoDraftSchema.safeParse(result?.draft);
@@ -111,8 +118,9 @@ export async function recognizeLabelPhoto(source: PhotoSource, notes: string, ow
   return { kind: "draft", draft: parsed.data };
 }
 
-export async function recognizeProteinPhoto(source: PhotoSource, owner: string, signal: AbortSignal): Promise<PhotoNeeds | { kind: "product"; product: ProteinPhotoProduct }> {
-  const result = await postPhoto(source, "", owner, "protein", signal);
+export async function recognizeProteinPhoto(source: PhotoSource, owner: string, signal: AbortSignal,
+  inCoach = false, onQuota?: (quota: CoachQuota) => void): Promise<PhotoNeeds | { kind: "product"; product: ProteinPhotoProduct }> {
+  const result = await postPhoto(source, "", owner, "protein", signal, inCoach, onQuota);
   const details = photoNeedsSchema.safeParse(result);
   if (details.success) return { kind: "needs", needs: details.data.needs };
   const parsed = proteinPhotoProductSchema.safeParse(result?.product);

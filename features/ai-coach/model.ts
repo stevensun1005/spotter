@@ -45,8 +45,16 @@ export const coachRequestSchema = z.object({
 
 export type CoachModel = typeof coachModel;
 export type CoachRequest = z.infer<typeof coachRequestSchema>;
-export type CoachConfig = { enabled: boolean; models: CoachModel[] };
-export type CoachResponse = { reply: string; draft?: { plans: Plan[] }; model: CoachModel };
+export type CoachQuota = {
+  dailyLimit: number;
+  monthlyLimit: number;
+  dailyRemaining: number;
+  monthlyRemaining: number;
+  dailyResetsAt: string;
+  monthlyResetsAt: string;
+};
+export type CoachConfig = { enabled: boolean; models: CoachModel[]; quota?: CoachQuota };
+export type CoachResponse = { reply: string; draft?: { plans: Plan[] }; model: CoachModel; quota?: CoachQuota };
 
 export function coachCalendarRange(date: string, range: CoachRequest["contextRange"]) {
   if (range === "day") return { from: date, to: date };

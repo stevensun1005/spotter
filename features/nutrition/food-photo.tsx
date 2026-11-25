@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Camera, ImageUp, WandSparkles } from "lucide-react";
+import type { CoachQuota } from "@/features/ai-coach/model";
 import { useAnthropicSharing } from "@/features/ai-coach/sharing-consent";
 import { errorText } from "@/shared/client";
 import { fetchFoodPhotoConfiguration, photoRetryMessage, recognizeLabelPhoto, recognizeMealPhoto, recognizeProteinPhoto,
@@ -11,8 +12,11 @@ import { maxPhotoNoteLength } from "./food-photo-request";
 
 const unavailable = "这个账号暂未启用站内 AI 识别，可以直接手动记录。";
 
+export const CoachPhotoQuota = createContext<{ limitMessage?: string; updateQuota: (quota: CoachQuota) => void } | undefined>(undefined);
+
 type FoodPhotoProps = {
   owner: string;
+  fromCoach?: boolean;
   onBack?: () => void;
   onManual?: () => void;
 } & ({
@@ -29,7 +33,7 @@ export function FoodPhoto(props: FoodPhotoProps) {
   return <FoodPhotoForm key={props.owner} {...props} />;
 }
 
-function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: FoodPhotoProps) {
+function FoodPhotoForm({ owner, fromCoach = false, onApply, onBack, onManual, onMeal, onProtein }: FoodPhotoProps) {
   const [photo, setPhoto] = useState<string>();
   const [ready, setReady] = useState(false);
   const [notes, setNotes] = useState("");
@@ -41,6 +45,8 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: 
   const preview = useRef<HTMLImageElement>(null);
   const active = useRef<AbortController | undefined>(undefined);
   const { withConsent, prompt: sharingPrompt } = useAnthropicSharing(owner);
+  const quota = useContext(CoachPhotoQuota);
+  const blocked = fromCoach && Boolean(quota?.limitMessage);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -58,7 +64,7 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: 
   useEffect(() => () => { if (photo) URL.revokeObjectURL(photo); }, [photo]);
 
   function pickPhoto(file?: File) {
-    if (!file || busy) return;
+    if (!file || busy || blocked) return;
     setNeeds([]);
     setError("");
     setReady(false);
@@ -73,11 +79,12 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: 
 
   function recognize() {
     const picture = preview.current;
-    if (!configuration?.enabled || !picture || !ready || active.current) return;
+    if (!configuration?.enabled || !picture || !ready || active.current || blocked) return;
     withConsent(() => { if (preview.current === picture) void sendPhoto(picture); });
   }
 
   async function sendPhoto(picture: HTMLImageElement) {
+    if (blocked) return;
     const controller = new AbortController();
     active.current = controller;
     setBusy(true);
@@ -85,11 +92,11 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: 
     setNeeds([]);
     try {
       if (onMeal) {
-        const result = await recognizeMealPhoto(picture, notes, owner, controller.signal);
+        const result = await recognizeMealPhoto(picture, notes, owner, controller.signal, fromCoach, quota?.updateQuota);
         if (result.kind === "needs") setNeeds(result.needs);
         else onMeal(result.draft);
       } else if (onProtein) {
-        const result = await recognizeProteinPhoto(picture, owner, controller.signal);
+        const result = await recognizeProteinPhoto(picture, owner, controller.signal, fromCoach, quota?.updateQuota);
         if (result.kind === "needs") setNeeds(result.needs);
         else onProtein(result.product);
       } else {
@@ -115,11 +122,11 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: 
 
   const pickers = <div className="food-photo-pickers">
     <label className="button outline"><Camera size={17} aria-hidden="true" /> {needs.length ? "重新拍照" : "拍照"}
-      <input className="sr-only" type="file" accept="image/*" capture="environment" disabled={busy}
+      <input className="sr-only" type="file" accept="image/*" capture="environment" disabled={busy || blocked}
         onChange={(event) => { pickPhoto(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
     </label>
     <label className="button outline"><ImageUp size={17} aria-hidden="true" /> {needs.length ? "换一张照片" : "从相册选择"}
-      <input className="sr-only" type="file" accept="image/*" disabled={busy}
+      <input className="sr-only" type="file" accept="image/*" disabled={busy || blocked}
         onChange={(event) => { pickPhoto(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
     </label>
   </div>;
@@ -149,7 +156,7 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: 
       {busy && <p className="sr-only" role="status">正在识别照片。</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="food-alternatives">
-        <button className="button primary" type="button" disabled={!ready || busy} onClick={recognize}>
+        <button className="button primary" type="button" disabled={!ready || busy || blocked} onClick={recognize}>
           <WandSparkles size={17} aria-hidden="true" /> {busy ? "正在识别…" : needs.length ? "重新识别" : "识别照片"}
         </button>
         {busy ? <button className="text-button" type="button" onClick={cancelRecognition}>取消识别</button>

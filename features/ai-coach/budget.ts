@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { HttpError } from "@/server/http";
+import type { CoachQuota } from "./model";
+import { reserveCoachMessage } from "./quota";
 
 const monthlyLimit = 10_000_000_000; // US dollars in integer nanodollars.
 const maxInputTokens = 1_000_000;
@@ -13,23 +15,32 @@ const cacheWrite5mRate = 125;
 const cacheWrite1hRate = 200;
 const cacheReadRate = 10;
 
-type AiBudgetReservation = Readonly<{ month: string; amount: number }>;
+type AiBudgetReservation = Readonly<{ month: string; amount: number; quota?: CoachQuota }>;
 const pending = new WeakMap<AiBudgetReservation, { db: D1Database; owner: string }>();
 
-export async function reserveAiBudget(db: D1Database, owner: string, maxOutputTokens: number, now = new Date()) {
+export async function reserveAiBudget(db: D1Database, owner: string, maxOutputTokens: number, now = new Date(), countMessage = false) {
   if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > maxHaikuOutputTokens) {
     throw new Error("Invalid Haiku output token limit");
   }
   const month = now.toISOString().slice(0, 7);
   // Count Tokens is an estimate. Hold the published worst case until usage is known.
   const amount = (maxInputTokens * cacheWrite1hRate + maxOutputTokens * outputRate) * longContextMultiplier;
-  const result = await db.prepare(
-    "INSERT INTO ai_coach_budget (month, owner, charged_nanos) VALUES (?, ?, ?) " +
-    "ON CONFLICT(month, owner) DO UPDATE SET charged_nanos = ai_coach_budget.charged_nanos + excluded.charged_nanos " +
-    "WHERE ai_coach_budget.charged_nanos <= ? - excluded.charged_nanos",
-  ).bind(month, owner, amount, monthlyLimit).run();
-  if (result.meta.changes !== 1) throw new HttpError(429, "本月 AI 额度不足，下月 1 日（UTC）重置。");
-  const reservation = Object.freeze({ month, amount });
+  let accepted: boolean;
+  let quota: CoachQuota | undefined;
+  if (countMessage) {
+    const result = await reserveCoachMessage(db, owner, now, { month, amount, limit: monthlyLimit });
+    accepted = result.accepted;
+    quota = result.quota;
+  } else {
+    const result = await db.prepare(
+      "INSERT INTO ai_coach_budget (month, owner, charged_nanos) VALUES (?, ?, ?) " +
+      "ON CONFLICT(month, owner) DO UPDATE SET charged_nanos = ai_coach_budget.charged_nanos + excluded.charged_nanos " +
+      "WHERE ai_coach_budget.charged_nanos <= ? - excluded.charged_nanos",
+    ).bind(month, owner, amount, monthlyLimit).run();
+    accepted = result.meta.changes === 1;
+  }
+  if (!accepted) throw new HttpError(429, "本月 AI 额度不足，下月 1 日（UTC）重置。");
+  const reservation = Object.freeze({ month, amount, quota });
   pending.set(reservation, { db, owner });
   return reservation;
 }

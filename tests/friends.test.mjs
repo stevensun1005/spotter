@@ -22,7 +22,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
   return next(specifier, context);
 } });
-const { buddyCheckins, changeFriends, friendDay, friendFeed, listFriends, shareAccess } = await import("../features/friends/server.ts");
+const { buddyCheckins, changeFriendFeedCheer, changeFriends, friendDay, friendFeed, listFriends, shareAccess } = await import("../features/friends/server.ts");
 const { changeSocial } = await import("../features/friends/social-server.ts");
 
 const { disconnectPair, sendPairCheer } = await import("../features/pair/server.ts");
@@ -279,10 +279,14 @@ test("friends feed limits dates and omits unshared workout metadata", async (t) 
   assert.deepEqual(days.map(({ date }) => date), ["2026-11-25", "2026-11-24", "2026-11-23"]);
   assert.deepEqual(days[0].items, [{
     friend: { id: sam.id, name: sam.name, buddy: true },
+    own: false, cheer: { count: 0, given: false, available: true },
     workouts: [{ id: "latest", title: "力量", category: "力量训练", minutes: 25, sets: 1, exercises: 1 }],
   }]);
   assert.deepEqual(days[1].items, []);
-  assert.deepEqual(days[2].items[1], { friend: { id: lee.id, name: lee.name, buddy: false }, workouts: null });
+  assert.equal(days[2].items[0].own, true);
+  assert.equal(days[2].items[0].workouts[0].id, "log");
+  assert.deepEqual(days[2].items[2], { friend: { id: lee.id, name: lee.name, buddy: false }, workouts: null,
+    own: false, cheer: { count: 0, given: false, available: true } });
   const serialized = JSON.stringify(days);
   for (const privateText of ["私人来源", "只给自己看的备注", "燕麦片", outsider.id, "future", '"old"']) {
     assert.equal(serialized.includes(privateText), false);
@@ -290,8 +294,40 @@ test("friends feed limits dates and omits unshared workout metadata", async (t) 
   await setPrivacy(db, sam, { closed: true });
   await setPrivacy(db, lee, { closed: true });
   assert.deepEqual((await friendFeed(db, alex.id, "2026-11-25")).days.map(({ items }) => items.map(({ friend }) => friend.id)),
-    [[sam.id], [], [sam.id]]);
+    [[sam.id], [], [alex.id, sam.id]]);
   assert.deepEqual((await listFriends(db, alex.id)).friends.map(({ id }) => id), [sam.id, lee.id]);
+});
+
+test("feed cheers are reversible, one per friend and day, and respect current visibility", async (t) => {
+  const db = fixture(t);
+  const today = "2026-11-25";
+  for (const person of [alex, sam, lee]) seedRecords(db, person.id);
+  assert.deepEqual((await friendFeed(db, alex.id, today, alex.name)).days[2].items.map(({ friend }) => friend.id), [alex.id]);
+  pair(db);
+  db.sqlite.prepare("INSERT INTO friend_links (first_id, second_id, first_name, second_name, linked) VALUES (?, ?, ?, ?, 1)")
+    .run(alex.id, lee.id, alex.name, lee.name);
+  const cheer = (owner, peer, day = date, active = true) => changeFriendFeedCheer(db, owner, peer, day, active, today);
+  const reaction = async (who, person) => (await friendFeed(db, who, today)).days[2].items.find(({ friend }) => friend.id === person)?.cheer;
+  await assert.rejects(cheer(alex.id, alex.id), { status: 400 });
+  await assert.rejects(cheer("unrelated", alex.id), { status: 404 });
+  await assert.rejects(cheer(sam.id, alex.id, "2026-11-22"), { status: 404 });
+  await assert.rejects(cheer(sam.id, alex.id, today), { status: 404 });
+  await cheer(sam.id, alex.id);
+  await cheer(sam.id, alex.id);
+  await cheer(lee.id, alex.id);
+  assert.deepEqual(await reaction(sam.id, alex.id), { count: 2, given: true, available: true });
+  assert.deepEqual(await reaction(alex.id, alex.id), { count: 2, given: false, available: false });
+  await cheer(sam.id, alex.id, date, false);
+  await cheer(sam.id, alex.id, date, false);
+  assert.deepEqual(await reaction(sam.id, alex.id), { count: 1, given: false, available: true });
+  await setPrivacy(db, alex, { closed: true });
+  assert.equal(await reaction(lee.id, alex.id), undefined);
+  assert.deepEqual(await reaction(sam.id, alex.id), { count: 0, given: false, available: true });
+  await assert.rejects(cheer(lee.id, alex.id), { status: 404 });
+  await cheer(sam.id, alex.id);
+  assert.deepEqual(await reaction(alex.id, alex.id), { count: 1, given: false, available: false });
+  await changeFriends(db, sam, { action: "share", id: alex.id, sharing: disabled });
+  assert.equal((await friendFeed(db, alex.id, today)).days[2].items[0].own, true);
 });
 
 test("friends API requires authentication and routes social and legacy operations", async (t) => {
@@ -307,11 +343,39 @@ test("friends API requires authentication and routes social and legacy operation
   assert.equal((await loadFriends(new Request(endpoint + "?feed=1"))).status, 401);
   assert.equal((await post({ action: "invite" })).status, 401);
   runtime.owner = alex.id;
+  const reaction = { action: "feed-cheer", friend: sam.id, date, active: true, expectedOwner: lee.id };
+  assert.equal((await post(reaction)).status, 403);
+  assert.equal((await post({ ...reaction, expectedOwner: alex.id })).status, 404);
   const preferences = { closed: true, discoverable: false, recentOnly: true };
   assert.deepEqual(await (await post({ action: "social-preferences", preferences })).json(), { preferences, incoming: [], outgoing: [] });
   assert.deepEqual(await (await loadFriends(new Request(endpoint + "?section=social"))).json(), { preferences, incoming: [], outgoing: [] });
   assert.deepEqual(await (await loadFriends(new Request(endpoint + "?search=somebody"))).json(), { results: [] });
   assert.match((await (await post({ action: "invite" })).json()).invite.code, /^[a-f0-9]{32}$/);
+});
+
+test("feed API supports existing app versions and returns the current owner's updated reaction", async (t) => {
+  const db = fixture(t);
+  runtime.owner = alex.id;
+  runtime.env.DB = db;
+  t.after(() => { runtime.owner = alex.id; runtime.env.DB = undefined; });
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-25T12:00:00Z") });
+  pair(db);
+  for (const person of [alex, sam]) seedRecords(db, person.id);
+  const origin = "https://example.invalid";
+  const endpoint = origin + "/api/friends?feed=";
+  const oldFeed = await (await loadFriends(new Request(endpoint + "1"))).json();
+  assert.deepEqual(oldFeed.days[2].items.map(({ friend }) => friend.id), [sam.id]);
+  const newFeed = await (await loadFriends(new Request(endpoint + "2"))).json();
+  assert.deepEqual(newFeed.days[2].items.map(({ friend }) => friend.id), [alex.id, sam.id]);
+  const response = await mutateFriends(new Request(endpoint + "2", {
+    method: "POST", headers: { origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "feed-cheer", friend: sam.id, date, active: true, expectedOwner: alex.id }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).days[2].items[1].cheer, { count: 1, given: true, available: true });
+  runtime.owner = sam.id;
+  const after = await (await loadFriends(new Request(endpoint + "2"))).json();
+  assert.deepEqual(after.days[2].items[0].cheer, { count: 1, given: false, available: false });
 });
 
 test("three-day privacy remains reciprocal when a buddy closes their friends circle", async (t) => {
