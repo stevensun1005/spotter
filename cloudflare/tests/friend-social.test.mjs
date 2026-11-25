@@ -21,11 +21,12 @@ const { defaultSocialPreferences } = await import("../features/friends/social-mo
 const { changeFriends, listFriends } = await import("../features/friends/server.ts");
 const { disconnectPair, joinPair } = await import("../features/pair/server.ts");
 
-function fixture(t) {
+function fixture(t, beforeMigration = () => {}) {
   const sqlite = new DatabaseSync(":memory:");
   t.after(() => sqlite.close());
   const migrations = new URL("drizzle/", root);
   for (const name of readdirSync(migrations).filter((file) => file.endsWith(".sql")).sort()) {
+    beforeMigration(sqlite, name);
     sqlite.exec(readFileSync(new URL(name, migrations), "utf8"));
   }
   return {
@@ -73,19 +74,25 @@ function addAccount(db, person) {
     .run(person.id, person.id + "@example.invalid", person.name, "0".repeat(64));
 }
 
-test("username editing is globally unique, normalizes input and retains the same tag", async (t) => {
+test("handle editing enforces uniqueness of the pair, supports leading zeros and searches by either name or full handle", async (t) => {
   const db = fixture(t);
   addAccount(db, alex);
   addAccount(db, sam);
+  addAccount(db, lee);
   const original = await readAccountProfile(db, alex.id);
   assert.match(original.handle, /^spotter\.[a-f0-9]{16}#[0-9]{4}$/);
-  const parsed = updateProfileInput.parse({ username: "  Ａlex.Fit ", expectedOwner: alex.id });
-  const updated = await saveAccountUsername(db, alex.id, parsed.username);
-  assert.equal(updated.handle, "alex.fit#" + original.tag);
+  const parsed = updateProfileInput.parse({ username: "  Ａlex.Fit ", tag: " ０００７ ", expectedOwner: alex.id });
+  const updated = await saveAccountUsername(db, alex.id, parsed.username, parsed.tag);
+  assert.equal(updated.handle, "alex.fit#0007");
   assert.equal(updateProfileInput.safeParse({ username: "a#1234", expectedOwner: alex.id }).success, false);
-  await assert.rejects(saveAccountUsername(db, sam.id, "alex.fit"), { status: 409 });
+  assert.equal(updateProfileInput.safeParse({ username: "alex.fit", tag: "123", expectedOwner: alex.id }).success, false);
+  assert.equal(updateProfileInput.safeParse({ username: "alex.fit", tag: 1234, expectedOwner: alex.id }).success, false);
+  await assert.rejects(saveAccountUsername(db, sam.id, "alex.fit", "0007"), { status: 409 });
+  const other = await saveAccountUsername(db, sam.id, "alex.fit", "0042");
+  assert.equal(other.handle, "alex.fit#0042");
+  assert.equal((await saveAccountUsername(db, sam.id, "alex.fit")).handle, other.handle);
   const exact = [{ id: alex.id, name: alex.name, handle: updated.handle }];
-  assert.deepEqual(await searchPeople(db, sam.id, "alex.fit", "friend"), exact);
+  assert.deepEqual(await searchPeople(db, lee.id, "alex.fit", "friend"), [...exact, { id: sam.id, name: sam.name, handle: other.handle }]);
   assert.deepEqual(await searchPeople(db, sam.id, updated.handle.toUpperCase(), "buddy"), exact);
   assert.deepEqual(await searchPeople(db, sam.id, "alex", "friend"), []);
   assert.deepEqual(await searchPeople(db, alex.id, updated.handle, "friend"), []);
@@ -95,6 +102,18 @@ test("username editing is globally unique, normalizes input and retains the same
   await save(db, alex, { discoverable: false });
   assert.deepEqual(await searchPeople(db, sam.id, updated.handle, "friend"), []);
   assert.deepEqual(await searchPeople(db, sam.id, updated.handle, "buddy"), []);
+});
+
+test("tag migration leaves existing handles untouched and permits a new distinct tag", async (t) => {
+  const db = fixture(t, (sqlite, migration) => {
+    if (migration !== "0017_account_handle_tags.sql") return;
+    addAccount({ sqlite }, alex);
+    sqlite.prepare("INSERT INTO spotter_account_handles (owner, username, tag) VALUES (?, ?, ?)").run(alex.id, "existing", "0014");
+  });
+  assert.equal((await readAccountProfile(db, alex.id)).handle, "existing#0014");
+  addAccount(db, sam);
+  assert.equal((await saveAccountUsername(db, sam.id, "existing", "0015")).handle, "existing#0015");
+  await assert.rejects(saveAccountUsername(db, sam.id, "existing", "0014"), { status: 409 });
 });
 
 test("username buddy requests remain separate until accepted by the recipient", async (t) => {

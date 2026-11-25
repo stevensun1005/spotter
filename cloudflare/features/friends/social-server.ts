@@ -72,7 +72,7 @@ export async function searchPeople(db: D1Database, owner: string, raw: string, m
       "h.username || '#' || h.tag AS handle FROM spotter_account_handles h " +
       "JOIN spotter_access_accounts a ON a.id = h.owner LEFT JOIN friend_profiles p ON p.owner = h.owner CROSS JOIN viewer v " +
       "WHERE h.owner <> v.id AND COALESCE(p.discoverable, 1) = 1 AND h.username = ? " +
-      "AND (? IS NULL OR h.tag = ?) AND " + available
+      "AND (? IS NULL OR h.tag = ?) AND " + available + " ORDER BY h.tag LIMIT 20"
     ).bind(owner, match.username, match.tag ?? null, match.tag ?? null).all<SocialPerson>();
     return results.map((person) => ({ ...person, name: publicName(person.name) }));
   }

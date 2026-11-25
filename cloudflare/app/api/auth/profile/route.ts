@@ -19,7 +19,7 @@ export const GET = api(async () => {
 
 export const POST = api(async (request) => {
   const { db, id } = await account();
-  const { username, expectedOwner } = await readJson(request, updateProfileInput, 2048);
+  const { username, tag, expectedOwner } = await readJson(request, updateProfileInput, 2048);
   if (id !== expectedOwner) throw new HttpError(403, "当前登录账号已切换，请重新打开设置。");
-  return json({ profile: await saveAccountUsername(db, id, username) });
+  return json({ profile: await saveAccountUsername(db, id, username, tag) });
 });

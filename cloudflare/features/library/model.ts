@@ -89,5 +89,6 @@ export type LibraryItem = z.infer<typeof libraryItem>;
 export type LibraryRow = LibraryItem & { updated: string };
 export const libraryMutation = z.discriminatedUnion("action", [
   z.object({ action: z.literal("save"), data: libraryItem, revision: planRevisionSchema.nullable().optional(), expectedOwner: z.string().min(1).max(120).optional() }),
-  z.object({ action: z.literal("remove"), kind: z.enum(["template", "nutrition"]), id: uuid, revision: planRevisionSchema.optional() }),
+  z.object({ action: z.literal("remove"), kind: z.enum(["template", "nutrition"]), id: uuid, revision: planRevisionSchema.optional(),
+    expectedOwner: z.string().min(1).max(120).optional() }),
 ]);
