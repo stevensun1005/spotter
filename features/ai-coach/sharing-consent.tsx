@@ -1,9 +1,30 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog } from "@/shared/ui";
-import { allowAnthropicSharing, allowsAnthropicSharing } from "./sharing-consent-store";
+import { allowAnthropicSharing, allowsAnthropicSharing, revokeExternalAISharing } from "./sharing-consent-store";
+
+export function AISharingSettings({ owner }: { owner: string }) {
+  const [allowed, setAllowed] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    try { setAllowed(allowsAnthropicSharing(window.localStorage, owner)); }
+    catch { setAllowed(false); }
+  }, [owner]);
+  if (!owner) return null;
+  return <section className="card padded feature-stack">
+    <h2>AI 数据授权</h2>
+    <div className="exercise-toolbar">
+      <span role="status">{allowed ? "本设备已授权" : "本设备尚未授权"}</span>
+      {allowed && <button className="button outline" type="button" onClick={() => {
+        try { revokeExternalAISharing(window.localStorage, owner); setAllowed(false); setError(""); }
+        catch { setError("暂时无法撤销授权，请重试。"); }
+      }}>撤销授权</button>}
+    </div>
+    {error && <p className="inline-error" role="alert">{error}</p>}
+  </section>;
+}
 
 export function useAnthropicSharing(owner?: string) {
   const pending = useRef<{ owner: string; send: () => void }>(null);
@@ -37,11 +58,10 @@ export function useAnthropicSharing(owner?: string) {
   }
 
   const prompt = promptOwner && promptOwner === owner ? createPortal(
-    <Dialog title="允许 AI 使用 Anthropic？" onClose={() => decide(false)}>
+    <Dialog title="允许 AI 教练处理内容？" onClose={() => decide(false)}>
       <div className="dialog-body feature-stack">
-        <p>Spotter 使用 Anthropic 的 Claude 回答训练问题、生成计划和识别图片。</p>
-        <p>训练问答会发送相关对话及你选择附上的训练安排或草稿。问答定制会发送选定的答案和候选动作。拍照识别会发送你选中的餐食或包装照片及填写的备注。</p>
-        <p className="muted">允许后，此账号在当前设备上主动使用这些 AI 功能时会沿用该许可。记体重和查训练统计在 Spotter 内处理。</p>
+        <p>你发送的对话、选中的照片和训练资料会交由外部 AI 服务处理。此账号会沿用本设备上的授权，可在设置中撤销。</p>
+        <p><a href="/privacy#external-ai" target="_blank" rel="noreferrer">查看隐私说明</a></p>
       </div>
       <div className="dialog-footer">
         <button className="button outline" type="button" onClick={() => decide(false)}>暂不发送</button>

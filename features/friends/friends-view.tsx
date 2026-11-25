@@ -14,6 +14,7 @@ import type { Friend, FriendDay, FriendList, FriendMutation, SharedMeal, SharedW
 import type { FriendRequest, SocialMutation, SocialPerson, SocialPreferences, SocialState } from "./social-model";
 
 const endpoint = "/api/friends";
+const handleSocialEndpoint = endpoint + "?section=social&includeBuddy=1";
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...options });
@@ -293,7 +294,7 @@ function FriendFeed({ days, today, open }: { days: Feed["days"]; today: string; 
 
 const privacyOptions = [
   { key: "closed", label: "关闭朋友圈", description: "向普通好友隐藏训练和饮食记录。搭子的训练共享和独立饮食开关照常生效。" },
-  { key: "discoverable", label: "允许通过昵称搜索到我", description: "可以在添加好友时通过站内昵称搜索找到你。" },
+  { key: "discoverable", label: "允许通过用户名搜索到我", description: "知道你用户名的人可以在添加好友或搭子时找到你。" },
   { key: "recentOnly", label: "仅显示最近 3 天", description: "你与搭子、好友互相查看最近 3 天的活动。" },
 ] as const;
 
@@ -307,13 +308,14 @@ function SocialPrivacy({ preferences, busy, save }: {
   </section>;
 }
 
-function FriendFinder({ incoming, outgoing, busy, send, openRequests }: {
+function FriendFinder({ incoming, outgoing, busy, send, openRequests, mode = "friend" }: {
   incoming: FriendRequest[]; outgoing: FriendRequest[]; busy: boolean; send: (person: SocialPerson) => void; openRequests: () => void;
+  mode?: "friend" | "buddy";
 }) {
   const [input, setInput] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const query = submitted ? endpoint + "?" + new URLSearchParams({ search: submitted }) : undefined;
+  const query = submitted ? endpoint + "?" + new URLSearchParams({ search: submitted, mode }) : undefined;
   const results = useFriendResource<{ results: SocialPerson[] }>(query, attempt);
   return <>
     <form className="form-fields friend-search-form" onSubmit={(event) => {
@@ -322,18 +324,21 @@ function FriendFinder({ incoming, outgoing, busy, send, openRequests }: {
       setSubmitted(input.trim());
       setAttempt((value) => value + 1);
     }}>
-      <label>好友昵称<input type="search" value={input} maxLength={80} placeholder="输入对方的站内昵称" onChange={(event) => setInput(event.target.value)} /></label>
+      <label>{mode === "buddy" ? "搭子用户名" : "好友用户名"}<input type="search" value={input} maxLength={29}
+        placeholder="用户名或 username#tag" autoCapitalize="none" autoComplete="off" spellCheck={false}
+        onChange={(event) => setInput(event.target.value)} /></label>
       <button className="button primary" type="submit" disabled={!input.trim()}><Search size={17} aria-hidden="true" /> 搜索</button>
     </form>
     {query && !results.data && !results.error && <p className="muted" role="status">正在查找…</p>}
     {results.error && <p className="inline-error" role="alert">{results.error}</p>}
-    {results.data?.results.length === 0 && <p className="empty-copy">暂无匹配用户。可以请对方开启昵称搜索，或改用邀请码。</p>}
+    {results.data?.results.length === 0 && <p className="empty-copy">暂无匹配用户。可以核对用户名、确认对方的搜索权限，或改用邀请码。</p>}
     {!!results.data?.results.length && <ul className="friend-people-list">
       {results.data.results.map((person) => {
-        const pending = outgoing.some((item) => item.personId === person.id);
-        const received = incoming.some((item) => item.personId === person.id);
+        const pending = outgoing.some((item) => item.personId === person.id && (item.kind ?? "friend") === mode);
+        const received = incoming.some((item) => item.personId === person.id && (item.kind ?? "friend") === mode);
         return <li className="friend-person-line" key={person.id}>
-          <span className="avatar lime" aria-hidden="true">{avatar(person.name)}</span><strong>{person.name}</strong>
+          <span className="avatar lime" aria-hidden="true">{avatar(person.name)}</span>
+          <span><strong>{person.name}</strong>{person.handle && <small className="muted"> {person.handle}</small>}</span>
           <button className="button outline small" type="button" disabled={busy || pending}
             onClick={() => received ? openRequests() : send(person)}>{received ? "处理申请" : pending ? "已申请" : "发送申请"}</button>
         </li>;
@@ -346,12 +351,12 @@ function FriendRequests({ state, busy, respond }: {
   state: SocialState; busy: boolean; respond: (id: string, decision: "accept" | "decline" | "cancel") => void;
 }) {
   return <>
-    {!state.incoming.length && !state.outgoing.length && <p className="empty-copy">暂无待处理的好友申请。</p>}
+    {!state.incoming.length && !state.outgoing.length && <p className="empty-copy">暂无待处理的申请。</p>}
     {state.incoming.length > 0 && <section className="feature-stack">
       <h3>收到的申请</h3>
-      <p className="muted">接受后，双方可按各自的分享设置查看训练与饮食记录。</p>
+      <p className="muted">接受后，双方可按各自的权限查看共享记录。</p>
       <ul className="friend-people-list">{state.incoming.map((item) => <li className="friend-person-line with-actions" key={item.id}>
-        <span className="avatar lime" aria-hidden="true">{avatar(item.name)}</span><strong>{item.name}</strong>
+        <span className="avatar lime" aria-hidden="true">{avatar(item.name)}</span><span><strong>{item.name}</strong>{item.kind === "buddy" && <small className="muted"> 搭子申请</small>}</span>
         <div className="friend-dialog-actions"><button className="button outline small" type="button" disabled={busy} onClick={() => respond(item.id, "decline")}>拒绝</button>
           <button className="button primary small" type="button" disabled={busy} onClick={() => respond(item.id, "accept")}>接受</button></div>
       </li>)}</ul>
@@ -359,15 +364,58 @@ function FriendRequests({ state, busy, respond }: {
     {state.outgoing.length > 0 && <section className="feature-stack">
       <h3>发出的申请</h3>
       <ul className="friend-people-list">{state.outgoing.map((item) => <li className="friend-person-line" key={item.id}>
-        <span className="avatar lime" aria-hidden="true">{avatar(item.name)}</span><strong>{item.name}</strong>
+        <span className="avatar lime" aria-hidden="true">{avatar(item.name)}</span><span><strong>{item.name}</strong>{item.kind === "buddy" && <small className="muted"> 搭子申请</small>}</span>
         <button className="button outline small" type="button" disabled={busy} onClick={() => respond(item.id, "cancel")}>撤回申请</button>
       </li>)}</ul>
     </section>}
   </>;
 }
 
-export function FriendsView({ enabled, today, initialFriendId, initialDate, sharingOnly = false, onChanged }: {
-  enabled: boolean; today: string; initialFriendId?: string; initialDate?: string; sharingOnly?: boolean; onChanged?: () => void;
+export function BuddyFinder({ owner, onConnected }: { owner: string; onConnected: () => void }) {
+  const url = handleSocialEndpoint;
+  const [refresh, setRefresh] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const social = useFriendResource<SocialState>(url, refresh);
+  const pending = social.data && {
+    ...social.data,
+    incoming: social.data.incoming.filter((item) => item.kind === "buddy"),
+    outgoing: social.data.outgoing.filter((item) => item.kind === "buddy"),
+  };
+
+  async function update(body: SocialMutation, message: string) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      social.replace(await request<SocialState>(url, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, expectedOwner: owner }), signal: AbortSignal.timeout(12000),
+      }));
+      setNotice(message);
+      if (body.action === "respond" && body.decision === "accept") onConnected();
+    } catch (reason) { setError(errorText(reason)); }
+    finally { setBusy(false); }
+  }
+
+  return <section className="feature-stack">
+    <FriendFinder mode="buddy" incoming={pending?.incoming ?? []} outgoing={pending?.outgoing ?? []} busy={busy}
+      openRequests={() => document.getElementById("spotter-buddy-requests")?.scrollIntoView({ block: "nearest" })}
+      send={(person) => void update({ action: "request", kind: "buddy", id: person.id }, "搭子申请已发送。")} />
+    {pending && (pending.incoming.length > 0 || pending.outgoing.length > 0) && <div id="spotter-buddy-requests" className="feature-stack">
+      <FriendRequests state={pending} busy={busy} respond={(id, decision) => void update({ action: "respond", id, decision },
+        decision === "accept" ? "搭子已连接。" : decision === "decline" ? "已拒绝申请。" : "申请已撤回。")} />
+    </div>}
+    {social.error && <button className="button outline" type="button" onClick={() => setRefresh((value) => value + 1)}>重新读取搭子申请</button>}
+    {error && <p className="inline-error" role="alert">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+  </section>;
+}
+
+export function FriendsView({ enabled, owner, today, initialFriendId, initialDate, sharingOnly = false, onChanged }: {
+  enabled: boolean; owner?: string; today: string; initialFriendId?: string; initialDate?: string; sharingOnly?: boolean; onChanged?: () => void;
 }) {
   const sharingView = useRef<HTMLDivElement>(null);
   const listUrl = sharingOnly ? endpoint : endpoint + "?" + new URLSearchParams({ today });
@@ -389,7 +437,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
   const friend = friends?.friends.find((item) => item.id === active);
   const invite = friends?.invite;
   const day = useFriendDay(enabled && !sharingOnly ? friend?.id : undefined, date, dayRevision);
-  const socialUrl = enabled ? endpoint + "?section=social" : undefined;
+  const socialUrl = enabled ? handleSocialEndpoint : undefined;
   const feedUrl = enabled && !sharingOnly && tab === "feed" && !friend ? endpoint + "?feed=1" : undefined;
   const social = useFriendResource<SocialState>(socialUrl, loadAttempt);
   const feed = useFriendResource<Feed>(feedUrl, loadAttempt);
@@ -497,7 +545,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
     setStatus("");
     try {
       const data = await request<SocialState>(socialUrl, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, expectedOwner: owner }),
         signal: AbortSignal.timeout(12000),
       });
       social.replace(data);
@@ -618,7 +666,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
     {requestsOpen && <Dialog title="新的朋友" onClose={() => { if (!busy) setRequestsOpen(false); }}>
       <div className="dialog-body feature-stack">
         {social.data ? <FriendRequests state={social.data} busy={busy} respond={(id, decision) =>
-          void mutateSocial({ action: "respond", id, decision }, decision === "accept" ? "好友已添加。" : decision === "decline" ? "已拒绝申请。" : "申请已撤回。")} /> :
+          void mutateSocial({ action: "respond", id, decision }, decision === "accept" ? "申请已接受。" : decision === "decline" ? "已拒绝申请。" : "申请已撤回。")} /> :
           socialError || <p className="muted" role="status">正在读取好友申请…</p>}
         {feedback}
       </div>
@@ -630,7 +678,7 @@ export function FriendsView({ enabled, today, initialFriendId, initialDate, shar
           <p>好友默认互相分享训练打卡、训练详情和饮食记录状态，具体范围遵循双方的分享设置。</p>
         </section>
         <div className="segmented friend-dialog-tabs" role="group" aria-label="添加好友方式">
-          <button type="button" aria-pressed={inviteTab === "search"} onClick={() => setInviteTab("search")}>搜索昵称</button>
+          <button type="button" aria-pressed={inviteTab === "search"} onClick={() => setInviteTab("search")}>搜索用户名</button>
           <button type="button" aria-pressed={inviteTab === "code"} onClick={() => setInviteTab("code")}>邀请链接</button>
         </div>
         {inviteTab === "search" ? <FriendFinder incoming={social.data?.incoming ?? []} outgoing={social.data?.outgoing ?? []} busy={busy}

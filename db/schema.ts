@@ -261,6 +261,35 @@ export const spotterAccessAccounts = sqliteTable("spotter_access_accounts", {
   check("spotter_access_hash_hex", sql`length(${table.accessHash}) = 64 AND ${table.accessHash} NOT GLOB '*[^0-9a-f]*'`),
 ]);
 
+export const spotterAccountHandles = sqliteTable("spotter_account_handles", {
+  owner: text().primaryKey().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  username: text().notNull().unique(),
+  tag: text().notNull(),
+}, (table) => [
+  check("spotter_handle_username", sql`length(${table.username}) BETWEEN 3 AND 24
+    AND ${table.username} NOT GLOB '*[^a-z0-9._]*'
+    AND substr(${table.username}, 1, 1) GLOB '[a-z0-9]'
+    AND substr(${table.username}, -1, 1) GLOB '[a-z0-9]'`),
+  check("spotter_handle_tag", sql`${table.tag} GLOB '[0-9][0-9][0-9][0-9]'`),
+]);
+
+export const buddyRequests = sqliteTable("buddy_requests", {
+  firstId: text("first_id").notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  secondId: text("second_id").notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  id: text().notNull().unique(),
+  sender: text().notNull(),
+  receiver: text().notNull(),
+  senderName: text("sender_name").notNull(),
+  receiverName: text("receiver_name").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.firstId, table.secondId] }),
+  index("buddy_requests_second").on(table.secondId),
+  check("buddy_requests_members", sql`${table.firstId} < ${table.secondId}
+    AND (${table.sender} = ${table.firstId} AND ${table.receiver} = ${table.secondId}
+      OR ${table.sender} = ${table.secondId} AND ${table.receiver} = ${table.firstId})`),
+]);
+
 export const spotterAccessSessions = sqliteTable("spotter_access_sessions", {
   tokenHash: text("token_hash").primaryKey().notNull(),
   accountId: text("account_id").notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),

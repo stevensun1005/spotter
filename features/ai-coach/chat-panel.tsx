@@ -764,7 +764,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       <form className="coach-composer-field" onSubmit={send} aria-busy={waiting}>
         <label className="sr-only" htmlFor="coach-chat-input">给 AI 教练发消息</label>
         <textarea id="coach-chat-input" rows={1} ref={composer} maxLength={photo ? maxPhotoNoteLength : maxCoachMessageLength} value={input} disabled={waiting}
-          aria-describedby="coach-composer-notice" placeholder={protein ? "继续补充这杯的资料…" : photo ? photo.notes ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
+          aria-describedby={!available || canRetry ? "coach-composer-notice" : undefined} placeholder={protein ? "继续补充这杯的资料…" : photo ? photo.notes ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
             : weightPrompt ? "例如 80.5 kg" : revisionTarget ? "想怎么调整这份草稿？" : "问问 Spotter 教练…"}
           onChange={(event) => { setInput(event.target.value); setError(""); }}
           onKeyDown={(event) => {
@@ -777,13 +777,12 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
           : <button className="coach-send" type="submit" aria-label="发送消息" disabled={waiting || !input.trim()}><ArrowUp size={20} aria-hidden="true" /></button>}
       </form>
       {error && <p className="inline-error coach-composer-notice" role="alert">{error}</p>}
-      <div className="coach-composer-note">
+      {(!available || canRetry) && <div className="coach-composer-note">
         <p id="coach-composer-notice" className="coach-composer-notice" role="status">
-          {available ? photo ? "听写由浏览器处理。发送后由 Anthropic 识别照片和份量，信息够时直接记入饮食。"
-            : "记体重和查统计在训练搭子内处理。训练问答会发送相关对话给 Anthropic。" : status}
+          {status}
         </p>
         {canRetry && <button className="text-button" type="button" onClick={() => { setAvailability(undefined); setCheck((value) => value + 1); }}>重试</button>}
-      </div>
+      </div>}
     </div>
     {sharingPrompt}
   </section>;

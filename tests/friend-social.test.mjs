@@ -15,6 +15,8 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 
 const { changeSocial, searchPeople, socialState } = await import("../features/friends/social-server.ts");
+const { readAccountProfile, saveAccountUsername } = await import("../features/auth/profile-server.ts");
+const { updateProfileInput } = await import("../features/auth/profile.ts");
 const { defaultSocialPreferences } = await import("../features/friends/social-model.ts");
 const { changeFriends, listFriends } = await import("../features/friends/server.ts");
 const { disconnectPair, joinPair } = await import("../features/pair/server.ts");
@@ -65,6 +67,60 @@ const lee = { id: "lee", name: "Lee" };
 const save = (db, person, flags) => changeSocial(db, person, { action: "social-preferences", preferences: { ...defaultSocialPreferences, ...flags } });
 const request = (db, person, target) => changeSocial(db, person, { action: "request", id: target.id });
 const respond = (db, person, id, decision) => changeSocial(db, person, { action: "respond", id, decision });
+
+function addAccount(db, person) {
+  db.sqlite.prepare("INSERT INTO spotter_access_accounts (id, email, display_name, access_hash) VALUES (?, ?, ?, ?)")
+    .run(person.id, person.id + "@example.invalid", person.name, "0".repeat(64));
+}
+
+test("username editing is globally unique, normalizes input and retains the same tag", async (t) => {
+  const db = fixture(t);
+  addAccount(db, alex);
+  addAccount(db, sam);
+  const original = await readAccountProfile(db, alex.id);
+  assert.match(original.handle, /^spotter\.[a-f0-9]{16}#[0-9]{4}$/);
+  const parsed = updateProfileInput.parse({ username: "  Ａlex.Fit ", expectedOwner: alex.id });
+  const updated = await saveAccountUsername(db, alex.id, parsed.username);
+  assert.equal(updated.handle, "alex.fit#" + original.tag);
+  assert.equal(updateProfileInput.safeParse({ username: "a#1234", expectedOwner: alex.id }).success, false);
+  await assert.rejects(saveAccountUsername(db, sam.id, "alex.fit"), { status: 409 });
+  const exact = [{ id: alex.id, name: alex.name, handle: updated.handle }];
+  assert.deepEqual(await searchPeople(db, sam.id, "alex.fit", "friend"), exact);
+  assert.deepEqual(await searchPeople(db, sam.id, updated.handle.toUpperCase(), "buddy"), exact);
+  assert.deepEqual(await searchPeople(db, sam.id, "alex", "friend"), []);
+  assert.deepEqual(await searchPeople(db, alex.id, updated.handle, "friend"), []);
+  await assert.rejects(changeSocial(db, alex, {
+    action: "social-preferences", preferences: defaultSocialPreferences, expectedOwner: sam.id,
+  }), { status: 403 });
+  await save(db, alex, { discoverable: false });
+  assert.deepEqual(await searchPeople(db, sam.id, updated.handle, "friend"), []);
+  assert.deepEqual(await searchPeople(db, sam.id, updated.handle, "buddy"), []);
+});
+
+test("username buddy requests remain separate until accepted by the recipient", async (t) => {
+  const db = fixture(t);
+  for (const person of [alex, sam, lee]) {
+    addAccount(db, person);
+    await readAccountProfile(db, person.id);
+  }
+  const ask = (from, to) => changeSocial(db, from, { action: "request", kind: "buddy", id: to.id, expectedOwner: from.id });
+  await ask(alex, sam);
+  await ask(sam, alex);
+  assert.equal((await socialState(db, sam.id)).incoming.length, 0);
+  const [pending] = (await socialState(db, sam.id, true)).incoming;
+  assert.equal(pending.kind, "buddy");
+  await respond(db, lee, pending.id, "accept");
+  await respond(db, alex, pending.id, "accept");
+  assert.equal(db.sqlite.prepare("SELECT count(*) AS count FROM members").get().count, 0);
+  await respond(db, sam, pending.id, "accept");
+  await respond(db, sam, pending.id, "accept");
+  const members = db.sqlite.prepare("SELECT user, room, share_nutrition FROM members ORDER BY user").all();
+  assert.equal(members.length, 2);
+  assert.equal(members[0].room, members[1].room);
+  assert.deepEqual(members.map((member) => [member.user, member.share_nutrition]), [[alex.id, 0], [sam.id, 0]]);
+  assert.equal((await socialState(db, sam.id, true)).incoming.length, 0);
+  await assert.rejects(ask(lee, sam), { status: 409 });
+});
 
 test("only accounts with opted-in names appear in a literal display-name search", async (t) => {
   const db = fixture(t);

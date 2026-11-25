@@ -1,6 +1,12 @@
 import { HttpError } from "@/server/http";
+import { parseHandleQuery } from "@/features/auth/profile";
+import { readAccountProfile } from "@/features/auth/profile-server";
+import { buddyRequests, canPair, respondBuddyRequest, sendBuddyRequest } from "@/features/pair/buddy-requests";
 import type { Person } from "@/shared/state";
-import { defaultSocialPreferences, type FriendRequest, type SocialMutation, type SocialPerson, type SocialPreferences, type SocialState } from "./social-model";
+import { discoverablePerson } from "./discovery";
+import { publicName, searchName } from "./public-name";
+import { defaultSocialPreferences, type FriendRequest, type PeopleSearchMode, type SocialMutation, type SocialPerson,
+  type SocialPreferences, type SocialState } from "./social-model";
 
 type PreferenceRow = { closed: number; discoverable: number; recent_only: number };
 type RequestRow = {
@@ -19,7 +25,9 @@ const toPreferences = (row: PreferenceRow): SocialPreferences => ({
 export async function readSocialPreferences(db: D1Database, owner: string): Promise<SocialPreferences> {
   const row = await db.prepare("SELECT closed, discoverable, recent_only FROM friend_profiles WHERE owner = ?")
     .bind(owner).first<PreferenceRow>();
-  return row ? toPreferences(row) : { ...defaultSocialPreferences };
+  if (row) return toPreferences(row);
+  const account = await db.prepare("SELECT 1 FROM spotter_access_accounts WHERE id = ?").bind(owner).first();
+  return { ...defaultSocialPreferences, discoverable: Boolean(account) };
 }
 
 // The caller supplies SQL column expressions. User identifiers are bound separately.
@@ -29,21 +37,13 @@ function connected(first: string, second: string) {
     first + " AND peer.user = " + second + "))";
 }
 
-function searchName(value: string) {
-  return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
-}
-
-function publicName(value: string) {
-  const name = value.trim().slice(0, 80);
-  return name && !searchName(name).includes("@") ? name : "训练好友";
-}
-
-export async function socialState(db: D1Database, owner: string): Promise<SocialState> {
-  const [preferences, { results }] = await Promise.all([
+export async function socialState(db: D1Database, owner: string, includeBuddy = false): Promise<SocialState> {
+  const [preferences, { results }, buddy] = await Promise.all([
     readSocialPreferences(db, owner),
     db.prepare("SELECT id, sender, receiver, sender_name, receiver_name, created_at FROM friend_requests r " +
       "WHERE (sender = ? OR receiver = ?) AND NOT " + connected("r.first_id", "r.second_id") +
       " ORDER BY created_at DESC, id").bind(owner, owner).all<RequestRow>(),
+    includeBuddy ? buddyRequests(db, owner) : null,
   ]);
   const incoming: FriendRequest[] = [];
   const outgoing: FriendRequest[] = [];
@@ -51,11 +51,31 @@ export async function socialState(db: D1Database, owner: string): Promise<Social
     if (row.receiver === owner) incoming.push({ id: row.id, personId: row.sender, name: row.sender_name, createdAt: row.created_at });
     else outgoing.push({ id: row.id, personId: row.receiver, name: row.receiver_name, createdAt: row.created_at });
   }
+  if (buddy) {
+    const newestFirst = (a: FriendRequest, b: FriendRequest) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
+    incoming.push(...buddy.incoming);
+    incoming.sort(newestFirst);
+    outgoing.push(...buddy.outgoing);
+    outgoing.sort(newestFirst);
+  }
   return { preferences, incoming, outgoing };
 }
 
-export async function searchPeople(db: D1Database, owner: string, raw: string): Promise<SocialPerson[]> {
+export async function searchPeople(db: D1Database, owner: string, raw: string, mode?: PeopleSearchMode): Promise<SocialPerson[]> {
   if (raw.length > 160) throw new HttpError(400, "搜索词太长。");
+  if (mode) {
+    const match = parseHandleQuery(raw);
+    if (!match) return [];
+    const available = mode === "buddy" ? canPair("v.id", "h.owner") : "NOT " + connected("MIN(v.id, h.owner)", "MAX(v.id, h.owner)");
+    const { results } = await db.prepare(
+      "WITH viewer(id) AS (VALUES (?)) SELECT h.owner AS id, COALESCE(p.name, a.display_name) AS name, " +
+      "h.username || '#' || h.tag AS handle FROM spotter_account_handles h " +
+      "JOIN spotter_access_accounts a ON a.id = h.owner LEFT JOIN friend_profiles p ON p.owner = h.owner CROSS JOIN viewer v " +
+      "WHERE h.owner <> v.id AND COALESCE(p.discoverable, 1) = 1 AND h.username = ? " +
+      "AND (? IS NULL OR h.tag = ?) AND " + available
+    ).bind(owner, match.username, match.tag ?? null, match.tag ?? null).all<SocialPerson>();
+    return results.map((person) => ({ ...person, name: publicName(person.name) }));
+  }
   const query = searchName(raw);
   if (!query || query.includes("@") || (query.length < 2 && !/[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(query))) return [];
   const { results } = await db.prepare(
@@ -69,10 +89,17 @@ export async function searchPeople(db: D1Database, owner: string, raw: string): 
 }
 
 export async function changeSocial(db: D1Database, user: Person, mutation: SocialMutation) {
+  if (mutation.expectedOwner && mutation.expectedOwner !== user.id) {
+    throw new HttpError(403, "当前登录账号已切换，请重新打开好友页面。");
+  }
   const name = publicName(user.name);
   if (mutation.action === "social-preferences") {
     const { closed, discoverable, recentOnly } = mutation.preferences;
-    if (discoverable && name === "训练好友") throw new HttpError(400, "请先为 ChatGPT 账号设置显示名称，再开启好友搜索。");
+    if (discoverable) {
+      const account = await db.prepare("SELECT 1 FROM spotter_access_accounts WHERE id = ?").bind(user.id).first();
+      if (account) await readAccountProfile(db, user.id);
+      else if (name === "训练好友") throw new HttpError(400, "请先设置显示名称，再开启好友搜索。");
+    }
     await db.prepare(
       "INSERT INTO friend_profiles (owner, name, search_name, closed, discoverable, recent_only) VALUES (?, ?, ?, ?, ?, ?) " +
       "ON CONFLICT(owner) DO UPDATE SET name = excluded.name, search_name = excluded.search_name, closed = excluded.closed, " +
@@ -82,20 +109,28 @@ export async function changeSocial(db: D1Database, user: Person, mutation: Socia
   }
 
   if (mutation.action === "request") {
+    if (mutation.kind === "buddy") {
+      await readAccountProfile(db, user.id);
+      return sendBuddyRequest(db, user, mutation.id);
+    }
     if (user.id === mutation.id) throw new HttpError(400, "不能加自己为好友。");
     const [first, second] = [user.id, mutation.id].sort();
+    const target = await db.prepare(discoverablePerson).bind(mutation.id, mutation.id).first<{ name: string }>();
     const [sent, available] = await db.batch<{ existing: number }>([
       db.prepare(
         "INSERT INTO friend_requests (first_id, second_id, id, sender, receiver, sender_name, receiver_name, created_at) " +
-        "SELECT ?, ?, ?, ?, p.owner, ?, p.name, ? FROM friend_profiles p WHERE p.owner = ? AND p.discoverable = 1 AND NOT " +
+        "SELECT ?, ?, ?, ?, p.id, ?, ?, ? FROM (" + discoverablePerson + ") p WHERE NOT " +
         connected("?", "?") + " ON CONFLICT(first_id, second_id) DO NOTHING"
-      ).bind(first, second, crypto.randomUUID(), user.id, name, new Date().toISOString(), mutation.id, first, second, first, second),
+      ).bind(first, second, crypto.randomUUID(), user.id, name, publicName(target?.name ?? ""), new Date().toISOString(),
+        mutation.id, mutation.id, first, second, first, second),
       db.prepare("SELECT 1 AS existing WHERE " + connected("?", "?") +
         " OR EXISTS (SELECT 1 FROM friend_requests WHERE first_id = ? AND second_id = ?)").bind(first, second, first, second, first, second),
     ]);
     if (!sent.meta.changes && !available.results.length) throw new HttpError(404, "找不到这位用户，请重新搜索。");
     return;
   }
+
+  if (await respondBuddyRequest(db, user, mutation.id, mutation.decision)) return;
 
   if (mutation.decision === "accept") {
     // Link the users and consume the specific request together, while preserving any existing terms.

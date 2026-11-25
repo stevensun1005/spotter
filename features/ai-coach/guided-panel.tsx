@@ -372,7 +372,6 @@ export function GuidedCoachPanel({ selectedDate, busy, enabled, error, status, o
             <CalendarCheck size={20} aria-hidden="true" /><span>将起草 <strong>{sessionCount} 堂训练</strong> · 共 {weeks} 周</span>
           </>}
         </p>
-        <p className="muted guided-privacy">点击生成后会把本次所选答案和候选动作发给 Anthropic。训练草稿需核对后保存。</p>
         {!enabled && <p className="muted" role="status">{status || "AI 教练启用后可以生成草稿。"}</p>}
         {error && <p className="inline-error" role="alert">{error}</p>}
       </>}
