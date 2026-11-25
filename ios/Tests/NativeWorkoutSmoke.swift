@@ -138,14 +138,38 @@ struct NativeWorkoutSmoke {
             expect(NativeExerciseHistory.copied(completed, from: source, record: previous, move: inPounds) == completed,
                    "A completed set is protected")
         } else { preconditionFailure("Personal split-set history is available") }
-        for activity in [NativeWorkoutSession.CardioActivity.cardio, .hiit, .incline] {
-            let scheduled = NativeWorkoutSession.free(cardio: activity, now: started)
+        for activity in NativeWorkoutSession.CardioActivity.allCases {
+            var scheduled = NativeWorkoutSession.free(cardio: activity, now: started)
+            if activity.tracksDistance {
+                scheduled.raw["cardio"]["distanceKm"] = .number(1.8)
+                scheduled.raw["cardio"]["speedKmh"] = .number(activity.maximumSpeedKmh > 50 ? 56 : 7)
+            }
             let log = try scheduled.finalizing(at: started + 97_000)
-            expect(log.cardioActivity == activity && log.raw["cardio"]["durationSeconds"].number == 97 && log.rows.isEmpty,
-                   "All cardio types complete with elapsed time and no strength sets")
+            expect(log.cardioActivity == activity && log.watchCardioActivity == activity &&
+                   log.raw["cardio"]["durationSeconds"].number == 97 && log.rows.isEmpty,
+                   "Every cardio activity retains its Watch family and completes with elapsed time and no strength sets")
+            expect(log.raw["cardio"]["distanceKm"] == scheduled.raw["cardio"]["distanceKm"] &&
+                   log.raw["cardio"]["speedKmh"] == scheduled.raw["cardio"]["speedKmh"], "Optional cardio metrics survive completion")
             do { _ = try scheduled.finalizing(at: started); preconditionFailure("Zero-duration cardio check-in rejected") }
             catch NativeWorkoutProblem.invalidCardioDuration { }
         }
+        let cardioPresets = NativeWorkoutSession.CardioActivity.planPresets
+        let presetPlan = NativePlan(raw: .object([
+            "category": .string("有氧训练"),
+            "exercises": .array([NativeWorkoutSession.CardioActivity.rowing.planMove!]),
+        ]))
+        let plannedRow = NativeWorkoutSession.start(plan: presetPlan, planId: "rower-plan", now: started)
+        expect(plannedRow.cardioActivity == nil && plannedRow.watchCardioActivity == .rowing && plannedRow.rows.count == 1,
+               "A planned row keeps its timed set and starts the corresponding Watch workout")
+        var mixedPlan = presetPlan
+        mixedPlan.raw["exercises"] = .array([presetPlan.exercises[0], NativeWorkoutSession.CardioActivity.running.planMove!])
+        expect(NativeWorkoutSession.start(plan: mixedPlan, planId: "mixed-cardio", now: started).watchCardioActivity == .cardio,
+               "A multi-activity cardio plan uses a mixed Watch workout")
+        expect(cardioPresets.allSatisfy { preset in
+            guard let move = preset.planMove else { return false }
+            return move["sets"].number == 1 && move["reps"].number == 0 && move["seconds"].number > 0 &&
+                NativeWorkoutSession.CardioActivity.fromPlannedMove(move) == preset
+        }, "Cardio plan presets are timed catalogue moves with stable activity identities")
         var firstMove = recentMove
         firstMove["block"] = .string("A")
         var secondMove = firstMove

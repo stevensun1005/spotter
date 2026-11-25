@@ -34,7 +34,38 @@ struct NativeWatchHeartRateSmoke {
         precondition(!context.matches(.init(owner: "test-two", workoutID: "workout-one", isRunning: true)))
 
         testWorkoutMirror(at: now)
-        print("Watch heart rate and workout mirror smoke checks passed")
+        testWorkoutSummary(at: now)
+        print("Watch heart rate, workout mirror, and calorie summary smoke checks passed")
+    }
+
+    static func testWorkoutSummary(at now: Date) {
+        let start = now.addingTimeInterval(-2_700)
+        let token = UUID()
+        let request = NativeWatchWorkoutFinishRequest(token: token, end: now)
+        guard let encoded = request.encoded(), let decoded = NativeWatchWorkoutFinishRequest.decode(encoded, now: now) else {
+            fatalError("Matching Watch finish request should round trip")
+        }
+        precondition(decoded.token == token && decoded.end == now)
+        precondition(NativeWatchWorkoutFinishRequest.decode(encoded, now: now.addingTimeInterval(121)) == nil)
+
+        let sample = NativeWorkoutHealthSummary(start: start, end: now, active: 305.5, basal: 54.5, average: 138.4)
+        precondition(sample.isValid && sample.totalKilocalories == 360)
+        let packet = NativeWatchWorkoutSummaryPacket(token: token, data: sample)
+        guard let bytes = packet.encoded(), let restored = NativeWatchWorkoutSummaryPacket.decode(bytes) else {
+            fatalError("HealthKit averages and energy must travel as one authenticated-session summary")
+        }
+        precondition(restored.token == token && restored.data == sample && restored.data.metricCount == 3)
+        precondition(restored.data.fits(start: sample.startedAtMilliseconds, end: sample.endedAtMilliseconds))
+        precondition(restored.data.fits(start: sample.startedAtMilliseconds - 600_000, end: sample.endedAtMilliseconds))
+        precondition(!restored.data.fits(start: sample.startedAtMilliseconds + 31_000, end: sample.endedAtMilliseconds))
+        precondition(!restored.data.fits(start: sample.startedAtMilliseconds + 2_800_000, end: sample.endedAtMilliseconds + 5_400_000))
+        let partial = NativeWorkoutHealthSummary(start: start, end: now, active: 67, basal: nil, average: nil)
+        precondition(partial.isValid && partial.metricCount == 1 && partial.totalKilocalories == nil)
+        let invalid = NativeWorkoutHealthSummary(start: start, end: now, active: .nan, basal: 143, average: 500)
+        precondition(!invalid.isValid && invalid.totalKilocalories == nil)
+        let fakeTotal = NativeWorkoutHealthSummary(start: start, end: now, active: nil, basal: 40, average: 139)
+        precondition(fakeTotal.isValid && fakeTotal.totalKilocalories == nil)
+        precondition(NativeWatchWorkoutSummaryPacket.decode(Data(count: 1_025)) == nil)
     }
 
     static func testWorkoutMirror(at now: Date) {

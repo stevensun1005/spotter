@@ -256,3 +256,98 @@ enum NativeWatchHeartRatePacket {
         }
     }
 }
+
+struct NativeWorkoutHealthSummary: Codable, Equatable, Sendable {
+    var source = "apple-watch"
+    let startedAtMilliseconds: Int64
+    let endedAtMilliseconds: Int64
+    let activeKilocalories: Double?
+    let totalKilocalories: Double?
+    let averageHeartRate: Double?
+
+    var isValid: Bool {
+        guard source == "apple-watch",
+              (946_684_800_000...4_102_444_800_000).contains(startedAtMilliseconds),
+              (startedAtMilliseconds + 1...startedAtMilliseconds + 86_400_000).contains(endedAtMilliseconds),
+              activeKilocalories != nil || averageHeartRate != nil,
+              activeKilocalories.map({ (0...30_000).contains($0) }) ?? true,
+              averageHeartRate.map({ (20...260).contains($0) }) ?? true else { return false }
+        if let totalKilocalories {
+            guard let activeKilocalories else { return false }
+            return (activeKilocalories...30_000).contains(totalKilocalories)
+        }
+        return true
+    }
+
+    var metricCount: Int {
+        [activeKilocalories, totalKilocalories, averageHeartRate].compactMap { $0 }.count
+    }
+
+    init(start: Date, end: Date, active: Double?, basal: Double?, average: Double?) {
+        startedAtMilliseconds = Self.milliseconds(start)
+        endedAtMilliseconds = Self.milliseconds(end)
+        activeKilocalories = active.flatMap { (0...30_000).contains($0) ? $0 : nil }
+        if let active = activeKilocalories, let basal, (0...30_000 - active).contains(basal) {
+            totalKilocalories = active + basal
+        } else { totalKilocalories = nil }
+        averageHeartRate = average.flatMap { (20...260).contains($0) ? $0 : nil }
+    }
+
+    func fits(start: Int64, end: Int64) -> Bool {
+        guard isValid, startedAtMilliseconds >= start - 30_000, endedAtMilliseconds <= end + 30_000 else { return false }
+        let overlap = min(end, endedAtMilliseconds) - max(start, startedAtMilliseconds)
+        return overlap > 0 && Double(overlap) >= Double(endedAtMilliseconds - startedAtMilliseconds) * 0.95
+    }
+
+    static func milliseconds(_ date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1_000).rounded())
+    }
+}
+
+struct NativeWatchWorkoutFinishRequest: Codable, Sendable {
+    private var version = 1
+    private var kind = "finishWorkoutSummary"
+    let token: UUID
+    let endedAtMilliseconds: Int64
+
+    init(token: UUID, end: Date) {
+        self.token = token
+        endedAtMilliseconds = NativeWorkoutHealthSummary.milliseconds(end)
+    }
+
+    var end: Date { Date(timeIntervalSince1970: Double(endedAtMilliseconds) / 1_000) }
+
+    static func decode(_ data: Data, now: Date = .now) -> Self? {
+        guard data.count <= 512, let packet = try? JSONDecoder().decode(Self.self, from: data),
+              packet.version == 1, packet.kind == "finishWorkoutSummary",
+              (-120...60).contains(packet.end.timeIntervalSince(now)) else { return nil }
+        return packet
+    }
+
+    func encoded() -> Data? { try? JSONEncoder().encode(self) }
+}
+
+struct NativeWatchWorkoutSummaryPacket: Codable, Sendable {
+    static let transferKey = "spotterWorkoutSummary"
+
+    private var version = 1
+    private var kind = "workoutSummary"
+    let token: UUID
+    let data: NativeWorkoutHealthSummary
+
+    init(token: UUID, data: NativeWorkoutHealthSummary) {
+        self.token = token
+        self.data = data
+    }
+
+    static func decode(_ data: Data) -> Self? {
+        guard data.count <= 1_024, let packet = try? JSONDecoder().decode(Self.self, from: data),
+              packet.version == 1, packet.kind == "workoutSummary", packet.data.isValid else { return nil }
+        return packet
+    }
+
+    func encoded() -> Data? {
+        guard data.isValid else { return nil }
+        return try? JSONEncoder().encode(self)
+    }
+}

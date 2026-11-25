@@ -794,9 +794,9 @@ private struct NativeSpotterTabs: View {
     @State private var buddySearchRequest = 0
     @State private var showWelcome = false
     @State private var replayWelcomeAfterSettings = false
-    @State private var welcomeCoachGoal: String?
-    @State private var welcomeDestination: NativeWelcomeDestination?
-    @State private var officialTemplateRequest: UUID?
+    @State private var beginGuideAfterWelcome = false
+    @State private var guideStep: NativeGuideStep?
+    @State private var guideCoachGoal: String?
     @StateObject private var permissionOnboarding: NativePermissionOnboarding
     @AppStorage private var didFinishWelcome: Bool
     @AppStorage(NativePreferenceKey.officialTemplates) private var showsOfficialTemplates = true
@@ -840,7 +840,7 @@ private struct NativeSpotterTabs: View {
         self.owner = owner
         let identity = SHA256.hash(data: Data((account.api.origin + "\n" + owner).utf8))
             .map { String(format: "%02x", $0) }.joined()
-        _didFinishWelcome = AppStorage(wrappedValue: false, "spotter.native.welcome.v2." + identity)
+        _didFinishWelcome = AppStorage(wrappedValue: false, "spotter.native.welcome.v3." + identity)
         _permissionOnboarding = StateObject(wrappedValue: NativePermissionOnboarding(origin: account.api.origin, owner: owner))
         _inboundInvite = inboundInvite
         _widgetDestination = widgetDestination
@@ -852,14 +852,15 @@ private struct NativeSpotterTabs: View {
 
     var body: some View {
         navigationTabs
+        .nativeGuideLayer(.dock)
         .background(SpotterPalette.background.ignoresSafeArea())
         .overlay(alignment: .top) { notificationBanner }
         .animation(allowsMotion ? .easeInOut(duration: 0.23) : nil, value: socialNotifications.banner?.id)
         .task { await refreshHome() }
         .onAppear {
-            if !didFinishWelcome {
+            if !didFinishWelcome && guideStep == nil && !beginGuideAfterWelcome {
                 showWelcome = true
-            } else {
+            } else if didFinishWelcome {
                 stageInvite()
                 stageWidgetDestination()
                 stageSocialNotification()
@@ -909,6 +910,10 @@ private struct NativeSpotterTabs: View {
         .onChange(of: workouts.pendingCheckins.map(\.id)) { _ in
             Task { await attachHealthHeartRate() }
         }
+        .onReceive(NativeWorkoutHealthSync.shared.$updatedWorkout) { key in
+            guard key?.owner == owner else { return }
+            Task { await syncWorkoutHealthSummaries() }
+        }
         .task(id: reminderSchedule) {
             guard scenePhase == .active else { return }
             await NativeTrainingNotifications.shared.schedule(reminderSchedule)
@@ -917,12 +922,14 @@ private struct NativeSpotterTabs: View {
             await NativeTrainingNotifications.shared.scheduleRest(restAlert)
         }
         .sheet(isPresented: $showCoach, onDismiss: {
+            guideCoachGoal = nil
             stageInvite()
             Task { await workouts.load() }
         }) {
             NativeCoachView(api: account.api, owner: owner, compact: coachDetent != .large,
                             onExpand: { coachDetent = .large },
                             onStartWorkout: { selected = .training; showCoach = false },
+                            initialTrainingGoal: guideCoachGoal,
                             workoutStore: workouts)
                 .presentationDetents([Self.compactCoachDetent, .large], selection: $coachDetent)
                 .presentationDragIndicator(.visible)
@@ -943,6 +950,7 @@ private struct NativeSpotterTabs: View {
                                    NativeNutritionDetail.clearFavoriteMeals(api: account.api, owner: owner)
                                    trainingPreferences.clear()
                                    permissionOnboarding.clear()
+                                   NativeWorkoutHealthSync.shared.clear(origin: account.api.origin, owner: owner)
                                    didFinishWelcome = false
                                },
                                refreshPlans: { await refreshHome() }, openTraining: { selected = .training; showSettings = false },
@@ -998,25 +1006,15 @@ private struct NativeSpotterTabs: View {
             NavigationStack { NativeWorkoutDetailView(store: workouts, entry: entry, showsClose: true) }
                 .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented: $showWelcome, onDismiss: completeWelcomeNavigation) {
-            if let goal = welcomeCoachGoal {
-                NativeCoachView(api: account.api, owner: owner, compact: false,
-                                onStartWorkout: { selected = .training; showWelcome = false },
-                                initialTrainingGoal: goal, workoutStore: workouts)
-            } else {
-                NativeWelcomeView(permissionOnboarding: permissionOnboarding,
-                                  showsOfficialTemplates: showsOfficialTemplates,
-                                  showsNutrition: showsNutrition, showsFriends: showsFriends,
-                                  startCoach: { goal in
-                                      didFinishWelcome = true
-                                      welcomeCoachGoal = goal
-                                  }, finish: { destination in
-                                      welcomeDestination = destination
-                                      didFinishWelcome = true
-                                      showWelcome = false
-                                  })
-                    .interactiveDismissDisabled()
-            }
+        .fullScreenCover(isPresented: $showWelcome, onDismiss: startGuideIfRequested) {
+            NativeWelcomeView(permissionOnboarding: permissionOnboarding, begin: {
+                beginGuideAfterWelcome = true
+                showWelcome = false
+            }, skip: {
+                didFinishWelcome = true
+                showWelcome = false
+            })
+            .interactiveDismissDisabled()
         }
         .modifier(NativePermissionReminder(controller: permissionOnboarding,
                                            canPresent: isAvailableForWidget && !showActiveWorkout && workouts.active == nil))
@@ -1051,6 +1049,7 @@ private struct NativeSpotterTabs: View {
         .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
         .environment(\.spotterAccountPreferences, trainingPreferences)
         .environment(\.spotterReduceMotion, reduceMotion)
+        .environment(\.spotterGuide, guideContext)
         .transaction {
             if reduceMotion || systemReduceMotion {
                 $0.animation = nil
@@ -1111,26 +1110,47 @@ private struct NativeSpotterTabs: View {
         return .init(deadlineMilliseconds: deadline, playsSound: restSound)
     }
 
-    private func completeWelcomeNavigation() {
-        welcomeCoachGoal = nil
-        switch welcomeDestination ?? .home {
-        case .home: break
-        case .officialTemplates:
-            selected = .training
-            officialTemplateRequest = UUID()
-        case .nutrition:
-            selected = .today
-            showNutrition = true
-        case .friends:
-            selected = .friends
+    private var guidePath: [NativeGuideStep] {
+        NativeGuideStep.path(officialTemplates: showsOfficialTemplates, nutrition: showsNutrition, friends: showsFriends)
+    }
+
+    private var guideContext: NativeGuideContext? {
+        guard let guideStep, let index = guidePath.firstIndex(of: guideStep) else { return nil }
+        return NativeGuideContext(step: guideStep, number: index + 1, count: guidePath.count,
+                                  advance: advanceGuide, skipSection: skipGuideSection, close: finishGuide)
+    }
+
+    private func startGuideIfRequested() {
+        guard beginGuideAfterWelcome else { return }
+        beginGuideAfterWelcome = false
+        selected = .today
+        guideStep = .trainingTab
+    }
+
+    private func advanceGuide(from step: NativeGuideStep) {
+        guard guideStep == step, let index = guidePath.firstIndex(of: step) else { return }
+        if guidePath.indices.contains(index + 1) { guideStep = guidePath[index + 1] }
+        else { finishGuide() }
+    }
+
+    private func skipGuideSection(from step: NativeGuideStep) {
+        guard guideStep == step, let index = guidePath.firstIndex(of: step),
+              let next = guidePath.dropFirst(index + 1).first(where: { $0.section != step.section }) else { return }
+        guideStep = next
+    }
+
+    private func finishGuide() {
+        guideStep = nil
+        didFinishWelcome = true
+    }
+
+    private func didTapGuideTab(_ section: NativeSpotterSection) {
+        switch section {
+        case .today: advanceGuide(from: .todayTab)
+        case .training: advanceGuide(from: .trainingTab)
+        case .friends: advanceGuide(from: .friendsTab)
+        case .stats: break
         }
-        welcomeDestination = nil
-        if isAvailableForWidget {
-            stageInvite()
-            stageWidgetDestination()
-            stageSocialNotification()
-        }
-        Task { await workouts.load() }
     }
 
     private func refreshHome() async {
@@ -1219,7 +1239,7 @@ private struct NativeSpotterTabs: View {
     }
 
     private var isAvailableForWidget: Bool {
-        didFinishWelcome && welcomeDestination == nil &&
+        didFinishWelcome && guideStep == nil &&
         !showWelcome && !showCoach && !showSettings && !showPlanImport && !showPrograms &&
         !showNutrition && !showRest && !showBody && !showTrainingLaunch &&
         workoutReceipt == nil && inboundInviteConfirmation == nil &&
@@ -1257,9 +1277,18 @@ private struct NativeSpotterTabs: View {
     }
 
     private func attachHealthHeartRate() async {
+        async let summaries: Void = syncWorkoutHealthSummaries()
         let waiting = Set(workouts.pendingCheckins.map(\.id))
         let uploaded = workouts.logs.filter { !waiting.contains($0.id) }
         await NativeAutomaticHeartSync.shared.run(api: account.api, owner: owner, entries: uploaded)
+        await summaries
+    }
+
+    private func syncWorkoutHealthSummaries() async {
+        guard account.profile?.id == owner else { return }
+        let waiting = Set(workouts.pendingCheckins.map(\.id))
+        let uploaded = workouts.logs.filter { !waiting.contains($0.id) }
+        await NativeWorkoutHealthSync.shared.run(api: account.api, owner: owner, entries: uploaded)
     }
 
     private func stageInvite() {
@@ -1283,9 +1312,15 @@ private struct NativeSpotterTabs: View {
         }
     }
 
-    private func openCoach() {
+    private func openCoach(startFromGuide: Bool = false) {
         guard !showCoach else { return }
-        coachDetent = Self.compactCoachDetent
+        if startFromGuide {
+            advanceGuide(from: .coach)
+            guideCoachGoal = "general"
+            coachDetent = .large
+        } else {
+            coachDetent = Self.compactCoachDetent
+        }
         showCoach = true
     }
 
@@ -1374,6 +1409,7 @@ private struct NativeSpotterTabs: View {
     private func tabScene(_ section: NativeSpotterSection) -> some View {
         NavigationStack {
             sectionContent(section)
+                .nativeGuideLayer(.tabContent)
                 .toolbar(.hidden, for: .navigationBar)
                 .toolbar(.hidden, for: .tabBar)
         }
@@ -1384,9 +1420,7 @@ private struct NativeSpotterTabs: View {
         case .today: today
         case .training:
             NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: { openCoach() },
-                              openImport: { showPlanImport = true }, openPrograms: { showPrograms = true },
-                              officialTemplateRequest: officialTemplateRequest,
-                              didHandleOfficialTemplateRequest: { officialTemplateRequest = nil })
+                              openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
         case .stats:
             NativeStatsTab(store: workouts, api: account.api, owner: owner, dockPosition: dockPosition,
                            widgetStatsRequest: $widgetStatsRequest)
@@ -1403,9 +1437,10 @@ private struct NativeSpotterTabs: View {
 
     private var dock: some View {
         HStack(spacing: 8) {
-            NativeDockTabRail(sections: contentSections, selection: $selected, play: dockPlay)
+            NativeDockTabRail(sections: contentSections, selection: $selected, play: dockPlay,
+                              didSelect: didTapGuideTab)
 
-            Button { openCoach() } label: {
+            Button { openCoach(startFromGuide: guideStep == .coach) } label: {
                 Image("DockCoach").renderingMode(.template).resizable()
                     .frame(width: 23, height: 23)
                     .foregroundStyle(accent.tint)
@@ -1415,6 +1450,7 @@ private struct NativeSpotterTabs: View {
             }
             .buttonStyle(.spotterGlassPress)
             .accessibilityLabel("打开 AI 教练")
+            .nativeGuideTarget(.coach)
         }
         .spotterGlassCluster(spacing: 4)
         .frame(maxWidth: 530)
@@ -1469,6 +1505,7 @@ private struct NativeDockTabRail<Play: View>: View {
     let sections: [NativeSpotterSection]
     @Binding var selection: NativeSpotterSection
     let play: Play
+    let didSelect: (NativeSpotterSection) -> Void
 
     private let spacing: CGFloat = 2
     private let playWidth: CGFloat = 53
@@ -1512,7 +1549,9 @@ private struct NativeDockTabRail<Play: View>: View {
                         guard abs(value.translation.width) > abs(value.translation.height) else { return }
                         let momentum = value.predictedEndTranslation.width - value.translation.width
                         let destination = base + value.translation.width + min(18, max(-18, momentum))
-                        selection = nearest(to: destination, offsets: offsets)
+                        let section = nearest(to: destination, offsets: offsets)
+                        selection = section
+                        didSelect(section)
                     }
             )
         }
@@ -1530,7 +1569,10 @@ private struct NativeDockTabRail<Play: View>: View {
     }
 
     private func tab(_ section: NativeSpotterSection, highlighted: Bool) -> some View {
-        Button { selection = section } label: {
+        Button {
+            selection = section
+            didSelect(section)
+        } label: {
             VStack(spacing: 3) {
                 Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
                 Text(section.rawValue).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
@@ -1542,6 +1584,16 @@ private struct NativeDockTabRail<Play: View>: View {
         .buttonStyle(.spotterPress)
         .accessibilityLabel(section.rawValue)
         .accessibilityAddTraits(selection == section ? .isSelected : [])
+        .nativeGuideTarget(guideTarget(section))
+    }
+
+    private func guideTarget(_ section: NativeSpotterSection) -> NativeGuideStep? {
+        switch section {
+        case .today: return .todayTab
+        case .training: return .trainingTab
+        case .friends: return .friendsTab
+        case .stats: return nil
+        }
     }
 }
 

@@ -207,9 +207,13 @@ final class NativeWorkoutStore: ObservableObject {
                 await syncLocalChanges()
                 if isLoading { reloadAfterPlanWrite = true }
                 else { await load() }
+                let waiting = Set(pendingCheckins.map(\.id))
+                let uploaded = logs.filter { !waiting.contains($0.id) }
+                async let summaries: Void = NativeWorkoutHealthSync.shared.run(api: api, owner: owner, entries: uploaded)
                 async let nutrition: Void = refreshWidgetNutrition(force: true)
                 await refreshWidgetHistory()
                 await nutrition
+                await summaries
             }
         }
         reachability.start(queue: DispatchQueue(label: "app.spotter.health.workout-connectivity"))
@@ -863,6 +867,10 @@ final class NativeWorkoutStore: ObservableObject {
             active = nil
             draftNeedsSync = false
             guard persist() else { active = current; pendingCheckins = oldPending; draftNeedsSync = previousDirty; return nil }
+            if #available(iOS 17.0, *) {
+                let context = NativeWatchWorkoutContext(owner: owner, workoutID: current.id, isRunning: session.isRunning)
+                NativeWatchHeartRate.shared.finishWorkout(context: context, entry: checkin, origin: api.origin)
+            }
             lastSetCompletion = nil
             status = "打卡已保存在本机，正在上传"
             Task { await retryPending() }
@@ -1168,9 +1176,8 @@ struct NativeWorkoutView: View {
     var openPrograms: (() -> Void)? = nil
     var openFriends: (() -> Void)? = nil
     var homeNutrition: ((@escaping () -> Void) -> AnyView)? = nil
-    var officialTemplateRequest: UUID? = nil
-    var didHandleOfficialTemplateRequest: (() -> Void)? = nil
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterGuide) private var guide
     @AppStorage("spotter.native.home.nutritionCollapsed") private var nutritionCollapsed = false
     @AppStorage(NativePreferenceKey.weeklyCheckins) private var showCheckins = true
     @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
@@ -1249,10 +1256,10 @@ struct NativeWorkoutView: View {
         .foregroundStyle(SpotterPalette.ink)
         .tint(accent.tint)
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: officialTemplateRequest) {
-            guard showsAllPlans, officialTemplateRequest != nil else { return }
-            if showOfficialTemplates { trainingTab = "官方模板" }
-            didHandleOfficialTemplateRequest?()
+        .task(id: guide?.step) {
+            guard showsAllPlans, guide?.step == .newPlan else { return }
+            trainingTab = "我的计划"
+            completedPlans = false
         }
         .onChange(of: showOfficialTemplates) { enabled in
             if !enabled && trainingTab == "官方模板" { trainingTab = "我的计划" }
@@ -1271,7 +1278,9 @@ struct NativeWorkoutView: View {
                     .presentationDragIndicator(.visible)
             }
         }
-        .sheet(item: $planEditor) { draft in
+        .sheet(item: $planEditor, onDismiss: {
+            guide?.advance(.planFields)
+        }) { draft in
             NavigationStack {
                 NativePlanEditorPanel(store: store, draft: draft) { day in
                     if draft.isTemplate {
@@ -1442,10 +1451,12 @@ struct NativeWorkoutView: View {
     }
 
     private func nutritionPanel(_ open: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let inMealGuide = guide?.step == .mainMeal || guide?.step.presentation == .mealEditor
+        let collapsed = nutritionCollapsed && !inMealGuide
+        return VStack(alignment: .leading, spacing: 8) {
             SpotterGlassGroup {
                 HStack(spacing: 9) {
-                    if nutritionCollapsed {
+                    if collapsed {
                         Button { setNutritionCollapsed(false) } label: {
                             Image(systemName: "fork.knife")
                                 .font(.system(size: 15, weight: .semibold))
@@ -1466,7 +1477,7 @@ struct NativeWorkoutView: View {
                     settingsButton
                 }
             }
-            if !nutritionCollapsed {
+            if !collapsed {
                 Group {
                     if let homeNutrition { homeNutrition { setNutritionCollapsed(true) } }
                     else {
@@ -1901,7 +1912,8 @@ struct NativeWorkoutView: View {
 
     private var trainingTabs: some View {
         let tabs = showOfficialTemplates ? ["我的计划", "个人模板", "官方模板", "动作库"] : ["我的计划", "个人模板", "动作库"]
-        return SpotterGlassSegments(options: tabs, value: $trainingTab) { $0 }
+        return SpotterGlassSegments(options: tabs, value: $trainingTab,
+                                    guideTarget: { $0 == "官方模板" ? .officialTemplates : nil }) { $0 }
     }
 
     private func editCataloguePlan(_ entry: NativeCatalogEntry, in plan: NativeWorkoutEntry?) {
@@ -1932,10 +1944,14 @@ struct NativeWorkoutView: View {
                         } label: {
                             Label("添加计划", systemImage: "plus.square.on.square").font(.system(size: 12, weight: .semibold))
                         }
-                        Button { planEditor = NativePlanDraft(day: selectedDay) } label: {
+                        Button {
+                            planEditor = NativePlanDraft(day: selectedDay)
+                            guide?.advance(.newPlan)
+                        } label: {
                             Label("新建计划", systemImage: "plus").font(.system(size: 12, weight: .semibold))
                         }
                         .buttonStyle(.spotterPrimaryControl)
+                        .nativeGuideTarget(.newPlan)
                     }
                 }
                 SpotterGlassSegments(options: [false, true], value: $completedPlans, glass: false) { $0 ? "已完成" : "待训练" }
@@ -2093,6 +2109,8 @@ struct NativeTrainingLaunch: View {
     var scheduled: [NativeWorkoutEntry] = []
     var startPlan: ((NativeWorkoutEntry) -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterInteractionMotion) private var motion
+    @State private var showsCardioActivities = false
     private let choices = [("strength", "力量训练", "dumbbell", Color(red: 0.82, green: 0.93, blue: 0.64)),
                            ("cardio", "有氧训练", "waveform.path.ecg", Color(red: 0.65, green: 0.89, blue: 0.79)),
                            ("incline", "爬坡走", "figure.walk", Color(red: 0.67, green: 0.85, blue: 0.94)),
@@ -2102,7 +2120,18 @@ struct NativeTrainingLaunch: View {
         ScrollView {
             VStack(spacing: 18) {
                 HStack {
-                    Text("开始训练").font(.title3.weight(.bold)).accessibilityAddTraits(.isHeader)
+                    if showsCardioActivities {
+                        Button {
+                            withAnimation(motion) { showsCardioActivities = false }
+                        } label: {
+                            Image(systemName: "chevron.left").font(.subheadline.weight(.semibold))
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.spotterPress)
+                        .accessibilityLabel("返回训练类型")
+                    }
+                    Text(showsCardioActivities ? "选择有氧项目" : "开始训练")
+                        .font(.title3.weight(.bold)).accessibilityAddTraits(.isHeader)
                     Spacer()
                     Button { dismiss() } label: {
                         Image(systemName: "xmark").font(.subheadline.weight(.semibold))
@@ -2111,26 +2140,15 @@ struct NativeTrainingLaunch: View {
                     }
                     .buttonStyle(.spotterGlassPress).accessibilityLabel("关闭开始训练")
                 }
-                if let startPlan, !scheduled.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("今天的计划").font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
-                        ForEach(scheduled, id: \.key) { plan in
-                            Button { startPlan(plan) } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "play.circle.fill").font(.title3).foregroundStyle(SpotterAccent.lime.fill)
-                                    Text(plan.displayTitle).font(.subheadline.weight(.semibold))
-                                    Spacer(minLength: 0)
-                                    Image(systemName: "chevron.right").font(.footnote.weight(.bold))
-                                }.padding(.horizontal, 13).frame(minHeight: 46)
-                            }.buttonStyle(.spotterPress)
-                                .background(SpotterPalette.color(0x294333), in: RoundedRectangle(cornerRadius: 13))
+                if showsCardioActivities {
+                    LazyVGrid(columns: gridColumns, spacing: 15) {
+                        ForEach(NativeWorkoutSession.CardioActivity.allCases) { activity in
+                            launchButton(activity.title, symbol: activity.symbol, color: cardioColor, size: 52) { start(activity.rawValue) }
+                                .accessibilityIdentifier("start-cardio-" + activity.rawValue)
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 19) {
-                    ForEach(choices, id: \.0) { choice in launchButton(choice.1, symbol: choice.2, color: choice.3) { start(choice.0) } }
-                    launchButton("安排休息", symbol: "cup.and.saucer", color: Color(red: 0.79, green: 0.75, blue: 0.93)) { rest?() }.disabled(rest == nil)
-                    launchButton("身体数据", symbol: "ruler", color: Color(red: 0.95, green: 0.76, blue: 0.67)) { bodyAction?() }.disabled(bodyAction == nil)
+                    }
+                } else {
+                    startChoices
                 }
             }
             .frame(maxWidth: 620)
@@ -2139,18 +2157,74 @@ struct NativeTrainingLaunch: View {
             .padding(.bottom, 14)
             .frame(maxWidth: .infinity)
         }
+        .id(showsCardioActivities)
         .foregroundStyle(.white)
         .background(SpotterPalette.deep.ignoresSafeArea())
         .preferredColorScheme(.dark)
     }
-    private func launchButton(_ title: String, symbol: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 31, weight: .medium)).frame(width: 70, height: 70)
-                    .background(color, in: RoundedRectangle(cornerRadius: 17)).foregroundStyle(SpotterPalette.deep)
-                Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+    private var gridColumns: [GridItem] { Array(repeating: GridItem(.flexible()), count: 3) }
+
+    private let cardioColor = Color(red: 0.65, green: 0.89, blue: 0.79)
+
+    private var startChoices: some View {
+        VStack(spacing: 18) {
+            if let startPlan, !scheduled.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("今天的计划").font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                    ForEach(scheduled, id: \.key) { plan in
+                        Button { startPlan(plan) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "play.circle.fill").font(.title3).foregroundStyle(SpotterAccent.lime.fill)
+                                Text(plan.displayTitle).font(.subheadline.weight(.semibold))
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right").font(.footnote.weight(.bold))
+                            }.padding(.horizontal, 13).frame(minHeight: 46)
+                        }.buttonStyle(.spotterPress)
+                            .background(SpotterPalette.color(0x294333), in: RoundedRectangle(cornerRadius: 13))
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
+            LazyVGrid(columns: gridColumns, spacing: 19) {
+                ForEach(choices, id: \.0) { choice in
+                    launchButton(choice.1, symbol: choice.2, color: choice.3) {
+                        if choice.0 == "cardio" { withAnimation(motion) { showsCardioActivities = true } }
+                        else { start(choice.0) }
+                    }
+                }
+                launchButton("安排休息", symbol: "cup.and.saucer", color: Color(red: 0.79, green: 0.75, blue: 0.93)) { rest?() }.disabled(rest == nil)
+                launchButton("身体数据", symbol: "ruler", color: Color(red: 0.95, green: 0.76, blue: 0.67)) { bodyAction?() }.disabled(bodyAction == nil)
+            }
+        }
+    }
+
+    private func launchButton(_ title: String, symbol: String, color: Color, size: CGFloat = 70, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: symbol).font(.system(size: size * 0.44, weight: .medium)).frame(width: size, height: size)
+                    .background(color, in: RoundedRectangle(cornerRadius: 15)).foregroundStyle(SpotterPalette.deep)
+                    .accessibilityHidden(true)
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, minHeight: size + 30)
+            .contentShape(Rectangle())
         }.buttonStyle(.spotterPress)
+    }
+}
+
+struct NativeCardioPlanPresets: View {
+    let add: (NativeJSON) -> Void
+
+    var body: some View {
+        SpotterMenu {
+            ForEach(NativeWorkoutSession.CardioActivity.planPresets) { activity in
+                if let move = activity.planMove {
+                    Button(activity.title, systemImage: activity.symbol) { add(move) }
+                }
+            }
+        } label: {
+            Label("添加常见有氧动作", systemImage: "figure.run")
+        }
     }
 }
 
@@ -2424,14 +2498,19 @@ struct NativeActiveWorkoutView: View {
                     VStack(alignment: .leading, spacing: 3) { Text(session.plan.category).font(.system(size: 11)).foregroundStyle(SpotterPalette.muted); Text(entry.title).font(.system(size: 18, weight: .bold)) }
                 }
                 Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text("\(session.completedSets)/\(session.rows.flatMap { $0 }.count) 组").font(.system(size: 14, weight: .bold))
-                    Text("\(session.volumeKg.formatted(.number.precision(.fractionLength(0...1)))) kg 容量").font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
+                if let cardio = session.cardioActivity {
+                    Image(systemName: cardio.symbol).font(.title3).foregroundStyle(SpotterPalette.muted)
+                        .accessibilityHidden(true)
+                } else {
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text("\(session.completedSets)/\(session.rows.flatMap { $0 }.count) 组").font(.system(size: 14, weight: .bold))
+                        Text("\(session.volumeKg.formatted(.number.precision(.fractionLength(0...1)))) kg 容量").font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
+                    }
                 }
             }
             if #available(iOS 17.0, *) {
                 NativeWatchHeartRateStrip(context: .init(owner: store.owner, workoutID: entry.id, isRunning: session.isRunning),
-                                          cardio: session.cardioActivity)
+                                          cardio: session.watchCardioActivity)
             }
             HStack(spacing: 8) {
                 NativeWorkoutSyncLabel(status: store.draftSyncStatus).lineLimit(2)
@@ -3101,9 +3180,11 @@ private struct NativeWorkoutCardioFields: View {
             Text(activity.title).font(.headline)
             Text("结束时自动使用本次计时。也可以手动填写实际时长。").font(.footnote).foregroundStyle(SpotterPalette.muted)
             cardioDuration
-            HStack {
-                cardioNumber("距离 km", key: "distanceKm", maximum: 500)
-                cardioNumber("速度 km/h", key: "speedKmh", maximum: 50)
+            if activity.tracksDistance {
+                HStack {
+                    cardioNumber("距离 km", key: "distanceKm", maximum: 500)
+                    cardioNumber("速度 km/h", key: "speedKmh", maximum: activity.maximumSpeedKmh)
+                }
             }
         }.padding(14).spotterCard()
     }
@@ -3130,7 +3211,16 @@ private struct NativeWorkoutCardioFields: View {
     private func cardioNumber(_ label: String, key: String, maximum: Double) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label).font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
-            TextField("可不填", value: Binding(get: { store.active?.data["cardio"][key].number ?? 0 }, set: { value in guard value.isFinite else { return }; store.mutate { $0.raw["cardio"][key] = .number(max(0, min(maximum, value))) } }), format: .number.precision(.fractionLength(0...2)))
+            TextField("可不填", value: Binding<Double?>(get: {
+                guard case .number(let value) = store.active?.data["cardio"][key] else { return nil }
+                return value
+            }, set: { value in
+                store.mutate { session in
+                    var cardio = session.raw["cardio"].object
+                    cardio[key] = value.flatMap { $0.isFinite ? .number(max(0, min(maximum, $0))) : nil }
+                    session.raw["cardio"] = .object(cardio)
+                }
+            }), format: .number.precision(.fractionLength(0...2)))
                 .keyboardType(.decimalPad).padding(10).background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 9))
         }
     }
@@ -3183,19 +3273,19 @@ struct NativeWorkoutDetailView: View {
                                 }
                             }
                         }
-                        if own && !pending {
-                            NativeHeartView(api: store.api, owner: store.owner, entry: current)
-                        }
-                        if session.completedSets > 0 {
-                            SpotterDisclosure("肌群分布") {
-                                SecondaryMusclePanel(entries: [current]).padding(.top, 8)
-                            }.font(.subheadline.weight(.semibold)).padding(14).spotterCard()
+                        if own {
+                            NativeHeartView(api: store.api, owner: store.owner, entry: current, isPending: pending)
                         }
                         if !session.plan.exercises.isEmpty {
                             Text("训练动作").font(.headline).accessibilityAddTraits(.isHeader)
                             ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in
                                 exercise(move, rows: session.rows.indices.contains(index) ? session.rows[index] : [])
                             }
+                        }
+                        if session.completedSets > 0 {
+                            SpotterDisclosure("肌群分布") {
+                                SecondaryMusclePanel(entries: [current]).padding(.top, 8)
+                            }.font(.subheadline.weight(.semibold)).padding(14).spotterCard()
                         }
                     }.padding(14)
                 }
@@ -3477,8 +3567,10 @@ private struct NativeWorkoutLogEditor: View {
     private var cardioFields: some View {
         Group {
             cardioNumber("实际时长（秒）", key: "durationSeconds", range: 1...43_200, integer: true)
-            cardioNumber("距离（km）", key: "distanceKm", range: 0...500)
-            cardioNumber("速度（km/h）", key: "speedKmh", range: 0...50)
+            if session.cardioActivity?.tracksDistance != false {
+                cardioNumber("距离（km）", key: "distanceKm", range: 0...500)
+                cardioNumber("速度（km/h）", key: "speedKmh", range: 0...(session.cardioActivity?.maximumSpeedKmh ?? 50))
+            }
             if session.raw["cardio"]["incline"] != .null {
                 let kind = session.raw["cardio"]["incline"]["kind"].string
                 numberField(kind == "percent" ? "坡度（%）" : "跑步机档位", binding: number(session.raw["cardio"]["incline"]["value"],
@@ -3638,6 +3730,7 @@ struct NativePlanDraft: Identifiable {
 struct NativePlanEditorPanel: View {
     let store: NativeWorkoutStore?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterGuide) private var guide
     @State var draft: NativePlanDraft
     @State private var moveName = ""
     @State private var busy = false
@@ -3664,6 +3757,7 @@ struct NativePlanEditorPanel: View {
         Form {
             Section("计划") {
                 TextField("计划名称", text: text("title", maximum: 100))
+                    .nativeGuideTarget(.planFields)
                 if !draft.isTemplate {
                     DatePicker("训练日期", selection: Binding(get: { nativePlanDate(draft.plan["date"].string) ?? Date() }, set: { draft.plan["date"] = .string(NativeWorkoutSession.day($0)) }), displayedComponents: .date)
                 }
@@ -3699,6 +3793,10 @@ struct NativePlanEditorPanel: View {
                     draft.plan["exercises"] = .array(moves)
                     if linked { draft.plan["ownExercises"] = .bool(true) }
                 }
+                if draft.plan["category"].string == "有氧训练" {
+                    NativeCardioPlanPresets(add: appendMove)
+                        .disabled(draft.plan["exercises"].array.count >= 30)
+                }
                 HStack {
                     TextField("添加动作名称", text: $moveName)
                     Button { addMove() } label: { Image(systemName: "plus.circle.fill") }
@@ -3709,11 +3807,13 @@ struct NativePlanEditorPanel: View {
             if let error { Section { Text(error).font(.footnote).foregroundStyle(.red) } }
         }
         .scrollContentBackground(.hidden).background(SpotterPalette.background).foregroundStyle(SpotterPalette.ink)
+        .nativeGuideLayer(.planEditor) { dismiss() }
         .navigationTitle(reviewed != nil ? "核对计划" : draft.isTemplate ? "编辑模板" : draft.revision == nil ? "新建计划" : "编辑计划").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
             ToolbarItem(placement: .confirmationAction) {
-                Button(busy ? "保存中" : reviewed == nil ? "保存" : "完成核对") { Task { await commit() } }.fontWeight(.bold).disabled(busy)
+                Button(busy ? "保存中" : reviewed == nil ? "保存" : "完成核对") { Task { await commit() } }
+                    .fontWeight(.bold).disabled(busy || guide?.step == .planFields)
             }
         }
     }
@@ -3745,9 +3845,17 @@ struct NativePlanEditorPanel: View {
         }
     }
     private func addMove() {
+        let name = String(moveName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
+        guard !name.isEmpty else { return }
+        appendMove(NativePreferenceKey.newMove(name: name))
+        moveName = ""
+    }
+
+    private func appendMove(_ move: NativeJSON) {
         var moves = draft.plan["exercises"].array
-        moves.append(NativePreferenceKey.newMove(name: String(moveName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))))
-        draft.plan["exercises"] = .array(moves); moveName = ""
+        guard moves.count < 30 else { return }
+        moves.append(move)
+        draft.plan["exercises"] = .array(moves)
         if linked { draft.plan["ownExercises"] = .bool(true) }
     }
     private func commit() async {

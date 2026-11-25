@@ -349,6 +349,7 @@ private func nutritionNumber(_ value: Double) -> String {
 private struct NutritionShortcuts: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(\.spotterGuide) private var guide
     let onMainMeal: () -> Void
     let onSelect: (NutritionShortcut) -> Void
     let onFavorites: () -> Void
@@ -376,14 +377,18 @@ private struct NutritionShortcuts: View {
     }
 
     @ViewBuilder private var buttons: some View {
-        button("记录正餐", icon: Image(systemName: "fork.knife"), action: onMainMeal)
+        button("记录正餐", icon: Image(systemName: "fork.knife"), guideTarget: .mainMeal) {
+            onMainMeal()
+            guide?.advance(.mainMeal)
+        }
         button("加餐", icon: Image(NutritionShortcut.snack.icon)) { onSelect(.snack) }
         button("饮水", icon: Image(NutritionShortcut.water.icon)) { onSelect(.water) }
         button("常用餐", icon: Image(systemName: "star"), action: onFavorites)
         button("拍照记录", icon: Image(systemName: "camera"), action: onPhoto)
     }
 
-    private func button(_ title: String, icon: Image, action: @escaping () -> Void) -> some View {
+    private func button(_ title: String, icon: Image, guideTarget: NativeGuideStep? = nil,
+                        action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
                 icon.renderingMode(.template).resizable().scaledToFit()
@@ -399,6 +404,7 @@ private struct NutritionShortcuts: View {
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(title)
+        .nativeGuideTarget(guideTarget)
     }
 }
 
@@ -438,6 +444,7 @@ struct NativeHomeNutrition: View {
     let onOpen: () -> Void
 
     @Environment(\.scenePhase) private var phase
+    @Environment(\.spotterGuide) private var guide
     @State private var payload = NutritionPayload(rows: [])
     @State private var destination: NutritionDestination?
     @State private var photoCapture: NutritionPhotoRequest?
@@ -478,7 +485,9 @@ struct NativeHomeNutrition: View {
             if phase == .active { reloadRevision &+= 1 }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
-        .sheet(item: $destination) { item in
+        .sheet(item: $destination, onDismiss: {
+            if let guide, guide.step.presentation == .mealEditor { guide.skipSection(guide.step) }
+        }) { item in
             switch item {
             case .mainMeal:
                 NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: .suggestedMainMeal,
@@ -1663,6 +1672,7 @@ private struct NativeNutritionCopy: View {
 private struct NativeNutritionEditor: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterGuide) private var guide
     let api: NativeAPI
     let owner: String
     let date: String
@@ -1729,7 +1739,8 @@ private struct NativeNutritionEditor: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if shortcut.isMeal {
                         if mainMealRecents != nil {
-                            SpotterGlassSegments(options: NutritionShortcut.mainMeals, value: $shortcut, glass: false) { $0.rawValue }
+                            SpotterGlassSegments(options: NutritionShortcut.mainMeals, value: $shortcut, glass: false,
+                                                guideTarget: { $0 == .breakfast ? .mealChoice : nil }) { $0.rawValue }
                                 .accessibilityElement(children: .contain)
                                 .accessibilityLabel("正餐餐次")
                                 .disabled(busy || quickItem != nil)
@@ -1737,6 +1748,7 @@ private struct NativeNutritionEditor: View {
                         let servings = mainMealRecents?[shortcut] ?? recent
                         if !servings.isEmpty { recentFoods(servings) }
                         field("食物名称", value: $name, numeric: false)
+                            .nativeGuideTarget(.mealFields)
                         field("重量（g，选填）", value: $quantity)
                         field("热量（千卡）", value: $calories)
                         field("蛋白质（g）", value: $protein)
@@ -1767,7 +1779,7 @@ private struct NativeNutritionEditor: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.spotterPress)
-                    .disabled(busy)
+                    .disabled(busy || guide?.step.presentation == .mealEditor)
                 }
                 .animation(motion, value: busy)
                 .animation(motion, value: error != nil)
@@ -1777,6 +1789,7 @@ private struct NativeNutritionEditor: View {
             }
             .background(SpotterPalette.background.ignoresSafeArea())
             .scrollDismissesKeyboard(.interactively)
+            .nativeGuideLayer(.mealEditor) { dismiss() }
             .navigationTitle(editorTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { NutritionDismissButton(label: "取消") { dismiss() }.disabled(busy) } }
@@ -1824,7 +1837,8 @@ private struct NativeNutritionEditor: View {
                     .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 9))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.spotterPress).disabled(busy || quickItem != nil && quickItem?.id != serving.id)
+                .buttonStyle(.spotterPress)
+                .disabled(busy || guide?.step.presentation == .mealEditor || quickItem != nil && quickItem?.id != serving.id)
                 .accessibilityHint("按上次份量添加到" + shortcut.rawValue)
             }
             Divider()

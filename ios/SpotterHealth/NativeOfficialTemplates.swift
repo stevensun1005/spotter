@@ -70,6 +70,7 @@ struct NativeOfficialTemplates: View {
         }
         .padding(12)
         .spotterCard()
+        .nativeGuideTarget(.officialFilters)
     }
 
     private func templateCard(_ template: NativeOfficialTrainingTemplate) -> some View {

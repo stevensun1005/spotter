@@ -4,11 +4,11 @@
 
 Cloudflare 版在「设置 → 手表与健康」通过一个入口请求训练、活动、睡眠、身体测量与饮食相关的读取权限。可在 Apple 的授权界面按类别选择。健康页和身体数据页在前台监听样本变化，Apple 健康收到数据后刷新。体重、体脂率、去脂体重和腰围可在核对后同步到当前账号。训练详情可按实际打卡时段匹配心率。
 
-Cloudflare 版的 Watch 配套 App 通过 HealthKit 在训练时测量并发送实时心率。手表测量使用临时训练会话，结束后丢弃该会话。安装、授权及测试方法见 [训练中的 Apple Watch 心率](../docs/iphone-app.md#训练中的-apple-watch-心率)。
+Cloudflare 版的 Watch 配套 App 通过 HealthKit 在训练时测量并发送实时心率。保持手表连接并在手机完成训练时，训练详情会补录该次手表测量的活跃热量和平均心率。HealthKit 同时提供该段静息热量时，总热量为活跃和静息热量之和。摘要只归入当前账号的训练记录，手表测量结束后会丢弃临时会话。安装、授权及真机验证见 [训练中的 Apple Watch 心率](../docs/iphone-app.md#训练中的-apple-watch-心率)。
 
 ### 通过 Apple 健康连接其他设备
 
-- Garmin Connect 在前台完成设备同步后，会把支持的活动、睡眠、心率和体重数据写入 Apple 健康。需要运动的细节时，可在训练详情导入 FIT 或 TCX。 [Garmin 同步说明](https://support.garmin.com/sv-SE/?faq=lK5FPB9iPF5PXFkIpFlFPA)
+- Garmin Connect 在前台完成设备同步后，会把支持的活动、睡眠、心率和体重数据写入 Apple 健康。可在训练详情同步 Apple 健康里与本次训练时段吻合的心率。FIT 和 TCX 文件可在网页版训练详情导入。 [Garmin 同步说明](https://support.garmin.com/sv-SE/?faq=lK5FPB9iPF5PXFkIpFlFPA)
 - Google Health 的 iOS 版可向 Apple 健康写入活动、睡眠、体重和部分生命体征。数据范围以设备和 Google Health 的写入权限为准。 [Google Health 同步说明](https://support.google.com/googlehealth/answer/17037331?hl=en)
 - WHOOP 可写入训练、心率、睡眠和活动数据。恢复、负荷等专属指标需要厂商接口。 [WHOOP 同步说明](https://support.whoop.com/s/article/Apple-Health-Integration?language=en_US)
 - RENPHO 可通过 Apple 健康分享体重、体脂率、去脂体重等全身指标。公开的 HealthKit 类型不包含左右臂、左右腿或躯干的脂肪和肌肉估算。分段数据需要支持该功能的体脂秤与厂商导出。 [RENPHO 同步与导出](https://renpho.com/pages/faq-for-renpho-health-app) · [HealthKit 类型](https://developer.apple.com/documentation/healthkit/data-types)

@@ -2050,7 +2050,7 @@ struct NativeSettings: View {
     private enum Page: String, CaseIterable, Identifiable {
         case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", planImport = "粘贴已有内容", programs = "训练周期", reminders = "训练提醒"
         case units = "单位与统计", equipment = "器械", appearance = "外观与辅助功能", modules = "功能模块", data = "数据导入与导出"
-        case watches = "手表与健康", integrations = "集成", coach = "AI 教练", about = "关于与更新"
+        case watches = "手表与健康", integrations = "集成", coach = "AI 教练", agent = "外部 Agent", about = "关于与更新"
         case notifications = "通知"
         var id: Self { self }
 
@@ -2072,7 +2072,8 @@ struct NativeSettings: View {
             case .data: return "导出训练资料、恢复 Spotter 备份"
             case .watches: return "Apple Watch 与 Apple 健康"
             case .integrations: return "健康数据、AI 工具"
-            case .coach: return "训练对话、计划草稿与 Agent 连接"
+            case .coach: return "训练对话、计划草稿和数据授权"
+            case .agent: return "个人 API 令牌、读取与写入权限、提示词"
             case .about: return "帮助、更新和版本"
             }
         }
@@ -2096,6 +2097,7 @@ struct NativeSettings: View {
             case .watches: return "applewatch"
             case .integrations: return "powerplug"
             case .coach: return "sparkles"
+            case .agent: return "link"
             case .about: return "info.circle"
             }
         }
@@ -2134,7 +2136,7 @@ struct NativeSettings: View {
                     accountHeader
                     rows([.workout, .protein, .timer, .schedule, .reminders], title: "训练")
                     rows([.notifications, .units, .equipment, .appearance, .modules], title: "首选项")
-                    rows([.watches, .integrations, .coach], title: "连接")
+                    rows([.watches, .integrations, .coach, .agent], title: "连接")
                     rows([.data], title: "数据")
                     rows([.about])
                 } else if matches.isEmpty {
@@ -2276,6 +2278,7 @@ struct NativeSettings: View {
         case .equipment: NativeEquipmentPreferences(sync: trainingPreferences)
         case .planImport: NativePlanImportView(api: account.api, owner: owner, didImport: refreshPlans)
         case .programs: NativeProgramsView(api: account.api, owner: owner, didSchedule: refreshPlans, store: workoutStore)
+        case .agent: NativeAgentAccessView(api: account.api, owner: owner)
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -2296,8 +2299,9 @@ struct NativeSettings: View {
                     case .watches: NativeHealthSummary(api: account.api, owner: owner, workouts: workoutStore)
                     case .integrations:
                         rows([.watches], title: "健康与设备")
-                        rows([.coach], title: "数据和 AI")
+                        rows([.coach, .agent], title: "数据和 AI")
                     case .coach: coachContent
+                    case .agent: EmptyView()
                     case .about: aboutContent
                     case .protein: EmptyView()
                     }
@@ -2336,6 +2340,8 @@ struct NativeSettings: View {
                 NativeCoachView(api: account.api, owner: owner, workoutStore: workoutStore)
                     .toolbar(.visible, for: .navigationBar)
             } label: { SecondaryRow(title: "打开 AI 教练", icon: "sparkles") }.buttonStyle(.spotterPress)
+            Divider()
+            link(.agent)
             Divider()
             NativeCoachSharingSettings(owner: owner, origin: account.api.origin).padding(13)
         }
@@ -3386,6 +3392,7 @@ struct NativeFriends: View {
     @AppStorage(NativePreferenceKey.coachingEntry) private var showsCoaching = false
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterGuide) private var guide
     @EnvironmentObject private var notifications: NativeSocialNotifications
 
     @State private var page: NativeFriendsPage
@@ -3465,7 +3472,8 @@ struct NativeFriends: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    SpotterGlassSegments(options: NativeFriendsPage.allCases, value: $page, title: \.rawValue)
+                    SpotterGlassSegments(options: NativeFriendsPage.allCases, value: $page,
+                                         guideTarget: { $0 == .privacy ? .privacy : nil }, title: \.rawValue)
                     notificationButton
                 }
                 if dialog == nil, let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
@@ -3489,6 +3497,9 @@ struct NativeFriends: View {
         .task(id: page) {
             if page == .feed { await loadFeed() }
         }
+        .task(id: guide?.step) {
+            if guide?.step == .findBuddy { page = .contacts }
+        }
         .refreshable { await load(); if page == .feed { await loadFeed() } }
         .navigationDestination(isPresented: Binding(get: { notificationDestination != nil }, set: { if !$0 { notificationDestination = nil } })) {
             if let destination = notificationDestination { friendDetail(destination.friend, day: destination.day) }
@@ -3504,7 +3515,10 @@ struct NativeFriends: View {
         }) {
             NativeNotificationInbox(owner: owner) { inboxSelection = $0 }.presentationDragIndicator(.visible)
         }
-        .sheet(item: $dialog, onDismiss: openSelectedCheerWorkout) { item in
+        .sheet(item: $dialog, onDismiss: {
+            guide?.advance(.buddySearch)
+            openSelectedCheerWorkout()
+        }) { item in
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 13) {
@@ -3517,6 +3531,7 @@ struct NativeFriends: View {
                         if let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
                     }.secondaryPage()
                 }.background(SpotterPalette.background)
+                    .nativeGuideLayer(.invitation) { closeDialog() }
                     .navigationTitle(item == .invite ? inviteKind.invitationTitle : item.rawValue).navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) { Button("完成") { closeDialog() }.buttonStyle(.spotterPress).disabled(busy) }
@@ -3525,7 +3540,7 @@ struct NativeFriends: View {
             .task {
                 if item == .cheers || item == .appointments { await loadEngagement() }
             }
-            .presentationDetents(item == .invite ? [.medium, .large] : [.large])
+            .presentationDetents(item == .invite && guide?.step != .buddySearch ? [.medium, .large] : [.large])
             .presentationDragIndicator(.visible)
             .interactiveDismissDisabled(busy)
         }
@@ -3598,8 +3613,12 @@ struct NativeFriends: View {
     @ViewBuilder private var contactActions: some View {
         Button { open(.invite) } label: { Label("添加好友", systemImage: "person.badge.plus") }
             .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy)
-        Button { open(.invite, kind: .buddy) } label: { Label("找搭子", systemImage: "person.2") }
+        Button {
+            open(.invite, kind: .buddy)
+            guide?.advance(.findBuddy)
+        } label: { Label("找搭子", systemImage: "person.2") }
             .buttonStyle(SecondaryButtonStyle()).disabled(busy)
+            .nativeGuideTarget(.findBuddy)
         if showsCoaching {
             NavigationLink {
                 NativeCoachingView(api: api, owner: owner).onDisappear { Task { await refreshPlans() } }
@@ -4038,6 +4057,7 @@ struct NativeFriends: View {
                 TextField("例如 spotter#1234", text: $search).textFieldStyle(.roundedBorder).submitLabel(.search)
                     .textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityLabel("对方的用户名")
                     .onSubmit { Task { await findFriends() } }
+                    .nativeGuideTarget(.buddySearch)
                 Button { Task { await findFriends() } } label: { Label("搜索", systemImage: "magnifyingglass") }
                     .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy || search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -4058,7 +4078,7 @@ struct NativeFriends: View {
                         Button(received ? "处理申请" : waiting ? "已申请" : "发送申请") {
                             if received { open(.requests) }
                             else { sendConnectionRequest(to: result) }
-                        }.buttonStyle(SecondaryButtonStyle()).disabled(busy || waiting)
+                        }.buttonStyle(SecondaryButtonStyle()).disabled(busy || waiting || guide?.step == .buddySearch)
                     }.padding(.vertical, 5)
                 }
             }

@@ -1,5 +1,6 @@
 import HealthKit
 import SwiftUI
+import WatchConnectivity
 import WatchKit
 
 @main
@@ -60,6 +61,9 @@ private final class SpotterWatchWorkout: NSObject, ObservableObject {
 
     private let store = HKHealthStore()
     private let heartRate = HKQuantityType(.heartRate)
+    private let activeEnergy = HKQuantityType(.activeEnergyBurned)
+    private let basalEnergy = HKQuantityType(.basalEnergyBurned)
+    private var workoutReadTypes: Set<HKObjectType> { [heartRate, activeEnergy, basalEnergy] }
     private let workoutType = HKObjectType.workoutType()
     private var pendingConfiguration: HKWorkoutConfiguration?
     private var session: HKWorkoutSession?
@@ -70,9 +74,21 @@ private final class SpotterWatchWorkout: NSObject, ObservableObject {
     private var collecting = false
     private var measuredAfter = Date.distantPast
     private var latestSampleAt = Date.distantPast
+    private var isReportingSummary = false
+    private var pendingFinish: (token: UUID, end: Date)?
+    private var summaryTimeout: Task<Void, Never>?
+    private var queuedSummaries: [Data] = []
+
+    override init() {
+        super.init()
+        if WCSession.isSupported() {
+            WCSession.default.delegate = self
+            WCSession.default.activate()
+        }
+    }
 
     var canStop: Bool {
-        phase == .connecting || phase == .running || phase == .paused
+        !isReportingSummary && (phase == .connecting || phase == .running || phase == .paused)
     }
 
     var canControl: Bool { phoneConnected && workoutState != nil && !actionPending }
@@ -84,7 +100,7 @@ private final class SpotterWatchWorkout: NSObject, ObservableObject {
         phase = .checking
 
         do {
-            let request = try await store.statusForAuthorizationRequest(toShare: [workoutType], read: [heartRate])
+            let request = try await store.statusForAuthorizationRequest(toShare: [workoutType], read: workoutReadTypes)
             guard request == .unnecessary, store.authorizationStatus(for: workoutType) == .sharingAuthorized else {
                 phase = .permissionRequired
                 return
@@ -99,7 +115,7 @@ private final class SpotterWatchWorkout: NSObject, ObservableObject {
         guard phase == .permissionRequired else { return }
         phase = .checking
         do {
-            try await store.requestAuthorization(toShare: [workoutType], read: [heartRate])
+            try await store.requestAuthorization(toShare: [workoutType], read: workoutReadTypes)
             guard store.authorizationStatus(for: workoutType) == .sharingAuthorized else {
                 phase = .permissionRequired
                 return
@@ -124,10 +140,13 @@ private final class SpotterWatchWorkout: NSObject, ObservableObject {
             let current = try HKWorkoutSession(healthStore: store, configuration: configuration)
             let workoutBuilder = current.associatedWorkoutBuilder()
             let source = HKLiveWorkoutDataSource(healthStore: store, workoutConfiguration: configuration)
-            for type in source.typesToCollect where type != heartRate {
+            let summaryTypes = [heartRate, activeEnergy, basalEnergy]
+            for type in source.typesToCollect where !summaryTypes.contains(type) {
                 source.disableCollection(for: type)
             }
-            source.enableCollection(for: heartRate, predicate: nil)
+            for type in summaryTypes where !source.typesToCollect.contains(type) {
+                source.enableCollection(for: type, predicate: nil)
+            }
             workoutBuilder.dataSource = source
             workoutBuilder.delegate = self
             current.delegate = self
@@ -178,11 +197,75 @@ private final class SpotterWatchWorkout: NSObject, ObservableObject {
         }
     }
 
+    private func finishAndReport(_ request: NativeWatchWorkoutFinishRequest, via current: HKWorkoutSession) {
+        guard session === current, !isReportingSummary, collecting, let builder,
+              workoutState?.token == request.token, let start = builder.startDate else { return }
+        let end = min(request.end, .now)
+        guard start < end else { finish(current, as: .ended); return }
+        isReportingSummary = true
+        pendingFinish = (request.token, end)
+        collecting = false
+        reading = nil
+        phase = .ended
+        disconnectTask?.cancel()
+        summaryTimeout = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(18)) } catch { return }
+            self?.finish(current, as: .ended)
+        }
+        if current.state == .stopped || current.state == .ended {
+            reportStoppedWorkout(current, at: end)
+        } else {
+            current.stopActivity(with: end)
+        }
+    }
+
+    private func reportStoppedWorkout(_ current: HKWorkoutSession, at date: Date) {
+        guard let pending = pendingFinish, let builder, let start = builder.startDate else { return }
+        pendingFinish = nil
+        let end = min(pending.end, date)
+        guard end > start else { finish(current, as: .ended); return }
+        Task {
+            do {
+                try await builder.endCollection(at: end)
+                guard session === current else { return }
+                let kcal = HKUnit.kilocalorie()
+                let bpm = HKUnit.count().unitDivided(by: .minute())
+                let summary = NativeWorkoutHealthSummary(
+                    start: start, end: end,
+                    active: builder.statistics(for: activeEnergy)?.sumQuantity()?.doubleValue(for: kcal),
+                    basal: builder.statistics(for: basalEnergy)?.sumQuantity()?.doubleValue(for: kcal),
+                    average: builder.statistics(for: heartRate)?.averageQuantity()?.doubleValue(for: bpm)
+                )
+                if let data = NativeWatchWorkoutSummaryPacket(token: pending.token, data: summary).encoded() {
+                    // Background delivery carries the same one-time token and survives the mirrored session ending.
+                    if WCSession.isSupported() {
+                        queuedSummaries.append(data)
+                        flushSummaries(using: .default)
+                    }
+                    _ = try? await current.sendToRemoteWorkoutSession(data: data)
+                }
+            } catch { }
+            finish(current, as: .ended)
+        }
+    }
+
+    private func flushSummaries(using connectivity: WCSession) {
+        guard connectivity.activationState == .activated, connectivity.isCompanionAppInstalled else { return }
+        for data in queuedSummaries {
+            connectivity.transferUserInfo([NativeWatchWorkoutSummaryPacket.transferKey: data])
+        }
+        queuedSummaries.removeAll()
+    }
+
     private func finish(_ current: HKWorkoutSession, as result: Phase) {
         guard session === current else { return }
         disconnectTask?.cancel()
         disconnectTask = nil
         collecting = false
+        isReportingSummary = false
+        pendingFinish = nil
+        summaryTimeout?.cancel()
+        summaryTimeout = nil
         reading = nil
         clearMirroredState()
         builder?.delegate = nil
@@ -286,7 +369,7 @@ private final class SpotterWatchWorkout: NSObject, ObservableObject {
     }
 
     private func updateConnection(_ connected: Bool, for current: HKWorkoutSession) {
-        guard session === current, phoneConnected != connected else { return }
+        guard session === current, !isReportingSummary, phoneConnected != connected else { return }
         phoneConnected = connected
         if connected {
             disconnectTask?.cancel()
@@ -345,7 +428,8 @@ extension SpotterWatchWorkout: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDel
                 guard collecting, workoutSession.state == toState else { return }
                 setTrackingPhase(toState == .running ? .running : .paused, for: workoutSession, at: date)
             case .stopped, .ended:
-                finish(workoutSession, as: .ended)
+                if isReportingSummary { reportStoppedWorkout(workoutSession, at: date) }
+                else { finish(workoutSession, as: .ended) }
             default:
                 break
             }
@@ -360,9 +444,13 @@ extension SpotterWatchWorkout: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDel
         Task { @MainActor in
             guard session === workoutSession else { return }
             for data in values {
+                if let request = NativeWatchWorkoutFinishRequest.decode(data) {
+                    finishAndReport(request, via: workoutSession)
+                    continue
+                }
                 if data.count < 256, let command = try? JSONDecoder().decode(Message.self, from: data),
                    command.version == 1, command.kind == "stop" {
-                    finish(workoutSession, as: .ended)
+                    if !isReportingSummary { finish(workoutSession, as: .ended) }
                     return
                 }
                 if let packet = NativeWatchWorkoutStatePacket.decode(data) {
@@ -382,6 +470,13 @@ extension SpotterWatchWorkout: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDel
     nonisolated func workoutBuilder(_ workoutBuilder: HKLiveWorkoutBuilder, didCollectDataOf collectedTypes: Set<HKSampleType>) {
         guard collectedTypes.contains(HKQuantityType(.heartRate)) else { return }
         Task { @MainActor in collectHeartRate(from: workoutBuilder) }
+    }
+}
+
+extension SpotterWatchWorkout: WCSessionDelegate {
+    nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
+                             error: Error?) {
+        Task { @MainActor in flushSummaries(using: session) }
     }
 }
 

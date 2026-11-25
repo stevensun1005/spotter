@@ -98,6 +98,10 @@ struct NativeProgramPlanEditor: View {
                     }
                 }
             }
+            if !warmup, plan["category"].string == "有氧训练" {
+                NativeCardioPlanPresets { add($0, warmup: false) }
+                    .disabled(moves.count >= 30)
+            }
             if store != nil {
                 Button { catalogueSelection = .add(warmup) } label: { Label("从动作库添加", systemImage: "plus.circle") }
                     .disabled(moves.count >= 30)

@@ -51,8 +51,6 @@
     <string>$(SPOTTER_APNS_ENVIRONMENT)</string>
     <key>SpotterBetaSocialAPIEnabled</key>
     <string>$(SPOTTER_BETA_SOCIAL_API_ENABLED)</string>
-    <key>SpotterInternalCoachWorkerVersion</key>
-    <string>33527ad6-e19e-47d7-848c-ae4e2659e5b5</string>
     <key>SpotterInternalNotificationsWorkerVersion</key>
     <string>$(SPOTTER_NOTIFICATION_WORKER_VERSION)</string>
     <key>SpotterWebRelease</key>
@@ -62,13 +60,13 @@
         <key>hosting</key>
         <string>cloudflare</string>
         <key>version</key>
-		<integer>90</integer>
+		<integer>91</integer>
         <key>sourceCommit</key>
-		<string>e58275a4ccafeaee3a028c88e907464c34c73ff7</string>
+		<string>40ae0d22f6d8c0c037b81b0590617ecd7e935d09</string>
         <key>exportRef</key>
         <string>origin/codex/cloudflare-free</string>
         <key>exportCommit</key>
-		<string>e58275a4ccafeaee3a028c88e907464c34c73ff7</string>
+		<string>40ae0d22f6d8c0c037b81b0590617ecd7e935d09</string>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>

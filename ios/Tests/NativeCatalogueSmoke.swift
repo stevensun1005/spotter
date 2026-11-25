@@ -28,6 +28,10 @@ struct NativeCatalogueSmoke {
         let guide = try index.details(for: barbell.rows[0])
         precondition(guide?.steps.isEmpty == false)
         try verifyGymEquipment(index)
+        for activity in NativeWorkoutSession.CardioActivity.planPresets {
+            let id = activity.planMove?["catalogueId"].string ?? ""
+            precondition(index.entry(withID: id)?.type == "cardio", "Cardio preset must resolve to an actual bundled item: " + id)
+        }
         print("native catalogue smoke: 5,272 grouped entries, correct 447 barbell sequence, 61 personal entries, exact covers")
     }
 

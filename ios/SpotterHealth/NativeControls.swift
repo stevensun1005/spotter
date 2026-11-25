@@ -75,6 +75,7 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     @Binding var value: Option
     let title: (Option) -> String
     let glass: Bool
+    let guideTarget: (Option) -> NativeGuideStep?
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dynamicTypeSize) private var textSize
@@ -82,10 +83,13 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     @Environment(\.colorScheme) private var colorScheme
     @Namespace private var selection
 
-    init(options: [Option], value: Binding<Option>, glass: Bool = true, title: @escaping (Option) -> String) {
+    init(options: [Option], value: Binding<Option>, glass: Bool = true,
+         guideTarget: @escaping (Option) -> NativeGuideStep? = { _ in nil },
+         title: @escaping (Option) -> String) {
         self.options = options
         _value = value
         self.glass = glass
+        self.guideTarget = guideTarget
         self.title = title
     }
 
@@ -106,15 +110,19 @@ struct SpotterGlassSegments<Option: Hashable>: View {
                 let selected = option == value
                 Button {
                     if !selected { value = option }
+                    if let target = guideTarget(option) { guide?.advance(target) }
                 } label: {
                     label(for: option, selected: selected)
                 }
                 .buttonStyle(glass && selected ? .spotterGlassPress : .spotterPress)
                 .accessibilityAddTraits(selected ? .isSelected : [])
+                .nativeGuideTarget(guideTarget(option))
             }
         }
         .animation(motion, value: value)
     }
+
+    @Environment(\.spotterGuide) private var guide
 
     @ViewBuilder private func label(for option: Option, selected: Bool) -> some View {
         let label = Text(title(option))

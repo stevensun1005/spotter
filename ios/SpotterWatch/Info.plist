@@ -5,9 +5,9 @@
     <key>CFBundleDisplayName</key>
     <string>训练搭子</string>
     <key>NSHealthShareUsageDescription</key>
-    <string>在训练时从 Apple Watch 读取实时心率，并在手表和配对的 iPhone 上显示。</string>
+    <string>在训练时从 Apple Watch 读取实时心率，并在训练结束时将平均心率、活跃热量和总热量同步到配对的 iPhone。</string>
     <key>NSHealthUpdateUsageDescription</key>
-    <string>运行显示实时心率所需的 Apple Watch 训练会话。完成后仍由训练搭子记录本次训练。</string>
+    <string>运行训练搭子的 Apple Watch 训练会话，用于实时心率和完训摘要。完成后由训练搭子记录本次训练。</string>
     <key>WKApplication</key>
     <true/>
     <key>WKBackgroundModes</key>

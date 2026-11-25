@@ -1,5 +1,6 @@
 import HealthKit
 import SwiftUI
+import WatchConnectivity
 
 @available(iOS 17.0, *)
 @MainActor
@@ -40,10 +41,17 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
     private var workoutRevision = 0
     private var workoutCommand: (@MainActor (NativeWatchWorkoutCommand) -> NativeWatchWorkoutSnapshot?)?
     private var acknowledgements: [NativeWatchWorkoutAcknowledgement] = []
+    private var finishing: UUID?
+    private var finishMessage: Data?
+    private var mirroredAtLeastOnce = false
 
     func prepare() {
         guard !listening, HKHealthStore.isHealthDataAvailable() else { return }
         listening = true
+        if WCSession.isSupported() {
+            WCSession.default.delegate = self
+            WCSession.default.activate()
+        }
         healthStore.workoutSessionMirroringStartHandler = { [weak self] incoming in
             Task { @MainActor in self?.receiveSession(incoming) }
         }
@@ -62,7 +70,7 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
                 if session.state == .paused { session.resume() }
             }
         } else {
-            end()
+            if context != nil || finishing == nil { end() }
             self.context = context
             workoutSnapshot = nil
             workoutCommand = nil
@@ -89,7 +97,7 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
         state(for: context) == .measuring ? reading : nil
     }
 
-    func connect(_ context: NativeWatchWorkoutContext, activity: HKWorkoutActivityType) {
+    func connect(_ context: NativeWatchWorkoutContext, activity: HKWorkoutActivityType, location: HKWorkoutSessionLocationType) {
         guard self.context?.matches(context) == true, connection != .connecting, session == nil else { return }
         prepare()
         guard listening else { connection = .unavailable; return }
@@ -98,7 +106,10 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
         let currentRequest = request ?? Request(id: UUID(), startedAt: .now)
         let requestID = currentRequest.id
         request = currentRequest
-        if !reconnecting { lastSampleDate = nil }
+        if !reconnecting {
+            lastSampleDate = nil
+            mirroredAtLeastOnce = false
+        }
         reading = nil
         connection = .connecting
         timeout?.cancel()
@@ -110,7 +121,7 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
 
         let configuration = HKWorkoutConfiguration()
         configuration.activityType = activity
-        configuration.locationType = .unknown
+        configuration.locationType = location
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -123,10 +134,39 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
         }
     }
 
+    func finishWorkout(context: NativeWatchWorkoutContext, entry: NativeWorkoutEntry, origin: String) {
+        guard self.context?.matches(context) == true, context.workoutID == entry.id, mirroredAtLeastOnce, let request,
+              let endedAt = entry.endedAt, let message = NativeWatchWorkoutFinishRequest(token: request.id, end: endedAt).encoded(),
+              NativeWorkoutHealthSync.shared.expect(token: request.id, origin: origin, owner: context.owner, entry: entry)
+        else { return }
+        finishing = request.id
+        finishMessage = message
+        sendFinish()
+        timeout?.cancel()
+        timeout = Task { [weak self] in
+            for _ in 0..<3 {
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                guard let self, finishing == request.id else { return }
+                sendFinish()
+            }
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            guard let self, finishing == request.id else { return }
+            end()
+        }
+    }
+
+    private func sendFinish() {
+        guard let session, let finishMessage else { return }
+        session.sendToRemoteWorkoutSession(data: finishMessage) { _, _ in }
+    }
+
     func end(showing status: Connection = .idle) {
         timeout?.cancel()
         timeout = nil
         request = nil
+        finishing = nil
+        finishMessage = nil
+        mirroredAtLeastOnce = false
         acknowledgements = []
         lastSampleDate = nil
         reading = nil
@@ -147,14 +187,17 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
 
     private func receiveSession(_ incoming: HKWorkoutSession) {
         guard incoming.type == .mirrored else { return }
-        guard let context, request != nil else { stop(incoming); return }
+        guard let request, context != nil || finishing == request.id else { stop(incoming); return }
         // HealthKit can replace the mirrored object when the same devices reconnect.
         if let session, session !== incoming { session.delegate = nil }
         session = incoming
+        mirroredAtLeastOnce = true
         reading = nil
+        incoming.delegate = self
+        if finishing == request.id { sendFinish(); return }
+        guard let context else { return }
         timeout?.cancel()
         timeout = nil
-        incoming.delegate = self
         connection = context.isRunning ? .measuring : .paused
         if context.isRunning, incoming.state == .paused { incoming.resume() }
         if !context.isRunning, incoming.state == .running { incoming.pause() }
@@ -179,6 +222,12 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
     private func receive(_ packets: [Data], via incoming: HKWorkoutSession) {
         for packet in packets {
             guard session === incoming, let request else { continue }
+            if let summary = NativeWatchWorkoutSummaryPacket.decode(packet), finishing == summary.token {
+                NativeWorkoutHealthSync.shared.accept(summary)
+                finishMessage = nil
+                continue
+            }
+            if finishing != nil { continue }
             guard let message = NativeWatchHeartRatePacket(packet, requestedAt: request.startedAt, after: lastSampleDate) else {
                 if let action = NativeWatchWorkoutCommand.decode(packet) { receiveWorkoutCommand(action, requestID: request.id) }
                 continue
@@ -284,7 +333,8 @@ extension NativeWatchHeartRate: HKWorkoutSessionDelegate {
                 if context?.isRunning == false { workoutSession.pause() }
                 else { handle(.running) }
             case .paused: handle(.paused)
-            case .stopped, .ended: handle(.ended)
+            case .stopped, .ended:
+                if finishing == nil { handle(.ended) }
             default: break
             }
         }
@@ -309,6 +359,22 @@ extension NativeWatchHeartRate: HKWorkoutSessionDelegate {
             // Keep the explicit request scoped to this workout so HealthKit can reconnect.
             connection = .disconnected
         }
+    }
+}
+
+@available(iOS 17.0, *)
+extension NativeWatchHeartRate: WCSessionDelegate {
+    nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
+                             error: Error?) {}
+
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
+
+    nonisolated func sessionDidDeactivate(_ session: WCSession) { session.activate() }
+
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        guard let bytes = userInfo[NativeWatchWorkoutSummaryPacket.transferKey] as? Data,
+              let packet = NativeWatchWorkoutSummaryPacket.decode(bytes) else { return }
+        Task { @MainActor in NativeWorkoutHealthSync.shared.accept(packet) }
     }
 }
 
@@ -356,7 +422,7 @@ struct NativeWatchHeartRateStrip: View {
         switch connection {
         case .idle, .unavailable, .permissionRequired, .disconnected:
             Button {
-                watch.connect(context, activity: activityType)
+                watch.connect(context, activity: activityType, location: locationType)
             } label: {
                 Text(connection == .idle ? "连接" : "重试")
                     .font(.caption.weight(.semibold)).padding(.horizontal, 12)
@@ -374,9 +440,24 @@ struct NativeWatchHeartRateStrip: View {
         }
     }
 
+    private var locationType: HKWorkoutSessionLocationType {
+        switch cardio {
+        case .treadmillRunning, .stationaryCycling, .incline, .rowing, .elliptical, .stairClimbing: return .indoor
+        case .running, .cycling: return .outdoor
+        default: return .unknown
+        }
+    }
+
     private var activityType: HKWorkoutActivityType {
         switch cardio {
-        case .incline: return .walking
+        case .walking, .incline: return .walking
+        case .running, .treadmillRunning: return .running
+        case .cycling, .stationaryCycling: return .cycling
+        case .rowing: return .rowing
+        case .elliptical: return .elliptical
+        case .stairClimbing: return .stairClimbing
+        case .swimming: return .swimming
+        case .jumpRope: return .jumpRope
         case .hiit: return .highIntensityIntervalTraining
         case .cardio: return .mixedCardio
         case nil: return .traditionalStrengthTraining

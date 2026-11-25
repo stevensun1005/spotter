@@ -250,15 +250,101 @@ enum NativePlanImport {
 }
 
 struct NativeWorkoutSession: Equatable, Sendable {
-    enum CardioActivity: String {
-        case cardio, hiit, incline = "incline-walk"
+    enum CardioActivity: String, CaseIterable, Identifiable, Sendable {
+        case running
+        case treadmillRunning = "treadmill-running"
+        case cycling
+        case stationaryCycling = "stationary-cycling"
+        case rowing, elliptical, walking
+        case incline = "incline-walk"
+        case stairClimbing = "stair-climbing"
+        case swimming
+        case jumpRope = "jump-rope"
+        case hiit, cardio
+
+        var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .cardio: "有氧训练"
-            case .hiit: "HIIT 训练"
+            case .running: "跑步"
+            case .treadmillRunning: "跑步机"
+            case .cycling: "户外骑行"
+            case .stationaryCycling: "室内骑行"
+            case .rowing: "划船机"
+            case .elliptical: "椭圆机"
+            case .walking: "步行"
             case .incline: "爬坡走"
+            case .stairClimbing: "登阶机"
+            case .swimming: "游泳"
+            case .jumpRope: "跳绳"
+            case .hiit: "HIIT 训练"
+            case .cardio: "综合有氧"
             }
+        }
+
+        var initialTitle: String { self == .cardio ? "有氧训练" : title }
+
+        var symbol: String {
+            switch self {
+            case .running: "figure.run"
+            case .treadmillRunning: "figure.run.treadmill"
+            case .cycling: "figure.outdoor.cycle"
+            case .stationaryCycling: "figure.indoor.cycle"
+            case .rowing: "figure.rower"
+            case .elliptical: "figure.elliptical"
+            case .walking: "figure.walk"
+            case .incline: "figure.hiking"
+            case .stairClimbing: "figure.stair.stepper"
+            case .swimming: "figure.pool.swim"
+            case .jumpRope: "figure.jumprope"
+            case .hiit: "bolt"
+            case .cardio: "waveform.path.ecg"
+            }
+        }
+
+        var tracksDistance: Bool { self != .stairClimbing && self != .jumpRope }
+
+        var maximumSpeedKmh: Double { self == .cycling || self == .stationaryCycling ? 120 : 50 }
+
+        private var cataloguePreset: (id: String, seconds: Int)? {
+            switch self {
+            case .running: ("0685", 900)
+            case .treadmillRunning: ("2197", 900)
+            case .cycling: ("5214", 1_200)
+            case .stationaryCycling: ("2138", 1_200)
+            case .rowing: ("1161", 600)
+            case .elliptical: ("2141", 900)
+            case .walking: ("2258", 1_200)
+            case .incline: ("3666", 900)
+            case .stairClimbing: ("2311", 600)
+            case .jumpRope: ("2612", 60)
+            case .swimming, .hiit, .cardio: nil
+            }
+        }
+
+        static var planPresets: [Self] { allCases.filter { $0.cataloguePreset != nil } }
+
+        var planMove: NativeJSON? {
+            guard let preset = cataloguePreset else { return nil }
+            var move = NativePreferenceKey.newMove(name: title, sets: 1, reps: 0)
+            move["catalogueId"] = .string(preset.id)
+            move["seconds"] = .number(Double(preset.seconds))
+            return move
+        }
+
+        private static let catalogueActivities: [String: Self] = {
+            var activities: [String: Self] = [
+                "3004": .walking, "2259": .walking, "2279": .stationaryCycling,
+                "0798": .stationaryCycling, "2192": .elliptical, "4259": .elliptical,
+            ]
+            for activity in planPresets {
+                if let preset = activity.cataloguePreset { activities[preset.id] = activity }
+            }
+            return activities
+        }()
+
+        static func fromPlannedMove(_ move: NativeJSON) -> Self? {
+            catalogueActivities[move["catalogueId"].string]
         }
     }
 
@@ -285,6 +371,12 @@ struct NativeWorkoutSession: Equatable, Sendable {
     var isRunning: Bool { if case .number = raw["clock"]["runningSince"] { return true }; return false }
     var completedSets: Int { rows.flatMap { $0 }.filter { $0["done"].bool }.count }
     var cardioActivity: CardioActivity? { CardioActivity(rawValue: raw["cardio"]["activity"].string) }
+    var watchCardioActivity: CardioActivity? {
+        if let cardioActivity { return cardioActivity }
+        guard plan.category == "有氧训练" else { return nil }
+        let activities = Set(plan.exercises.lazy.filter { !NativeExerciseLabel($0).warmup }.compactMap(CardioActivity.fromPlannedMove))
+        return activities.count == 1 ? activities.first : .cardio
+    }
     var volumeKg: Double {
         let exercises = plan.exercises
         return rows.enumerated().reduce(0) { total, group in
@@ -382,7 +474,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
     }
     static func free(cardio: CardioActivity? = nil, now: Int = nowMilliseconds) -> NativeWorkoutSession {
         var session = start(plan: NativePlan(raw: .object([
-            "title": .string(cardio?.title ?? "自由训练"), "date": .string(day()),
+            "title": .string(cardio?.initialTitle ?? "自由训练"), "date": .string(day()),
             "category": .string(cardio == nil ? "力量训练" : "有氧训练"), "minutes": .number(0),
             "shared": .bool(false), "video": .string(""), "exercises": .array([]),
         ])), planId: "", now: now)

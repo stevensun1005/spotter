@@ -371,6 +371,7 @@ struct NativeCoachView: View {
     @State private var ownPromptMode = "起草新计划"
     @State private var ownNotice: String?
     @State private var showOwnImport = false
+    @State private var showAgentAccess = false
     @State private var copiedReply: Int?
     @State private var startedWelcomeGuide = false
     @State private var proteinEditor: NativeProteinRecipeEditor?
@@ -497,6 +498,13 @@ struct NativeCoachView: View {
                 showGuide = false
             }
             .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showAgentAccess) {
+            NavigationStack {
+                NativeAgentAccessView(api: api, owner: owner, showsClose: true)
+            }
+            .environment(\.colorScheme, surroundingColorScheme)
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showOwnImport) {
@@ -686,7 +694,9 @@ struct NativeCoachView: View {
             Text("今天想怎么练？")
                 .font(compact ? .title2.weight(.semibold) : .largeTitle.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
-            Text(session.textMealLoggingEnabled ? "问训练问题、排计划，也可以说「帮我记午餐」。" : "问一个训练问题，看看本周练了什么，或一起排个计划。")
+            Text(session.textMealLoggingEnabled
+                 ? "告诉我目标、器械和可用时间。可以挑动作、排计划，也可以说「帮我记午餐」。"
+                 : "告诉我目标、器械和可用时间。可以挑动作、复盘最近训练，或一起排个计划。")
                 .font(.body).lineSpacing(4).foregroundStyle(CoachColors.muted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1216,8 +1226,8 @@ struct NativeCoachView: View {
                     }
                     suggestion("生成训练计划", icon: "calendar") { openGuide() }
                 } else if session.lines.last?.role == "assistant" {
-                    suggestion("总结成训练要点") { sendSuggestedReply("请把刚才的回复总结成训练要点。") }
-                    suggestion("给我一个简单做法") { sendSuggestedReply("根据刚才的讨论，给我一个简单、可执行的做法。") }
+                    suggestion("提炼训练要点") { sendSuggestedReply("用三条总结我该怎么做，标出还需要确认的信息。") }
+                    suggestion("给我今天的做法") { sendSuggestedReply("根据刚才的讨论，给我今天能执行的具体步骤。") }
                     suggestion("生成训练计划", icon: "calendar") { openGuide() }
                 } else {
                     if workoutStore != nil {
@@ -1228,6 +1238,9 @@ struct NativeCoachView: View {
                     }
                     suggestion("生成训练计划", icon: "calendar") { openGuide() }
                     suggestion("看本周训练统计", icon: "chart.bar") { Task { await trainingStats() } }
+                    if session.textMealLoggingEnabled {
+                        suggestion("记一餐", icon: "fork.knife") { text = "帮我记"; editingMessage = true }
+                    }
                     suggestion("记体重", icon: "scalemass") { askWeight() }
                     suggestion("拍照记饮食", icon: "camera") { showPhotoHelp() }
                 }
@@ -1741,8 +1754,14 @@ struct NativeCoachView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 10) {
-                    messageTitle("sparkles", "让你的 AI 起草或整理计划")
-                    Text("把提示词发给常用的 AI，再导入生成的训练计划。")
+                    messageTitle("link", "连接你的 Agent")
+                    Text("在支持 MCP 或自定义 HTTP 的工具里，让 Agent 读取你授权的记录，也可以添加训练计划和饮食。")
+                        .font(.subheadline).foregroundStyle(CoachColors.muted)
+                    coachPrimary("设置连接与复制提示词") { showAgentAccess = true }
+                }.padding(14).coachPanel()
+                VStack(alignment: .leading, spacing: 10) {
+                    messageTitle("sparkles", "用提示词整理计划")
+                    Text("只有普通聊天时，可以让 AI 输出计划，再粘贴回来核对。")
                         .font(.subheadline).foregroundStyle(CoachColors.muted)
                     SpotterGlassSegments(options: ["起草新计划", "整理已有计划"], value: $ownPromptMode) { $0 }
                         .accessibilityLabel("AI 处理目标")
@@ -1777,7 +1796,7 @@ struct NativeCoachView: View {
         let purpose = ownPromptMode == "起草新计划" ? "按我提供的目标、时间、器械和限制起草训练计划。" : "把我提供的训练笔记、计划或跟练链接整理成训练计划。"
         return """
         \(purpose)
-        只返回一个含 1–20 堂课的 JSON 数组，保留原动作、单位、组次、休息和日期。未约定日期从 \(spotterDay()) 开始。重量未知填 0，单位是 kg 或 lb，计时动作使用秒。只有视频时保留原链接，exercises 留空。shared 保持 false。
+        只返回一个含 1–20 堂课的 JSON 数组，不加 Markdown 代码块或说明。保留原动作、单位、组次、休息和日期；分周训练按实际日期排开。未约定日期从 \(spotterDay()) 开始。重量未知填 0，单位用 kg 或 lb，计时动作使用秒。只有视频时保留原链接，exercises 留空。shared 保持 false。
         category 可选力量训练、有氧训练、拉伸恢复、跟练视频或其他。结构示例：
         [{"title":"上肢力量","date":"\(spotterDay())","category":"力量训练","minutes":45,"shared":false,"video":"","exercises":[{"name":"哑铃卧推","sets":3,"reps":8,"weight":0,"unit":"kg","seconds":0,"restSeconds":90}]}]
         """

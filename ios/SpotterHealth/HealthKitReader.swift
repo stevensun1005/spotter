@@ -209,7 +209,49 @@ final class HealthKitReader {
 
     private func nativeReadTypes() throws -> Set<HKObjectType> {
         guard Self.nativeDataAvailable else { throw HealthError.unavailable }
-        return Set(NativeHealthMetric.supportedMetrics.compactMap(\.sampleType))
+        return Set(NativeHealthMetric.supportedMetrics.compactMap(\.sampleType)).union(workoutSummaryReadTypes)
+    }
+
+    private var workoutSummaryReadTypes: Set<HKObjectType> {
+        [HKObjectType.workoutType(), HKQuantityType(.heartRate),
+         HKQuantityType(.activeEnergyBurned), HKQuantityType(.basalEnergyBurned)]
+    }
+
+    func authorizeWorkoutSummary() async throws {
+        guard Self.nativeDataAvailable else { throw HealthError.unavailable }
+        try await store.requestAuthorization(toShare: [], read: workoutSummaryReadTypes)
+    }
+
+    func readWorkoutSummary(_ window: WorkoutWindow) async throws -> NativeWorkoutHealthSummary? {
+        guard Self.nativeDataAvailable, window.canRead, window.end > window.start else { return nil }
+        let nearby = try await samples(HKObjectType.workoutType(),
+                                       from: window.start.addingTimeInterval(-60), to: window.end.addingTimeInterval(60),
+                                       limit: 24) as? [HKWorkout] ?? []
+        let candidates = nearby.compactMap { workout -> (HKWorkout, Double)? in
+            let isWatch = workout.sourceRevision.productType?.lowercased().hasPrefix("watch") == true ||
+                workout.device?.model?.lowercased().contains("watch") == true
+            guard isWatch, workout.metadata?[HKMetadataKeyWasUserEntered] as? Bool != true else { return nil }
+            let startError = abs(workout.startDate.timeIntervalSince(window.start))
+            let endError = abs(workout.endDate.timeIntervalSince(window.end))
+            let span = max(workout.endDate.timeIntervalSince(workout.startDate), window.end.timeIntervalSince(window.start))
+            let overlap = min(workout.endDate, window.end).timeIntervalSince(max(workout.startDate, window.start))
+            guard startError <= 60, endError <= 60, overlap >= 0.8 * span else { return nil }
+            return (workout, startError + endError)
+        }.sorted { $0.1 < $1.1 }
+        guard let (workout, difference) = candidates.first,
+              candidates.count == 1 || candidates[1].1 - difference >= 5 else { return nil }
+        let kcal = HKUnit.kilocalorie()
+        let bpm = HKUnit.count().unitDivided(by: .minute())
+        // HKWorkout's historical totalEnergyBurned property is the workout's *active* energy.
+        // The total shown in Spotter includes basal energy only if this exact workout contains it.
+        let summary = NativeWorkoutHealthSummary(
+            start: workout.startDate, end: workout.endDate,
+            active: workout.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: kcal) ??
+                workout.totalEnergyBurned?.doubleValue(for: kcal),
+            basal: workout.statistics(for: HKQuantityType(.basalEnergyBurned))?.sumQuantity()?.doubleValue(for: kcal),
+            average: workout.statistics(for: HKQuantityType(.heartRate))?.averageQuantity()?.doubleValue(for: bpm)
+        )
+        return summary.isValid ? summary : nil
     }
 
     func observeNativeMetrics(_ metrics: Set<NativeHealthMetric>, onChange: @escaping @MainActor () -> Void) {
