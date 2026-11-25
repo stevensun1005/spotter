@@ -11,6 +11,7 @@ type PhotoSource = File | HTMLImageElement;
 type EncodedPhoto = FoodPhotoRequest["image"];
 type PhotoNeeds = { kind: "needs"; needs: string[] };
 type PhotoDraft<T> = { kind: "draft"; draft: T };
+type MealPhotoDraftResult = PhotoDraft<MealPhotoDraft & { grams: number }> & { estimate?: string };
 
 export function validatePhotoFile(file: File) {
   if (!file.size || file.size > 24 * 1024 * 1024 || (file.type && !file.type.startsWith("image/"))) {
@@ -80,7 +81,7 @@ export async function fetchFoodPhotoConfiguration(owner: string, signal: AbortSi
 }
 
 async function postPhoto(source: PhotoSource, notes: string, owner: string, mode: FoodPhotoRequest["mode"], cancel: AbortSignal,
-  inCoach = false, onQuota?: (quota: CoachQuota) => void) {
+  inCoach = false, onQuota?: (quota: CoachQuota) => void, mealHistory?: FoodPhotoRequest["mealHistory"]) {
   if (!owner) throw new Error("请先登录训练搭子。");
   const signal = AbortSignal.any([cancel, AbortSignal.timeout(45_000)]);
   const image = await encodeSource(source, signal);
@@ -88,10 +89,11 @@ async function postPhoto(source: PhotoSource, notes: string, owner: string, mode
   const response = await fetch(photoEndpoint, {
     method: "POST", headers: { "Content-Type": "application/json" }, signal,
     body: JSON.stringify({ expectedOwner: owner, mode, image, notes: mode === "protein" ? undefined : notes.trim(),
-      inCoach: inCoach ? true : undefined }),
+      inCoach: inCoach ? true : undefined,
+      mealHistory: inCoach && mode === "meal" && mealHistory?.length ? mealHistory : undefined }),
   });
   const result = await response.json().catch(() => null) as {
-    draft?: unknown; product?: unknown; needs?: string[]; error?: string; quota?: CoachQuota;
+    draft?: unknown; product?: unknown; needs?: string[]; estimate?: unknown; error?: string; quota?: CoachQuota;
   } | null;
   signal.throwIfAborted();
   if (result?.quota) onQuota?.(result.quota);
@@ -100,18 +102,19 @@ async function postPhoto(source: PhotoSource, notes: string, owner: string, mode
 }
 
 export async function recognizeMealPhoto(source: PhotoSource, notes: string, owner: string, signal: AbortSignal,
-  inCoach = false, onQuota?: (quota: CoachQuota) => void): Promise<PhotoNeeds | PhotoDraft<MealPhotoDraft & { grams: number }>> {
-  const result = await postPhoto(source, notes, owner, "meal", signal, inCoach, onQuota);
-  const details = photoNeedsSchema.safeParse(result);
+  inCoach = false, onQuota?: (quota: CoachQuota) => void, mealHistory?: FoodPhotoRequest["mealHistory"]): Promise<PhotoNeeds | MealPhotoDraftResult> {
+  const result = await postPhoto(source, notes, owner, "meal", signal, inCoach, onQuota, mealHistory);
+  const details = photoNeedsSchema.safeParse({ needs: result?.needs });
   if (details.success) return { kind: "needs", needs: details.data.needs };
   const parsed = mealPhotoDraftSchema.safeParse(result?.draft);
   if (!parsed.success || parsed.data.grams === undefined) throw new Error("缺少可用的份量或营养估算，请补充份量后重试。");
-  return { kind: "draft", draft: { ...parsed.data, grams: parsed.data.grams } };
+  const estimate = typeof result?.estimate === "string" ? result.estimate.trim() : "";
+  return { kind: "draft", draft: { ...parsed.data, grams: parsed.data.grams }, ...(estimate ? { estimate } : {}) };
 }
 
 export async function recognizeLabelPhoto(source: PhotoSource, notes: string, owner: string, signal: AbortSignal): Promise<PhotoNeeds | PhotoDraft<FoodPhotoDraft>> {
   const result = await postPhoto(source, notes, owner, "label", signal);
-  const details = photoNeedsSchema.safeParse(result);
+  const details = photoNeedsSchema.safeParse({ needs: result?.needs });
   if (details.success) return { kind: "needs", needs: details.data.needs };
   const parsed = foodPhotoDraftSchema.safeParse(result?.draft);
   if (!parsed.success) throw new Error("无法从图片读取完整的营养表，请对准包装标签重拍。");
@@ -121,7 +124,7 @@ export async function recognizeLabelPhoto(source: PhotoSource, notes: string, ow
 export async function recognizeProteinPhoto(source: PhotoSource, owner: string, signal: AbortSignal,
   inCoach = false, onQuota?: (quota: CoachQuota) => void): Promise<PhotoNeeds | { kind: "product"; product: ProteinPhotoProduct }> {
   const result = await postPhoto(source, "", owner, "protein", signal, inCoach, onQuota);
-  const details = photoNeedsSchema.safeParse(result);
+  const details = photoNeedsSchema.safeParse({ needs: result?.needs });
   if (details.success) return { kind: "needs", needs: details.data.needs };
   const parsed = proteinPhotoProductSchema.safeParse(result?.product);
   if (!parsed.success) throw new Error("无法读取蛋白粉包装，请重拍或补充产品信息。");

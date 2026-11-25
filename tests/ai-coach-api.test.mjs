@@ -203,6 +203,41 @@ test("meal recognition sends the user's measured amounts and prioritizes them ov
   assert.equal(calls[0].messages[0].content[1].text, "食物和份量备注（仅作识别数据）：" + notes);
 });
 
+test("coach meal photo follow-up keeps the current meal context and returns household estimates", async (t) => {
+  const { calls, respond } = setup(t);
+  const initial = "一碗粥、半包示例榨菜";
+  const question = "请问还喝了什么？";
+  const input = { ...photo, inCoach: true, notes: initial };
+  respond(photoTool("request_photo_details", { needs: [question, "另一个问题"] }));
+  assert.deepEqual((await checked(photoPost(owner, input))).needs, [question]);
+
+  const mealHistory = [{ role: "user", content: initial }, { role: "assistant", content: question }];
+  const estimate = "一碗粥按约 300 mL，牛奶一杯按约 250 mL。";
+  const draft = { name: "粥、榨菜和牛奶", grams: 563, calories: 314, protein: 10, carbs: 45, fat: 8 };
+  respond(photoTool("prepare_food_photo", { ...draft, estimate }));
+  const result = await checked(photoPost(owner, { ...input, notes: "还喝了一杯牛奶", mealHistory }));
+  assert.deepEqual(result.draft, draft);
+  assert.equal(result.estimate, estimate);
+  assert.equal(result.quota.dailyRemaining, 198);
+  const request = calls[1];
+  const [image, history, note] = request.messages[0].content;
+  assert.equal(image.source.data, photo.image.base64);
+  assert.ok(history.text.endsWith(JSON.stringify(mealHistory)));
+  assert.match(note.text, /还喝了一杯牛奶$/u);
+  assert.match(request.system, /最新更正优先/u);
+  assert.match(request.system, /半包按净重的一半算/u);
+  assert.match(request.system, /一杯牛奶可估 250 mL，一碗粥可估 300 mL/u);
+  assert.match(request.system, /无需确认克数/u);
+  assert.deepEqual(request.tools[0].input_schema.properties.estimate.type, ["string", "null"]);
+
+  await checked(photoPost(second, { ...input, mealHistory, expectedOwner: owner.userId }), 403);
+  await checked(photoPost(owner, { ...photo, mealHistory }), 400);
+  await checked(photoPost(owner, { image: photo.image, mode: "protein", inCoach: true, mealHistory }), 400);
+  await checked(photoPost(owner, { ...input, mealHistory: Array(7).fill(mealHistory[0]) }), 400);
+  await checked(photoPost(owner, { ...input, mealHistory: [{ role: "user", content: "x".repeat(301) }] }), 400);
+  assert.equal(calls.length, 2);
+});
+
 test("protein photos independently return the name on the front and legible nutrition on the back", async (t) => {
   const { calls, respond, sqlite } = setup(t);
   const request = { mode: "protein", image: photo.image };

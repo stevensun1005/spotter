@@ -11,7 +11,7 @@ import type { CoachMealSubmission } from "@/features/nutrition/coach-meal-save";
 import { saveExistingProtein, type CoachProteinReceipt, type CoachProteinSubmission,
   type SavedProteinReceipt, type SavedProteinRequest } from "@/features/nutrition/coach-protein-save";
 import { isSavedProteinCommand } from "@/features/nutrition/saved-protein-command";
-import { maxPhotoNoteLength } from "@/features/nutrition/food-photo-request";
+import { maxMealPhotoHistory, maxPhotoNoteLength, type FoodPhotoRequest } from "@/features/nutrition/food-photo-request";
 import { recognizeMealPhoto, recognizeProteinPhoto, validatePhotoFile } from "@/features/nutrition/food-photo-client";
 import { CoachPhotoQuota } from "@/features/nutrition/food-photo";
 import type { ProteinPhotoProduct } from "@/features/nutrition/food-photo-model";
@@ -60,6 +60,7 @@ type Turn = {
   action?: "workout";
   weight?: WeightRecord;
   unsavedMeal?: CoachMealSubmission;
+  mealEstimate?: string;
   savedMealDate?: string;
   proteinFollowup?: "scoop" | "nutrition";
   openWarehouse?: boolean;
@@ -74,7 +75,10 @@ type Turn = {
 };
 type Availability = CoachConfig | { error: string };
 type BeginCoachRequest = () => { receive: (result: CoachResponse) => void; showError: (message: string) => void };
-type PhotoAttachment = { id: string; file: File; date: string; meal: MealEntry["meal"]; mealChosen?: boolean; notes: string };
+type PhotoAttachment = {
+  id: string; file: File; date: string; meal: MealEntry["meal"]; mealChosen?: boolean;
+  mealHistory?: FoodPhotoRequest["mealHistory"];
+};
 type ProteinFlow = ProteinRecipe & { date: string; reference?: File; candidate?: ProteinPhotoProduct; retry?: CoachProteinSubmission };
 
 const endpoint = "/api/ai-coach";
@@ -336,13 +340,12 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       }
     }
     if (photo) {
-      const notes = [photo.notes, question].filter(Boolean).join("\n");
       if (!owner || !available || !actions?.photoMeal || waiting) return;
-      if (notes.length > maxPhotoNoteLength) {
-        setError(`照片的份量说明最多 ${maxPhotoNoteLength} 字。请缩短补充说明，或移除照片后重新发送。`);
+      if (question.length > maxPhotoNoteLength) {
+        setError(`本次补充说明最多 ${maxPhotoNoteLength} 字。`);
         return;
       }
-      withConsent(() => { void recordPhoto(photo, question, notes, owner); });
+      withConsent(() => { void recordPhoto(photo, question, owner); });
       return;
     }
     submitQuestion(input);
@@ -585,7 +588,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     try {
       validatePhotoFile(file);
       setPhoto((previous) => previous ? { ...previous, file }
-        : { id: crypto.randomUUID(), file, date: asDate(), meal, mealChosen: choice !== undefined, notes: "" });
+        : { id: crypto.randomUUID(), file, date: asDate(), meal, mealChosen: choice !== undefined });
       setError("");
       setOptionsOpen(false);
       onExpand?.();
@@ -594,15 +597,15 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     }
   }
 
-  async function savePhotoMeal(turnId: string, submission: CoachMealSubmission) {
+  async function savePhotoMeal(turnId: string, submission: CoachMealSubmission, estimate?: string) {
     if (!actions?.photoMeal || writing.current || request.current) return;
     writing.current = true;
     setWaiting(true);
-    updateTurn(turnId, { error: undefined, unsavedMeal: undefined, replyKind: "loading", localReply: "正在添加到饮食记录…" });
+    updateTurn(turnId, { error: undefined, unsavedMeal: undefined, mealEstimate: estimate, replyKind: "loading", localReply: "正在添加到饮食记录…" });
     try {
       const entry = await actions.photoMeal.save(submission);
       updateTurn(turnId, { replyKind: "saved", savedMealDate: submission.date,
-        localReply: `已添加到${entry.meal}「${entry.name}」 · ${entry.calories} 千卡 · 蛋白质 ${entry.protein} 克` });
+        localReply: `已添加到${entry.meal}「${entry.name}」 · ${entry.calories} 千卡 · 蛋白质 ${entry.protein} 克${estimate ? `\n估算依据 ${estimate}` : ""}` });
     } catch (reason) {
       updateTurn(turnId, { localReply: undefined, unsavedMeal: submission, error: errorText(reason, "识别已完成，暂时没能添加。") });
     } finally {
@@ -611,7 +614,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     }
   }
 
-  async function recordPhoto(attachment: PhotoAttachment, question: string, notes: string, expectedOwner: string) {
+  async function recordPhoto(attachment: PhotoAttachment, question: string, expectedOwner: string) {
     if (request.current || writing.current) return;
     const controller = new AbortController();
     request.current = controller;
@@ -621,18 +624,23 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     const turnId = addTurn("local", question ? "照片 · " + question : "照片记饮食",
       { replyKind: "loading", localReply: "正在识别照片和份量…" });
     try {
-      const result = await recognizeMealPhoto(attachment.file, notes, expectedOwner, controller.signal, true, updateQuota);
+      const result = await recognizeMealPhoto(attachment.file, question, expectedOwner, controller.signal, true, updateQuota, attachment.mealHistory);
       if (controller.signal.aborted) return;
       if (result.kind === "needs") {
-        setPhoto({ ...attachment, notes });
-        updateTurn(turnId, { replyKind: "meal", localReply: result.needs.join("\n") });
+        const reply = result.needs.join("\n");
+        const latest: NonNullable<PhotoAttachment["mealHistory"]> = [
+          { role: "user", content: question || "请识别这张餐食照片。" },
+          { role: "assistant", content: reply.slice(0, maxPhotoNoteLength) },
+        ];
+        setPhoto({ ...attachment, mealHistory: [...(attachment.mealHistory ?? []), ...latest].slice(-maxMealPhotoHistory) });
+        updateTurn(turnId, { replyKind: "meal", localReply: reply });
         return;
       }
       setPhoto(undefined);
       request.current = null;
       await savePhotoMeal(turnId, {
         owner: expectedOwner, id: attachment.id, date: attachment.date, meal: attachment.meal, draft: result.draft,
-      });
+      }, result.estimate);
     } catch (reason) {
       if (!controller.signal.aborted) {
         setInput(question);
@@ -840,7 +848,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
                 {turn.weight && failedWeight.current?.id === turn.weight.id && <button className="button outline small coach-reply-action"
                   type="button" disabled={waiting} onClick={() => { if (turn.weight) void recordWeight(id, turn.weight); }}>重试保存</button>}
                 {turn.unsavedMeal && <button className="button primary small coach-reply-action" type="button" disabled={waiting}
-                  onClick={() => { if (turn.unsavedMeal) void savePhotoMeal(id, turn.unsavedMeal); }}>添加到{turn.unsavedMeal.meal}</button>}
+                  onClick={() => { if (turn.unsavedMeal) void savePhotoMeal(id, turn.unsavedMeal, turn.mealEstimate); }}>添加到{turn.unsavedMeal.meal}</button>}
                 {protein?.retry && id === lastTurn?.id && <button className="button primary small coach-reply-action"
                   type="button" disabled={waiting} onClick={() => replyToProtein("重试保存")}>重试保存</button>}
               </CoachReplyCard>}
@@ -900,7 +908,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       <form className="coach-composer-field" onSubmit={send} aria-busy={waiting}>
         <label className="sr-only" htmlFor="coach-chat-input">给 AI 教练发消息</label>
         <textarea id="coach-chat-input" rows={1} ref={composer} maxLength={photo ? maxPhotoNoteLength : maxCoachMessageLength} value={input} disabled={waiting}
-          aria-describedby={!available || canRetry || limitMessage ? "coach-composer-notice" : undefined} placeholder={protein ? "继续补充这杯的资料…" : photo ? photo.notes ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
+          aria-describedby={!available || canRetry || limitMessage ? "coach-composer-notice" : undefined} placeholder={protein ? "继续补充这杯的资料…" : photo ? photo.mealHistory?.length ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
             : weightPrompt ? "例如 80.5 kg" : revisionTarget ? "想怎么调整这份草稿？" : "问问 Spotter 教练…"}
           onChange={(event) => { setInput(event.target.value); setError(""); }}
           onKeyDown={(event) => {

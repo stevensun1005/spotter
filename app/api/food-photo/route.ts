@@ -3,7 +3,7 @@ import { aiCoachConfig, coachAiRequester } from "@/features/ai-coach/server";
 import type { CoachQuota } from "@/features/ai-coach/model";
 import { CoachQuotaError } from "@/features/ai-coach/quota";
 import { recognizeFoodPhoto } from "@/features/nutrition/food-photo-inference";
-import { foodPhotoRequestSchema, maxPhotoBase64Length } from "@/features/nutrition/food-photo-request";
+import { foodPhotoRequestSchema, maxFoodPhotoRequestLength } from "@/features/nutrition/food-photo-request";
 import { HttpError, json, readJson } from "@/server/http";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ function photoApi(handler: (owner: string, request: Request) => Promise<Response
 export const GET = photoApi(async (owner) => json({ enabled: (await aiCoachConfig()).enabled, owner }));
 
 export const POST = photoApi(async (owner, request) => {
-  const input = await readJson(request, foodPhotoRequestSchema, maxPhotoBase64Length + 5000);
+  const input = await readJson(request, foodPhotoRequestSchema, maxFoodPhotoRequestLength);
   if (input.expectedOwner !== owner) throw new HttpError(403, "登录账号已切换，请重新打开拍照识别。");
   let quota: CoachQuota | undefined;
   const receiveQuota = input.inCoach ? (value: CoachQuota) => { quota = value; } : undefined;
