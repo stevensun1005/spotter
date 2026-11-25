@@ -74,22 +74,24 @@ struct NativeCoachSharingSettings: View {
 }
 
 private enum CoachColors {
-    static let canvas = Color(red: 0.08, green: 0.125, blue: 0.102)
-    static let panel = Color(red: 0.125, green: 0.18, blue: 0.145)
-    static let dark = Color(red: 0.094, green: 0.145, blue: 0.114)
-    static let text = Color(red: 0.94, green: 0.96, blue: 0.93)
-    static let muted = Color(red: 0.69, green: 0.75, blue: 0.70)
-    static let border = Color(red: 0.23, green: 0.32, blue: 0.27)
-    static let choice = Color(red: 0.17, green: 0.27, blue: 0.20)
+    static let canvas = SpotterPalette.color(0x0b111b)
+    static let panel = SpotterPalette.color(0x1a2535).opacity(0.82)
+    static let dark = SpotterPalette.color(0x141b28)
+    static let text = SpotterPalette.color(0xf2f5fa)
+    static let muted = SpotterPalette.color(0xb8c2d2)
+    static let border = SpotterPalette.color(0x9faed0).opacity(0.23)
+    static let choice = SpotterPalette.color(0x252e42)
+    static let indigo = SpotterPalette.color(0x344369)
+    static let ocean = SpotterPalette.color(0x173b49)
+    static let pearl = SpotterPalette.color(0xe9edf5)
     static let glow = Color(red: 0.18, green: 0.30, blue: 0.22)
     static let error = Color(red: 1, green: 0.72, blue: 0.70)
-
 }
 
 private extension View {
     func coachPanel(_ fill: Color = CoachColors.panel, radius: CGFloat = 16) -> some View {
         background(fill, in: RoundedRectangle(cornerRadius: radius))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(CoachColors.border, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(CoachColors.border, lineWidth: 1).allowsHitTesting(false))
     }
 
     func guidePanel(accent: SpotterAccent? = nil) -> some View {
@@ -138,7 +140,6 @@ struct NativeCoachView: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
-    @Namespace private var modeSelection
     @FocusState private var editingMessage: Bool
     @AppStorage private var sharingAllowed: Bool
     @State private var lines: [Line] = []
@@ -151,6 +152,7 @@ struct NativeCoachView: View {
     @State private var mealDate = ""
     @State private var picture: Data?
     @State private var photoChoice: PhotosPickerItem?
+    @State private var showPhotoPicker = false
     @State private var camera = false
     @State private var showGuide = false
     @State private var planMode = false
@@ -168,6 +170,7 @@ struct NativeCoachView: View {
     @State private var ownPromptMode = "起草新计划"
     @State private var ownNotice: String?
     @State private var showOwnImport = false
+    @State private var copiedReply: Int?
 
     init(api: NativeAPI, owner: String, compact: Bool = true, onExpand: (() -> Void)? = nil,
          onStartWorkout: (() -> Void)? = nil, initialMeal: String? = nil, nutritionDate: String? = nil) {
@@ -186,8 +189,9 @@ struct NativeCoachView: View {
     private var controlMotion: Animation? {
         reducesMotion ? nil : .spring(response: 0.28, dampingFraction: 0.84)
     }
-    private var panelTransition: AnyTransition { .opacity.combined(with: .offset(y: 6)) }
+    private var panelTransition: AnyTransition { reducesMotion ? .identity : .opacity.combined(with: .offset(y: 6)) }
     private var showsOptions: Bool { showOptions && picture == nil && !weightPrompt }
+    private var canUseCamera: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -200,13 +204,10 @@ struct NativeCoachView: View {
         }
         .foregroundStyle(CoachColors.text)
         .tint(accent.fill)
-        .background {
-            CoachColors.canvas.overlay(alignment: .topTrailing) {
-                RadialGradient(colors: [CoachColors.glow, .clear], center: .topTrailing, startRadius: 12, endRadius: 365)
-            }.ignoresSafeArea()
-        }
+        .background(atmosphere)
         .toolbar(.hidden, for: .navigationBar)
         .environment(\.colorScheme, .dark)
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoChoice, matching: .images)
         .onChange(of: sharingAllowed) { allowed in
             if allowed && error == Self.sharingDisabledMessage { error = nil }
         }
@@ -248,23 +249,35 @@ struct NativeCoachView: View {
         }
     }
 
+    private var atmosphere: some View {
+        ZStack {
+            LinearGradient(colors: [CoachColors.canvas, SpotterPalette.color(0x0a131b), SpotterPalette.color(0x080d14)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            RadialGradient(colors: [CoachColors.indigo.opacity(0.83), .clear], center: .topLeading,
+                           startRadius: 5, endRadius: 365)
+            RadialGradient(colors: [CoachColors.ocean.opacity(0.67), .clear], center: UnitPoint(x: 0.95, y: 0.31),
+                           startRadius: 0, endRadius: 260)
+        }.ignoresSafeArea().accessibilityHidden(true)
+    }
+
     private var header: some View {
-        HStack(spacing: 7) {
-            if compact, let onExpand {
-                headerButton("arrow.up.left.and.arrow.down.right", label: "展开 AI 教练", action: onExpand)
-            } else {
-                Color.clear.frame(width: 36, height: 40).accessibilityHidden(true)
+        HStack(spacing: 5) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles").font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(accent.fill).frame(width: 34, height: 34)
+                    .background(accent.fill.opacity(0.13), in: RoundedRectangle(cornerRadius: 11))
+                    .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(accent.fill.opacity(0.34)).allowsHitTesting(false))
+                    .accessibilityHidden(true)
+                Text(mode == .coach ? "Spotter 教练" : "用自己的 AI")
+                    .font(.headline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                    .accessibilityAddTraits(.isHeader)
             }
-            HStack(spacing: 3) {
-                modeButton("站内 AI", .coach)
-                modeButton("用自己的 AI", .own)
-            }
-            .padding(3).coachPanel(CoachColors.dark, radius: 13)
-            .animation(controlMotion, value: mode)
+            Spacer(minLength: 0)
+            if compact, let onExpand { headerButton("arrow.up.left.and.arrow.down.right", label: "展开 AI 教练", action: onExpand) }
+            headerMenu
             headerButton("xmark", label: "关闭 AI 教练") { dismiss() }
         }
-        .padding(.horizontal, 14).padding(.vertical, 6)
-        .overlay(alignment: .bottom) { Rectangle().fill(CoachColors.border).frame(height: 1) }
+        .padding(.horizontal, 17).padding(.top, 8).padding(.bottom, 3)
     }
 
     @ViewBuilder
@@ -280,42 +293,48 @@ struct NativeCoachView: View {
                 .controlSize(.regular)
         } else {
             button.buttonStyle(.spotterPress)
-                .frame(width: 36, height: 40)
+                .frame(width: 42, height: 44).contentShape(Rectangle())
         }
     }
 
-    private func modeButton(_ title: String, _ item: Mode) -> some View {
-        Button {
-            mode = item
-            editingMessage = false
-        } label: {
-            Text(title).font(.subheadline.weight(.bold)).frame(maxWidth: .infinity, minHeight: 35)
-                .foregroundStyle(mode == item ? CoachColors.dark : CoachColors.muted)
-                .background {
-                    if mode == item {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(accent.fill)
-                            .matchedGeometryEffect(id: "coach-mode", in: modeSelection)
-                    }
+    private var headerMenu: some View {
+        Menu {
+            if mode == .coach {
+                if !lines.isEmpty || mealDraft != nil || picture != nil {
+                    Button("新对话", systemImage: "plus.message", action: resetConversation).disabled(busy)
                 }
-        }
-        .buttonStyle(.spotterPress)
-        .accessibilityAddTraits(mode == item ? .isSelected : [])
+                Button(showOptions ? "收起对话选项" : "对话选项", systemImage: "slider.horizontal.3") {
+                    editingMessage = false
+                    showOptions.toggle()
+                }.disabled(busy || picture != nil || weightPrompt)
+                if let onStartWorkout { Button("开始训练", systemImage: "dumbbell", action: onStartWorkout).disabled(busy) }
+                Button("用自己的 AI", systemImage: "square.and.arrow.up") { switchMode(.own) }.disabled(busy)
+            } else {
+                Button("返回教练对话", systemImage: "bubble") { switchMode(.coach) }
+            }
+        } label: {
+            Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold)).foregroundStyle(CoachColors.text)
+                .frame(width: 42, height: 44).contentShape(Rectangle())
+        }.accessibilityLabel("教练菜单")
+    }
+
+    private func switchMode(_ next: Mode) {
+        editingMessage = false
+        mode = next
     }
 
     private var conversation: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: 16) {
                         if lines.isEmpty && mealDraft == nil { welcome }
-                        else { newConversation }
                         if !sharingAllowed {
                             NativeCoachSharingChoice(allowed: $sharingAllowed, origin: api.origin)
                                 .padding(12).coachPanel()
                         }
-                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                            message(line).transition(panelTransition)
+                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                            message(line, index: index).transition(panelTransition)
                         }
                         if !planDrafts.isEmpty { planPreview }
                         if let draft = mealDraft { mealPreview(draft) }
@@ -326,13 +345,14 @@ struct NativeCoachView: View {
                         }
                         Color.clear.frame(height: 1).id("latest")
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 11)
+                    .padding(.horizontal, 20).padding(.top, compact ? 14 : 24).padding(.bottom, 14)
                     .animation(controlMotion, value: lines.count)
                     .animation(controlMotion, value: busy)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: lines.count) { _ in scrollToLatest(proxy) }
                 .onChange(of: busy) { _ in scrollToLatest(proxy) }
+                .onChange(of: error) { _ in scrollToLatest(proxy) }
             }
             composer
         }
@@ -345,71 +365,55 @@ struct NativeCoachView: View {
     }
 
     private var welcome: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("今天想怎么练？").font(compact ? .headline : .title2.bold())
-                    Text(compact ? "在这里记体重、查训练统计，或者一起排训练。" : "问一个训练问题，或一起制定计划。")
-                        .font(.subheadline).foregroundStyle(CoachColors.muted)
-                }
-                Spacer(minLength: 0)
-                if !compact { CoachArt(tile: 8, symbol: "figure.strengthtraining.traditional", size: 66) }
-            }
-            .padding(13).frame(maxWidth: .infinity, alignment: .leading).coachPanel(CoachColors.choice)
-            if !compact {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    taskCard("生成计划", "calendar", .green) { openGuide() }
-                    taskCard("拍照记饮食", "camera", .orange) { showPhotoHelp() }
-                    taskCard("训练统计", "chart.bar", .cyan) { Task { await trainingStats() } }
-                    taskCard("记体重", "scalemass", .purple) { askWeight() }
-                    if let onStartWorkout { taskCard("开始训练", "dumbbell", .green, action: onStartWorkout) }
-                }
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            Text("今天想怎么练？")
+                .font(compact ? .title2.weight(.semibold) : .largeTitle.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            Text("问一个训练问题，看看本周练了什么，或一起排个计划。")
+                .font(.body).lineSpacing(4).foregroundStyle(CoachColors.muted)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func taskCard(_ title: String, _ icon: String, _ tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon).font(.body.weight(.semibold))
-                    .foregroundStyle(CoachColors.text).frame(width: 34, height: 34)
-                    .background(tint.opacity(0.24), in: RoundedRectangle(cornerRadius: 9))
-                Text(title).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(9).frame(minHeight: 51).coachPanel()
-        }.buttonStyle(.spotterPress).disabled(busy)
-    }
-
-    private var newConversation: some View {
-        Button {
-            lines = []; planDrafts = []; mealDraft = nil; error = nil; text = ""; picture = nil
-            photoChoice = nil; planMode = false; weightPrompt = false; pendingWeight = nil; guidedDraft = nil
-            includePlans = false; showOptions = false
-        } label: {
-            quickLabel("新对话", "plus.message")
-        }
-        .buttonStyle(.spotterPress).disabled(busy).frame(maxWidth: .infinity, alignment: .trailing)
+    private func resetConversation() {
+        lines = []; planDrafts = []; mealDraft = nil; error = nil; text = ""; picture = nil
+        photoChoice = nil; planMode = false; weightPrompt = false; pendingWeight = nil; guidedDraft = nil
+        includePlans = false; showOptions = false; copiedReply = nil; editingMessage = false
     }
 
     @ViewBuilder
-    private func message(_ line: Line) -> some View {
+    private func message(_ line: Line, index: Int? = nil) -> some View {
         if line.role == "user" || line.role == "local-user" {
             HStack {
-                Spacer(minLength: 42)
-                Text(line.content).font(.subheadline).lineSpacing(4).textSelection(.enabled)
-                    .padding(.vertical, 10).padding(.horizontal, 13).coachPanel(CoachColors.choice)
+                Spacer(minLength: 48)
+                Text(line.content).font(.body).lineSpacing(3).textSelection(.enabled)
+                    .padding(.vertical, 9).padding(.horizontal, 13).coachPanel(CoachColors.choice, radius: 17)
             }
             .accessibilityLabel("你：\(line.content)")
-        } else {
+        } else if line.role == "error" || line.role == "status" || line.role == "meal" {
             let mark = line.role == "error" ? ("exclamationmark.circle", "暂未完成", CoachColors.error)
-                : line.role == "status" ? ("checkmark", "已保存", accent.fill)
-                : line.role == "meal" ? ("camera", "拍照记饮食", Color.orange)
-                : ("sparkles", "Spotter 教练", accent.fill)
+                : line.role == "status" ? ("checkmark", "已保存", accent.fill) : ("camera", "拍照记饮食", Color.orange)
             VStack(alignment: .leading, spacing: 9) {
                 messageTitle(mark.0, mark.1, mark.2)
                 Text(line.content).font(.subheadline).lineSpacing(4).textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(13).coachPanel(radius: 17)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(line.content).font(.body).lineSpacing(6).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let index, line.role == "assistant" {
+                    Button {
+                        UIPasteboard.general.string = line.content
+                        copiedReply = index
+                    } label: {
+                        Image(systemName: copiedReply == index ? "checkmark" : "document.on.document")
+                            .font(.subheadline.weight(.medium)).foregroundStyle(copiedReply == index ? accent.fill : CoachColors.muted)
+                            .frame(width: 44, height: 42, alignment: .leading).contentShape(Rectangle())
+                    }.buttonStyle(.spotterPress).accessibilityLabel(copiedReply == index ? "已复制回复" : "复制回复")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -423,20 +427,7 @@ struct NativeCoachView: View {
     }
 
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if lines.isEmpty && picture == nil { openingSuggestions }
-            HStack(spacing: 6) {
-                Button { camera = true } label: { quickLabel("拍照", "camera") }
-                    .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera) || busy)
-                PhotosPicker(selection: $photoChoice, matching: .images) {
-                    quickLabel("相册", "photo.on.rectangle")
-                }.disabled(busy)
-                if picture == nil && !weightPrompt {
-                    Button { showOptions.toggle() } label: {
-                        quickLabel(includePlans ? "已附上训练安排" : "对话选项", "slider.horizontal.3")
-                    }.disabled(busy)
-                }
-            }.buttonStyle(.spotterPress)
+        VStack(alignment: .leading, spacing: 9) {
             if showsOptions {
                 VStack {
                     Toggle("附上个人训练安排", isOn: $includePlans)
@@ -453,9 +444,12 @@ struct NativeCoachView: View {
                     Button("问答定制训练计划") { openGuide() }
                         .buttonStyle(.spotterPress).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .font(.footnote).padding(9).coachPanel()
+                .font(.footnote).padding(11).coachPanel()
                 .animation(controlMotion, value: includePlans)
                 .transition(panelTransition)
+            }
+            if !showsOptions && picture == nil && !weightPrompt && mealDraft == nil && !editingMessage && cleanText.isEmpty {
+                suggestedReplies
             }
             if let picture, let image = UIImage(data: picture) {
                 HStack(spacing: 9) {
@@ -478,61 +472,118 @@ struct NativeCoachView: View {
                 }.font(.footnote).foregroundStyle(CoachColors.muted).padding(.horizontal, 4)
                     .transition(panelTransition)
             }
-            HStack(alignment: .center, spacing: 5) {
-                TextField(composerHint, text: $text, axis: .vertical)
-                    .focused($editingMessage)
-                    .lineLimit(1...4)
-                    .textFieldStyle(.plain)
-                    .font(.body)
-                    .padding(.leading, 12)
-                    .padding(.vertical, 9)
-                    .disabled(busy)
-                Button { sendComposer() } label: {
-                    let ready = picture != nil || !cleanText.isEmpty
-                    if picture != nil {
-                        Text("识别并记餐").font(.footnote.weight(.bold)).padding(.horizontal, 12).frame(minHeight: 36)
-                            .foregroundStyle(CoachColors.dark).background(accent.fill, in: Capsule())
-                    } else {
-                        Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 36, height: 36)
-                            .foregroundStyle(ready ? CoachColors.dark : CoachColors.muted)
-                            .background(ready ? accent.fill : .clear, in: Circle())
-                            .accessibilityLabel("发送消息")
-                    }
-                }.buttonStyle(.spotterPress).disabled(busy || (picture == nil && cleanText.isEmpty))
+            if includePlans && !showsOptions && !weightPrompt && picture == nil {
+                Button {
+                    showOptions = true
+                    editingMessage = false
+                } label: {
+                    Label("已附上训练安排", systemImage: "paperclip").font(.caption.weight(.medium))
+                        .padding(.horizontal, 5).frame(minHeight: 28)
+                }.buttonStyle(.spotterPress).disabled(busy)
             }
-            .padding(4).coachPanel(radius: 24)
+            HStack(alignment: .bottom, spacing: 9) {
+                attachmentMenu
+                inputBar
+            }
         }
-        .padding(.horizontal, 15).padding(.bottom, 8)
+        .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 8)
         .animation(controlMotion, value: showsOptions)
         .animation(controlMotion, value: picture != nil)
         .animation(controlMotion, value: planMode || weightPrompt)
     }
 
-    private var openingSuggestions: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                suggestion("记体重") { askWeight() }
-                suggestion("看本周训练统计") { Task { await trainingStats() } }
-                suggestion("帮我制定训练计划") { openGuide() }
-                suggestion("拍照记饮食") { showPhotoHelp() }
+    private var attachmentMenu: some View {
+        Menu {
+            Button("拍照", systemImage: "camera") {
+                editingMessage = false
+                camera = true
+            }.disabled(!canUseCamera)
+            Button("相册", systemImage: "photo.on.rectangle") {
+                editingMessage = false
+                showPhotoPicker = true
             }
-        }
-        .accessibilityLabel("推荐对话")
+        } label: {
+            Image(systemName: "plus").font(.title3.weight(.medium)).foregroundStyle(CoachColors.text)
+                .frame(width: 48, height: 48)
+                .coachPanel(CoachColors.choice, radius: 15).contentShape(Rectangle())
+        }.accessibilityLabel("添加餐食照片").accessibilityIdentifier("coach-attachments").disabled(busy)
     }
 
-    private func suggestion(_ title: String, action: @escaping () -> Void) -> some View {
+    private var inputBar: some View {
+        let shape = RoundedRectangle(cornerRadius: 17, style: .continuous)
+        return HStack(alignment: .center, spacing: 5) {
+            TextField(composerHint, text: $text, axis: .vertical)
+                .focused($editingMessage)
+                .lineLimit(1...4)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .padding(.leading, 12)
+                .padding(.vertical, 8)
+                .disabled(busy)
+                .accessibilityIdentifier("coach-composer")
+            Button { sendComposer() } label: {
+                let ready = picture != nil || !cleanText.isEmpty
+                if picture != nil {
+                    Text("识别并记餐").font(.footnote.weight(.bold)).padding(.horizontal, 11).frame(minHeight: 36)
+                        .foregroundStyle(CoachColors.dark).background(accent.fill, in: Capsule())
+                } else {
+                    Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 40, height: 38)
+                        .foregroundStyle(ready ? CoachColors.dark : CoachColors.muted.opacity(0.7))
+                        .background(ready ? accent.fill : .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
+                        .accessibilityLabel("发送消息")
+                }
+            }.buttonStyle(.spotterPress).accessibilityIdentifier("coach-send")
+                .disabled(busy || (picture == nil && cleanText.isEmpty))
+        }
+        .padding(4).frame(minHeight: 48)
+        .background(LinearGradient(colors: [CoachColors.indigo.opacity(0.54), CoachColors.dark, CoachColors.ocean.opacity(0.67)],
+                                   startPoint: .leading, endPoint: .trailing), in: shape)
+        .overlay(shape.strokeBorder(LinearGradient(colors: [CoachColors.pearl.opacity(editingMessage ? 0.53 : 0.30),
+                                                           accent.fill.opacity(editingMessage ? 0.40 : 0.12), CoachColors.border],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing)).allowsHitTesting(false))
+    }
+
+    private var suggestedReplies: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if !planDrafts.isEmpty {
+                    suggestion("调整这份计划", icon: "slider.horizontal.3") {
+                        planMode = true
+                        editingMessage = true
+                    }
+                    suggestion("重新定制计划", icon: "calendar") { openGuide() }
+                } else if lines.last?.role == "assistant" {
+                    suggestion("总结成训练要点") { sendSuggestedReply("请把刚才的回复总结成训练要点。") }
+                    suggestion("给我一个简单做法") { sendSuggestedReply("根据刚才的讨论，给我一个简单、可执行的做法。") }
+                    suggestion("生成训练计划", icon: "calendar") { openGuide() }
+                } else {
+                    suggestion("生成训练计划", icon: "calendar") { openGuide() }
+                    suggestion("看本周训练统计", icon: "chart.bar") { Task { await trainingStats() } }
+                    suggestion("记体重", icon: "scalemass") { askWeight() }
+                    suggestion("拍照记饮食", icon: "camera") { showPhotoHelp() }
+                }
+            }
+        }
+        .accessibilityLabel("推荐回复").accessibilityIdentifier("coach-suggestions")
+    }
+
+    private func suggestion(_ title: String, icon: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.caption.weight(.bold)).foregroundStyle(CoachColors.dark)
-                .padding(.horizontal, 11).frame(minHeight: 34)
-                .background(Color(red: 0.85, green: 0.91, blue: 0.82), in: Capsule())
+            HStack(spacing: 6) {
+                if let icon { Image(systemName: icon).accessibilityHidden(true) }
+                Text(title).fixedSize()
+            }
+            .font(.footnote.weight(.semibold)).foregroundStyle(CoachColors.dark)
+            .padding(.horizontal, 12).padding(.vertical, 6).frame(minHeight: 36)
+            .background(CoachColors.pearl, in: RoundedRectangle(cornerRadius: 13))
+            .padding(.vertical, 4).contentShape(Rectangle())
         }.buttonStyle(.spotterPress).disabled(busy)
     }
 
-    nonisolated private func quickLabel(_ title: String, _ icon: String) -> some View {
-        Label(title, systemImage: icon).font(.caption.weight(.semibold)).fixedSize()
-            .padding(.horizontal, 9).frame(minHeight: 34)
-            .background(CoachColors.panel, in: Capsule())
-            .overlay(Capsule().strokeBorder(CoachColors.border, lineWidth: 1))
+    private func sendSuggestedReply(_ reply: String) {
+        guard !busy else { return }
+        text = reply
+        sendComposer()
     }
 
     private var composerHint: String {
@@ -550,8 +601,8 @@ struct NativeCoachView: View {
 
     private func showPhotoHelp() {
         lines += [Line(role: "local-user", content: "拍照记饮食"),
-                  Line(role: "meal", content: "点输入栏旁的拍照或相册。可以写下食物和份量，识别后直接记餐。")]
-        if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true }
+                  Line(role: "meal", content: "用输入栏旁的加号拍照或选照片。写下食物和份量后，可以识别并记餐。")]
+        if canUseCamera { camera = true } else { showPhotoPicker = true }
     }
 
     private func askWeight() {
