@@ -1,5 +1,6 @@
 import AVFoundation
 import Charts
+import CryptoKit
 import Speech
 import SwiftUI
 
@@ -412,7 +413,7 @@ struct NativeHomeNutrition: View {
 
 private enum NutritionDestination: Identifiable {
     case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
-    case settings, goals, cycle, recipes, recommendations, protein, stats, photo, voice, energy
+    case settings, goals, cycle, recipes, recommendations, protein, stats, photo, voice, energy, copy
 
     var id: String {
         switch self {
@@ -427,6 +428,7 @@ private enum NutritionDestination: Identifiable {
         case .photo: return "photo"
         case .voice: return "voice"
         case .energy: return "energy"
+        case .copy: return "copy"
         }
     }
 }
@@ -620,7 +622,10 @@ struct NativeNutritionDetail: View {
                 shortcutButton("智能食谱") { destination = .recipes }.disabled(!ready)
                 shortcutButton("食物推荐") { destination = .recommendations }.disabled(!ready)
             }
-            shortcutButton("记蛋白粉", icon: "cup.and.saucer") { destination = .protein }
+            HStack(spacing: 6) {
+                shortcutButton("记蛋白粉", icon: "cup.and.saucer") { destination = .protein }
+                shortcutButton("复制往日餐食", icon: "doc.on.doc") { destination = .copy }
+            }
         }
     }
 
@@ -786,6 +791,7 @@ struct NativeNutritionDetail: View {
                     settingsLink("营养目标", icon: "target", destination: .goals)
                     settingsLink("碳循环设置", icon: "calendar", destination: .cycle)
                     settingsLink("计入运动消耗", icon: "flame", destination: .energy)
+                    settingsLink("复制往日餐食", icon: "doc.on.doc", destination: .copy)
                     settingsLink("记体重", icon: "scalemass", destination: .entry(.weight, nil, nil, nil))
                     settingsLink("统计", icon: "chart.bar.xaxis", destination: .stats)
                 }
@@ -804,6 +810,8 @@ struct NativeNutritionDetail: View {
         case .photo:
             NativeCoachView(api: api, owner: owner, compact: false, initialMeal: mealNow.rawValue, nutritionDate: day)
                 .presentationDetents([.large])
+        case .copy:
+            NativeNutritionCopy(api: api, owner: owner, destination: date, suggestedMeal: mealNow, dateBounds: dateBounds)
         }
     }
 
@@ -856,6 +864,244 @@ struct NativeNutritionDetail: View {
             try await api.spotterSend("/api/library", body: ["action": "remove", "kind": "nutrition", "id": id, "expectedOwner": owner])
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
         } catch { mutationError = error.localizedDescription }
+    }
+}
+
+private struct NativeMealCopyItem: Identifiable {
+    struct Meal: Encodable {
+        let type = "meal"
+        let meal: String
+        let name: String
+        let calories: Double
+        let protein: Double
+        let carbs: Double
+        let fat: Double
+        let grams: Double?
+        let foodId: String?
+
+        func inMeal(_ shortcut: NutritionShortcut) -> Self {
+            Self(meal: shortcut.rawValue, name: name, calories: calories, protein: protein, carbs: carbs,
+                 fat: fat, grams: grams, foodId: foodId)
+        }
+    }
+
+    struct Record: Encodable {
+        let kind = "nutrition"
+        let id: String
+        let date: String
+        let entry: Meal
+        let proteinProductId: String?
+    }
+
+    let id: String
+    let meal: Meal
+    let proteinProductId: String?
+
+    init?(_ row: NutritionPayload.Row) {
+        guard row.sourceWorkoutId == nil, let id = row.id, let entry = row.entry, entry.type == "meal",
+              let meal = entry.meal, let name = entry.name, let calories = entry.calories,
+              let protein = entry.protein, let carbs = entry.carbs, let fat = entry.fat else { return nil }
+        self.id = id
+        self.meal = Meal(meal: meal, name: name, calories: calories, protein: protein, carbs: carbs,
+                         fat: fat, grams: entry.grams, foodId: entry.foodId)
+        proteinProductId = row.proteinProductId
+    }
+
+    func record(on destination: String, as target: NutritionShortcut) -> Record {
+        // Match the web copy ID when keeping the source meal. Moving it to a different meal is a separate copy.
+        var key = "nutrition-copy:\(id):\(destination)"
+        if target.rawValue != meal.meal { key += ":\(target.rawValue)" }
+        var bytes = Array(SHA256.hash(data: Data(key.utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 15) | 128
+        bytes[8] = (bytes[8] & 63) | 128
+        let id = UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                             bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        return Record(id: id.uuidString.lowercased(), date: destination, entry: meal.inMeal(target),
+                      proteinProductId: proteinProductId)
+    }
+}
+
+@MainActor
+private struct NativeNutritionCopy: View {
+    private struct Backup: Encodable {
+        let format = "spotter-backup"
+        let version = 1
+        let training: [String] = []
+        let heart: [String] = []
+        let library: [NativeMealCopyItem.Record]
+    }
+
+    private struct Receipt: Decodable {
+        let added: Int
+        let skipped: Int
+    }
+
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    let api: NativeAPI
+    let owner: String
+    let destination: String
+    let sourceBounds: ClosedRange<Date>
+    private let meals = NutritionShortcut.allCases.filter(\.isMeal)
+
+    @State private var sourceDate: Date
+    @State private var sourceMeal: NutritionShortcut
+    @State private var chosenTarget: NutritionShortcut?
+    @State private var items: [NativeMealCopyItem] = []
+    @State private var loadedDay: String?
+    @State private var omitted: Set<String> = []
+    @State private var loadError: String?
+    @State private var copyError: String?
+    @State private var receipt: Receipt?
+    @State private var copying = false
+
+    init(api: NativeAPI, owner: String, destination: Date, suggestedMeal: NutritionShortcut, dateBounds: ClosedRange<Date>) {
+        self.api = api
+        self.owner = owner
+        self.destination = spotterDay(destination)
+        let calendar = Calendar.current
+        let today = min(calendar.startOfDay(for: .now), dateBounds.upperBound)
+        let targetDate = calendar.startOfDay(for: destination)
+        let previous = calendar.date(byAdding: .day, value: -1, to: targetDate) ?? today
+        let source = previous < dateBounds.lowerBound ? today : min(previous, today)
+        sourceBounds = dateBounds.lowerBound...today
+        _sourceDate = State(initialValue: source)
+        _sourceMeal = State(initialValue: suggestedMeal)
+    }
+
+    private var from: String { spotterDay(sourceDate) }
+    private var targetMeal: NutritionShortcut { chosenTarget ?? sourceMeal }
+    private var mealItems: [NativeMealCopyItem] { items.filter { $0.meal.meal == sourceMeal.rawValue } }
+    private var selected: [NativeMealCopyItem] { mealItems.filter { !omitted.contains($0.id) } }
+
+    var body: some View {
+        NativeNutritionSheet(title: "复制往日餐食", busy: copying) {
+            Section("从哪里复制") {
+                DatePicker("来源日期", selection: $sourceDate, in: sourceBounds, displayedComponents: .date)
+                SpotterMenuPicker("来源餐次", selection: $sourceMeal,
+                                  options: meals.map { ($0, $0.rawValue) })
+            }
+            .disabled(copying)
+            Section("复制到 \(destination)") {
+                SpotterMenuPicker("目标餐次", selection: Binding(get: { targetMeal }, set: { chosenTarget = $0 }),
+                                  options: meals.map { ($0, $0.rawValue) })
+                    .disabled(copying)
+            }
+            selection
+            Section {
+                Button { Task { await copy() } } label: {
+                    if copying { ProgressView("正在复制") }
+                    else { Label("复制 \(selected.count) 项到\(targetMeal.rawValue)", systemImage: "doc.on.doc") }
+                }
+                .font(.subheadline.weight(.semibold)).foregroundStyle(accent.tint)
+                .disabled(copying || loadedDay != from || from == destination || selected.isEmpty)
+                if let receipt {
+                    Label(receiptText(receipt), systemImage: "checkmark.circle.fill")
+                        .font(.footnote).foregroundStyle(accent.tint)
+                }
+                if let copyError { Text(copyError).font(.footnote).foregroundStyle(.red) }
+            }
+        }
+        .presentationDetents([.large])
+        .task(id: from) { await load(from) }
+        .onChange(of: sourceMeal) { _ in omitted = []; clearFeedback() }
+        .onChange(of: targetMeal) { _ in clearFeedback() }
+        .animation(motion, value: loadedDay)
+    }
+
+    private var selection: some View {
+        Section {
+            if from == destination {
+                Text("请选择另一天的餐食。")
+            } else if let loadError {
+                Text(loadError).font(.footnote).foregroundStyle(.red)
+                Button("重试读取") { Task { await load(from) } }
+            } else if loadedDay != from {
+                ProgressView("正在读取餐食")
+            } else if mealItems.isEmpty {
+                Text("这一天的\(sourceMeal.rawValue)没有可复制的餐食。")
+                    .foregroundStyle(SpotterPalette.muted)
+            } else {
+                ForEach(mealItems) { item in
+                    Toggle(isOn: Binding(get: { !omitted.contains(item.id) }, set: { included in
+                        if included { omitted.remove(item.id) } else { omitted.insert(item.id) }
+                        clearFeedback()
+                    })) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.meal.name).font(.subheadline.weight(.semibold))
+                            let portion = item.meal.grams.map { "\(nutritionNumber($0)) g · " } ?? ""
+                            Text(portion + nutritionNumber(item.meal.calories) + " 千卡")
+                                .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                        }
+                    }
+                    .disabled(copying)
+                }
+            }
+        } header: {
+            Text("选择要复制的食物")
+        } footer: {
+            Text("已随训练同步的蛋白粉会留在原来的记录里。")
+        }
+    }
+
+    private func load(_ requested: String) async {
+        guard requested == from, !Task.isCancelled else { return }
+        loadedDay = nil
+        loadError = nil
+        items = []
+        omitted = []
+        clearFeedback()
+        guard requested != destination else { return }
+        do {
+            let data = try await api.request("/api/library?date=" + requested, method: "GET", json: nil, for: owner)
+            let payload = try JSONDecoder().decode(NutritionPayload.self, from: data)
+            guard requested == from, !Task.isCancelled else { return }
+            items = payload.entries(on: requested).compactMap(NativeMealCopyItem.init)
+            loadedDay = requested
+            if mealItems.isEmpty,
+               let available = meals.first(where: { option in items.contains { $0.meal.meal == option.rawValue } }) {
+                sourceMeal = available
+            }
+        } catch is CancellationError {
+        } catch {
+            if requested == from, !Task.isCancelled { loadError = error.localizedDescription }
+        }
+    }
+
+    private func copy() async {
+        guard !copying, loadedDay == from, from != destination, !selected.isEmpty else { return }
+        clearFeedback()
+        copying = true
+        defer {
+            copying = false
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+        }
+        let records = selected.map { $0.record(on: destination, as: targetMeal) }
+        var query = URLComponents()
+        query.path = "/api/data"
+        query.queryItems = [URLQueryItem(name: "expectedOwner", value: owner)]
+        guard let path = query.string else { return }
+        do {
+            let data = try await api.request(path, method: "POST", json: JSONEncoder().encode(Backup(library: records)), for: owner)
+            let result = try JSONDecoder().decode(Receipt.self, from: data)
+            guard result.added >= 0, result.skipped >= 0, result.added + result.skipped == records.count else {
+                throw NativeAPIError.invalidResponse
+            }
+            receipt = result
+        } catch {
+            copyError = "\(error.localizedDescription) 可以按原选项重试，已复制的项目会自动跳过。"
+        }
+    }
+
+    private func clearFeedback() {
+        receipt = nil
+        copyError = nil
+    }
+
+    private func receiptText(_ receipt: Receipt) -> String {
+        if receipt.added == 0 { return "所选的 \(receipt.skipped) 项已复制过。" }
+        if receipt.skipped == 0 { return "已复制 \(receipt.added) 项。" }
+        return "已复制 \(receipt.added) 项，跳过 \(receipt.skipped) 项已复制的食物。"
     }
 }
 
