@@ -349,16 +349,23 @@ struct NativeSpotterStats: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 9) {
-                Text("统计").font(.system(.largeTitle, weight: .heavy)).padding(.bottom, 4).accessibilityAddTraits(.isHeader)
-                SecondarySegment(options: Page.allCases, value: $page, title: \.rawValue)
-                if page == .overview { overview }
-                else { SecondaryHistory(api: api, owner: owner, entries: store.logs + sharedLogs, partner: sharedLogs.isEmpty ? nil : partner) }
-            }.foregroundStyle(SpotterPalette.ink).secondaryPage()
+        GeometryReader { viewport in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 9) {
+                    if page == .overview {
+                        Text("统计").font(.system(.largeTitle, weight: .heavy)).padding(.bottom, 4).accessibilityAddTraits(.isHeader)
+                    }
+                    SecondarySegment(options: Page.allCases, value: $page, title: \.rawValue)
+                    if page == .overview {
+                        overview
+                    } else {
+                        SecondaryHistory(store: store, availableHeight: viewport.size.height - 84)
+                    }
+                }.foregroundStyle(SpotterPalette.ink).secondaryPage()
+            }
+            .refreshable { await store.load(); await loadPartner() }
         }
         .background(SpotterPalette.background)
-        .refreshable { await store.load(); await loadPartner() }
         .task { await loadPartner() }
     }
 
@@ -781,14 +788,14 @@ private struct SecondarySVGPath {
     }
 }
 
-private struct SecondaryAnatomy: View {
+struct SecondaryAnatomy: View {
     let counts: [String: Int]
     @State private var figure = Figure.male
     @State private var artwork = [String: Drawing]()
     @State private var selected: String?
     @State private var loaded = false
 
-    private enum Figure: String, CaseIterable {
+    enum Figure: String, CaseIterable {
         case male, female
         var title: String { self == .male ? "男性图" : "女性图" }
     }
@@ -799,10 +806,10 @@ private struct SecondaryAnatomy: View {
     }
 
     private struct Source: Decodable { let viewBox: String; let regions: [String: [String]] }
-    private struct Region: Sendable { let key: String; let paths: [Path] }
-    private struct Drawing: Sendable {
-        let box: CGRect
-        let regions: [Region]
+    fileprivate struct Region: Sendable { let key: String; let paths: [Path] }
+    struct Drawing: Sendable {
+        fileprivate let box: CGRect
+        fileprivate let regions: [Region]
 
         func placement(in size: CGSize) -> (scale: CGFloat, offset: CGPoint) {
             let scale = min(size.width / box.width, size.height / box.height)
@@ -815,12 +822,17 @@ private struct SecondaryAnatomy: View {
     private static let neutral = SpotterPalette.color(0xdce4ef)
     private static let exterior = SpotterPalette.color(0xf3f6fc)
     private static let outline = SpotterPalette.color(0xf7f9fe)
-    private static let aliases = [
+    nonisolated private static let aliases = [
         "upper-chest": "chest", "lower-chest": "chest", "upper-abs": "abs", "lower-abs": "abs",
         "front-deltoid": "front-delts", "rear-deltoid": "rear-delts", "deltoids": "side-delts",
         "upper-trapezius": "trapezius", "lower-trapezius": "trapezius", "inner-quad": "quadriceps",
         "outer-quad": "quadriceps", "rhomboids": "upper-back", "rotator-cuff": "rear-delts"
     ]
+    nonisolated static func expandedMuscles(_ muscles: [String: Int]) -> [String: Int] {
+        var expanded = muscles
+        for (region, group) in aliases where expanded[region] == nil { expanded[region] = muscles[group] }
+        return expanded
+    }
     private static let names = [
         "chest": "胸大肌", "upper-chest": "胸大肌上束", "lower-chest": "胸大肌中下束", "serratus": "前锯肌",
         "trapezius": "斜方肌", "upper-trapezius": "上斜方肌", "lower-trapezius": "下斜方肌", "lats": "背阔肌",
@@ -911,7 +923,9 @@ private struct SecondaryAnatomy: View {
         }.frame(maxWidth: .infinity)
     }
 
-    nonisolated private static func loadArtwork() -> [String: Drawing] {
+    nonisolated static func loadArtwork() -> [String: Drawing] { artworkCache }
+
+    nonisolated private static let artworkCache: [String: Drawing] = {
         guard let url = Bundle.main.url(forResource: "anatomy", withExtension: "json"),
               let data = try? Data(contentsOf: url), let source = try? JSONDecoder().decode([String: Source].self, from: data) else { return [:] }
         let json = String(decoding: data, as: UTF8.self)
@@ -950,17 +964,132 @@ private struct SecondaryAnatomy: View {
             drawings[key] = Drawing(box: CGRect(x: size[0], y: size[1], width: size[2], height: size[3]), regions: regions)
         }
         return drawings
+    }()
+
+    static func poster(_ artwork: [String: Drawing], figure: Figure, intensity: [String: Double], tile: Color) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Side.allCases, id: \.self) { side in
+                if let drawing = artwork["\(figure.rawValue)-\(side.rawValue)"] {
+                    Canvas { context, size in
+                        let frame = CGSize(width: max(1, size.width - 25), height: max(1, size.height - 25))
+                        let placement = drawing.placement(in: frame)
+                        let scale = placement.scale
+                        var offset = placement.offset
+                        offset.x += (size.width - frame.width) / 2
+                        offset.y += 3
+                        var canvas = context
+                        canvas.translateBy(x: offset.x, y: offset.y)
+                        canvas.scaleBy(x: scale, y: scale)
+                        for region in drawing.regions {
+                            let value = intensity[region.key, default: 0]
+                            let fill = value >= 70 ? colors[4] : value >= 35 ? colors[2] : value > 0 ? colors[1] : neutral
+                            for path in region.paths {
+                                canvas.fill(path, with: .color(fill))
+                                canvas.stroke(path, with: .color(tile), lineWidth: 0.7 / scale)
+                            }
+                        }
+                        let bounds = drawing.box.applying(CGAffineTransform(scaleX: scale, y: scale))
+                            .offsetBy(dx: offset.x, dy: offset.y)
+                        let labels = callouts[side] ?? []
+                        for lane in labels.indices {
+                            let onLeft = lane == 0
+                            let entries = labels[lane].sorted { $0.point(figure).y < $1.point(figure).y }
+                            let textX: CGFloat = onLeft ? 3 : size.width - 3
+                            let minGap: CGFloat = 10
+                            var lastY = bounds.minY + 4
+                            for (index, callout) in entries.enumerated() {
+                                let point = callout.point(figure)
+                                let tip = CGPoint(x: offset.x + point.x * scale, y: offset.y + point.y * scale)
+                                let y = min(bounds.maxY - 3 - CGFloat(entries.count - 1 - index) * minGap,
+                                            max(tip.y, lastY + minGap))
+                                lastY = y
+                                let score = intensity[callout.region, default: 0]
+                                let ink = score > 0 ? colors[4] : SpotterPalette.color(0x596a87)
+                                let label = context.resolve(Text(callout.title)
+                                    .font(.system(size: 7, weight: score >= 70 ? .bold : .medium)).foregroundColor(ink))
+                                let labelWidth = label.measure(in: CGSize(width: size.width, height: size.height)).width
+                                let direction: CGFloat = onLeft ? 1 : -1
+                                let lineStart = textX + direction * (labelWidth + 1)
+                                var line = Path()
+                                line.move(to: CGPoint(x: lineStart, y: y))
+                                line.addLine(to: CGPoint(x: lineStart + direction * 2, y: y))
+                                line.addLine(to: tip)
+                                context.stroke(line, with: .color(ink.opacity(score > 0 ? 0.60 : 0.32)), lineWidth: 0.5)
+                                context.draw(label, at: CGPoint(x: textX, y: y), anchor: onLeft ? .leading : .trailing)
+                            }
+                        }
+                        context.draw(Text(side.title).font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(SpotterPalette.color(0x596a87)), at: CGPoint(x: size.width / 2, y: size.height - 9))
+                    }
+                    .accessibilityLabel(side.title + "肌群图")
+                    .accessibilityAddTraits(.isImage)
+                }
+            }
+        }
+        .frame(height: 187)
     }
+
+    private struct Callout {
+        let region: String
+        let title: String
+        let male: CGPoint
+        let female: CGPoint
+        init(_ region: String, _ title: String, _ maleX: CGFloat, _ maleY: CGFloat, _ femaleX: CGFloat, _ femaleY: CGFloat) {
+            self.region = region
+            self.title = title
+            male = CGPoint(x: maleX, y: maleY)
+            female = CGPoint(x: femaleX, y: femaleY)
+        }
+        func point(_ figure: Figure) -> CGPoint { figure == .male ? male : female }
+    }
+
+    private static let callouts: [Side: [[Callout]]] = [
+        .front: [[.init("upper-chest", "上胸", 307, 341, 276, 326),
+                  .init("lower-chest", "中下胸", 307, 402, 274, 376),
+                  .init("serratus", "前锯肌", 275, 431, 248, 484),
+                  .init("biceps", "二头", 202, 450, 180, 402),
+                  .init("upper-abs", "腹部", 335, 508, 300, 460),
+                  .init("outer-quad", "股四", 260, 868, 232, 878)],
+                 [.init("front-deltoid", "前束", 481, 339, 412, 302),
+                  .init("deltoids", "中束", 492, 350, 438, 292),
+                  .init("forearm", "前臂", 574, 591, 516, 558),
+                  .init("adductors", "内收肌", 422, 778, 366, 770),
+                  .init("tibialis", "胫前肌", 450, 1087, 390, 1124)]],
+        .back: [[.init("rear-deltoid", "后束", 948, 354, 1029, 296),
+                 .init("triceps", "三头", 940, 481, 1019, 438),
+                 .init("lower-back", "下背", 1049, 563, 1119, 530),
+                 .init("hamstring", "腿后侧", 998, 878, 1073, 886),
+                 .init("calves", "小腿", 987, 1061, 1063, 1094)],
+                [.init("trapezius", "斜方肌", 1125, 319, 1191, 290),
+                 .init("upper-back", "上背", 1183, 390, 1237, 334),
+                 .init("lats", "背阔肌", 1152, 493, 1211, 450),
+                 .init("gluteal", "臀肌", 1138, 707, 1199, 694)]]
+    ]
 }
 
-private struct SecondaryMusclePanel: View {
+struct SecondaryMusclePanel: View {
     let entries: [NativeWorkoutEntry]
     @State private var layer = Layer.primary
     @State private var catalogue: Catalog?
     @State private var unavailable = false
 
     private enum Layer: String, CaseIterable { case primary = "主要训练", secondary = "辅助参与" }
-    private struct Catalog: Sendable { let byID: [String: [String: NativeJSON]]; let byName: [String: [String: NativeJSON]] }
+    private struct Catalog: Sendable {
+        let byID: [String: [String: Int]]
+        let byName: [String: [String: Int]]
+        let guides: [String: [String: Int]]
+
+        func muscles(_ move: NativeJSON, name: String) -> [String: Int] {
+            let key = SecondaryMusclePanel.nameKey(name)
+            return guides[SecondaryMusclePanel.nameKey(move["sourceName"].string)] ?? guides[key]
+                ?? byID[move["catalogueId"].string] ?? byName[key] ?? [:]
+        }
+    }
+    private struct MuscleCatalogue: Decodable {
+        struct Move: Decodable { let id: String; let name: String; let en: String; let target: String; let muscles: [String: Int] }
+        let rows: [Move]
+    }
+    private struct Guide: Decodable { let muscles: [String: Int] }
     private static let groups: [(String, Set<String>)] = [
         ("胸部", ["chest", "upper-chest", "lower-chest", "serratus"]),
         ("背部", ["lats", "upper-back", "lower-back", "rhomboids", "trapezius", "upper-trapezius", "lower-trapezius"]),
@@ -1000,21 +1129,74 @@ private struct SecondaryMusclePanel: View {
     }
 
     nonisolated private static func nameKey(_ name: String) -> String {
-        name.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        name.precomposedStringWithCompatibilityMapping.lowercased().filter { !$0.isWhitespace }
     }
 
-    nonisolated private static func loadCatalogue() -> Catalog? {
+    nonisolated private static func loadCatalogue() -> Catalog? { catalogueCache }
+
+    nonisolated private static let catalogueCache: Catalog? = {
+        let decoder = JSONDecoder()
         guard let url = Bundle.main.url(forResource: "index", withExtension: "json"), let data = try? Data(contentsOf: url),
-              let value = try? JSONDecoder().decode(NativeJSON.self, from: data) else { return nil }
-        var byID = [String: [String: NativeJSON]]()
-        var byName = [String: [String: NativeJSON]]()
-        for move in value["rows"].array {
-            let muscles = move["muscles"].object
+              let value = try? decoder.decode(MuscleCatalogue.self, from: data) else { return nil }
+        var byID = [String: [String: Int]]()
+        var byName = [String: [String: Int]]()
+        var ambiguous = Set<String>()
+        for move in value.rows {
+            let muscles = move.muscles.isEmpty && move.target == "shins" ? ["tibialis": 100] : move.muscles
             guard !muscles.isEmpty else { continue }
-            byID[move["id"].string] = muscles
-            for name in [move["name"].string, move["en"].string] where !name.isEmpty { byName[nameKey(name)] = muscles }
+            byID[move.id] = muscles
+            for name in Set([nameKey(move.name), nameKey(move.en)]) where !name.isEmpty && !ambiguous.contains(name) {
+                if let previous = byName[name], previous != muscles {
+                    byName.removeValue(forKey: name)
+                    ambiguous.insert(name)
+                } else { byName[name] = muscles }
+            }
         }
-        return Catalog(byID: byID, byName: byName)
+        var guides = [String: [String: Int]]()
+        if let url = Bundle.main.url(forResource: "training-guides", withExtension: "json"),
+           let data = try? Data(contentsOf: url), let source = try? decoder.decode([String: Guide].self, from: data) {
+            for (name, guide) in source { guides[nameKey(name)] = guide.muscles }
+        }
+        return Catalog(byID: byID, byName: byName, guides: guides)
+    }()
+
+    nonisolated static func posterIntensity(_ entries: [NativeWorkoutEntry]) -> [String: Double] {
+        guard let catalogue = loadCatalogue() else { return [:] }
+        var scores = [String: (loaded: Double, unloaded: Double, primary: Bool)]()
+        for entry in entries {
+            guard let session = entry.session else { continue }
+            let rows = session.rows
+            for (index, move) in session.plan.exercises.enumerated() where rows.indices.contains(index) {
+                let label = NativeExerciseLabel(move)
+                guard !label.warmup else { continue }
+                let perSide = NativeWorkoutSession.isPerSideLoad(move)
+                var totalLoad = 0.0
+                var unloaded = 0.0
+                for line in rows[index] where line["done"].bool && line["kind"].string != "warmup" {
+                    let load = NativeWorkoutSession.setVolumeKg(line, move: move, perSide: perSide)
+                    totalLoad += load
+                    if load == 0 && (line["reps"].number > 0 || line["seconds"].number > 0 || line["right"]["reps"].number > 0) {
+                        unloaded += 1
+                    }
+                }
+                guard totalLoad > 0 || unloaded > 0 else { continue }
+                let muscles = SecondaryAnatomy.expandedMuscles(catalogue.muscles(move, name: label.name))
+                for (name, strength) in muscles where strength > 0 && name != "cardiovascular system" {
+                    let weight = Double(strength) / 100
+                    let previous = scores[name, default: (0, 0, false)]
+                    scores[name] = (previous.loaded + totalLoad * weight, previous.unloaded + unloaded * weight,
+                                    previous.primary || strength >= 75)
+                }
+            }
+        }
+        let peakLoad = scores.values.map(\.loaded).max() ?? 0
+        let peakUnloaded = scores.values.map(\.unloaded).max() ?? 0
+        return scores.mapValues { score in
+            let loaded = peakLoad > 0 ? 100 * score.loaded / peakLoad : 0
+            let unloaded = peakUnloaded > 0 ? (peakLoad > 0 ? 34 : 100) * score.unloaded / peakUnloaded : 0
+            let intensity = max(loaded, unloaded)
+            return score.primary ? intensity : min(intensity, 34)
+        }
     }
 
     private func distribution(_ catalogue: Catalog) -> ([Int], [String: Int]) {
@@ -1022,12 +1204,14 @@ private struct SecondaryMusclePanel: View {
         var regionCounts = [String: Int]()
         for entry in entries {
             guard let session = entry.session else { continue }
-            for (index, move) in session.plan.exercises.enumerated() where session.rows.indices.contains(index) && !move["warmup"].bool {
-                let count = session.rows[index].filter { $0["done"].bool && $0["kind"].string != "warmup" }.count
+            let rows = session.rows
+            for (index, move) in session.plan.exercises.enumerated() where rows.indices.contains(index) {
+                let label = NativeExerciseLabel(move)
+                guard !label.warmup else { continue }
+                let count = rows[index].filter { $0["done"].bool && $0["kind"].string != "warmup" }.count
                 guard count > 0 else { continue }
-                let muscles = catalogue.byID[move["catalogueId"].string] ?? catalogue.byName[Self.nameKey(move["name"].string)] ?? [:]
-                let regions = Set(muscles.compactMap { name, intensity -> String? in
-                    let value = intensity.number
+                let muscles = catalogue.muscles(move, name: label.name)
+                let regions = Set(muscles.compactMap { name, value -> String? in
                     return name != "cardiovascular system" && value > 0 && (layer == .primary ? value >= 75 : value < 75) ? name : nil
                 })
                 for region in regions { regionCounts[region, default: 0] += count }
@@ -1109,137 +1293,318 @@ private struct SecondaryPerformance: View {
 
 @MainActor
 private struct SecondaryHistory: View {
-    let api: NativeAPI
-    let owner: String
-    let entries: [NativeWorkoutEntry]
-    let partner: SecondaryFriend?
+    @ObservedObject var store: NativeWorkoutStore
+    let availableHeight: CGFloat
+    @Environment(\.spotterInteractionMotion) private var motion
+    @ScaledMetric(relativeTo: .caption) private var dateHeight: CGFloat = 29
+    @ScaledMetric(relativeTo: .caption2) private var chipHeight: CGFloat = 25
+    @ScaledMetric(relativeTo: .caption) private var legendHeight: CGFloat = 18
     @State private var month = SecondaryDate.monthStart(SecondaryDate.today)
     @State private var scope = Scope.all
     @State private var selection: Selection?
+    @State private var draftOrder: [String]?
+    @State private var savingOrder = false
+    @State private var orderError: String?
 
-    private enum Scope: String, CaseIterable { case all = "全部", mine = "我的记录", partner = "搭子记录" }
+    private enum Scope: String, CaseIterable, Identifiable {
+        case all = "全部", mine = "我的记录", partner = "搭子记录"
+        var id: Self { self }
+    }
     private enum Selection: Identifiable {
         case day(String), workout(NativeWorkoutEntry)
-        var id: String { switch self { case .day(let day): return day; case .workout(let entry): return entry.owner + ":" + entry.id } }
+        enum Identity: Hashable {
+            case day(String), workout(NativeWorkoutEntry.Key)
+        }
+        var id: Identity {
+            switch self {
+            case .day(let day): return .day(day)
+            case .workout(let entry): return .workout(entry.key)
+            }
+        }
     }
 
+    private static let ownTone = SpotterPalette.color(0x476a42)
+    private static let partnerTone = SpotterPalette.color(0x694b99)
+    private let cardInset: CGFloat = 12
+    private let sectionSpacing: CGFloat = 9
+    private let navigationButtonSize: CGFloat = 44
+    private let weekdayHeight: CGFloat = 20
+    private let weekSpacing: CGFloat = 2
+
+    private var owner: String { store.owner }
+    private var partnerID: String? {
+        let id = store.partnerID
+        guard !id.isEmpty, id != owner, store.room["partnerTrainingShared"] != .bool(false) else { return nil }
+        return id
+    }
+    private var partnerName: String { store.partnerName }
+    private var visibleScope: Scope { partnerID == nil ? .mine : scope }
+
     private var grouped: [String: [NativeWorkoutEntry]] {
-        Dictionary(grouping: entries.filter { record in
-            if partner == nil || scope == .mine { return record.owner == owner }
-            if scope == .partner { return record.owner == partner?.id }
-            return true
-        }, by: \.day)
+        var entries = visibleScope == .partner ? [] : store.logs
+        if visibleScope != .mine { entries += store.partnerLogs }
+        var byDay = Dictionary(grouping: entries, by: \.day)
+        for row in store.libraryRows where row["kind"].string == "history-order" {
+            let day = row["id"].string
+            if let entries = byDay[day] {
+                byDay[day] = ordered(entries, by: row["entries"].array.map(\.string))
+            }
+        }
+        return byDay
     }
 
     var body: some View {
         let start = SecondaryDate.weekStart(month)
-        let last = SecondaryDate.shift(SecondaryDate.shift(month, 1, component: .month), -1)
+        let next = SecondaryDate.shift(month, 1, component: .month)
+        let last = SecondaryDate.shift(next, -1)
         let days = (SecondaryDate.days(start, through: last) + 6) / 7 * 7
+        let weeks = CGFloat(days / 7)
+        let calendarChrome = navigationButtonSize + weekdayHeight + legendHeight + 2 * (cardInset + sectionSpacing) + weeks * weekSpacing
+        let rowHeight = max(dateHeight + 2 * chipHeight + 8, (availableHeight - calendarChrome) / weeks)
         let records = grouped
-        return VStack(alignment: .leading, spacing: 9) {
-            SecondaryActionHeader(title: "\(SecondaryDate.calendar.component(.year, from: month)) 年 \(SecondaryDate.calendar.component(.month, from: month)) 月") {
-                if partner != nil {
-                    SecondarySelectionMenu(label: "记录筛选", options: Scope.allCases, selection: $scope, title: \.rawValue)
+        return VStack(alignment: .leading, spacing: sectionSpacing) {
+            monthHeader
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 3), count: 7), spacing: weekSpacing) {
+                ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) {
+                    Text($0).font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                        .frame(minHeight: weekdayHeight)
+                        .accessibilityLabel("星期\($0)")
                 }
-                HStack(spacing: 3) {
-                    stepButton("上个月", symbol: "chevron.left") { month = SecondaryDate.shift(month, -1, component: .month) }
-                    stepButton("下个月", symbol: "chevron.right") { month = SecondaryDate.shift(month, 1, component: .month) }
-                }
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 7), spacing: 4) {
-                ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) { Text($0).font(.caption2).foregroundStyle(SpotterPalette.muted) }
                 ForEach(0..<days, id: \.self) { index in
                     let date = SecondaryDate.shift(start, index)
-                    calendarCell(date, records: records[spotterDay(date), default: []], inside: date >= month && date <= last)
+                    calendarCell(date, records: records[spotterDay(date), default: []], inside: date >= month && date < next, rowHeight: rowHeight)
                 }
             }
-            HStack(spacing: 8) {
-                if scope != .partner || partner == nil { SecondaryBadge(text: "我", green: true) }
-                if let partner, scope != .mine { SecondaryBadge(text: partner.name) }
+            HStack(spacing: 14) {
+                if visibleScope != .partner { legend("我", tone: Self.ownTone) }
+                if partnerID != nil, visibleScope != .mine { legend(partnerName, tone: Self.partnerTone) }
             }
-        }.padding(10).secondaryCard()
-            .sheet(item: $selection) { selection in
-                NavigationStack {
-                    switch selection {
-                    case .day(let date):
-                        ScrollView {
-                            VStack(spacing: 10) {
-                                let daily = grouped[date, default: []]
-                                if daily.isEmpty { SecondaryNotice(message: "这一天还没有训练记录。") }
-                                ForEach(Array(daily.enumerated()), id: \.offset) { _, record in
-                                    NavigationLink { SecondaryTrainingDetail(api: api, owner: owner, record: record) } label: {
-                                        SecondaryRow(title: record.title, detail: "\(record.owner == owner ? "我" : partner?.name ?? "搭子") · \(record.durationMinutes) 分钟", icon: "dumbbell", color: record.owner == owner ? SpotterPalette.wash : secondaryLilac)
-                                            .secondaryCard()
-                                    }.buttonStyle(.spotterPress)
-                                }
-                            }.secondaryPage()
-                        }.background(SpotterPalette.background).navigationTitle("\(date.suffix(5)) 的打卡").navigationBarTitleDisplayMode(.inline)
-                    case .workout(let record): SecondaryTrainingDetail(api: api, owner: owner, record: record)
-                    }
+            .frame(minHeight: legendHeight)
+        }
+        .padding(cardInset).secondaryCard(radius: 20)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("训练月历")
+        .onChange(of: partnerID) { _ in scope = .all }
+        .sheet(item: $selection, onDismiss: endOrdering) { selection in
+            NavigationStack {
+                switch selection {
+                case .day(let day): dayDetail(day)
+                case .workout(let record): recordDetail(record).toolbar { closeAction }
                 }
-                .presentationDragIndicator(.visible)
             }
+            .presentationDragIndicator(.visible)
+            .interactiveDismissDisabled(savingOrder)
+        }
     }
 
-    private func calendarCell(_ date: Date, records: [NativeWorkoutEntry], inside: Bool) -> some View {
-        let key = spotterDay(date)
-        return VStack(alignment: .leading, spacing: 2) {
-            Button { selection = .day(key) } label: {
-                HStack(spacing: 0) {
-                    Text(SecondaryDate.calendar.component(.day, from: date).formatted()).font(.caption2.weight(.semibold))
-                    Spacer(minLength: 0)
-                    if records.count > 2 { Text("+\(records.count - 2)").font(.system(size: 8)) }
-                }.padding(3).frame(maxWidth: .infinity).contentShape(Rectangle())
-            }.buttonStyle(.spotterPress).accessibilityLabel("\(key)，\(records.count) 次打卡")
-            ForEach(Array(records.prefix(2).enumerated()), id: \.offset) { _, record in
-                Button { selection = .workout(record) } label: {
-                    Text(record.title).font(.system(size: 8, weight: .semibold)).lineLimit(1)
-                        .padding(.horizontal, 2).padding(.vertical, 2).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(record.owner == owner ? SpotterPalette.wash : secondaryLilac, in: RoundedRectangle(cornerRadius: 3))
-                }.buttonStyle(.spotterPress)
+    private var monthHeader: some View {
+        let date = SecondaryDate.calendar.dateComponents([.year, .month], from: month)
+        return HStack(alignment: .center, spacing: 5) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("\(date.year ?? 0, format: .number.grouping(.never)) 年")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                    Text("\(date.month ?? 0) 月").font(.title2.weight(.heavy))
+                }.fixedSize(horizontal: true, vertical: false)
+                Text("\(date.year ?? 0, format: .number.grouping(.never)) 年 \(date.month ?? 0) 月")
+                    .font(.headline).lineLimit(2).minimumScaleFactor(0.8)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
-        }.frame(minHeight: 52, alignment: .topLeading)
-            .background(inside ? SpotterPalette.card : SpotterPalette.background, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(key == spotterDay() ? SpotterPalette.accent : SpotterPalette.line, lineWidth: 1).allowsHitTesting(false))
-            .foregroundStyle(inside ? SpotterPalette.ink : SpotterPalette.muted)
+            if partnerID != nil {
+                Menu {
+                    Picker("记录筛选", selection: $scope) {
+                        ForEach(Scope.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                } label: {
+                    headerIcon("line.3.horizontal.decrease", selected: scope != .all)
+                }
+                .tint(SpotterPalette.ink)
+                .accessibilityLabel("记录筛选")
+                .accessibilityValue(scope.rawValue)
+            }
+            monthStep("上个月", symbol: "chevron.left", direction: -1)
+            monthStep("下个月", symbol: "chevron.right", direction: 1)
+        }
     }
-}
 
-@MainActor
-private struct SecondaryTrainingDetail: View {
-    let api: NativeAPI
-    let owner: String
-    let record: NativeWorkoutEntry
+    private func headerIcon(_ symbol: String, selected: Bool = false) -> some View {
+        Image(systemName: symbol).font(.subheadline.weight(.semibold))
+            .foregroundStyle(SpotterPalette.ink)
+            .frame(width: navigationButtonSize, height: navigationButtonSize)
+            .background(selected ? SpotterPalette.wash : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? SpotterPalette.accent : SpotterPalette.line))
+    }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 13) {
-                Text(record.title).font(.largeTitle.weight(.heavy))
-                Text("\(record.day) · \(record.durationMinutes) 分钟").font(.subheadline).foregroundStyle(SpotterPalette.muted)
-                if !record.data["note"].string.isEmpty { SecondaryNotice(message: record.data["note"].string) }
-                if let session = record.session {
-                    ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in
-                        let rows = session.rows.indices.contains(index) ? session.rows[index] : []
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(move["name"].string).font(.headline)
-                            ForEach(Array(rows.enumerated()), id: \.offset) { set, row in
-                                if row["done"].bool {
-                                    let duration = row["seconds"].number
-                                    Text("第 \(set + 1) 组 · \(statNumber(row["weight"].number)) \(move["unit"].string) × \(Int(row["reps"].number)) 次" + (duration > 0 ? " · \(Int(duration)) 秒" : ""))
-                                        .font(.subheadline).foregroundStyle(SpotterPalette.muted)
-                                    if case .object = row["right"] {
-                                        Text("右侧 · \(statNumber(row["right"]["weight"].number)) \(move["unit"].string) × \(Int(row["right"]["reps"].number)) 次")
-                                            .font(.caption).foregroundStyle(SpotterPalette.muted)
-                                    }
-                                }
-                            }
-                        }.padding(12).frame(maxWidth: .infinity, alignment: .leading).secondaryCard()
+    private func monthStep(_ label: String, symbol: String, direction: Int) -> some View {
+        Button {
+            month = SecondaryDate.shift(month, direction, component: .month)
+        } label: {
+            headerIcon(symbol)
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel(label)
+    }
+
+    private func legend(_ name: String, tone: Color) -> some View {
+        HStack(spacing: 6) {
+            Capsule().fill(tone).frame(width: 12, height: 7).accessibilityHidden(true)
+            Text(name).font(.caption).foregroundStyle(SpotterPalette.muted)
+        }
+    }
+
+    private func calendarCell(_ date: Date, records: [NativeWorkoutEntry], inside: Bool, rowHeight: CGFloat) -> some View {
+        let key = spotterDay(date)
+        let isToday = key == spotterDay(SecondaryDate.today)
+        let mine = records.filter { $0.owner == owner }
+        let other = records.first { $0.owner != owner }
+        let previews = if let own = mine.first, let other { [own, other] } else { Array(records.prefix(2)) }
+        let extra = records.count - previews.count
+        let badgeSize = min(dateHeight - 4, 29)
+        let counts = [isToday ? "今天" : "", key, "\(records.count) 次打卡",
+                      mine.isEmpty ? "" : "我 \(mine.count) 次",
+                      other == nil ? "" : "\(partnerName) \(records.count - mine.count) 次"]
+            .filter { !$0.isEmpty }.joined(separator: "，")
+        return VStack(alignment: .leading, spacing: 2) {
+            Rectangle().fill(SpotterPalette.line).frame(height: 1).accessibilityHidden(true)
+            Button { selection = .day(key) } label: {
+                HStack(spacing: 1) {
+                    Text(SecondaryDate.calendar.component(.day, from: date).formatted())
+                        .font(.subheadline.weight(.bold)).monospacedDigit()
+                        .lineLimit(1).minimumScaleFactor(0.55)
+                        .foregroundStyle(isToday ? .white : (inside ? SpotterPalette.ink : SpotterPalette.muted))
+                        .frame(width: badgeSize, height: badgeSize)
+                        .background(isToday ? SpotterPalette.color(0x375b3b) : .clear, in: Circle())
+                    if extra > 0 {
+                        Text("+\(extra)").font(.caption2.weight(.bold)).monospacedDigit().minimumScaleFactor(0.5)
+                            .foregroundStyle(Self.ownTone).lineLimit(1)
                     }
                 }
-                if record.owner == owner { NativeHeartView(api: api, owner: owner, entry: record) }
+                .frame(maxWidth: .infinity).frame(height: dateHeight).contentShape(Rectangle())
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityLabel(counts)
+            ForEach(previews, id: \.key) { record in
+                Button { selection = .workout(record) } label: {
+                    Text(record.title).font(.caption2.weight(.bold)).lineLimit(2).minimumScaleFactor(0.85)
+                        .padding(.horizontal, 3).frame(maxWidth: .infinity, alignment: .leading).frame(height: chipHeight)
+                        .foregroundStyle(.white)
+                        .background(record.owner == owner ? Self.ownTone : Self.partnerTone, in: RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.spotterPress)
+                .accessibilityLabel("\(record.title)，\(record.owner == owner ? "我" : partnerName)，\(key)")
+            }
+        }
+        .frame(maxWidth: .infinity).frame(height: rowHeight, alignment: .topLeading)
+    }
+
+    @ToolbarContentBuilder
+    private var closeAction: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("关闭") { selection = nil }
+                .disabled(savingOrder)
+        }
+    }
+
+    private func dayDetail(_ day: String) -> some View {
+        let daily = grouped[day, default: []]
+        let ownIDs = daily.filter { $0.owner == owner }.map(\.id)
+        let shown = draftOrder.map { ordered(daily, by: $0) } ?? daily
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                if draftOrder != nil || (2...150).contains(ownIDs.count) {
+                    HStack(spacing: 8) {
+                        if let draftOrder {
+                            Button(savingOrder ? "保存中…" : "保存排序") {
+                                Task { await saveOrder(day, ids: draftOrder) }
+                            }.buttonStyle(SecondaryButtonStyle(primary: true)).disabled(savingOrder)
+                            Button("取消排序", action: endOrdering)
+                                .buttonStyle(SecondaryButtonStyle()).disabled(savingOrder)
+                        } else {
+                            Button("排序我的训练") { draftOrder = ownIDs }.buttonStyle(SecondaryButtonStyle())
+                        }
+                    }
+                }
+                if let orderError { SecondaryNotice(message: orderError, warning: true) }
+                if daily.isEmpty {
+                    SecondaryNotice(message: visibleScope == .partner ? "搭子这一天还没有训练记录。" : "这一天还没有训练记录。")
+                }
+                ForEach(shown, id: \.key) { record in
+                    HStack(spacing: 5) {
+                        NavigationLink { recordDetail(record) } label: {
+                            let mine = record.owner == owner
+                            let category = record.data["plan"]["category"].string
+                            SecondaryRow(title: record.title, detail: [mine ? "我" : partnerName, category, "\(record.durationMinutes) 分钟"]
+                                .filter { !$0.isEmpty }.joined(separator: " · "), icon: "dumbbell", color: mine ? SpotterPalette.wash : secondaryLilac)
+                                .secondaryCard()
+                        }
+                        .buttonStyle(.spotterPress)
+                        .disabled(draftOrder != nil)
+                        if record.owner == owner, let ids = draftOrder, let index = ids.firstIndex(of: record.id) {
+                            orderButton(record, index: index, direction: -1, ids: ids)
+                            orderButton(record, index: index, direction: 1, ids: ids)
+                        }
+                    }
+                }
             }.secondaryPage()
-        }.background(SpotterPalette.background).navigationTitle("训练详情").navigationBarTitleDisplayMode(.inline)
+        }
+        .background(SpotterPalette.background)
+        .navigationTitle("\(day.suffix(5)) 的打卡").navigationBarTitleDisplayMode(.inline)
+        .toolbar { closeAction }
+    }
+
+    @ViewBuilder
+    private func recordDetail(_ record: NativeWorkoutEntry) -> some View {
+        let candidates = record.owner == owner ? store.logs : store.partnerLogs
+        if let current = candidates.first(where: { $0.key == record.key }) {
+            NativeWorkoutDetailView(store: store, entry: current)
+        } else {
+            SecondaryNotice(message: "这条训练记录已不可用。").padding()
+        }
+    }
+
+    private func orderButton(_ record: NativeWorkoutEntry, index: Int, direction: Int, ids: [String]) -> some View {
+        let target = index + direction
+        let name = direction < 0 ? "上移" : "下移"
+        return Button {
+            guard ids.indices.contains(target) else { return }
+            var updated = ids
+            updated.swapAt(index, target)
+            withAnimation(motion) { draftOrder = updated }
+        } label: {
+            headerIcon(direction < 0 ? "arrow.up" : "arrow.down")
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel("\(name) \(record.title)")
+        .disabled(savingOrder || !ids.indices.contains(target))
+    }
+
+    private func ordered(_ entries: [NativeWorkoutEntry], by ids: [String]) -> [NativeWorkoutEntry] {
+        guard !ids.isEmpty else { return entries }
+        var ranks: [String: Int] = [:]
+        for (index, id) in ids.enumerated() { ranks[id] = index }
+        let own = entries.filter { $0.owner == owner }.sorted {
+            ranks[$0.id, default: ids.count] < ranks[$1.id, default: ids.count]
+        }
+        var next = own.makeIterator()
+        return entries.map { $0.owner == owner ? (next.next() ?? $0) : $0 }
+    }
+
+    private func saveOrder(_ day: String, ids: [String]) async {
+        guard !savingOrder else { return }
+        savingOrder = true
+        orderError = nil
+        defer { savingOrder = false }
+        do {
+            try await store.saveHistoryOrder(day: day, entryIDs: ids)
+            endOrdering()
+        } catch { orderError = error.localizedDescription }
+    }
+
+    private func endOrdering() {
+        draftOrder = nil
+        orderError = nil
     }
 }
 
@@ -1266,7 +1631,7 @@ struct NativeSettings: View {
     var openTraining: (() -> Void)? = nil
 
     private enum Page: String, CaseIterable, Identifiable {
-        case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", reminders = "训练提醒"
+        case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", planImport = "粘贴已有内容", programs = "训练周期", reminders = "训练提醒"
         case units = "单位与统计", equipment = "器械", appearance = "外观与辅助功能", modules = "功能模块", data = "数据导入与导出"
         case watches = "手表与健康", integrations = "集成", coach = "AI 教练", about = "关于与更新"
         var id: Self { self }
@@ -1278,6 +1643,8 @@ struct NativeSettings: View {
             case .protein: return "常喝的蛋白粉、一勺粉量和杯量"
             case .timer: return "休息时间、提示声音和震动、保持屏幕常亮"
             case .schedule: return "训练计划、固定休息日和临时休息"
+            case .planImport: return "训练文本、计划 JSON 和跟练视频"
+            case .programs: return "多周训练、周期草稿和排期"
             case .reminders: return "待训练计划、每日提醒时间"
             case .units: return "新动作的重量单位、动作名称、1RM 估算方式"
             case .equipment: return "健身房配置和可用器械"
@@ -1298,6 +1665,8 @@ struct NativeSettings: View {
             case .protein: return "shippingbox"
             case .timer: return "timer"
             case .schedule: return "calendar"
+            case .planImport: return "list.bullet.clipboard"
+            case .programs: return "calendar.badge.plus"
             case .reminders: return "bell"
             case .units: return "ruler"
             case .equipment: return "slider.horizontal.3"
@@ -1402,6 +1771,8 @@ struct NativeSettings: View {
         switch page {
         case .protein: NativeProteinView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
         case .equipment: NativeEquipmentPreferences()
+        case .planImport: NativePlanImportView(api: account.api, owner: owner, didImport: refreshPlans)
+        case .programs: NativeProgramsView(api: account.api, owner: owner, didSchedule: refreshPlans)
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -1411,6 +1782,8 @@ struct NativeSettings: View {
                     case .workout: NativeWorkoutPreferences()
                     case .timer: NativeTimerPreferences()
                     case .schedule: scheduleContent
+                    case .planImport: EmptyView()
+                    case .programs: EmptyView()
                     case .reminders: NativeTrainingReminderSettings(owner: owner)
                     case .units: NativeUnitsPreferences()
                     case .equipment: EmptyView()
@@ -1445,6 +1818,10 @@ struct NativeSettings: View {
             Button { showRestSchedule = true } label: {
                 SecondaryRow(title: "管理休息日", detail: "每周固定休息日和临时休息日期", icon: "calendar.badge.clock")
             }.buttonStyle(.spotterPress)
+            Divider()
+            link(.planImport)
+            Divider()
+            link(.programs)
         }
     }
 

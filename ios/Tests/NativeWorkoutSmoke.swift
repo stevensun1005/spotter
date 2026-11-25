@@ -40,16 +40,62 @@ struct NativeWorkoutSmoke {
         let restored = try JSONDecoder().decode(NativeWorkoutEntry.self, from: encoded)
         expect(restored == entry && restored.id == id, "Recovery reuses the same check-in ID")
         expect(restored.workoutWindow?.from == started && restored.workoutWindow?.to == started + 180_000, "History keeps the exact time window")
+        var second = entry
+        second.id = UUID().uuidString.lowercased()
+        second.data["started"] = .number(Double(started + 210_000))
+        var otherOwner = second
+        otherOwner.id = UUID().uuidString.lowercased()
+        otherOwner.owner = "another-synthetic-owner"
+        var otherDay = second
+        otherDay.id = UUID().uuidString.lowercased()
+        otherDay.data["date"] = .string("2000-01-01")
+        var draft = second
+        draft.id = UUID().uuidString.lowercased()
+        draft.kind = "draft"
+        let candidates = [second, entry, otherOwner, otherDay, draft, second]
+        let shared = NativeWorkoutShareSummary.entries(for: entry, among: candidates, owner: entry.owner, merge: true)
+        expect(shared == [entry, second], "Share merge keeps own completed records from the same day once, in time order")
+        expect(NativeWorkoutShareSummary.entries(for: otherOwner, among: candidates, owner: entry.owner, merge: true).isEmpty,
+               "A friend or partner record cannot generate an own-account poster")
+        expect(NativeWorkoutShareSummary.entries(for: entry, among: candidates, owner: entry.owner, merge: false) == [entry],
+               "The default poster includes just the selected workout")
+        let poster = NativeWorkoutShareSummary(entry: entry, logs: shared)
+        expect(poster.workouts[0].moves.first?.sets == ["左 12 kg × 10 · 右 14 kg × 8"] && poster.workouts[0].moves.first?.slot == "A1",
+               "Poster rows preserve grouping and completed side loads without displaying unfinished sets")
+        expect(poster.minutes == 2 * entry.durationMinutes && poster.sets == 2 && poster.volume == 464,
+               "Poster totals use actual elapsed workout minutes, sets, and combined sides")
         do { _ = try NativeWorkoutSession.free(now: started).finalizing(at: started + 60_000); preconditionFailure("Empty check-in rejected") }
         catch NativeWorkoutProblem.noCompletedSet { }
         plan.raw["exercises"] = .array([])
         var free = NativeWorkoutSession.free(now: started)
         free.addExercise(name: " 新动作 ")
         expect(free.plan.exercises[0]["name"].string == "新动作" && free.rows[0].count == 3, "Free training uses an actual named move")
+
+        let imported = try NativePlanImport.parse("""
+        ## Synthetic lower body
+        - 单侧低台下踩 3×8–10次，12.5 lb，休息 90 秒，节奏 30X0
+        - 平板支撑 2组每组30秒
+        https://youtu.be/synthetic
+        """, today: "2026-11-24")
+        let training = NativePlan(raw: imported[0])
+        expect(imported.count == 1 && training.title == "Synthetic lower body" && training.date == "2026-11-24", "Pasted text creates a plan on the local day")
+        expect(training.video == "https://youtu.be/synthetic" && !training.raw["shared"].bool, "A link is preserved and imports start private")
+        expect(training.exercises[0]["unit"].string == "lb" && training.exercises[0]["weight"].number == 12.5, "Original weight and unit survive import")
+        expect(training.exercises[0]["repsMax"].number == 10 && training.exercises[0]["restSeconds"].number == 90 && training.exercises[0]["tempo"].string == "3-0-X-0", "Rep ranges, rest and tempo survive import")
+        expect(training.exercises[1]["seconds"].number == 30 && training.exercises[1]["reps"].number == 0, "Timed moves use seconds")
+        let videos = try NativePlanImport.parse("https://b23.tv/test\nhttps://b23.tv/test", today: "2026-11-24")
+        expect(videos.count == 1 && videos[0]["exercises"].array.isEmpty, "A unique video creates an exercise-free plan")
+        let json = String(decoding: try JSONEncoder().encode(training.raw), as: UTF8.self)
+        let fenced = try NativePlanImport.parse("```json\n\(json)\n```", today: "2026-12-01")
+        expect(fenced == imported, "Fenced single JSON plans retain their original dates")
+        for invalid in ["{\"format\":\"spotter-backup\"}", "{\"format\":\"spotter-program\"}", "https://youtube.com.example.org/watch/1", json.replacingOccurrences(of: "2026-11-24", with: "2026-11-31")] {
+            do { _ = try NativePlanImport.parse(invalid, today: "2026-11-24"); preconditionFailure("Invalid plan import should fail") }
+            catch is NativePlanImport.Problem { }
+        }
         if CommandLine.arguments.contains("--contract-fixture") {
             struct Upload: Encodable { let action = "log"; let expectedOwner = "synthetic-owner"; let id: String; let data: NativeJSON }
             let data = try JSONEncoder().encode(Upload(id: id, data: result.raw))
             print(String(decoding: data, as: UTF8.self))
-        } else { print("PASS native workout: Cloudflare fields, lock clock, pause/resume, side volume, sets, check-in ID, exact time window") }
+        } else { print("PASS native workout: Cloudflare fields, lock clock, side volume, sets, check-in ID, exact time window, own-day share, text/JSON/video import") }
     }
 }

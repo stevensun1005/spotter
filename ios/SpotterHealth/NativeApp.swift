@@ -294,6 +294,8 @@ private struct NativeSpotterTabs: View {
     @State private var showCoach = false
     @State private var coachDetent: PresentationDetent = .medium
     @State private var showSettings = false
+    @State private var showPlanImport = false
+    @State private var showPrograms = false
     @State private var showNutrition = false
     @State private var showRest = false
     @State private var showBody = false
@@ -348,6 +350,16 @@ private struct NativeSpotterTabs: View {
                                refreshPlans: { await workouts.load() }, openTraining: { selected = .training; showSettings = false })
             }
         }
+        .sheet(isPresented: $showPlanImport) {
+            NavigationStack {
+                NativePlanImportView(api: account.api, owner: owner, didImport: { await workouts.load() })
+            }.presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showPrograms) {
+            NavigationStack {
+                NativeProgramsView(api: account.api, owner: owner, didSchedule: { await workouts.load() })
+            }.presentationDragIndicator(.visible)
+        }
         .fullScreenCover(isPresented: $showNutrition) {
             NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs)
         }
@@ -374,6 +386,7 @@ private struct NativeSpotterTabs: View {
         var view = NativeWorkoutView(store: workouts)
         view.openSettings = { showSettings = true }
         view.openAllPlans = { selected = .training }
+        view.openStats = { selected = .stats }
         view.openCoach = openCoach
         view.openRest = { showRest = true }
         view.openBody = { showBody = true }
@@ -468,7 +481,8 @@ private struct NativeSpotterTabs: View {
         switch section {
         case .today: today
         case .training:
-            NativeWorkoutView(store: workouts, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: openCoach)
+            NativeWorkoutView(store: workouts, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: openCoach,
+                              openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
         case .stats:
             NativeSpotterStats(store: workouts, api: account.api, owner: owner)
         case .friends:

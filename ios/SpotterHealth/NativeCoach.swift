@@ -171,9 +171,8 @@ struct NativeCoachView: View {
     @State private var pendingWeight: (id: String, date: String, kg: Double)?
     @State private var ownPromptVisible = false
     @State private var ownPromptMode = "起草新计划"
-    @State private var ownInput = ""
     @State private var ownNotice: String?
-    @State private var ownDrafts: [PlanDraft] = []
+    @State private var showOwnImport = false
 
     init(api: NativeAPI, owner: String, compact: Bool = true, onExpand: (() -> Void)? = nil,
          onStartWorkout: (() -> Void)? = nil, initialMeal: String? = nil, nutritionDate: String? = nil) {
@@ -246,6 +245,11 @@ struct NativeCoachView: View {
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showOwnImport) {
+            NavigationStack {
+                NativePlanImportView(api: api, owner: owner, didImport: {})
+            }.environment(\.colorScheme, .light).tint(SpotterPalette.accent).presentationDragIndicator(.visible)
         }
     }
 
@@ -633,7 +637,7 @@ struct NativeCoachView: View {
         VStack(alignment: .leading, spacing: 10) {
             messageTitle("calendar", "训练计划草稿")
             draftRows(planDrafts)
-            coachPrimary("保存到我的训练计划") { Task { await savePlans(own: false) } }
+            coachPrimary("保存到我的训练计划") { Task { await savePlans() } }
             Button("在对话中调整草稿") {
                 planMode = true
                 editingMessage = true
@@ -683,7 +687,7 @@ struct NativeCoachView: View {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 10) {
                     messageTitle("sparkles", "让你的 AI 起草或整理计划")
-                    Text("把提示词发给常用的 AI，再把生成的计划 JSON 粘贴到这里预览。")
+                    Text("把提示词发给常用的 AI，再导入生成的训练计划。")
                         .font(.subheadline).foregroundStyle(CoachColors.muted)
                     Picker("AI 处理目标", selection: $ownPromptMode) {
                         Text("起草新计划").tag("起草新计划")
@@ -701,18 +705,12 @@ struct NativeCoachView: View {
                         Text(externalPrompt).font(.footnote.monospaced()).textSelection(.enabled)
                             .transition(panelTransition)
                     }
+                    if let ownNotice { Text(ownNotice).font(.footnote).foregroundStyle(CoachColors.muted) }
                 }.padding(14).coachPanel()
                     .animation(controlMotion, value: ownPromptVisible)
                 VStack(alignment: .leading, spacing: 10) {
                     messageTitle("list.bullet.clipboard", "粘贴已有内容")
-                    TextField("粘贴计划 JSON", text: $ownInput, axis: .vertical)
-                        .lineLimit(4...10).font(.footnote.monospaced()).padding(9).coachPanel(CoachColors.dark)
-                    coachPrimary("预览计划") { importOwnDrafts() }
-                    if let ownNotice { Text(ownNotice).font(.footnote).foregroundStyle(CoachColors.muted) }
-                    if !ownDrafts.isEmpty {
-                        draftRows(ownDrafts)
-                        coachPrimary("确认保存到训练计划") { Task { await savePlans(own: true) } }
-                    }
+                    coachPrimary("导入并核对计划") { showOwnImport = true }
                 }.padding(14).coachPanel()
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
@@ -728,31 +726,6 @@ struct NativeCoachView: View {
         category 可选力量训练、有氧训练、拉伸恢复、跟练视频或其他。结构示例：
         [{"title":"上肢力量","date":"\(spotterDay())","category":"力量训练","minutes":45,"shared":false,"video":"","exercises":[{"name":"哑铃卧推","sets":3,"reps":8,"weight":0,"unit":"kg","seconds":0,"restSeconds":90}]}]
         """
-    }
-
-    private func importOwnDrafts() {
-        ownDrafts = []
-        var input = ownInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fence = String(repeating: "\u{0060}", count: 3)
-        if input.hasPrefix(fence), input.hasSuffix(fence), let endOfHeader = input.firstIndex(of: "\n"),
-           input.distance(from: endOfHeader, to: input.endIndex) > 3 {
-            input = String(input[input.index(after: endOfHeader)..<input.index(input.endIndex, offsetBy: -3)])
-        }
-        guard input.utf8.count <= 250_000,
-              let rows = (try? JSONSerialization.jsonObject(with: Data(input.utf8))) as? [[String: Any]],
-              (1...20).contains(rows.count),
-              rows.allSatisfy({ ($0["title"] as? String)?.isEmpty == false
-                  && ($0["date"] as? String)?.range(of: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", options: .regularExpression) != nil
-                  && $0["exercises"] is [[String: Any]] }) else {
-            ownNotice = "请粘贴 1 至 20 堂包含名称、日期和动作列表的计划 JSON。"
-            return
-        }
-        ownDrafts = rows.map { row in
-            var plan = row
-            plan["shared"] = false
-            return PlanDraft(data: plan)
-        }
-        ownNotice = "已载入 \(rows.count) 堂，确认后保存。"
     }
 
     private static let sharingDisabledMessage = "可在对话上方或「设置 → AI 教练」开启 AI 数据授权。"
@@ -849,11 +822,11 @@ struct NativeCoachView: View {
         error = nil
     }
 
-    private func savePlans(own: Bool) async {
+    private func savePlans() async {
         guard !busy else { return }
         busy = true
         defer { busy = false }
-        let drafts = own ? ownDrafts : planDrafts
+        let drafts = planDrafts
         do {
             for offset in stride(from: 0, to: drafts.count, by: 20) {
                 let batch = drafts[offset..<min(offset + 20, drafts.count)]
@@ -862,15 +835,8 @@ struct NativeCoachView: View {
                     "items": batch.map { ["id": $0.id, "data": $0.data] }
                 ])
             }
-            if own {
-                ownDrafts = []; ownInput = ""; ownNotice = "训练计划已保存。"
-            } else {
-                planDrafts = []; lines.append(Line(role: "status", content: "训练计划已保存。")); error = nil
-            }
-        } catch {
-            if own { ownNotice = error.localizedDescription }
-            else { self.error = error.localizedDescription }
-        }
+            planDrafts = []; lines.append(Line(role: "status", content: "训练计划已保存。")); error = nil
+        } catch { self.error = error.localizedDescription }
     }
 }
 

@@ -156,6 +156,17 @@ actor NativeAPI {
         try await accepted(path, method: method, json: json, cookie: token).data
     }
 
+    func request(_ path: String, method: String, json: Data?, for expectedOwner: String) async throws -> Data {
+        guard let cookie = token else { throw NativeAPIError.accountChanged }
+        let revision = sessionRevision
+        let current = try await profile(cookie: cookie)
+        try Task.checkCancellation()
+        guard revision == sessionRevision, current.id == expectedOwner else { throw NativeAPIError.accountChanged }
+        let result = try await accepted(path, method: method, json: json, cookie: cookie)
+        guard revision == sessionRevision else { throw NativeAPIError.accountChanged }
+        return result.data
+    }
+
     func loadProfile() async throws -> NativeProfile? {
         if !didReadVault {
             token = try vault.load()

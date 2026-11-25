@@ -31,6 +31,8 @@
     <string>连接您选择的训练搭子站点，读取和保存训练记录。</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>当你选择语音记录饮食时，使用麦克风接收食物和份量描述。</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>当你点击保存图片时，将生成的训练分享卡添加到照片。</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>当你选择语音记录饮食时，将食物和份量描述转成可编辑的文字。</string>
     <key>SpotterWebRelease</key>
