@@ -153,8 +153,10 @@ struct NativeWorkoutSession: Equatable, Sendable {
               rows.enumerated().allSatisfy({ index, lines in
                   lines.count == Int(plan.exercises[index]["sets"].number) && !lines.isEmpty && lines.count <= 30 && lines.allSatisfy { line in
                       let weight = line["weight"].number, reps = line["reps"].number, seconds = line["seconds"].number
+                      let effort = line["rpe"] == .null || (line["rpe"].number >= 1 && line["rpe"].number <= 10 && (line["rpe"].number * 2).rounded() == line["rpe"].number * 2)
+                      let right = line["right"] == .null || ((0...2000).contains(line["right"]["weight"].number) && (0...999).contains(line["right"]["reps"].number) && line["right"]["reps"].number.rounded() == line["right"]["reps"].number)
                       return weight.isFinite && (0...2000).contains(weight) && reps.rounded() == reps && (0...999).contains(reps) &&
-                          seconds.rounded() == seconds && (0...18000).contains(seconds)
+                          seconds.rounded() == seconds && (0...18000).contains(seconds) && effort && right
                   }
               }) else { throw NativeWorkoutProblem.invalid }
         var result = self
@@ -205,6 +207,7 @@ struct NativeWorkoutState: Decodable {
     struct Viewer: Decodable { var id: String; var name: String? }
     var me: Viewer
     var entries: [NativeWorkoutEntry]
+    var room: NativeJSON?
 }
 
 struct NativeProteinRecipeEditor: Identifiable {

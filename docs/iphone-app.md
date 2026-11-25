@@ -1,10 +1,10 @@
 # 训练搭子 iPhone 原生 App
 
-**Spotter** scheme 构建 SwiftUI 版 iPhone App，Bundle ID 为 `app.spotter.health`，支持 iOS 16 及以上。App 与 [Cloudflare 网页](https://spotter-free.couple-ledger-service.workers.dev) 通过 HTTPS 访问同一个账号和 D1 数据库。构建 10 是之前的网页壳版本，构建 11 起主界面与交互由 iPhone 原生实现。
+**Spotter** scheme 构建 SwiftUI 版 iPhone App，Bundle ID 为 `app.spotter.health`，支持 iOS 16 及以上。App 与 [Cloudflare 网页](https://spotter-free.couple-ledger-service.workers.dev) 通过 HTTPS 访问同一个账号和 D1 数据库。构建 10 是之前的网页壳版本，构建 11 起主界面由 SwiftUI 实现，构建 12 使用 Cloudflare 移动网页的配色、布局及项目资产。
 
 ## 使用与数据
 
-- 登录后进入今日、训练、统计和好友四个原生标签页。系统提供 TabView、NavigationStack、半屏面板、照片选择器和分享界面。当前 iOS 支持的系统效果会随系统版本显示。
+- 登录后进入今日、训练、统计和好友四个原生标签页。底部四个标签使用网页的图标和半透明导航栏，右侧 AI 教练按钮打开可展开的对话面板。相机、照片、分享及账号授权使用 iOS 系统界面。
 - Apple 登录通过 AuthenticationServices 验证，Google 使用系统授权窗口。访问码继续支持已有账号。到「设置 → 账号」可把另一个登录方式绑定到同一账号。会话保存在本设备 Keychain。
 - 打开计划或自由训练后可以逐组记重量、次数和时长。计时按时间戳计算，可以跨前后台和锁屏。打卡重试沿用训练 ID，账号切换后分别读取各自的草稿。
 - 统计使用 Swift Charts。在历史训练详情可按开始和结束时间读取 Apple 健康心率，保存曲线、摘要及来源。体重可以读取并手动同步到账号。步数、活跃能量和系统运动时长可按日期在 App 查看。
