@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -7,6 +7,10 @@ import { test } from "node:test";
 const root = new URL("../", import.meta.url);
 registerHooks({ resolve(specifier, context, next) {
   if (specifier.startsWith("@/")) return next(new URL(specifier.slice(2) + ".ts", root).href, context);
+  if (specifier.startsWith(".") && context.parentURL?.endsWith(".ts")) {
+    const file = new URL(specifier + ".ts", context.parentURL);
+    if (existsSync(file)) return next(file.href, context);
+  }
   return next(specifier, context);
 } });
 const { anthropicUsageCost, reserveAiBudget, settleAiBudget } = await import("../features/ai-coach/budget.ts");

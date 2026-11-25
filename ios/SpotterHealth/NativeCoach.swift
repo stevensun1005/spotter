@@ -103,6 +103,32 @@ private extension View {
 
 @MainActor
 struct NativeCoachView: View {
+    private struct Quota: Decodable {
+        let dailyLimit: Int
+        let monthlyLimit: Int
+        let dailyRemaining: Int
+        let monthlyRemaining: Int
+        let dailyResetsAt: String?
+        let monthlyResetsAt: String?
+
+        var note: String {
+            "今日剩余 \(dailyRemaining.formatted())/\(dailyLimit.formatted()) 次 · 本月剩余 \(monthlyRemaining.formatted())/\(monthlyLimit.formatted()) 次"
+        }
+
+        var limitMessage: String? {
+            if monthlyRemaining <= 0 { return "本月 AI 教练的 \(monthlyLimit.formatted()) 条消息额度已用完，下月 1 日（UTC）重置。" }
+            if dailyRemaining <= 0 { return "今天 AI 教练的 \(dailyLimit.formatted()) 条消息额度已用完，次日（UTC）重置。" }
+            return nil
+        }
+
+        var blockedUntil: Date? {
+            guard limitMessage != nil, let stamp = monthlyRemaining <= 0 ? monthlyResetsAt : dailyResetsAt else { return nil }
+            return try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(stamp)
+        }
+    }
+
+    private struct QuotaResponse: Decodable { let quota: Quota? }
+
     private struct Line {
         let role: String
         let content: String
@@ -120,6 +146,7 @@ struct NativeCoachView: View {
         var draft: NativeMealDraft?
         var needs: [String]?
         var error: String?
+        var quota: Quota?
     }
     private enum RequestKind {
         case chat
@@ -147,6 +174,7 @@ struct NativeCoachView: View {
     @State private var text = ""
     @State private var error: String?
     @State private var busy = false
+    @State private var quota: Quota?
     @State private var planDrafts: [PlanDraft] = []
     @State private var mealDraft: NativeMealDraft?
     @State private var mealID = UUID().uuidString.lowercased()
@@ -193,6 +221,7 @@ struct NativeCoachView: View {
         !showsOptions && picture == nil && !weightPrompt && mealDraft == nil && !editingMessage && cleanText.isEmpty
     }
     private var showsContextChip: Bool { includePlans && !showsOptions && !weightPrompt && picture == nil }
+    private var hasReachedLimit: Bool { quota?.limitMessage != nil }
     private var canUseCamera: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
     private let mealOptions = ["早餐", "午餐", "晚餐", "加餐"].map { ($0, $0) }
 
@@ -210,6 +239,14 @@ struct NativeCoachView: View {
         .background(atmosphere)
         .toolbar(.hidden, for: .navigationBar)
         .environment(\.colorScheme, .dark)
+        .task(id: owner) { await refreshQuota(ifUnknown: true) }
+        .task(id: quota?.blockedUntil) {
+            guard let reset = quota?.blockedUntil else { return }
+            do {
+                try await Task.sleep(for: .seconds(max(0, reset.timeIntervalSinceNow) + 1))
+                await refreshQuota()
+            } catch { }
+        }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoChoice, matching: .images)
         .onChange(of: sharingAllowed) { allowed in
             if allowed && error == Self.sharingDisabledMessage { error = nil }
@@ -450,6 +487,7 @@ struct NativeCoachView: View {
                     }
                     Button("问答定制训练计划") { openGuide() }
                         .buttonStyle(.spotterPress).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .disabled(hasReachedLimit)
                 }
                 .font(.footnote).padding(11).coachPanel()
                 .animation(controlMotion, value: includePlans)
@@ -499,6 +537,21 @@ struct NativeCoachView: View {
                 attachmentMenu
                 inputBar
             }
+            if let quota {
+                Text(quota.note).font(.caption2).foregroundStyle(CoachColors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+                if let message = quota.limitMessage {
+                    HStack(spacing: 8) {
+                        Text(message).font(.caption2).foregroundStyle(CoachColors.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button("刷新额度") { Task { await refreshQuota() } }
+                            .font(.caption2.weight(.semibold)).buttonStyle(.spotterPress)
+                    }
+                    .transition(.opacity)
+                }
+            }
         }
         .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 8)
         .animation(controlMotion, value: showsOptions)
@@ -506,6 +559,8 @@ struct NativeCoachView: View {
         .animation(controlMotion, value: showsContextChip)
         .animation(controlMotion, value: picture != nil)
         .animation(controlMotion, value: planMode || weightPrompt)
+        .animation(controlMotion, value: quota != nil)
+        .animation(controlMotion, value: hasReachedLimit)
     }
 
     private var attachmentMenu: some View {
@@ -521,7 +576,7 @@ struct NativeCoachView: View {
         } label: {
             Image(systemName: "plus").font(.title3.weight(.medium)).foregroundStyle(CoachColors.text)
                 .frame(width: 26, height: 48)
-        }.accessibilityLabel("添加餐食照片").accessibilityIdentifier("coach-attachments").disabled(busy)
+        }.accessibilityLabel("添加餐食照片").accessibilityIdentifier("coach-attachments").disabled(busy || hasReachedLimit)
     }
 
     private var inputBar: some View {
@@ -550,7 +605,7 @@ struct NativeCoachView: View {
                         .transition(.opacity)
                 }
             }.buttonStyle(.spotterPress).accessibilityIdentifier("coach-send")
-                .disabled(busy || (picture == nil && cleanText.isEmpty))
+                .disabled(busy || hasReachedLimit || (picture == nil && cleanText.isEmpty))
         }
         .padding(4).frame(minHeight: 48)
         .background(LinearGradient(colors: [CoachColors.indigo.opacity(0.54), CoachColors.dark, CoachColors.ocean.opacity(0.67)],
@@ -596,7 +651,7 @@ struct NativeCoachView: View {
             .padding(.horizontal, 12).padding(.vertical, 6).frame(minHeight: 36)
             .background(CoachColors.pearl, in: RoundedRectangle(cornerRadius: 13))
             .padding(.vertical, 4).contentShape(Rectangle())
-        }.buttonStyle(.spotterPress).disabled(busy)
+        }.buttonStyle(.spotterPress).disabled(busy || hasReachedLimit)
     }
 
     private func sendSuggestedReply(_ reply: String) {
@@ -613,6 +668,7 @@ struct NativeCoachView: View {
     }
 
     private func openGuide() {
+        guard canSendConversation() else { return }
         editingMessage = false
         onExpand?()
         showGuide = true
@@ -632,6 +688,7 @@ struct NativeCoachView: View {
     }
 
     private func sendComposer() {
+        guard canSendConversation() else { return }
         let input = cleanText
         if picture != nil { submit(.photo); return }
         let weightPrefix = "^(?:(?:帮我|我要|请)\\s*)?(?:记录|记下|记一下|记)\\s*(?:我(?:的)?\\s*)?(?:今天的?\\s*)?体重\\s*[：:=]?\\s*"
@@ -707,7 +764,7 @@ struct NativeCoachView: View {
                 planMode = true
                 editingMessage = true
             }
-            .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).frame(minHeight: 44).disabled(busy)
+            .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).frame(minHeight: 44).disabled(busy || hasReachedLimit)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14).coachPanel()
@@ -795,8 +852,25 @@ struct NativeCoachView: View {
 
     private static let sharingDisabledMessage = "可在对话上方或「设置 → AI 教练」开启 AI 数据授权。"
 
+    private func refreshQuota(ifUnknown: Bool = false) async {
+        guard let result = try? await api.spotterRead("/api/ai-coach", as: QuotaResponse.self),
+              let next = result.quota, !Task.isCancelled, !ifUnknown || quota == nil else { return }
+        quota = next
+    }
+
+    private func showRequestFailure(_ reason: Error) async {
+        error = reason.localizedDescription
+        if (reason as? NativeAPIError)?.statusCode == 429 { await refreshQuota() }
+    }
+
+    private func canSendConversation() -> Bool {
+        guard let message = quota?.limitMessage else { return true }
+        error = message
+        return false
+    }
+
     private func submit(_ kind: RequestKind) {
-        guard !busy, !cleanText.isEmpty || kind == .photo || kind == .guided else { return }
+        guard !busy, !cleanText.isEmpty || kind == .photo || kind == .guided, canSendConversation() else { return }
         editingMessage = false
         guard NativeCoachConsent.isAllowed(owner: owner) else {
             error = Self.sharingDisabledMessage
@@ -806,7 +880,7 @@ struct NativeCoachView: View {
     }
 
     private func send(_ kind: RequestKind) async {
-        guard !busy, NativeCoachConsent.isAllowed(owner: owner) else { return }
+        guard !busy, NativeCoachConsent.isAllowed(owner: owner), canSendConversation() else { return }
         busy = true
         error = nil
         defer { busy = false }
@@ -832,6 +906,7 @@ struct NativeCoachView: View {
             if let selection { request["guided"] = selection.values; request["draftDays"] = selection.days }
             if kind == .plan && !planDrafts.isEmpty { request["priorDraft"] = ["plans": planDrafts.map(\.data)] }
             let result = try await api.spotterSend("/api/ai-coach", body: request)
+            if let next = (try? JSONDecoder().decode(QuotaResponse.self, from: result))?.quota { quota = next }
             guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any],
                   let reply = object["reply"] as? String else { throw CocoaError(.coderReadCorrupt) }
             lines += [user, Line(role: "assistant", content: reply)]
@@ -841,17 +916,18 @@ struct NativeCoachView: View {
             if let draft = object["draft"] as? [String: Any], let plans = draft["plans"] as? [[String: Any]] {
                 planDrafts = plans.map { PlanDraft(data: $0) }
             }
-        } catch { self.error = error.localizedDescription }
+        } catch { await showRequestFailure(error) }
     }
 
     private func recognize() async {
         guard let picture else { return }
         do {
             let data = try await api.spotterSend("/api/food-photo", body: [
-                "expectedOwner": owner, "mode": "meal", "notes": String(cleanText.prefix(300)),
+                "expectedOwner": owner, "mode": "meal", "inCoach": true, "notes": String(cleanText.prefix(300)),
                 "image": ["mediaType": "image/jpeg", "base64": picture.base64EncodedString()]
             ])
             let answer = try JSONDecoder().decode(RecognizedMeal.self, from: data)
+            if let next = answer.quota { quota = next }
             if let draft = answer.draft {
                 mealDraft = draft
                 mealID = UUID().uuidString.lowercased()
@@ -864,7 +940,7 @@ struct NativeCoachView: View {
             } else {
                 error = answer.error ?? answer.needs?.joined(separator: "；") ?? "请补充食物和份量，再试一次。"
             }
-        } catch { self.error = error.localizedDescription }
+        } catch { await showRequestFailure(error) }
     }
 
     private func retryMeal(_ draft: NativeMealDraft) async {

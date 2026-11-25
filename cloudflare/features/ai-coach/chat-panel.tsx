@@ -11,6 +11,7 @@ import type { CoachMealSubmission } from "@/features/nutrition/coach-meal-save";
 import type { CoachProteinReceipt, CoachProteinSubmission } from "@/features/nutrition/coach-protein-save";
 import { maxPhotoNoteLength } from "@/features/nutrition/food-photo-request";
 import { recognizeMealPhoto, recognizeProteinPhoto, validatePhotoFile } from "@/features/nutrition/food-photo-client";
+import { CoachPhotoQuota } from "@/features/nutrition/food-photo";
 import type { ProteinPhotoProduct } from "@/features/nutrition/food-photo-model";
 import type { ProteinProduct } from "@/features/training/protein";
 import type { ActivitySummary } from "./activity-summary";
@@ -24,7 +25,7 @@ import { CoachPhotoAttachment, CoachPhotoPickers } from "./coach-photo-attachmen
 import { asksProteinWarehouseStatus, confirmsSameProteinProduct, parseProteinPhotoIntent } from "./protein-photo-intent";
 import { addMilkToPowderEstimate, combineProteinLabels, estimatedPowderPer100g, multiplyProteinDrink, prepareProteinPhoto, type ProteinRecipe } from "./protein-photo-workflow";
 import { coachModel, maxCoachConversationLength, maxCoachMessageLength, maxCoachMessages,
-  type CoachConfig, type CoachRequest, type CoachResponse } from "./model";
+  type CoachConfig, type CoachQuota, type CoachRequest, type CoachResponse } from "./model";
 
 type WeightRecord = { id: string; date: string; kg: number };
 export type CoachActions = {
@@ -73,6 +74,7 @@ type PhotoAttachment = { id: string; file: File; date: string; meal: MealEntry["
 type ProteinFlow = ProteinRecipe & { date: string; reference?: File; candidate?: ProteinPhotoProduct; retry?: CoachProteinSubmission };
 
 const endpoint = "/api/ai-coach";
+const quotaNumber = new Intl.NumberFormat();
 const planRequest = "帮我制定训练计划";
 const openingSuggestions = ["记体重", "看本周训练统计", planRequest, "拍照记饮食"];
 const shortcutCards = [
@@ -81,6 +83,12 @@ const shortcutCards = [
   { key: "saveWeight", title: "记体重", prompt: "记体重", icon: Scale, tone: "violet" },
   { key: "startWorkout", title: "开始训练", prompt: "开始训练", icon: Dumbbell, tone: "moss" },
 ] as const;
+
+function coachLimitMessage(quota: CoachQuota | undefined) {
+  if (quota?.monthlyRemaining === 0) return `本月 AI 教练的 ${quotaNumber.format(quota.monthlyLimit)} 条消息额度已用完，下月 1 日（UTC）重置。`;
+  if (quota?.dailyRemaining === 0) return `今天 AI 教练的 ${quotaNumber.format(quota.dailyLimit)} 条消息额度已用完，次日（UTC）重置。`;
+  return undefined;
+}
 
 function recentMessages(turns: Turn[], question: string): CoachRequest["messages"] {
   const messages: CoachRequest["messages"] = [{ role: "user", content: question }];
@@ -96,7 +104,9 @@ function recentMessages(turns: Turn[], question: string): CoachRequest["messages
   return messages;
 }
 
-function CoachWelcome({ compact, actions, send }: { compact?: boolean; actions?: CoachActions; send: (question: string) => void }) {
+function CoachWelcome({ compact, actions, blocked, send }: {
+  compact?: boolean; actions?: CoachActions; blocked: boolean; send: (question: string) => void;
+}) {
   if (compact) return <div className="coach-welcome-compact">
     <h2>今天想怎么练？</h2><p>在这里记体重、查训练统计，或者一起排训练。</p>
   </div>;
@@ -109,12 +119,12 @@ function CoachWelcome({ compact, actions, send }: { compact?: boolean; actions?:
       <span className="coach-home-art" aria-hidden="true" />
     </div>
     <div className="coach-home-shortcuts" aria-label="教练常用入口">
-      <button className="coach-home-task coach-home-task-plan" type="button" onClick={() => send(planRequest)}>
+      <button className="coach-home-task coach-home-task-plan" type="button" disabled={blocked} onClick={() => send(planRequest)}>
         <span className="coach-task-icon"><CalendarDays size={21} aria-hidden="true" /></span>
         <strong>生成计划</strong>
       </button>
       {shortcutCards.map(({ key, title, prompt, icon: Icon, tone }) => {
-        return actions?.[key] && <button className="coach-home-task" type="button" key={key} onClick={() => send(prompt)}>
+        return actions?.[key] && <button className="coach-home-task" type="button" key={key} disabled={blocked} onClick={() => send(prompt)}>
           <span className="coach-task-icon" data-tone={tone}><Icon size={21} aria-hidden="true" /></span>
           <strong>{title}</strong>
         </button>;
@@ -129,6 +139,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   mealResult?: { id: string; message: string }; onDismissMeal?: () => void;
 }) {
   const [availability, setAvailability] = useState<Availability>();
+  const [quota, setQuota] = useState<{ owner: string; value: CoachQuota }>();
   const [check, setCheck] = useState(0);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -158,9 +169,14 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   const latestModelTurn = turns.findLast((turn) => turn.kind !== "local" && turn.response);
   const latestDraft = turns.findLast((turn) => turn.items && turn.window && !turn.superseded);
   const available = !!owner && availability && "enabled" in availability && availability.enabled;
+  const currentQuota = quota && quota.owner === owner ? quota.value : undefined;
+  const quotaNote = currentQuota &&
+    `今日剩余 ${quotaNumber.format(currentQuota.dailyRemaining)}/${quotaNumber.format(currentQuota.dailyLimit)} 次 · 本月剩余 ${quotaNumber.format(currentQuota.monthlyRemaining)}/${quotaNumber.format(currentQuota.monthlyLimit)} 次`;
+  const limitMessage = coachLimitMessage(currentQuota);
+  const quotaResetsAt = limitMessage && (currentQuota?.monthlyRemaining === 0 ? currentQuota.monthlyResetsAt : currentQuota?.dailyResetsAt);
   const chatDate = includePlans ? contextDate ?? selectedDate : selectedDate;
   const lastTurn = turns.at(-1);
-  const showSuggestions = Boolean(compact && !waiting && !lastTurn && !mealPhoto && !photo && !protein && !optionsOpen);
+  const showSuggestions = Boolean(compact && !waiting && !limitMessage && !lastTurn && !mealPhoto && !photo && !protein && !optionsOpen);
 
   useEffect(() => {
     if (!active || !owner) return;
@@ -174,13 +190,24 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
         if (!response.ok) throw new Error();
         const result = await response.json() as Availability;
         if (!("enabled" in result) || typeof result.enabled !== "boolean" || !Array.isArray(result.models)) throw new Error();
-        if (!controller.signal.aborted) setAvailability(result);
+        if (!controller.signal.aborted) {
+          setAvailability(result);
+          setQuota(result.quota ? { owner, value: result.quota } : undefined);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) setAvailability({ error: "暂时无法检查 AI 教练状态。" });
       });
     return () => controller.abort();
   }, [active, owner, check]);
+
+  useEffect(() => {
+    if (!active || !quotaResetsAt) return;
+    const delay = Date.parse(quotaResetsAt) - Date.now() + 1_000;
+    if (!Number.isFinite(delay) || delay <= 0) return;
+    const timer = window.setTimeout(() => setCheck((value) => value + 1), Math.min(delay, 2_147_000_000));
+    return () => window.clearTimeout(timer);
+  }, [active, quotaResetsAt, check]);
 
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
@@ -223,12 +250,16 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   }
 
   function askCoach(payload: CoachRequest, start: BeginCoachRequest) {
-    if (!available || request.current) return;
+    if (!available || request.current || limitMessage) return;
     withConsent(() => { void sendToCoach(payload, start); });
   }
 
+  function updateQuota(value: CoachQuota) {
+    if (owner) setQuota({ owner, value });
+  }
+
   async function sendToCoach(payload: CoachRequest, start: BeginCoachRequest) {
-    if (request.current || writing.current) return;
+    if (request.current || writing.current || limitMessage) return;
     const { receive, showError } = start();
     const controller = new AbortController();
     request.current = controller;
@@ -241,6 +272,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
         body: JSON.stringify(payload),
       });
       const result = await response.json().catch(() => null) as (CoachResponse & { error?: string }) | null;
+      if (result?.quota && !controller.signal.aborted) updateQuota(result.quota);
       if (!response.ok) throw new Error(result?.error || "AI 教练暂时无法回复。请稍后重试。");
       if (typeof result?.reply !== "string" || !result.reply || result.model !== coachModel) throw new Error("未收到完整回复。请重试。");
       if (!controller.signal.aborted) receive(result);
@@ -261,6 +293,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
 
   function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (limitMessage) return;
     const question = input.trim();
     if (asksProteinWarehouseStatus(question)) {
       answerWarehouseStatus(question);
@@ -340,6 +373,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     }
     if (photo?.mealChosen && !flow.retry) flow.meal = photo.meal;
     if (photo || intent.nutritionEstimated && flow.reference && !flow.retry) {
+      if (limitMessage) { setError(limitMessage); return true; }
       if (!available) { setError(status); return true; }
       withConsent(() => { void recordProtein(flow, question, owner, photo); });
     } else {
@@ -357,12 +391,18 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     setInput("");
     setError("");
     let flow = initial;
+    let photoLimit = limitMessage;
+    const updatePhotoQuota = (value: CoachQuota) => {
+      updateQuota(value);
+      photoLimit = coachLimitMessage(value);
+    };
     setProtein(flow);
     const turnId = addTurn("local", attachment && question ? "照片 · " + question : question,
       { replyKind: "loading", localReply: attachment ? "正在读蛋白粉包装…" : "正在核对这次记录…" });
     try {
       if (attachment && !flow.retry) {
-        const result = await recognizeProteinPhoto(attachment.file, expectedOwner, controller.signal);
+        if (photoLimit) throw new Error(photoLimit);
+        const result = await recognizeProteinPhoto(attachment.file, expectedOwner, controller.signal, true, updatePhotoQuota);
         if (controller.signal.aborted) return;
         setPhoto(undefined);
         if (result.kind === "product") {
@@ -401,8 +441,9 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
               proteinFollowup: estimate && flow.reference ? "nutrition" : prepared.question.startsWith("内置") ? "scoop" : undefined });
             return;
           }
+          if (photoLimit) throw new Error(photoLimit);
           const notes = `只按该类型蛋白粉的通用参考值估算 ${estimate.powderGrams} 克的总营养。这部分只有蛋白粉，牛奶另外算。使用通用估算，不要当成品牌营养表。`;
-          const result = await recognizeMealPhoto(flow.reference, notes, expectedOwner, controller.signal);
+          const result = await recognizeMealPhoto(flow.reference, notes, expectedOwner, controller.signal, true, updateQuota);
           if (controller.signal.aborted) return;
           draft = result.kind === "draft" ? addMilkToPowderEstimate(result.draft, estimate) : undefined;
           const powder = result.kind === "draft" ? estimatedPowderPer100g(result.draft, estimate.powderGrams) : undefined;
@@ -451,7 +492,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
 
   function attachPhoto(file: File) {
     const photoMeal = actions?.photoMeal;
-    if (!photoMeal || waiting) return;
+    if (!photoMeal || waiting || limitMessage) return;
     const choice = requestedMeal.current;
     const meal = choice ?? protein?.meal ?? photoMeal.currentMeal();
     requestedMeal.current = undefined;
@@ -494,7 +535,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     const turnId = addTurn("local", question ? "照片 · " + question : "照片记饮食",
       { replyKind: "loading", localReply: "正在识别照片和份量…" });
     try {
-      const result = await recognizeMealPhoto(attachment.file, notes, expectedOwner, controller.signal);
+      const result = await recognizeMealPhoto(attachment.file, notes, expectedOwner, controller.signal, true, updateQuota);
       if (controller.signal.aborted) return;
       if (result.kind === "needs") {
         setPhoto({ ...attachment, notes });
@@ -568,7 +609,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
 
   function submitQuestion(value: string, fromSuggestion = false) {
     const question = value.trim();
-    if (!question || request.current || writing.current) return;
+    if (!question || request.current || writing.current || limitMessage) return;
     setError("");
     const clearInput = () => { if (!fromSuggestion) setInput(""); };
     const localDate = asDate();
@@ -675,7 +716,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
 
   return <section className="coach-surface" aria-label="AI 教练对话">
     <div className="coach-conversation">
-      {!turns.length && !mealPhoto ? <CoachWelcome compact={compact} actions={actions} send={(question) => submitQuestion(question, true)} /> : <>
+      {!turns.length && !mealPhoto ? <CoachWelcome compact={compact} actions={actions} blocked={Boolean(limitMessage)} send={(question) => submitQuestion(question, true)} /> : <>
         <div className="coach-thread-controls"><button className="button outline small" type="button" onClick={clearConversation} disabled={waiting}>
           <MessageSquarePlus size={17} aria-hidden="true" />新对话
         </button></div>
@@ -701,7 +742,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
                   {turn.proteinFollowup === "scoop" ? "按 30 g 估" : "采用估算营养"}
                 </button>}
                 {protein && id === lastTurn?.id && turn.proteinFollowup && <button className="button outline small coach-reply-action"
-                  type="button" disabled={waiting || !available} onClick={() => cameraInput.current?.click()}>拍营养表</button>}
+                  type="button" disabled={waiting || !available || Boolean(limitMessage)} onClick={() => cameraInput.current?.click()}>拍营养表</button>}
                 {draft && actions?.saveDraft && <ChatTrainingDraft draft={draft} today={today} saved={Boolean(turn.saved)} busy={waiting}
                   addedToday={turn.addedToday} error={turn.saveError} superseded={turn.superseded}
                   onSave={() => void saveDraft(turn)} onAddToday={(index) => void saveDraft(turn, index)}
@@ -719,7 +760,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
             </li>;
           })}
           {mealPhoto && <li className="coach-photo-tool" ref={photoPosition}>
-            {mealPhoto}
+            <CoachPhotoQuota.Provider value={{ limitMessage, updateQuota }}>{mealPhoto}</CoachPhotoQuota.Provider>
             {onDismissMeal && <button className="text-button" type="button" onClick={onDismissMeal}>取消这次记餐</button>}
           </li>}
           <li ref={transcriptEnd} className="coach-thread-anchor" aria-hidden="true" />
@@ -732,7 +773,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
           .map((question) => <button key={question} type="button" onClick={() => submitQuestion(question, true)}>{question}</button>)}
       </div>}
       <div className="coach-quick-actions">
-        {actions?.photoMeal && <CoachPhotoPickers cameraInput={cameraInput} disabled={waiting || !available}
+        {actions?.photoMeal && <CoachPhotoPickers cameraInput={cameraInput} disabled={waiting || !available || Boolean(limitMessage)}
           onPick={() => { requestedMeal.current = undefined; }} onFile={attachPhoto} />}
         {available && !photo && !protein && !revisionTarget && <button className="coach-quick-button" type="button" disabled={waiting} aria-expanded={optionsOpen}
           aria-controls="coach-context" onClick={() => setOptionsOpen(!optionsOpen)}>
@@ -764,7 +805,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       <form className="coach-composer-field" onSubmit={send} aria-busy={waiting}>
         <label className="sr-only" htmlFor="coach-chat-input">给 AI 教练发消息</label>
         <textarea id="coach-chat-input" rows={1} ref={composer} maxLength={photo ? maxPhotoNoteLength : maxCoachMessageLength} value={input} disabled={waiting}
-          aria-describedby={!available || canRetry ? "coach-composer-notice" : undefined} placeholder={protein ? "继续补充这杯的资料…" : photo ? photo.notes ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
+          aria-describedby={!available || canRetry || quotaNote ? "coach-composer-notice" : undefined} placeholder={protein ? "继续补充这杯的资料…" : photo ? photo.notes ? "补充份量或食物…" : "例如 200 mL 牛奶、1 勺蛋白粉"
             : weightPrompt ? "例如 80.5 kg" : revisionTarget ? "想怎么调整这份草稿？" : "问问 Spotter 教练…"}
           onChange={(event) => { setInput(event.target.value); setError(""); }}
           onKeyDown={(event) => {
@@ -773,14 +814,16 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
               event.currentTarget.form?.requestSubmit();
             }
           }} />
-        {photo ? <button className="coach-send coach-send-meal" type="submit" disabled={waiting || !available}>识别并记餐</button>
-          : <button className="coach-send" type="submit" aria-label="发送消息" disabled={waiting || !input.trim()}><ArrowUp size={20} aria-hidden="true" /></button>}
+        {photo ? <button className="coach-send coach-send-meal" type="submit" disabled={waiting || !available || Boolean(limitMessage)}>识别并记餐</button>
+          : <button className="coach-send" type="submit" aria-label="发送消息" disabled={waiting || !input.trim() || Boolean(limitMessage)}><ArrowUp size={20} aria-hidden="true" /></button>}
       </form>
       {error && <p className="inline-error coach-composer-notice" role="alert">{error}</p>}
-      {(!available || canRetry) && <div className="coach-composer-note">
-        <p id="coach-composer-notice" className="coach-composer-notice" role="status">
-          {status}
-        </p>
+      {(!available || canRetry || quotaNote) && <div className="coach-composer-note">
+        <div id="coach-composer-notice">
+          <p className="coach-composer-notice" role={quotaNote ? undefined : "status"}>{quotaNote || status}</p>
+          {limitMessage && <p className="coach-composer-notice" role="status">{limitMessage}</p>}
+        </div>
+        {limitMessage && !canRetry && <button className="text-button" type="button" onClick={() => setCheck((value) => value + 1)}>刷新额度</button>}
         {canRetry && <button className="text-button" type="button" onClick={() => { setAvailability(undefined); setCheck((value) => value + 1); }}>重试</button>}
       </div>}
     </div>
