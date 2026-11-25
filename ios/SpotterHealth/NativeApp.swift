@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Combine
 import CryptoKit
 import SwiftUI
@@ -490,67 +491,188 @@ private enum NativeTrainingWidgetBridge {
 private struct NativeSignIn: View {
     @ObservedObject var account: NativeAccount
     @Environment(\.spotterAccent) private var accent
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.spotterInteractionMotion) private var motion
     @State private var email = ""
     @State private var accessCode = ""
     @State private var allowAI = false
+    @State private var showsAccessCode = false
+    @ScaledMetric(relativeTo: .body) private var providerHeight = 52.0
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("登录训练搭子")
-                    .font(.largeTitle.weight(.bold))
-                    .accessibilityAddTraits(.isHeader)
-                VStack(spacing: 8) {
-                    providerButton("使用 Apple 登录", symbol: "apple.logo", enabled: account.providerStatus.apple.enabled) { await account.signInApple(allowAI: allowAI) }
-                    providerButton("使用 Google 登录", enabled: account.providerStatus.google.enabled) { await account.signInGoogle(allowAI: allowAI) }
+        GeometryReader { viewport in
+            ScrollView {
+                VStack(spacing: 24) {
+                    identity
+                    signInCard
+                    footer
                 }
-                Text("已有访问码？先用原账号登录，再到设置绑定登录方式。")
-                    .font(.subheadline)
-                    .foregroundStyle(SpotterPalette.muted)
-                VStack(alignment: .leading, spacing: 10) {
-                    field("邮箱") {
-                        TextField("", text: $email)
-                            .accessibilityLabel("邮箱")
-                            .keyboardType(.emailAddress)
-                            .textContentType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    }
-                    field("访问码") {
-                        SecureField("", text: $accessCode)
-                            .accessibilityLabel("访问码")
-                            .textContentType(.password)
-                    }
-                    if let error = account.errorMessage {
-                        Text(error).font(.footnote).foregroundStyle(.red)
-                    }
-                    Button {
-                        Task { await account.signIn(email: email, accessCode: accessCode, allowAI: allowAI) }
-                    } label: {
-                        Text("登录")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(SpotterPalette.deep)
-                            .padding(.horizontal, 15)
-                            .frame(minHeight: 42)
-                            .background(accent.fill, in: RoundedRectangle(cornerRadius: 9))
-                    }
-                    .buttonStyle(.spotterPress)
-                    .disabled(account.isBusy || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || accessCode.isEmpty)
-                }
-                NativeCoachSharingChoice(allowed: $allowAI, origin: account.api.origin)
-                    .disabled(account.isBusy)
-                NativeSupportLinks()
-                if account.isBusy { ProgressView().accessibilityLabel("正在登录") }
+                .frame(maxWidth: 434)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 28)
+                .frame(maxWidth: .infinity, minHeight: viewport.size.height)
             }
-            .frame(maxWidth: 580, alignment: .leading)
-            .padding(spotterCardPadding)
-            .spotterCard()
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .frame(maxWidth: .infinity)
+            .scrollDismissesKeyboard(.interactively)
         }
-        .background(SpotterPalette.background.ignoresSafeArea())
-        .scrollDismissesKeyboard(.interactively)
+        .background {
+            SpotterPalette.background
+                .overlay {
+                    RadialGradient(colors: [accent.fill.opacity(0.20), .clear],
+                                   center: .top, startRadius: 0, endRadius: 390)
+                }
+                .ignoresSafeArea()
+        }
+    }
+
+    private var identity: some View {
+        VStack(spacing: 9) {
+            Image("SignInMark")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 104, height: 104)
+                .clipShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
+                .shadow(color: SpotterPalette.deep.opacity(0.16), radius: 16, y: 7)
+                .padding(.bottom, 10)
+                .accessibilityHidden(true)
+            Text("训练搭子")
+                .font(.largeTitle.weight(.heavy))
+                .accessibilityAddTraits(.isHeader)
+            Text("记录训练与饮食，和搭子一起进步。")
+                .font(.subheadline)
+                .foregroundStyle(SpotterPalette.muted)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private var signInCard: some View {
+        VStack(spacing: 11) {
+            NativeAppleSignInButton(style: colorScheme == .dark ? .white : .black,
+                                    enabled: account.providerStatus.apple.enabled && !account.isBusy) {
+                Task { await account.signInApple(allowAI: allowAI) }
+            }
+            .id(colorScheme)
+            .frame(height: providerHeight)
+            .frame(maxWidth: .infinity)
+            if !account.providerStatus.apple.enabled { providerUnavailable("Apple") }
+            googleSignIn
+            if !account.providerStatus.google.enabled { providerUnavailable("Google") }
+
+            Divider().padding(.top, 2)
+            Button {
+                withAnimation(motion) { showsAccessCode.toggle() }
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "envelope").accessibilityHidden(true)
+                    Text("使用邮箱和访问码")
+                    Spacer(minLength: 4)
+                    Image(systemName: showsAccessCode ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .accessibilityHidden(true)
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(SpotterPalette.muted)
+                .padding(.horizontal, 4)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityIdentifier("spotter-login-access-code")
+            .accessibilityValue(showsAccessCode ? "已展开" : "已收起")
+            .disabled(account.isBusy)
+            if showsAccessCode { accessCodeForm }
+
+            if let error = account.errorMessage {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("spotter-login-error")
+            }
+            if account.isBusy { ProgressView("正在登录").font(.footnote) }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+        .spotterCard(radius: 26)
+    }
+
+    private var googleSignIn: some View {
+        let enabled = account.providerStatus.google.enabled
+        return Button {
+            Task { await account.signInGoogle(allowAI: allowAI) }
+        } label: {
+            Text("使用 Google 登录")
+                .font(.body.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: providerHeight)
+                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 14))
+                .contentShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityIdentifier("spotter-login-google")
+        .disabled(!enabled || account.isBusy)
+        .opacity(enabled ? 1 : 0.56)
+    }
+
+    private func providerUnavailable(_ provider: String) -> some View {
+        Text("\(provider) 登录暂不可用")
+            .font(.caption)
+            .foregroundStyle(SpotterPalette.muted)
+    }
+
+    private var accessCodeForm: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("已有访问码？先用原账号登录，再到设置绑定登录方式。")
+                .font(.footnote)
+                .foregroundStyle(SpotterPalette.muted)
+            field("邮箱") {
+                TextField("", text: $email)
+                    .accessibilityLabel("邮箱")
+                    .accessibilityIdentifier("spotter-login-email")
+                    .keyboardType(.emailAddress)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            field("访问码") {
+                SecureField("", text: $accessCode)
+                    .accessibilityLabel("访问码")
+                    .accessibilityIdentifier("spotter-login-code")
+                    .textContentType(.password)
+            }
+            Button {
+                Task { await account.signIn(email: email, accessCode: accessCode, allowAI: allowAI) }
+            } label: {
+                Text("登录")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SpotterPalette.deep)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(accent.fill, in: RoundedRectangle(cornerRadius: 11))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityIdentifier("spotter-login-submit")
+            .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || accessCode.isEmpty)
+        }
+        .padding(.bottom, 8)
+        .disabled(account.isBusy)
+    }
+
+    private var footer: some View {
+        VStack(spacing: 15) {
+            DisclosureGroup("AI 教练数据授权（选填）") {
+                NativeCoachSharingChoice(allowed: $allowAI, origin: account.api.origin)
+                    .padding(.top, 8)
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(SpotterPalette.muted)
+            .padding(.horizontal, 6)
+            .disabled(account.isBusy)
+            NativeSupportLinks()
+        }
     }
 
     private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -563,28 +685,36 @@ private struct NativeSignIn: View {
         }
     }
 
-    private func providerButton(_ title: String, symbol: String? = nil, enabled: Bool, action: @escaping () async -> Void) -> some View {
-        Button {
-            Task { await action() }
-        } label: {
-            HStack(spacing: 8) {
-                if let symbol { Image(systemName: symbol).accessibilityHidden(true) }
-                Text(title).font(.subheadline.weight(.semibold))
-                Spacer()
-                if !enabled {
-                    Text("待配置")
-                        .font(.footnote)
-                        .foregroundStyle(SpotterPalette.muted)
-                }
-            }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 44)
-            .spotterCard(radius: 9)
-            .contentShape(Rectangle())
+}
+
+private struct NativeAppleSignInButton: UIViewRepresentable {
+    let style: ASAuthorizationAppleIDButton.Style
+    let enabled: Bool
+    let action: () -> Void
+
+    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
+        let button = ASAuthorizationAppleIDButton(authorizationButtonType: .signIn, authorizationButtonStyle: style)
+        button.cornerRadius = 14
+        button.accessibilityIdentifier = "spotter-login-apple"
+        button.addTarget(context.coordinator, action: #selector(Coordinator.signIn), for: .touchUpInside)
+        return button
+    }
+
+    func updateUIView(_ button: ASAuthorizationAppleIDButton, context: Context) {
+        context.coordinator.action = action
+        button.isEnabled = enabled
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) { self.action = action }
+
+        @objc func signIn() {
+            action()
         }
-        .buttonStyle(.spotterPress)
-        .disabled(!enabled || account.isBusy)
-        .opacity(enabled ? 1 : 0.56)
     }
 }
 
