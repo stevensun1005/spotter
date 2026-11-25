@@ -1,5 +1,6 @@
 import { HttpError } from "@/server/http";
 import { asDate } from "@/shared/dates";
+import { accountName } from "@/features/auth/display-name";
 
 type Membership = { connectionId: string; invite: string; creator: string; partnerId: string | null; partnerName: string | null };
 
@@ -8,7 +9,7 @@ export const activePair = "EXISTS (SELECT 1 FROM members m JOIN members p ON p.r
 
 export function membership(db: D1Database, user: string) {
   return db.prepare(
-    "SELECT r.id AS connectionId, r.invite, r.owner AS creator, p.user AS partnerId, p.name AS partnerName " +
+    "SELECT r.id AS connectionId, r.invite, r.owner AS creator, p.user AS partnerId, " + accountName("p.user", "p.name") + " AS partnerName " +
     "FROM members m JOIN rooms r ON r.id = m.room " +
     "LEFT JOIN members p ON p.room = m.room AND p.user <> m.user WHERE m.user = ?"
   ).bind(user).first<Membership>();

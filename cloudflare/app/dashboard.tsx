@@ -911,7 +911,11 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
           plans={pendingPlans.filter((item) => item.owner === me.id).map(({ id, data }) => ({ id, plan: data }))}
           saved={() => { void refresh(); void library.load(); }} /></div>
         {view === "settings" && <SettingsHub page={settingsPage} open={openSetting} close={() => go("today")} name={me.name} cloud={cloud} account={Boolean(viewer)}>
-          <SettingsContent page={settingsPage} open={openSetting} owner={viewer?.id ?? ""} cloud={cloud} sex={me.anatomyVariant} authNotice={authNotice}
+          <SettingsContent page={settingsPage} open={openSetting} owner={viewer?.id ?? ""} name={me.name} cloud={cloud} sex={me.anatomyVariant} authNotice={authNotice}
+            onNicknameSaved={(name) => {
+              setState((current) => ({ ...current, me: { ...current.me, name } }));
+              void refresh();
+            }}
             accountDeleted={finishAccountDeletion}
             sync={() => { void refresh(); void library.load(); }} pair={() => open({ kind: "pair" })}
             sharing={viewer ? () => open({ kind: "friend-sharing" }) : undefined}

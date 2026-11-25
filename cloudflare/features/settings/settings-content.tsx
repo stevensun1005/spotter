@@ -16,9 +16,10 @@ import { UsernameSettings } from "./username-settings";
 import { SettingsLink, SettingsRows, type SettingsPage } from "./settings-hub";
 import { WeightEntrySettings, WorkoutSettings } from "./workout-settings";
 
-export function SettingsContent({ page, open, owner, cloud, sex, authNotice, sync, pair, sharing, coaching, body,
+export function SettingsContent({ page, open, owner, name, onNicknameSaved, cloud, sex, authNotice, sync, pair, sharing, coaching, body,
   schedule, programs, plans, planImport, latestWorkout, display, changeDisplay, protein, proteinWarehouse, data, agent, accountDeleted }: {
-  page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string; cloud: string; sex?: AnatomyVariant; authNotice?: OAuthNotice;
+  page: SettingsPage | undefined; open: (page: SettingsPage) => void; owner: string;
+  name: string; onNicknameSaved: (name: string) => void; cloud: string; sex?: AnatomyVariant; authNotice?: OAuthNotice;
   sync: () => void; pair: () => void; sharing?: () => void; coaching: () => void; body: () => void;
   schedule: () => void; programs: () => void; plans: () => void; planImport: ReactNode; latestWorkout?: () => void;
   display: DisplayPreferences; changeDisplay: ChangeDisplay; protein: ReactNode; proteinWarehouse: ReactNode; data: ReactNode; agent: ReactNode;
@@ -26,7 +27,7 @@ export function SettingsContent({ page, open, owner, cloud, sex, authNotice, syn
 }) {
   switch (page) {
     case "account": return <>
-      {owner && <UsernameSettings key={owner} owner={owner} />}
+      {owner && <UsernameSettings key={owner} owner={owner} name={name} onNicknameSaved={onNicknameSaved} />}
       {owner && <section className="card padded feature-stack" aria-label="登录方式">
         <h2>绑定登录方式</h2>
         <p className="muted">绑定后，Apple 和 Google 都会打开这个训练搭子账号。</p>

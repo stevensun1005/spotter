@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -24,13 +24,14 @@ registerHooks({ resolve(specifier, context, next) {
 const { POST: signIn } = await import("../app/api/auth/sign-in/route.ts");
 const { POST: signOut } = await import("../app/api/auth/sign-out/route.ts");
 const { GET: state } = await import("../app/api/state/route.ts");
+const { GET: readProfile, PATCH: updateNickname } = await import("../app/api/auth/profile/route.ts");
 const { appSessionRecoveryPath, safeReturnPath, signInPath } = await import("../features/auth/paths.ts");
 const origin = "https://auth.synthetic.invalid";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 
-function post(path, body, currentOrigin = origin) {
+function post(path, body, currentOrigin = origin, method = "POST") {
   return new Request(origin + path, {
-    method: "POST", headers: { Origin: currentOrigin, "Content-Type": "application/json" },
+    method, headers: { Origin: currentOrigin, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
@@ -39,7 +40,10 @@ test("private preview identities come from valid, revocable D1 sessions, never r
   const sqlite = new DatabaseSync(":memory:");
   t.after(() => { sqlite.close(); delete runtime.env.DB; runtime.cookie = undefined; });
   sqlite.exec("PRAGMA foreign_keys=ON");
-  sqlite.exec(readFileSync(new URL("drizzle/0011_spotter_access.sql", root), "utf8"));
+  const migrations = new URL("drizzle/", root);
+  for (const file of readdirSync(migrations).filter((name) => name.endsWith(".sql")).sort()) {
+    sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
+  }
   const sample = ["one", "two"].map((id) => ({ id, email: id + "@example.invalid", accessCode: randomBytes(24).toString("base64url") }));
   const insert = sqlite.prepare("INSERT INTO spotter_access_accounts (id, email, display_name, access_hash) VALUES (?, ?, ?, ?)");
   for (const user of sample) insert.run(user.id, user.email, "Synthetic Account", hash(user.accessCode));
@@ -47,7 +51,7 @@ test("private preview identities come from valid, revocable D1 sessions, never r
     prepare(sql) {
       const stmt = sqlite.prepare(sql);
       return { bind(...args) {
-        return { async first() { return stmt.get(...args) ?? null; }, async run() { return stmt.run(...args); } };
+        return { async first() { return stmt.get(...args) ?? null; }, async run() { return { meta: stmt.run(...args) }; } };
       } };
     },
     async batch(writes) {
@@ -80,13 +84,26 @@ test("private preview identities come from valid, revocable D1 sessions, never r
   assert.equal(saved.token_hash, hash(token));
 
   runtime.cookie = token;
-  assert.deepEqual(await (await state()).json(), { me: { id: sample[0].id } });
+  assert.deepEqual(await (await state()).json(), { me: { id: sample[0].id, name: "Synthetic Account" } });
+  const profilePath = "/api/auth/profile";
+  const { profile: before } = await (await readProfile()).json();
+  const nickname = (name, expectedOwner = sample[0].id, requestOrigin = origin) =>
+    updateNickname(post(profilePath, { name, expectedOwner }, requestOrigin, "PATCH"));
+  assert.equal((await nickname("新昵称", sample[1].id)).status, 403);
+  assert.equal((await nickname("新昵称", sample[0].id, "https://cross-origin.invalid")).status, 403);
+  for (const invalid of [" ", "甲".repeat(33), "Spotter 用户", "test＠example.invalid", "x\u202e名"]) {
+    assert.equal((await nickname(invalid)).status, 400);
+  }
+  const renamed = await nickname("  训练   小队 👩‍🚀  ");
+  assert.equal(renamed.status, 200);
+  assert.deepEqual(await renamed.json(), { profile: { ...before, name: "训练 小队 👩‍🚀" } });
+  assert.deepEqual(await (await state()).json(), { me: { id: sample[0].id, name: "训练 小队 👩‍🚀" } });
   const rotated = await signIn(post("/api/auth/sign-in", sample[1]));
   const newToken = rotated.headers.get("set-cookie").match(/^__Host-spotter_session=([a-f0-9]{64});/)[1];
   assert.notEqual(newToken, token);
   assert.equal((await state()).status, 401);
   runtime.cookie = newToken;
-  assert.deepEqual(await (await state()).json(), { me: { id: sample[1].id } });
+  assert.deepEqual(await (await state()).json(), { me: { id: sample[1].id, name: "Synthetic Account" } });
   assert.equal((await signOut(post("/api/auth/sign-out", {}, "https://cross-origin.invalid"))).status, 403);
   assert.equal((await state()).status, 200);
   const out = await signOut(post("/api/auth/sign-out", {}));

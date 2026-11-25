@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
-import { updateProfileInput } from "@/features/auth/profile";
-import { readAccountProfile, saveAccountUsername } from "@/features/auth/profile-server";
+import { updateNicknameInput, updateProfileInput } from "@/features/auth/profile";
+import { readAccountProfile, saveAccountNickname, saveAccountUsername } from "@/features/auth/profile-server";
 import { requireAccount } from "@/server/account";
 import { api, HttpError, json, readJson } from "@/server/http";
 
@@ -22,4 +22,11 @@ export const POST = api(async (request) => {
   const { username, tag, expectedOwner } = await readJson(request, updateProfileInput, 2048);
   if (id !== expectedOwner) throw new HttpError(403, "当前登录账号已切换，请重新打开设置。");
   return json({ profile: await saveAccountUsername(db, id, username, tag) });
+});
+
+export const PATCH = api(async (request) => {
+  const { db, id } = await account();
+  const { name, expectedOwner } = await readJson(request, updateNicknameInput, 2048);
+  if (id !== expectedOwner) throw new HttpError(403, "当前登录账号已切换，请重新打开设置。");
+  return json({ profile: await saveAccountNickname(db, id, name) });
 });

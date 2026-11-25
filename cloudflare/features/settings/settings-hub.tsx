@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 
 const pages = {
-  account: { title: "账号", description: "用户名、登录方式和隐私", keywords: "账户 个人资料 云端同步 性别 肌群图 登录 退出 删除 注销 搭子 好友 分享 教练 username tag sync account delete", icon: CircleUserRound, tone: "slate" },
+  account: { title: "账号", description: "昵称、用户名、登录方式和隐私", keywords: "账户 个人资料 显示名称 云端同步 性别 肌群图 登录 退出 删除 注销 搭子 好友 分享 教练 nickname username tag sync account delete", icon: CircleUserRound, tone: "slate" },
   workout: { title: "训练", description: "记录方式、默认值和训练画面", keywords: "屏幕常亮 组间休息 动画 蛋白粉 RPE workout", icon: Dumbbell, tone: "green" },
   proteinWarehouse: { title: "蛋白粉仓库", description: "常喝的蛋白粉、一勺粉量和杯量", keywords: "品牌 补剂 乳清 奶昔 克 毫升 protein powder", icon: Package, tone: "teal" },
   advanced: { title: "微调", description: "训练记录的进阶偏好", keywords: "键盘 自动 完成 收起 跳过 advance collapse", icon: Wrench, tone: "slate" },
