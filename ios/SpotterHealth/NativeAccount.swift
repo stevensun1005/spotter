@@ -5,7 +5,7 @@ import Foundation
 import Security
 import UIKit
 
-struct NativeProfile: Decodable, Equatable, Sendable {
+struct NativeProfile: Codable, Equatable, Sendable {
     let id: String
     let name: String?
 
@@ -72,6 +72,19 @@ private struct NativeSessionVault {
     static let cookieName = "__Host-spotter_session"
     let origin: String
 
+    struct Session: Codable {
+        let token: String
+        var profile: NativeProfile?
+        let expires: Date?
+        var verifiedAt: Date?
+
+        func cachedProfile(at now: Date = .now) -> NativeProfile? {
+            guard let verifiedAt, verifiedAt <= now,
+                  now < (expires ?? verifiedAt.addingTimeInterval(24 * 60 * 60)) else { return nil }
+            return profile
+        }
+    }
+
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: "app.spotter.health.account-session",
@@ -92,7 +105,7 @@ private struct NativeSessionVault {
         #endif
     }
 
-    func load() throws -> String? {
+    func load() throws -> Session? {
         var item = query
         item[kSecReturnData as String] = true
         item[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -100,15 +113,20 @@ private struct NativeSessionVault {
         let status = SecItemCopyMatching(item as CFDictionary, &result)
         if status == errSecItemNotFound || Self.allowsVolatileSession(status) { return nil }
         guard status == errSecSuccess else { throw NativeAPIError.keychain }
-        guard let data = result as? Data, let token = String(data: data, encoding: .utf8), Self.isToken(token) else {
-            try clear()
-            return nil
+        if let data = result as? Data {
+            if let session = try? JSONDecoder().decode(Session.self, from: data), Self.isToken(session.token) {
+                return session
+            }
+            if let token = String(data: data, encoding: .utf8), Self.isToken(token) {
+                return Session(token: token, profile: nil, expires: nil, verifiedAt: nil)
+            }
         }
-        return token
+        try clear()
+        return nil
     }
 
-    func save(_ token: String) throws {
-        let data = Data(token.utf8)
+    func save(_ session: Session) throws {
+        let data = try JSONEncoder().encode(session)
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecSuccess || Self.allowsVolatileSession(status) { return }
         guard status == errSecItemNotFound else { throw NativeAPIError.keychain }
@@ -132,7 +150,8 @@ actor NativeAPI {
     private let vault: NativeSessionVault
     private let session: URLSession
     private let configuration: AppConfiguration
-    private var token: String?
+    private var credential: NativeSessionVault.Session?
+    private var token: String? { credential?.token }
     private var didReadVault = false
     private var sessionRevision = 0
     private var expired: (@MainActor @Sendable () -> Void)?
@@ -172,14 +191,31 @@ actor NativeAPI {
         return result.data
     }
 
+    func loadCachedProfile() throws -> NativeProfile? {
+        try readVault()
+        return credential?.cachedProfile()
+    }
+
     func loadProfile() async throws -> NativeProfile? {
-        if !didReadVault {
-            token = try vault.load()
-            didReadVault = true
-        }
+        try readVault()
         guard let token else { return nil }
-        do { return try await profile(cookie: token) }
+        do {
+            let account = try await profile(cookie: token)
+            if var current = credential, current.token == token {
+                current.profile = account
+                current.verifiedAt = .now
+                credential = current
+                try? vault.save(current)
+            }
+            return account
+        }
         catch let error as NativeAPIError where error.statusCode == 401 { return nil }
+    }
+
+    private func readVault() throws {
+        guard !didReadVault else { return }
+        credential = try vault.load()
+        didReadVault = true
     }
 
     fileprivate func finishLogin(_ path: String, body: Data, requireOAuthStatus: Bool) async throws -> NativeProfile {
@@ -196,8 +232,9 @@ actor NativeAPI {
 
         // Confirm the account before promoting the new credential to shared requests or persisting it.
         let account = try await profile(cookie: sessionToken.value)
-        try vault.save(sessionToken.value)
-        replaceToken(sessionToken.value)
+        let credential = NativeSessionVault.Session(token: sessionToken.value, profile: account, expires: sessionToken.expiresDate, verifiedAt: .now)
+        try vault.save(credential)
+        replaceCredential(credential)
         return account
     }
 
@@ -213,7 +250,7 @@ actor NativeAPI {
     fileprivate func signOut(didClear: @MainActor @Sendable () -> Void) async throws -> Bool {
         try vault.clear()
         let previous = token
-        replaceToken(nil)
+        replaceCredential(nil)
         await didClear()
         guard let previous else { return true }
         do {
@@ -231,8 +268,8 @@ actor NativeAPI {
         return try JSONDecoder().decode(ProfileResponse.self, from: result.data).me
     }
 
-    private func replaceToken(_ value: String?) {
-        token = value
+    private func replaceCredential(_ value: NativeSessionVault.Session?) {
+        credential = value
         didReadVault = true
         sessionRevision &+= 1
     }
@@ -242,7 +279,7 @@ actor NativeAPI {
         let status = result.response.statusCode
         if status == 401, let cookie, cookie == token {
             try? vault.clear()
-            replaceToken(nil)
+            replaceCredential(nil)
             await expired?()
         }
         guard (200..<300).contains(status) else {
@@ -306,10 +343,20 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
                 self?.clearProfile()
                 self?.errorMessage = "登录已过期，请重新登录。"
             }
-            do { profile = try await api.loadProfile() }
-            catch {
-                try? await refreshProviderStatus()
-                throw error
+            if profile == nil, let cached = try await api.loadCachedProfile() {
+                profile = cached
+                isRestoring = false
+            }
+            do {
+                let refreshed = try await api.loadProfile()
+                if refreshed == nil { clearProfile() }
+                else if profile != refreshed { profile = refreshed }
+            } catch {
+                guard profile != nil else {
+                    try? await refreshProviderStatus()
+                    throw error
+                }
+                return
             }
             if profile == nil { providerStatus.clearLinks() }
             try await refreshProviderStatus()

@@ -69,13 +69,37 @@ private struct NutritionPayload: Decodable {
         let carbCycle: CarbCycle?
         let workouts: [WorkoutEnergy]?
         let sourceWorkoutId: String?
+        let proteinProductId: String?
         let preference: NativeJSON?
         let targetWeightKg: Double?
         let name: String?
         let per100g: NativeNutritionFood.Facts?
     }
 
+    struct RecentMeal: Decodable {
+        let foodId: String
+        let meal: String
+        let grams: Double
+    }
+
     let rows: [Row]
+    var recentMeals: [RecentMeal]? = nil
+
+    func recentServings(for meal: NutritionShortcut) -> [NativeRecentServing] {
+        guard meal.isMeal, let recentMeals else { return [] }
+        let personal: [NativeNutritionFood] = rows.compactMap { row in
+            guard row.kind == "food", let id = row.id, let name = row.name, let facts = row.per100g else { return nil }
+            return NativeNutritionFood(id: id, name: name, facts: facts)
+        }
+        let foods = personal + NativeNutritionFood.builtIn
+        var seen: Set<String> = []
+        let ranked = recentMeals.filter { $0.meal == meal.rawValue } + recentMeals
+        return Array(ranked.compactMap { previous -> NativeRecentServing? in
+            guard seen.insert(previous.foodId).inserted, (0.1...3000).contains(previous.grams),
+                  let food = foods.first(where: { $0.id == previous.foodId }) else { return nil }
+            return NativeRecentServing(food: food, grams: previous.grams)
+        }.prefix(4))
+    }
 
     func targets(on date: String, countingWorkoutIDs ids: Set<String>?) -> Values {
         let base = rows.first { $0.kind == "targets" }?.values ?? Values()
@@ -121,6 +145,54 @@ private struct NutritionPayload: Decodable {
             }
             if entry.type == "water" { totals.water += entry.ml ?? 0 }
         }
+    }
+}
+
+private struct NativeRecentServing: Identifiable {
+    let food: NativeNutritionFood
+    let grams: Double
+    var id: String { food.id }
+}
+
+private struct NativeQuickMealReceipt: Equatable {
+    let id: String
+    let updated: String
+    let name: String
+}
+
+private struct NativeQuickMealStatus: View {
+    let api: NativeAPI
+    let owner: String
+    let receipt: NativeQuickMealReceipt
+    let onUndo: () -> Void
+    @State private var pending = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label("已记下「\(receipt.name)」", systemImage: "checkmark.circle")
+                    .font(.footnote.weight(.medium))
+                Spacer(minLength: 4)
+                Button("撤销") { Task { await undo() } }
+                    .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).disabled(pending)
+            }
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+        }.padding(9).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    private func undo() async {
+        guard !pending else { return }
+        pending = true; error = nil
+        defer { pending = false }
+        do {
+            try await api.spotterSend("/api/library", body: [
+                "action": "remove", "expectedOwner": owner, "kind": "nutrition",
+                "id": receipt.id, "revision": receipt.updated
+            ])
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+            onUndo()
+        } catch { self.error = error.localizedDescription }
     }
 }
 
@@ -289,6 +361,7 @@ struct NativeHomeNutrition: View {
     @Namespace private var entryZoom
     @State private var payload = NutritionPayload(rows: [])
     @State private var shortcut: NutritionShortcut?
+    @State private var quickMeal: NativeQuickMealReceipt?
     @State private var error: String?
     @Environment(\.spotterInteractionMotion) private var motion
 
@@ -297,6 +370,10 @@ struct NativeHomeNutrition: View {
             NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs, onOpen: onOpen)
             Divider().overlay(SpotterPalette.line)
             NutritionShortcuts(zoomNamespace: reduceMotion || systemReduceMotion ? nil : entryZoom) { shortcut = $0 }
+            if let quickMeal {
+                NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
+                    .id(quickMeal.id).transition(.opacity)
+            }
             if let error {
                 Button("重新读取今日饮食") { Task { await load() } }
                     .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).accessibilityHint(error)
@@ -307,14 +384,17 @@ struct NativeHomeNutrition: View {
         .padding(.vertical, 14)
         .spotterCard()
         .animation(motion, value: error != nil)
+        .animation(motion, value: quickMeal?.id)
         .task { await load() }
         .onChange(of: phase) { phase in
             if phase == .active { Task { await load() } }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in Task { await load() } }
-        .sheet(item: $shortcut) {
-            NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: $0)
-                .nutritionEntryTransition(from: reduceMotion || systemReduceMotion ? nil : $0, in: entryZoom)
+        .sheet(item: $shortcut) { selected in
+            NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: selected, recent: payload.recentServings(for: selected)) {
+                quickMeal = $0
+            }
+                .nutritionEntryTransition(from: reduceMotion || systemReduceMotion ? nil : selected, in: entryZoom)
         }
     }
 
@@ -375,6 +455,7 @@ struct NativeNutritionDetail: View {
     @State private var expandTools = true
     @State private var deleting = false
     @State private var deleteCandidate: NutritionPayload.Row?
+    @State private var quickMeal: NativeQuickMealReceipt?
 
     private var day: String { spotterDay(date) }
     private var ready: Bool { loadedDate == day && loadError == nil }
@@ -445,6 +526,10 @@ struct NativeNutritionDetail: View {
                 NativeNutritionSummary(payload: payload, date: day, logs: logs, topActions: AnyView(summaryActions))
                     .padding(14).spotterCard(radius: 18)
                 planningActions
+                if let quickMeal {
+                    NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
+                        .id(quickMeal.id).transition(.opacity)
+                }
                 if let loadError {
                     Button { Task { await load(day) } } label: {
                         Label(loadError, systemImage: "arrow.clockwise")
@@ -464,6 +549,7 @@ struct NativeNutritionDetail: View {
             .animation(motion, value: ready)
             .animation(motion, value: loadError != nil)
             .animation(motion, value: mutationError != nil)
+            .animation(motion, value: quickMeal?.id)
             .padding(.bottom, 4)
         }
         .clipped()
@@ -690,7 +776,10 @@ struct NativeNutritionDetail: View {
     @ViewBuilder private func destinationView(_ item: NutritionDestination) -> some View {
         switch item {
         case .entry(let shortcut, let row, let food, let grams):
-            NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: shortcut, existing: row, food: food, grams: grams)
+            NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: shortcut, existing: row, food: food, grams: grams,
+                                  recent: row == nil && food == nil ? payload.recentServings(for: shortcut) : []) {
+                quickMeal = $0
+            }
         case .settings:
             NativeNutritionSheet(title: "饮食设置") {
                 Section {
@@ -780,6 +869,9 @@ private struct NativeNutritionEditor: View {
     let shortcut: NutritionShortcut
     private let isEditing: Bool
     private let foodId: String?
+    private let proteinProductId: String?
+    private let recent: [NativeRecentServing]
+    private let onQuickSave: ((NativeQuickMealReceipt) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var id = UUID().uuidString.lowercased()
@@ -792,13 +884,18 @@ private struct NativeNutritionEditor: View {
     @State private var imperialWeight = false
     @State private var busy = false
     @State private var error: String?
+    @State private var quickItem: NativeRecentServing?
 
     init(api: NativeAPI, owner: String, date: String, shortcut: NutritionShortcut,
-         existing: NutritionPayload.Row? = nil, food: NativeNutritionFood? = nil, grams: Double? = nil) {
+         existing: NutritionPayload.Row? = nil, food: NativeNutritionFood? = nil, grams: Double? = nil,
+         recent: [NativeRecentServing] = [], onQuickSave: ((NativeQuickMealReceipt) -> Void)? = nil) {
         self.api = api
         self.owner = owner
         self.date = date
         self.shortcut = shortcut
+        self.recent = recent
+        self.onQuickSave = onQuickSave
+        self.proteinProductId = existing?.proteinProductId
         isEditing = existing != nil
         foodId = existing?.entry?.foodId ?? food?.id
         if let entry = existing?.entry, let existingID = existing?.id {
@@ -826,6 +923,7 @@ private struct NativeNutritionEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if shortcut.isMeal {
+                        if !recent.isEmpty { recentFoods }
                         field("食物名称", value: $name, numeric: false)
                         field("重量（g，选填）", value: $quantity)
                         field("热量（千卡）", value: $calories)
@@ -901,22 +999,66 @@ private struct NativeNutritionEditor: View {
         }
     }
 
+    private var recentFoods: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("最近记过").font(.subheadline.weight(.semibold))
+            ForEach(recent) { serving in
+                Button {
+                    Task { await saveQuick(serving) }
+                } label: {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(serving.food.name).font(.subheadline.weight(.medium))
+                            Text(nutritionNumber(serving.grams) + " g · 上次份量").font(.caption).foregroundStyle(SpotterPalette.muted)
+                        }
+                        Spacer()
+                        if busy && quickItem?.id == serving.id { ProgressView() }
+                        else { Image(systemName: "plus.circle.fill").foregroundStyle(accent.tint) }
+                    }
+                    .frame(minHeight: 44).padding(.horizontal, 8)
+                    .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 9))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.spotterPress).disabled(busy || quickItem != nil && quickItem?.id != serving.id)
+                .accessibilityHint("按上次份量添加到" + shortcut.rawValue)
+            }
+            Divider()
+        }
+    }
+
+    private func saveQuick(_ serving: NativeRecentServing) async {
+        guard !busy, quickItem == nil || quickItem?.id == serving.id else { return }
+        quickItem = serving
+        let facts = serving.food.facts.scaled(serving.grams)
+        let entry: [String: Any] = ["type": "meal", "meal": shortcut.rawValue, "name": serving.food.name,
+                                    "foodId": serving.id, "grams": serving.grams, "calories": facts.calories,
+                                    "protein": facts.protein, "carbs": facts.carbs, "fat": facts.fat]
+        await save(entry, quickName: serving.food.name)
+    }
+
     private func number(_ value: String) -> Double? {
         nutritionValue(value)
     }
 
     private func save() async {
         guard let entry = entryPayload else { error = "请检查名称、数值和单位。"; return }
+        guard quickItem == nil else { error = "请先重试上方所选的最近食物，或关闭后重新打开。"; return }
+        await save(entry)
+    }
+
+    private func save(_ entry: [String: Any], quickName: String? = nil) async {
         busy = true
         error = nil
         defer { busy = false }
         do {
-            var payload: [String: Any] = [
-                "action": "save", "expectedOwner": owner,
-                "data": ["kind": "nutrition", "id": id, "date": date, "entry": entry]
-            ]
+            var item: [String: Any] = ["kind": "nutrition", "id": id, "date": date, "entry": entry]
+            if let proteinProductId { item["proteinProductId"] = proteinProductId }
+            var payload: [String: Any] = ["action": "save", "expectedOwner": owner, "data": item]
             if shortcut.isMeal && !isEditing { payload["revision"] = NSNull() }
-            try await api.spotterSend("/api/library", body: payload)
+            let response = try await api.spotterSend("/api/library", body: payload)
+            if let quickName, let data = try? JSONDecoder().decode(NativeJSON.self, from: response), !data["updated"].string.isEmpty {
+                onQuickSave?(NativeQuickMealReceipt(id: id, updated: data["updated"].string, name: quickName))
+            }
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             dismiss()
         } catch { self.error = error.localizedDescription }
@@ -1199,6 +1341,7 @@ private struct NativeNutritionProtein: View {
     @State private var loading = true
     @State private var saving = false
     @State private var error: String?
+    @State private var alreadyLogged = false
 
     private var current: NativeNutritionProteinServing? { products.first { $0.id == selection } }
 
@@ -1221,12 +1364,21 @@ private struct NativeNutritionProtein: View {
                 Text(error).font(.footnote).foregroundStyle(.red)
                 if products.isEmpty { Button("重试") { Task { await load() } }.foregroundStyle(SpotterPalette.accent) }
             }
-            Button(saving ? "保存中…" : "记录一杯") { Task { await save() } }
+            if alreadyLogged {
+                Text("饮食记录或训练打卡里已有这杯。").foregroundStyle(.secondary)
+            }
+            Button(saving ? "保存中…" : alreadyLogged ? "确实喝了另一杯，继续记" : "记录一杯") {
+                Task { await save(anotherCup: alreadyLogged) }
+            }
                 .foregroundStyle(SpotterPalette.accent)
                 .disabled(current == nil || loading || saving)
         }
         .animation(motion, value: selection)
         .animation(motion, value: loading)
+        .onChange(of: selection) { _ in
+            alreadyLogged = false
+            id = UUID().uuidString.lowercased()
+        }
         .task { await load() }
     }
 
@@ -1252,16 +1404,25 @@ private struct NativeNutritionProtein: View {
         } catch { self.error = error.localizedDescription }
     }
 
-    private func save() async {
+    private func save(anotherCup: Bool) async {
         guard !saving, let current else { return }
         saving = true
         error = nil
         defer { saving = false }
         do {
-            try await api.spotterSend("/api/library", body: [
-                "action": "save", "expectedOwner": owner, "revision": NSNull(),
-                "data": ["kind": "nutrition", "id": id, "date": day, "entry": current.entry]
-            ])
+            var request: [String: Any] = ["action": "record-saved", "expectedOwner": owner, "productId": current.id,
+                                          "recordId": id, "localDate": day, "text": "我喝了蛋白粉"]
+            if anotherCup { request["anotherCup"] = true }
+            let data = try await api.spotterSend("/api/coach-protein", body: request)
+            let receipt = try JSONDecoder().decode(NativeJSON.self, from: data)
+            guard receipt["status"].string == "complete", let drink = receipt["records"].array.first else {
+                error = receipt["message"].string.isEmpty ? "配方可能已更新，请刷新仓库后重试。" : receipt["message"].string
+                return
+            }
+            if drink["alreadyRecorded"].bool {
+                alreadyLogged = true
+                return
+            }
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             dismiss()
         } catch { self.error = error.localizedDescription }
@@ -1292,11 +1453,6 @@ private struct NativeNutritionProteinServing: Identifiable {
         facts = .init(calories: amount("calories"), protein: amount("protein"), carbs: amount("carbs"), fat: amount("fat"))
     }
 
-    var entry: [String: Any] {
-        var entry: [String: Any] = ["type": "meal", "meal": "加餐", "name": name, "grams": ((powderGrams + cupMl) * 100).rounded() / 100]
-        entry.merge(facts.payload) { _, amount in amount }
-        return entry
-    }
 }
 
 @MainActor

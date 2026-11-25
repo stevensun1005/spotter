@@ -1,10 +1,11 @@
+import CryptoKit
 import ImageIO
 import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-private struct NativeMealDraft: Codable {
+private struct NativeMealDraft: Codable, Equatable {
     var name: String
     var calories: Double
     var protein: Double
@@ -111,10 +112,6 @@ struct NativeCoachView: View {
         let dailyResetsAt: String?
         let monthlyResetsAt: String?
 
-        var note: String {
-            "今日剩余 \(dailyRemaining.formatted())/\(dailyLimit.formatted()) 次 · 本月剩余 \(monthlyRemaining.formatted())/\(monthlyLimit.formatted()) 次"
-        }
-
         var limitMessage: String? {
             if monthlyRemaining <= 0 { return "本月 AI 教练的 \(monthlyLimit.formatted()) 条消息额度已用完，下月 1 日（UTC）重置。" }
             if dailyRemaining <= 0 { return "今天 AI 教练的 \(dailyLimit.formatted()) 条消息额度已用完，次日（UTC）重置。" }
@@ -129,18 +126,88 @@ struct NativeCoachView: View {
 
     private struct QuotaResponse: Decodable { let quota: Quota? }
 
-    private struct Line {
+    private struct Line: Codable, Equatable {
         let role: String
         let content: String
+        var receipt: MealReceipt? = nil
     }
-    private struct PlanDraft: Identifiable {
-        let id = UUID().uuidString.lowercased()
-        let data: [String: Any]
-        var title: String { data["title"] as? String ?? "训练" }
-        var date: String { data["date"] as? String ?? spotterDay() }
-        var exerciseNames: [String] {
-            (data["exercises"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
+    private struct MealReceipt: Codable, Equatable, Identifiable {
+        let id: String
+        let date: String
+        var draft: NativeMealDraft
+        var meal: String
+        var updated: String
+        var recipeID: String? = nil
+    }
+    private struct PlanDraft: Codable, Equatable, Identifiable {
+        let id: String
+        let raw: NativeJSON
+
+        init?(data: [String: Any]) {
+            guard let bytes = try? JSONSerialization.data(withJSONObject: data),
+                  let raw = try? JSONDecoder().decode(NativeJSON.self, from: bytes) else { return nil }
+            id = UUID().uuidString.lowercased()
+            self.raw = raw
         }
+
+        var data: [String: Any] {
+            guard let bytes = try? JSONEncoder().encode(raw),
+                  let data = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { return [:] }
+            return data
+        }
+        var title: String { raw["title"].string }
+        var date: String { raw["date"].string }
+    }
+    private struct SavedDrink: Codable, Equatable {
+        var id = UUID().uuidString.lowercased()
+        var text: String
+        var day: String
+        var productID: String? = nil
+        var anotherCup = false
+    }
+    private struct KnownProtein: Codable, Equatable, Identifiable {
+        let id: String
+        let name: String
+    }
+    private struct SavedDrinkReply: Decodable {
+        struct Record: Decodable {
+            let id: String
+            let date: String
+            let entry: NativeMealDraft
+            let updated: String
+            let alreadyRecorded: Bool
+            let linkedWorkout: String?
+        }
+        let status: String
+        let message: String?
+        let products: [KnownProtein]?
+        let productId: String?
+        let powderGrams: Double?
+        let liquidMl: Double?
+        let liquidName: String?
+        let records: [Record]?
+    }
+    private struct Snapshot: Codable {
+        var lines: [Line]
+        var plans: [PlanDraft]
+        var pendingDrink: SavedDrink?
+        var duplicateDrink: SavedDrink?
+        var choices: [KnownProtein]
+        var lastDrink: SavedDrink?
+        var mealDraft: NativeMealDraft?
+        var mealID: String?
+        var mealDate: String?
+        var meal: String?
+    }
+    private struct ProteinPhotoReading: Decodable {
+        struct Label: Decodable {
+            let name: String?
+            let scoopGrams: Double?
+            let per100g: [String: Double]?
+        }
+        let product: Label?
+        let needs: [String]?
+        let quota: Quota?
     }
     private struct RecognizedMeal: Decodable {
         var draft: NativeMealDraft?
@@ -163,8 +230,10 @@ struct NativeCoachView: View {
     var onExpand: (() -> Void)? = nil
     var onStartWorkout: (() -> Void)? = nil
     let nutritionDate: String?
+    let initialTrainingGoal: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
+    @Environment(\.colorScheme) private var surroundingColorScheme
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Environment(\.spotterInteractionMotion) private var controlMotion
@@ -200,15 +269,28 @@ struct NativeCoachView: View {
     @State private var ownNotice: String?
     @State private var showOwnImport = false
     @State private var copiedReply: Int?
+    @State private var startedWelcomeGuide = false
+    @State private var restoredConversation = false
+    @State private var pendingDrink: SavedDrink?
+    @State private var duplicateDrink: SavedDrink?
+    @State private var drinkOptions: [KnownProtein] = []
+    @State private var lastDrink: SavedDrink?
+    @State private var proteinEditor: NativeProteinRecipeEditor?
+    @State private var proteinPhotoID = UUID().uuidString.lowercased()
+    @State private var proteinPhotoLogsDrink = false
+    @State private var proteinPhotoNotes = ""
+    @State private var editingReceipt: MealReceipt?
 
     init(api: NativeAPI, owner: String, compact: Bool = true, onExpand: (() -> Void)? = nil,
-         onStartWorkout: (() -> Void)? = nil, initialMeal: String? = nil, nutritionDate: String? = nil) {
+         onStartWorkout: (() -> Void)? = nil, initialMeal: String? = nil, nutritionDate: String? = nil,
+         initialTrainingGoal: String? = nil) {
         self.api = api
         self.owner = owner
         self.compact = compact
         self.onExpand = onExpand
         self.onStartWorkout = onStartWorkout
         self.nutritionDate = nutritionDate
+        self.initialTrainingGoal = initialTrainingGoal
         _sharingAllowed = AppStorage(wrappedValue: false, NativeCoachConsent.key(owner))
         _meal = State(initialValue: initialMeal ?? "加餐")
     }
@@ -218,7 +300,7 @@ struct NativeCoachView: View {
     private var panelTransition: AnyTransition { reducesMotion ? .identity : .opacity.combined(with: .offset(y: 6)) }
     private var showsOptions: Bool { showOptions && picture == nil && !weightPrompt }
     private var showsSuggestions: Bool {
-        !showsOptions && picture == nil && !weightPrompt && mealDraft == nil && !editingMessage && cleanText.isEmpty
+        !showsOptions && picture == nil && !weightPrompt && mealDraft == nil && pendingDrink == nil && !editingMessage && cleanText.isEmpty
     }
     private var showsContextChip: Bool { includePlans && !showsOptions && !weightPrompt && picture == nil }
     private var hasReachedLimit: Bool { quota?.limitMessage != nil }
@@ -239,7 +321,17 @@ struct NativeCoachView: View {
         .background(atmosphere)
         .toolbar(.hidden, for: .navigationBar)
         .environment(\.colorScheme, .dark)
-        .task(id: owner) { await refreshQuota(ifUnknown: true) }
+        .task(id: owner) {
+            restoreConversation()
+            await refreshQuota(ifUnknown: true)
+            if initialTrainingGoal != nil, !startedWelcomeGuide, !Task.isCancelled {
+                startedWelcomeGuide = true
+                openGuide()
+            }
+        }
+        .onChange(of: lines) { _ in persistConversation() }
+        .onChange(of: planDrafts) { _ in persistConversation() }
+        .onDisappear { persistConversation() }
         .task(id: quota?.blockedUntil) {
             guard let reset = quota?.blockedUntil else { return }
             do {
@@ -274,7 +366,7 @@ struct NativeCoachView: View {
         .sheet(isPresented: $showGuide, onDismiss: {
             if sendGuidedAfterClosing { sendGuidedAfterClosing = false; submit(.guided) }
         }) {
-            NativePlanQuestions { draft in
+            NativePlanQuestions(initialGoal: initialTrainingGoal) { draft in
                 guidedDraft = draft
                 sendGuidedAfterClosing = true
                 showGuide = false
@@ -286,6 +378,16 @@ struct NativeCoachView: View {
             NavigationStack {
                 NativePlanImportView(api: api, owner: owner, didImport: {})
             }.tint(accent.tint).presentationDragIndicator(.visible)
+        }
+        .sheet(item: $proteinEditor) { editor in
+            NavigationStack {
+                NativeProteinEditor(initial: editor, confirmTitle: proteinPhotoLogsDrink ? "保存配方并核对记餐" : "核对无误，保存到仓库") { product, makeDefault in
+                    await saveProteinRecipe(product, makeDefault: makeDefault)
+                }
+            }.environment(\.colorScheme, surroundingColorScheme).presentationDragIndicator(.visible)
+        }
+        .sheet(item: $editingReceipt) { receipt in
+            receiptEditor(receipt)
         }
     }
 
@@ -378,6 +480,7 @@ struct NativeCoachView: View {
                         }
                         if !planDrafts.isEmpty { planPreview.transition(panelTransition) }
                         if let draft = mealDraft { mealPreview(draft).transition(panelTransition) }
+                        if pendingDrink != nil || duplicateDrink != nil { drinkFollowup.transition(panelTransition) }
                         if let error { message(Line(role: "error", content: error)).transition(panelTransition) }
                         if busy {
                             ProgressView("教练正在回复").font(.footnote).tint(accent.fill)
@@ -423,11 +526,61 @@ struct NativeCoachView: View {
         lines = []; planDrafts = []; mealDraft = nil; error = nil; text = ""; picture = nil
         photoChoice = nil; planMode = false; weightPrompt = false; pendingWeight = nil; guidedDraft = nil
         includePlans = false; showOptions = false; copiedReply = nil; editingMessage = false
+        pendingDrink = nil; duplicateDrink = nil; drinkOptions = []; lastDrink = nil
+        Self.removeSavedConversation(api: api, owner: owner)
+    }
+
+    private static func conversationURL(api: NativeAPI, owner: String) -> URL? {
+        guard !owner.isEmpty else { return nil }
+        let digest = SHA256.hash(data: Data((api.origin + "\n" + owner).utf8)).map { String(format: "%02x", $0) }.joined()
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Spotter/Coach", isDirectory: true).appendingPathComponent(digest + ".json")
+    }
+
+    static func removeSavedConversation(api: NativeAPI, owner: String) {
+        guard let file = conversationURL(api: api, owner: owner) else { return }
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    private func restoreConversation() {
+        guard !restoredConversation else { return }
+        restoredConversation = true
+        guard let url = Self.conversationURL(api: api, owner: owner), let data = try? Data(contentsOf: url),
+              let stored = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
+        lines = stored.lines; planDrafts = stored.plans
+        pendingDrink = stored.pendingDrink; duplicateDrink = stored.duplicateDrink
+        drinkOptions = stored.choices; lastDrink = stored.lastDrink
+        if let draft = stored.mealDraft, let id = stored.mealID, let day = stored.mealDate {
+            mealDraft = draft; mealID = id; mealDate = day; meal = stored.meal ?? meal
+        }
+    }
+
+    private func persistConversation() {
+        guard restoredConversation, let url = Self.conversationURL(api: api, owner: owner) else { return }
+        if lines.isEmpty && planDrafts.isEmpty && pendingDrink == nil && mealDraft == nil {
+            Self.removeSavedConversation(api: api, owner: owner)
+            return
+        }
+        let stored = Snapshot(lines: Array(lines.suffix(80)), plans: planDrafts, pendingDrink: pendingDrink,
+                              duplicateDrink: duplicateDrink, choices: drinkOptions, lastDrink: lastDrink, mealDraft: mealDraft,
+                              mealID: mealDraft == nil ? nil : mealID, mealDate: mealDraft == nil ? nil : mealDate,
+                              meal: mealDraft == nil ? nil : meal)
+        do {
+            var folder = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                    attributes: [.protectionKey: FileProtectionType.complete])
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try folder.setResourceValues(values)
+            try JSONEncoder().encode(stored).write(to: url, options: [.atomic, .completeFileProtection])
+        } catch { }
     }
 
     @ViewBuilder
     private func message(_ line: Line, index: Int? = nil) -> some View {
-        if line.role == "user" || line.role == "local-user" {
+        if let receipt = line.receipt {
+            savedMealCard(receipt, summary: line.content)
+        } else if line.role == "user" || line.role == "local-user" {
             HStack {
                 Spacer(minLength: 48)
                 Text(line.content).font(.body).lineSpacing(3).textSelection(.enabled)
@@ -462,6 +615,54 @@ struct NativeCoachView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func savedMealCard(_ receipt: MealReceipt, summary: String) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            messageTitle("checkmark", "已记入\(receipt.meal)")
+            Text(receipt.draft.name).font(.subheadline.weight(.semibold)).textSelection(.enabled)
+            Text([receipt.date, receipt.draft.grams.map { coachAmount($0) + " g" },
+                  coachAmount(receipt.draft.calories) + " 千卡", "蛋白质 " + coachAmount(receipt.draft.protein) + " g"]
+                .compactMap { $0 }.joined(separator: " · "))
+                .font(.footnote).foregroundStyle(CoachColors.muted)
+            if !summary.isEmpty { Text(summary).font(.footnote).foregroundStyle(CoachColors.muted) }
+            HStack(spacing: 16) {
+                Button("编辑", systemImage: "pencil") { editingReceipt = receipt }
+                Button("撤销", systemImage: "arrow.uturn.backward") { Task { await undoMeal(receipt) } }
+            }
+            .buttonStyle(.spotterPress).font(.footnote.weight(.semibold)).disabled(busy)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(13).coachPanel()
+    }
+
+    private var drinkFollowup: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let pendingDrink {
+                if !drinkOptions.isEmpty {
+                    Text("喝的是哪一款？").font(.subheadline.weight(.semibold))
+                    ForEach(drinkOptions) { option in
+                        Button(option.name) { Task { await recordDrink(selectDrink(option, for: pendingDrink)) } }
+                            .buttonStyle(.spotterPress).frame(minHeight: 38)
+                    }
+                } else if error != nil {
+                    coachPrimary("重试记录") { Task { await recordDrink(pendingDrink) } }
+                }
+                Button("取消这次记录") { clearDrink() }.font(.footnote).buttonStyle(.spotterPress)
+            }
+            if let duplicateDrink {
+                coachPrimary("刚喝了另一杯，继续记") {
+                    var next = duplicateDrink
+                    next.anotherCup = true
+                    Task { await recordDrink(next) }
+                }
+            }
+        }
+        .disabled(busy || hasReachedLimit)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(13).coachPanel()
+    }
+
+    private func coachAmount(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0...2)))
     }
 
     private func messageTitle(_ icon: String, _ title: String, _ tint: Color? = nil) -> some View {
@@ -537,20 +738,15 @@ struct NativeCoachView: View {
                 attachmentMenu
                 inputBar
             }
-            if let quota {
-                Text(quota.note).font(.caption2).foregroundStyle(CoachColors.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.opacity)
-                if let message = quota.limitMessage {
-                    HStack(spacing: 8) {
-                        Text(message).font(.caption2).foregroundStyle(CoachColors.muted)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Button("刷新额度") { Task { await refreshQuota() } }
-                            .font(.caption2.weight(.semibold)).buttonStyle(.spotterPress)
-                    }
-                    .transition(.opacity)
+            if let message = quota?.limitMessage {
+                HStack(spacing: 8) {
+                    Text(message).font(.caption2).foregroundStyle(CoachColors.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("刷新额度") { Task { await refreshQuota() } }
+                        .font(.caption2.weight(.semibold)).buttonStyle(.spotterPress)
                 }
+                .transition(.opacity)
             }
         }
         .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 8)
@@ -559,7 +755,6 @@ struct NativeCoachView: View {
         .animation(controlMotion, value: showsContextChip)
         .animation(controlMotion, value: picture != nil)
         .animation(controlMotion, value: planMode || weightPrompt)
-        .animation(controlMotion, value: quota != nil)
         .animation(controlMotion, value: hasReachedLimit)
     }
 
@@ -594,7 +789,8 @@ struct NativeCoachView: View {
             Button { sendComposer() } label: {
                 let ready = picture != nil || !cleanText.isEmpty
                 if picture != nil {
-                    Text("识别并记餐").font(.footnote.weight(.bold)).padding(.horizontal, 11).frame(minHeight: 36)
+                    Text(looksLikeProteinPhoto(cleanText) ? "识别蛋白粉" : "识别并记餐")
+                        .font(.footnote.weight(.bold)).padding(.horizontal, 11).frame(minHeight: 36)
                         .foregroundStyle(CoachColors.dark).background(accent.fill, in: Capsule())
                         .transition(.opacity)
                 } else {
@@ -662,6 +858,7 @@ struct NativeCoachView: View {
 
     private var composerHint: String {
         if picture != nil { return "例如 200 mL 牛奶、1 勺蛋白粉" }
+        if pendingDrink != nil { return "补充这一杯的信息…" }
         if weightPrompt { return "例如 80.5 kg" }
         if planMode { return "想怎么调整这份草稿？" }
         return "问问 Spotter 教练…"
@@ -691,6 +888,39 @@ struct NativeCoachView: View {
         guard canSendConversation() else { return }
         let input = cleanText
         if picture != nil { submit(.photo); return }
+        if let drink = pendingDrink {
+            if ["取消", "算了", "不用记了", "取消本次", "不用了"].contains(input) {
+                clearDrink()
+                lines.append(Line(role: "local", content: "已取消这次蛋白粉记录。"))
+                return
+            }
+            if let option = drinkOptions.first(where: { drinkName($0.name) == drinkName(input) }) {
+                Task { await recordDrink(selectDrink(option, for: drink)) }
+                return
+            }
+            if !drinkOptions.isEmpty {
+                error = "请选择喝的是哪一款蛋白粉。"
+                return
+            }
+            var continued = drink
+            if input != "重试" { continued.text += "，" + input }
+            let next = continued
+            Task { await recordDrink(next) }
+            return
+        }
+        if isDrinkCommand(input) {
+            var drink = SavedDrink(text: input, day: spotterDay())
+            if input.range(of: "又喝|再喝|再记|另一杯|第二杯", options: .regularExpression) != nil {
+                drink.anotherCup = true
+                if let prior = duplicateDrink ?? lastDrink,
+                   input.range(of: "[昨天前]天|今日|今天|\\d{4}-", options: .regularExpression) == nil {
+                    drink.productID = prior.productID
+                }
+            }
+            let next = drink
+            Task { await recordDrink(next) }
+            return
+        }
         let weightPrefix = "^(?:(?:帮我|我要|请)\\s*)?(?:记录|记下|记一下|记)\\s*(?:我(?:的)?\\s*)?(?:今天的?\\s*)?体重\\s*[：:=]?\\s*"
         if let range = input.range(of: weightPrefix, options: .regularExpression) {
             text = String(input[range.upperBound...])
@@ -707,7 +937,89 @@ struct NativeCoachView: View {
         } else if !planMode && input.range(of: "^(?:(?:帮我|请|给我|我要|我想)\\s*)*(?:生成|制定|定制|起草)(?:一个|一份)?(?:训练|健身)?计划[。！!？? ]*$", options: .regularExpression) != nil {
             text = ""
             openGuide()
-        } else { submit(planMode ? .plan : .chat) }
+        } else { submit(planMode || !planDrafts.isEmpty && asksToRevisePlan(input) ? .plan : .chat) }
+    }
+
+    private func isDrinkCommand(_ input: String) -> Bool {
+        let command = input.precomposedStringWithCompatibilityMapping
+        let noLogging = "[？?]|要不要|是否|怎么样|怎么喝|几杯|怎么算|多少|可以吗|好吗|吗[。！!]?$|不想喝|没喝|不喝|别记|不要记|不用记|已经记|喝过了吗|仓库|入库"
+        return command.range(of: noLogging, options: .regularExpression) == nil &&
+            command.range(of: "喝(?:了|完了)|饮用(?:了)?|记(?:录|一下|入)?|帮我加", options: .regularExpression) != nil &&
+            command.range(of: "蛋白粉|乳清|\\bwhey\\b", options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func drinkName(_ name: String) -> String {
+        name.precomposedStringWithCompatibilityMapping.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    private func selectDrink(_ choice: KnownProtein, for request: SavedDrink) -> SavedDrink {
+        var next = request
+        next.productID = choice.id
+        return next
+    }
+
+    private func clearDrink() {
+        pendingDrink = nil; duplicateDrink = nil; drinkOptions = []; error = nil; text = ""
+        persistConversation()
+    }
+
+    @discardableResult
+    private func recordDrink(_ request: SavedDrink, showQuestion: Bool = true) async -> Bool {
+        guard !busy, !showQuestion || canSendConversation() else { return false }
+        busy = true; defer { busy = false }
+        pendingDrink = request
+        drinkOptions = []; duplicateDrink = nil; error = nil; text = ""
+        persistConversation()
+        do {
+            var body: [String: Any] = ["action": "record-saved", "expectedOwner": owner, "text": request.text,
+                                       "recordId": request.id, "localDate": request.day]
+            if let id = request.productID { body["productId"] = id }
+            if request.anotherCup { body["anotherCup"] = true }
+            let data = try await api.spotterSend("/api/coach-protein", body: body)
+            let reply = try JSONDecoder().decode(SavedDrinkReply.self, from: data)
+            if showQuestion, lines.last?.content != request.text {
+                lines.append(Line(role: "local-user", content: request.text))
+            }
+            if reply.status == "choose" {
+                drinkOptions = reply.products ?? []
+            } else if reply.status == "clarify" {
+                lines.append(Line(role: "local", content: reply.message ?? "请补充这杯的配方。"))
+            } else if reply.status == "complete", let records = reply.records, !records.isEmpty {
+                var next = request
+                next.productID = reply.productId
+                lastDrink = next
+                pendingDrink = nil
+                var saved = false
+                let liquid = reply.liquidName ?? "冲泡液体"
+                let portion = "每杯 \(coachAmount(reply.powderGrams ?? 0)) g 粉 · \(coachAmount(reply.liquidMl ?? 0)) mL \(liquid)"
+                for record in records {
+                    if record.alreadyRecorded {
+                        duplicateDrink = next
+                        let source = record.linkedWorkout == nil ? "饮食记录" : "训练打卡"
+                        lines.append(Line(role: "local", content: "\(record.date) 的\(source)已有「\(record.entry.name)」这份记录。"))
+                    } else {
+                        saved = true
+                        let receipt = MealReceipt(id: record.id, date: record.date, draft: record.entry,
+                                                  meal: "加餐", updated: record.updated, recipeID: reply.productId)
+                        setReceipt(receipt, summary: portion)
+                    }
+                }
+                if saved { nutritionChanged() }
+            } else {
+                throw CocoaError(.coderReadCorrupt)
+            }
+            persistConversation()
+            return true
+        } catch {
+            await showRequestFailure(error)
+            return false
+        }
+    }
+
+    private func asksToRevisePlan(_ input: String) -> Bool {
+        let note = input.precomposedStringWithCompatibilityMapping.lowercased()
+        guard note.range(of: "^(先不|暂时不|不|别|不用|为什么|怎么|如何|怎样|what|why|how)", options: .regularExpression) == nil else { return false }
+        return note.range(of: "^(?:(?:请|能不能|可以|麻烦|帮我|给我|我想|我希望|想|把|将|这(?:次|个|份|套)(?:训练|计划|动作)?)[，, ]*)*(?:.*(?:换(?:成|为)|改(?:成|为|到)|替换|移到)|改一下|调整|取消|去掉|删掉|去除|加上|新增|增加|减掉|减少|缩短|延长|挪到|简单一点|轻松一点|短一点|change\\b|swap\\b|replace\\b|remove\\b|add\\b|adjust\\b|make it\\b|move\\b)", options: .regularExpression) != nil
     }
 
     private func trainingStats() async {
@@ -772,12 +1084,32 @@ struct NativeCoachView: View {
 
     private func draftRows(_ drafts: [PlanDraft]) -> some View {
         ForEach(drafts) { draft in
-            VStack(alignment: .leading, spacing: 4) {
-                Text(draft.title).fontWeight(.semibold)
-                Text(([draft.date] + draft.exerciseNames).joined(separator: " · "))
-                    .font(.footnote).foregroundStyle(CoachColors.muted)
+            let moves = draft.raw["exercises"].array
+            SpotterDisclosure {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(Array(moves.enumerated()), id: \.offset) { _, move in
+                        Text(planMoveSummary(move))
+                            .font(.footnote).foregroundStyle(CoachColors.muted)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 3)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(draft.title).fontWeight(.semibold)
+                    Text([draft.date, "\(moves.count) 个动作", "\(Int(draft.raw["minutes"].number)) 分钟"].joined(separator: " · "))
+                        .font(.footnote).foregroundStyle(CoachColors.muted)
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private func planMoveSummary(_ item: NativeJSON) -> String {
+        let name = item["name"].string
+        let sets = Int(item["sets"].number)
+        let reps = Int(item["reps"].number)
+        let seconds = Int(item["seconds"].number)
+        let duration = seconds > 0 ? "\(seconds) 秒" : "\(reps) 次"
+        let rest = item["restSeconds"] == .null ? "" : " · 休息 \(Int(item["restSeconds"].number)) 秒"
+        return "\(name) · \(sets) 组 × \(duration)\(rest)"
     }
 
     private func coachPrimary(_ title: String, action: @escaping () -> Void) -> some View {
@@ -904,7 +1236,14 @@ struct NativeCoachView: View {
             ]
             if attachingPlans { request["contextRange"] = contextRange }
             if let selection { request["guided"] = selection.values; request["draftDays"] = selection.days }
-            if kind == .plan && !planDrafts.isEmpty { request["priorDraft"] = ["plans": planDrafts.map(\.data)] }
+            if kind == .plan && !planDrafts.isEmpty {
+                request["priorDraft"] = ["plans": planDrafts.map(\.data)]
+                let dates = planDrafts.map(\.date).compactMap { nativePlanDate($0) }.sorted()
+                if let first = dates.first, let last = dates.last, attachingPlans == false {
+                    request["date"] = spotterDay(first)
+                    request["draftDays"] = min(28, max(7, 1 + (Calendar.current.dateComponents([.day], from: first, to: last).day ?? 0)))
+                }
+            }
             let result = try await api.spotterSend("/api/ai-coach", body: request)
             if let next = (try? JSONDecoder().decode(QuotaResponse.self, from: result))?.quota { quota = next }
             guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any],
@@ -914,13 +1253,25 @@ struct NativeCoachView: View {
             planMode = false
             guidedDraft = nil
             if let draft = object["draft"] as? [String: Any], let plans = draft["plans"] as? [[String: Any]] {
-                planDrafts = plans.map { PlanDraft(data: $0) }
+                let revised = plans.compactMap(PlanDraft.init(data:))
+                if kind == .plan && !planDrafts.isEmpty {
+                    let old = Set(planDrafts.map { $0.date + $0.title })
+                    let moved = revised.filter { !old.contains($0.date + $0.title) }.count
+                    let summary = moved == 0 ? "已更新草稿。请展开核对组次和休息时间。"
+                        : "已调整 \(moved) 堂训练的日期或内容。确认后再保存。"
+                    lines.append(Line(role: "local", content: summary))
+                }
+                planDrafts = revised
             }
         } catch { await showRequestFailure(error) }
     }
 
     private func recognize() async {
         guard let picture else { return }
+        if looksLikeProteinPhoto(cleanText) {
+            await recognizeProtein(picture, notes: cleanText)
+            return
+        }
         do {
             let data = try await api.spotterSend("/api/food-photo", body: [
                 "expectedOwner": owner, "mode": "meal", "inCoach": true, "notes": String(cleanText.prefix(300)),
@@ -936,11 +1287,95 @@ struct NativeCoachView: View {
                 self.picture = nil
                 photoChoice = nil
                 text = ""
+                persistConversation()
                 try await saveMeal(draft)
             } else {
                 error = answer.error ?? answer.needs?.joined(separator: "；") ?? "请补充食物和份量，再试一次。"
             }
         } catch { await showRequestFailure(error) }
+    }
+
+    private func looksLikeProteinPhoto(_ notes: String) -> Bool {
+        notes.range(of: "蛋白粉|乳清|\\bwhey\\b", options: [.regularExpression, .caseInsensitive]) != nil &&
+            notes.range(of: "仓库|入库|配方|包装|营养表|背标|训练默认", options: .regularExpression) != nil
+    }
+
+    private func proteinAmount(in text: String, pattern: String) -> Double? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return Double(text[range])
+    }
+
+    private func recognizeProtein(_ image: Data, notes: String) async {
+        do {
+            let data = try await api.spotterSend("/api/food-photo", body: [
+                "expectedOwner": owner, "mode": "protein", "inCoach": true,
+                "image": ["mediaType": "image/jpeg", "base64": image.base64EncodedString()]
+            ])
+            let answer = try JSONDecoder().decode(ProteinPhotoReading.self, from: data)
+            if let quota = answer.quota { self.quota = quota }
+            let explicitDefault = notes.contains("默认")
+            var editor = NativeProteinRecipeEditor(makeDefault: explicitDefault)
+            let label = answer.product
+            editor.name = label?.name ?? ""
+            for (key, value) in label?.per100g ?? [:] {
+                editor.powder[key] = String(value)
+            }
+            let grams = proteinAmount(in: notes, pattern: "(?:按|约|为|重|是|一勺|每勺|1勺)\\s*(\\d+(?:\\.\\d+)?)\\s*(?:克|g)")
+            if let scoop = grams ?? label?.scoopGrams {
+                editor.scoop = String(scoop)
+                editor.scoopEstimated = grams != nil && notes.contains("估")
+            }
+            if let ml = proteinAmount(in: notes, pattern: "(\\d+(?:\\.\\d+)?)\\s*(?:m\\s*l|毫升)") {
+                editor.cup = String(ml)
+            }
+            if notes.contains("牛奶") || notes.contains("牛乳") {
+                editor.usesMixer = true
+                if notes.range(of: "2(?:\\.0)?\\s*%", options: .regularExpression) != nil {
+                    editor.mixerName = "低脂牛奶（2%）"
+                    editor.liquid = ["calories": "50", "protein": "3.3", "carbs": "4.8", "fat": "1.98"]
+                } else if notes.contains("全脂") {
+                    editor.mixerName = "全脂牛奶"
+                    editor.liquid = ["calories": "61", "protein": "3.15", "carbs": "4.8", "fat": "3.25"]
+                } else {
+                    editor.mixerName = "牛奶"
+                }
+            }
+            proteinPhotoNotes = notes
+            proteinPhotoLogsDrink = notes.range(of: "帮我记|补(?:记|录|上)|记入饮食|记一下|加入饮食|记录饮食|喝了.{0,12}(?:记|补)", options: .regularExpression) != nil &&
+                notes.range(of: "别(?:再)?记|不要(?:重复)?记|已经记|不用记|只(?:要)?入库", options: .regularExpression) == nil
+            if let needs = answer.needs, !needs.isEmpty {
+                lines.append(Line(role: "meal", content: needs.joined(separator: "\n")))
+            }
+            proteinPhotoID = UUID().uuidString.lowercased()
+            proteinEditor = editor
+            lines.append(Line(role: "local-user", content: "照片 · " + notes))
+            picture = nil; photoChoice = nil; text = ""
+        } catch { await showRequestFailure(error) }
+    }
+
+    private func saveProteinRecipe(_ product: NativeJSON, makeDefault: Bool) async -> String? {
+        let endpoint = "/api/coach-protein"
+        do {
+            let response = try await api.request(endpoint, method: "POST", json: JSONEncoder().encode(NativeJSON.object([
+                "expectedOwner": .string(owner), "product": product, "addToWarehouse": .bool(true),
+                "setTrainingDefault": .bool(makeDefault), "records": .array([]),
+            ])))
+            let receipt = try JSONDecoder().decode(NativeJSON.self, from: response)
+            let confirmed = receipt["warehouseProductId"].string
+            let stored = receipt["warehouse"].string == "added" ? "已加入蛋白粉仓库" : "已在蛋白粉仓库"
+            let defaultNote = receipt["defaultProductId"].string.isEmpty ? "" : "，已设为训练后默认"
+            lines.append(Line(role: "status", content: "「\(product["name"].string)」\(stored)\(defaultNote)。"))
+            nutritionChanged()
+            if proteinPhotoLogsDrink {
+                let id = confirmed.isEmpty ? product["id"].string : confirmed
+                let drink = SavedDrink(id: proteinPhotoID, text: proteinPhotoNotes, day: nutritionDate ?? spotterDay(),
+                                       productID: id)
+                _ = await recordDrink(drink, showQuestion: false)
+            }
+            return nil
+        } catch { return error.localizedDescription }
     }
 
     private func retryMeal(_ draft: NativeMealDraft) async {
@@ -953,14 +1388,107 @@ struct NativeCoachView: View {
     }
 
     private func saveMeal(_ draft: NativeMealDraft) async throws {
-        try await api.spotterSend("/api/library", body: [
-            "action": "save", "expectedOwner": owner,
+        let data = try await api.spotterSend("/api/library", body: [
+            "action": "save", "expectedOwner": owner, "revision": NSNull(),
             "data": ["kind": "nutrition", "id": mealID, "date": mealDate, "entry": draft.values(meal: meal)]
         ])
+        let updated = try JSONDecoder().decode(NativeJSON.self, from: data)["updated"].string
         mealDraft = nil
-        lines.append(Line(role: "status", content: "已把「\(draft.name)」记入\(meal)。"))
-        NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+        setReceipt(MealReceipt(id: mealID, date: mealDate, draft: draft, meal: meal, updated: updated))
+        nutritionChanged()
         error = nil
+    }
+
+    private func setReceipt(_ receipt: MealReceipt, summary: String = "") {
+        let line = Line(role: "status", content: summary, receipt: receipt)
+        if let index = lines.firstIndex(where: { $0.receipt?.id == receipt.id }) { lines[index] = line }
+        else { lines.append(line) }
+    }
+
+    private func nutritionChanged() {
+        persistConversation()
+        NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+    }
+
+    private func undoMeal(_ receipt: MealReceipt) async {
+        guard !busy else { return }
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            try await api.spotterSend("/api/library", body: [
+                "action": "remove", "expectedOwner": owner, "kind": "nutrition", "id": receipt.id, "revision": receipt.updated
+            ])
+            if let index = lines.firstIndex(where: { $0.receipt?.id == receipt.id }) {
+                lines[index] = Line(role: "local", content: "已撤销 \(receipt.date) 的「\(receipt.draft.name)」。")
+            }
+            nutritionChanged()
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func receiptEditor(_ receipt: MealReceipt) -> some View {
+        EditMealReceipt(receipt: receipt) { next in
+            do {
+                var item: [String: Any] = ["kind": "nutrition", "id": next.id, "date": next.date, "entry": next.draft.values(meal: next.meal)]
+                if let recipe = next.recipeID { item["proteinProductId"] = recipe }
+                let data = try await api.spotterSend("/api/library", body: [
+                    "action": "save", "expectedOwner": owner, "revision": next.updated, "data": item
+                ])
+                var saved = next
+                saved.updated = try JSONDecoder().decode(NativeJSON.self, from: data)["updated"].string
+                setReceipt(saved)
+                nutritionChanged()
+                editingReceipt = nil
+                return nil
+            } catch { return error.localizedDescription }
+        }
+        .environment(\.colorScheme, surroundingColorScheme)
+    }
+
+    private struct EditMealReceipt: View {
+        @Environment(\.dismiss) private var dismiss
+        @State private var receipt: MealReceipt
+        @State private var busy = false
+        @State private var error: String?
+        let save: (MealReceipt) async -> String?
+
+        init(receipt: MealReceipt, save: @escaping (MealReceipt) async -> String?) {
+            _receipt = State(initialValue: receipt)
+            self.save = save
+        }
+
+        var body: some View {
+            NavigationStack {
+                Form {
+                    Section(receipt.date) {
+                        TextField("食物名称", text: $receipt.draft.name)
+                        SpotterMenuPicker("餐次", selection: $receipt.meal, options: ["早餐", "午餐", "晚餐", "加餐"].map { ($0, $0) })
+                        TextField("重量 g（可留空）", value: $receipt.draft.grams, format: .number).keyboardType(.decimalPad)
+                    }
+                    Section("这一份的营养") {
+                        TextField("热量 千卡", value: $receipt.draft.calories, format: .number).keyboardType(.decimalPad)
+                        TextField("蛋白质 g", value: $receipt.draft.protein, format: .number).keyboardType(.decimalPad)
+                        TextField("碳水 g", value: $receipt.draft.carbs, format: .number).keyboardType(.decimalPad)
+                        TextField("脂肪 g", value: $receipt.draft.fat, format: .number).keyboardType(.decimalPad)
+                    }
+                    if let error { Text(error).foregroundStyle(.red) }
+                }
+                .navigationTitle("编辑饮食记录")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(busy ? "保存中…" : "保存") {
+                            Task {
+                                busy = true
+                                error = await save(receipt)
+                                busy = false
+                            }
+                        }.disabled(busy || receipt.draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .interactiveDismissDisabled(busy).presentationDragIndicator(.visible)
+        }
     }
 
     private func savePlans() async {
@@ -1036,7 +1564,7 @@ private struct NativePlanQuestions: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
-    @State private var goal = "hypertrophy"
+    @State private var goal: String
     @State private var venue = "gym"
     @State private var frequency = 3
     @State private var minutes = 45
@@ -1055,6 +1583,18 @@ private struct NativePlanQuestions: View {
     @State private var choosingMove = false
     @State private var search = ""
     let completed: (CoachGuidedSelection) -> Void
+
+    init(initialGoal: String?, completed: @escaping (CoachGuidedSelection) -> Void) {
+        let inferred = switch initialGoal?.lowercased() ?? "" {
+        case "strength", "力量", "提升力量": "strength"
+        case "fat-loss", "减脂", "减重", "减脂期保持训练": "fat-loss"
+        case "conditioning", "endurance", "体能", "心肺", "有氧": "conditioning"
+        case "general", "记录训练", "习惯", "保持运动习惯": "general"
+        default: "hypertrophy"
+        }
+        _goal = State(initialValue: inferred)
+        self.completed = completed
+    }
 
     private let labels = ["限制", "场景", "预设", "动作", "设置"]
     private let titles = ["有哪些动作想先避开？", "这次在哪里练？", "从一组动作开始", "调整候选动作", "设置训练目标与节奏"]

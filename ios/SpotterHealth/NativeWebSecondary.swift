@@ -26,6 +26,7 @@ private struct SecondarySegment<Option: Hashable>: View {
     let options: [Option]
     @Binding var value: Option
     let title: (Option) -> String
+    var glass = false
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterAccent) private var accent
     @Namespace private var selection
@@ -39,7 +40,7 @@ private struct SecondarySegment<Option: Hashable>: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                         .foregroundStyle(value == option ? SpotterPalette.ink : SpotterPalette.muted)
-                        .frame(maxWidth: .infinity, minHeight: 35)
+                        .frame(maxWidth: .infinity, minHeight: glass ? 40 : 35)
                         .background {
                             if value == option {
                                 RoundedRectangle(cornerRadius: 8).fill(accent.selection)
@@ -53,7 +54,19 @@ private struct SecondarySegment<Option: Hashable>: View {
         }
         .animation(motion, value: value)
         .padding(3)
-        .secondaryCard(radius: 11)
+        .modifier(SecondarySegmentSurface(glass: glass))
+    }
+}
+
+private struct SecondarySegmentSurface: ViewModifier {
+    let glass: Bool
+
+    func body(content: Content) -> some View {
+        if glass {
+            content.spotterGlass(cornerRadius: 15, interactive: false)
+        } else {
+            content.secondaryCard(radius: 11)
+        }
     }
 }
 
@@ -67,8 +80,9 @@ private struct SecondarySelectionMenu<Option: Hashable>: View {
         SpotterMenuPicker(label, selection: $selection, options: options.map { ($0, title($0)) }) {
             HStack(spacing: 5) {
                 Text(title(selection)).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption.weight(.semibold))
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(SpotterPalette.muted)
                     .accessibilityHidden(true)
             }
             .fixedSize(horizontal: true, vertical: false)
@@ -104,7 +118,7 @@ private struct SecondaryActionHeader<Actions: View>: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 12) { actions }.fixedSize(horizontal: true, vertical: false)
+        HStack(spacing: 6) { actions }.fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -266,6 +280,7 @@ struct NativeSpotterStats: View {
     @ObservedObject var store: NativeWorkoutStore
     let api: NativeAPI
     let owner: String
+    var dockTop: CGFloat? = nil
 
     private enum Page: String, CaseIterable { case overview = "训练统计", history = "打卡历史" }
     private enum Period: String, CaseIterable { case week = "周", month = "月", quarter = "季", year = "年", recent = "最近", custom = "自定义" }
@@ -282,6 +297,9 @@ struct NativeSpotterStats: View {
     @State private var trend = SecondaryMetric.volume
     @State private var partner: SecondaryFriend?
     @State private var partnerSelected = false
+    @State private var editingDates = false
+    @State private var showsWeek = false
+    @State private var selectedWorkout: NativeWorkoutEntry?
 
     private var sharedLogs: [NativeWorkoutEntry] {
         guard let partner else { return [] }
@@ -290,7 +308,7 @@ struct NativeSpotterStats: View {
 
     private var subjectLogs: [NativeWorkoutEntry] { partnerSelected && partner != nil ? sharedLogs : store.logs }
     private var range: ClosedRange<Date> { range(at: step) }
-    private var comparedRange: ClosedRange<Date> {
+    private var completeComparison: ClosedRange<Date> {
         if comparison == .year {
             return SecondaryDate.shift(range.lowerBound, -1, component: .year)...SecondaryDate.shift(range.upperBound, -1, component: .year)
         }
@@ -298,6 +316,17 @@ struct NativeSpotterStats: View {
             return SecondaryDate.shift(range.lowerBound, -rangeCount(range))...SecondaryDate.shift(range.lowerBound, -1)
         }
         return self.range(at: step - 1)
+    }
+
+    private var elapsedRange: ClosedRange<Date> {
+        range.lowerBound...max(range.lowerBound, min(range.upperBound, SecondaryDate.today))
+    }
+
+    private var comparedRange: ClosedRange<Date> {
+        let previous = completeComparison
+        guard elapsedRange.upperBound < range.upperBound else { return previous }
+        let end = SecondaryDate.shift(previous.lowerBound, rangeCount(elapsedRange) - 1)
+        return previous.lowerBound...min(previous.upperBound, end)
     }
 
     private func range(at offset: Int) -> ClosedRange<Date> {
@@ -348,26 +377,77 @@ struct NativeSpotterStats: View {
     }
 
     var body: some View {
-        GeometryReader { viewport in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 9) {
-                    SecondarySegment(options: Page.allCases, value: $page, title: \.rawValue)
-                    Group {
-                        if page == .overview { overview }
-                        else { SecondaryHistory(store: store, availableHeight: viewport.size.height - 84) }
-                    }
-                    .transition(.opacity)
-                }.foregroundStyle(SpotterPalette.ink).secondaryPage()
-                    .animation(motion, value: page)
+        VStack(spacing: 9) {
+            SecondarySegment(options: Page.allCases, value: $page, title: \.rawValue, glass: true)
+                .padding(.horizontal, 14)
+            if page == .overview {
+                ScrollView {
+                    overview
+                        .frame(maxWidth: 620)
+                        .padding(.horizontal, 14).padding(.bottom, 16)
+                        .frame(maxWidth: .infinity)
+                }
+                .refreshable { await store.load(); await loadStatsHistory(); await loadPartner() }
+                .transition(.opacity)
+            } else {
+                GeometryReader { viewport in
+                    let bottom = viewport.frame(in: .global).maxY
+                    let dockOverlap = max(0, bottom - (dockTop ?? bottom))
+                    SecondaryHistory(store: store)
+                        .frame(maxWidth: 680)
+                        .padding(.horizontal, 14).padding(.bottom, 5 + dockOverlap)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .transition(.opacity)
             }
-            .refreshable { await store.load(); await loadPartner() }
         }
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .foregroundStyle(SpotterPalette.ink)
         .background(SpotterPalette.background)
+        .animation(motion, value: page)
         .task { await loadPartner() }
+        .task(id: page == .overview ? historyKey : nil) {
+            if page == .overview { await loadStatsHistory() }
+        }
+        .sheet(isPresented: $editingDates) {
+            SecondaryDateRangeSheet(start: customStart, end: customEnd) { start, end in
+                withAnimation(motion) {
+                    customStart = start
+                    customEnd = end
+                }
+            }
+        }
+        .sheet(isPresented: $showsWeek) { weekDetails }
+        .sheet(item: $selectedWorkout) { entry in
+            NavigationStack { NativeWorkoutDetailView(store: store, entry: entry, showsClose: true) }
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var historyKey: String {
+        "\(spotterDay(elapsedRange.lowerBound))|\(spotterDay(elapsedRange.upperBound))|\(comparison.rawValue)|\(spotterDay(comparedRange.lowerBound))|\(spotterDay(comparedRange.upperBound))"
+    }
+
+    private func loadStatsHistory() async {
+        guard rangeCount(range) <= 3_660 else { return }
+        let recentYear = SecondaryDate.shift(elapsedRange.upperBound, -364)
+        var first = min(elapsedRange.lowerBound, recentYear)
+        var last = elapsedRange.upperBound
+        if comparison != .off {
+            first = min(first, comparedRange.lowerBound)
+            last = max(last, comparedRange.upperBound)
+        }
+        await store.loadHistory(from: spotterDay(first), through: spotterDay(last))
     }
 
     private var canStepForward: Bool {
         period == .custom ? SecondaryDate.shift(customEnd, rangeCount(range)) <= SecondaryDate.today : step < 0
+    }
+
+    private var canStepBack: Bool {
+        let first = period == .custom ? SecondaryDate.shift(customStart, -rangeCount(range)) : self.range(at: step - 1).lowerBound
+        return spotterDay(first) >= "1900-01-01" && rangeCount(range) <= 3_660
     }
 
     private func shiftPeriod(_ delta: Int) {
@@ -379,13 +459,14 @@ struct NativeSpotterStats: View {
     }
 
     private var overview: some View {
-        let current = logs(range)
+        let current = logs(elapsedRange)
         let former = comparison == .off ? nil : logs(comparedRange)
-        return VStack(spacing: 9) {
+        return LazyVStack(spacing: 9) {
             rangePicker
             if rangeCount(range) > 3_660 {
                 SecondaryNotice(message: "请选择有效日期，范围最长 10 年。", warning: true)
             } else {
+                if period == .week, !partnerSelected { weekProgress }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 7), GridItem(.flexible(), spacing: 7)], spacing: 7) {
                     ForEach(SecondaryMetric.allCases, id: \.self) { tile($0, current: current, former: former) }
                 }
@@ -393,7 +474,7 @@ struct NativeSpotterStats: View {
                 trendCard(current: current, former: former)
                 SecondaryActivityCalendar(entries: subjectLogs, end: min(range.upperBound, SecondaryDate.today))
                 SecondaryMusclePanel(entries: current)
-                SecondaryPerformance(entries: current, compared: former)
+                SecondaryPerformance(entries: current, compared: former) { selectedWorkout = $0 }
             }
         }
     }
@@ -401,34 +482,116 @@ struct NativeSpotterStats: View {
     private var rangePicker: some View {
         VStack(alignment: .leading, spacing: 7) {
             if let partner, !sharedLogs.isEmpty {
-                SecondarySegment(options: [false, true], value: $partnerSelected) { $0 ? "搭子 · \(partner.name)" : "我" }
+                SecondarySegment(options: [false, true], value: $partnerSelected, title: { $0 ? "搭子 · \(partner.name)" : "我" }, glass: true)
             }
-            SecondarySegment(options: Period.allCases, value: $period, title: \.rawValue)
-                .onChange(of: period) { _ in step = 0 }
+            SecondarySegment(options: Period.allCases, value: $period, title: \.rawValue, glass: true)
+                .onChange(of: period) { value in
+                    step = 0
+                    if value == .custom { editingDates = true }
+                }
             if period == .recent {
                 SpotterMenuPicker("最近天数", selection: $recent, options: [7, 30, 90, 365].map { ($0, "\($0) 天") })
                     .onChange(of: recent) { _ in step = 0 }
                     .transition(.opacity)
             }
-            if period == .custom {
-                VStack(spacing: 8) {
-                    DatePicker("开始日期", selection: $customStart, in: (SecondaryDate.parse("1900-01-01") ?? customStart)...SecondaryDate.today, displayedComponents: .date)
-                        .onChange(of: customStart) { customEnd = max(customEnd, $0) }
-                    DatePicker("结束日期", selection: $customEnd, in: customStart...SecondaryDate.today, displayedComponents: .date)
-                }.transition(.opacity)
-            }
-            HStack {
-                stepButton("上一周期", symbol: "chevron.left") { shiftPeriod(-1) }
-                    .disabled(spotterDay(range.lowerBound) < "1901-01-01" || rangeCount(range) > 3_660)
-                Spacer(minLength: 0)
-                VStack(spacing: 3) {
-                    Text(periodTitle).font(.subheadline.weight(.bold)).foregroundStyle(SpotterPalette.ink)
-                    Text(label(range)).font(.caption2.monospacedDigit()).foregroundStyle(SpotterPalette.muted).lineLimit(1)
+            HStack(spacing: 5) {
+                stepButton("上一周期", symbol: "chevron.left") { withAnimation(motion) { shiftPeriod(-1) } }
+                    .disabled(!canStepBack)
+                if period == .custom {
+                    Button { editingDates = true } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "calendar").foregroundStyle(accent.tint)
+                            rangeTitle
+                            Image(systemName: "chevron.down").font(.caption2).foregroundStyle(SpotterPalette.muted)
+                        }.frame(maxWidth: .infinity)
+                    }.buttonStyle(.spotterControl).accessibilityLabel("编辑自定义日期")
+                } else {
+                    rangeTitle.frame(maxWidth: .infinity)
                 }
-                Spacer(minLength: 0)
-                stepButton("下一周期", symbol: "chevron.right") { shiftPeriod(1) }.disabled(!canStepForward)
-            }.background(SpotterPalette.wash.opacity(0.58), in: RoundedRectangle(cornerRadius: 9))
+                stepButton("下一周期", symbol: "chevron.right") { withAnimation(motion) { shiftPeriod(1) } }.disabled(!canStepForward)
+            }
         }.padding(9).secondaryCard().animation(motion, value: period)
+    }
+
+    private var rangeTitle: some View {
+        VStack(spacing: 2) {
+            Text(periodTitle).font(.subheadline.weight(.bold)).foregroundStyle(SpotterPalette.ink)
+            Text(label(range)).font(.caption2.monospacedDigit()).foregroundStyle(SpotterPalette.muted)
+        }
+        .lineLimit(1).minimumScaleFactor(0.70)
+    }
+
+    private var weekPlans: [NativeWorkoutEntry] {
+        let from = spotterDay(range.lowerBound)
+        let through = spotterDay(range.upperBound)
+        return store.plans.filter { $0.owner == owner && $0.day >= from && $0.day <= through }
+            .sorted { $0.day == $1.day ? $0.displayTitle < $1.displayTitle : $0.day < $1.day }
+    }
+
+    private var weekReceipts: [NativeWorkoutEntry.Key: NativeWorkoutEntry] {
+        var result: [NativeWorkoutEntry.Key: NativeWorkoutEntry] = [:]
+        for entry in store.logs {
+            if let key = entry.planKey, result[key] == nil { result[key] = entry }
+        }
+        return result
+    }
+
+    private var weekProgress: some View {
+        let plans = weekPlans
+        let receipts = weekReceipts
+        let finished = plans.filter { receipts[$0.key] != nil }.count
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("本周计划进度", systemImage: "checklist").font(.headline)
+                Spacer(minLength: 4)
+                if !plans.isEmpty {
+                    Button { showsWeek = true } label: {
+                        Label("查看明细", systemImage: "chevron.right").font(.caption.weight(.semibold))
+                    }.buttonStyle(.spotterControl)
+                }
+            }
+            if plans.isEmpty {
+                Text("这周还没有安排训练计划。").font(.footnote).foregroundStyle(SpotterPalette.muted)
+            } else {
+                Text("已完成 \(finished) / \(plans.count) 堂").font(.subheadline.weight(.semibold)).monospacedDigit()
+                ProgressView(value: Double(finished), total: Double(plans.count)).tint(accent.tint)
+                    .accessibilityLabel("计划完成进度")
+                    .accessibilityValue("\(finished) 堂，共 \(plans.count) 堂")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12).secondaryCard()
+    }
+
+    private var weekDetails: some View {
+        let receipts = weekReceipts
+        return NavigationStack {
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(weekPlans, id: \.key) { plan in
+                        if let receipt = receipts[plan.key] {
+                            NavigationLink {
+                                NativeWorkoutDetailView(store: store, entry: receipt)
+                            } label: {
+                                SecondaryRow(title: plan.displayTitle, detail: "\(plan.day) · 已完成", icon: "checkmark.circle")
+                                    .secondaryCard()
+                            }.buttonStyle(.spotterPress)
+                        } else {
+                            SecondaryRow(title: plan.displayTitle, detail: "\(plan.day) · 待完成", icon: "calendar", accessory: nil)
+                                .secondaryCard()
+                        }
+                    }
+                }.secondaryPage()
+            }
+            .background(SpotterPalette.background)
+            .navigationTitle("本周计划进度").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { showsWeek = false }.buttonStyle(.spotterPress)
+                }
+            }
+        }
+        .presentationDragIndicator(.visible)
     }
 
     private func tile(_ key: SecondaryMetric, current: [NativeWorkoutEntry], former: [NativeWorkoutEntry]?) -> some View {
@@ -458,7 +621,7 @@ struct NativeSpotterStats: View {
     }
 
     private func comparisonCard(current: [NativeWorkoutEntry], former: [NativeWorkoutEntry]?) -> some View {
-        let value = metric.value(in: current) / Double(metric == .volume ? rangeCount(range) : 1)
+        let value = metric.value(in: current) / Double(metric == .volume ? rangeCount(elapsedRange) : 1)
         let prior = former.map { metric.value(in: $0) / Double(metric == .volume ? rangeCount(comparedRange) : 1) } ?? 0
         let scale = max(1, value, prior)
         return VStack(alignment: .leading, spacing: 9) {
@@ -466,7 +629,11 @@ struct NativeSpotterStats: View {
                 metricSelect("对比指标", value: $metric)
                 SecondarySelectionMenu(label: "比较范围", options: Compare.allCases, selection: $comparison, title: \.rawValue)
             }
-            comparisonRow("本期", value: value, scale: scale, period: range, empty: current.isEmpty)
+            if elapsedRange.upperBound < range.upperBound, former != nil {
+                Label("按本期已过去的天数对比", systemImage: "calendar.badge.clock")
+                    .font(.caption2.weight(.medium)).foregroundStyle(SpotterPalette.muted)
+            }
+            comparisonRow("本期", value: value, scale: scale, period: elapsedRange, empty: current.isEmpty)
             if let former { comparisonRow("对比期", value: prior, scale: scale, period: comparedRange, empty: former.isEmpty) }
         }.padding(12).secondaryCard()
     }
@@ -489,8 +656,8 @@ struct NativeSpotterStats: View {
     }
 
     private func trendCard(current: [NativeWorkoutEntry], former: [NativeWorkoutEntry]?) -> some View {
-        let points = max(2, min(120, max(rangeCount(range), rangeCount(comparedRange))))
-        let here = cumulative(current, in: range, points: points)
+        let points = max(2, min(120, max(rangeCount(elapsedRange), former == nil ? 0 : rangeCount(comparedRange))))
+        let here = cumulative(current, in: elapsedRange, points: points)
         let before = former.map { cumulative($0, in: comparedRange, points: points) }
         return VStack(alignment: .leading, spacing: 9) {
             SecondaryActionHeader(title: "累计趋势") { metricSelect("趋势指标", value: $trend) }
@@ -513,9 +680,9 @@ struct NativeSpotterStats: View {
                         .foregroundStyle(SpotterPalette.accent).interpolationMethod(.stepEnd)
                 }
                 .chartXAxis {
-                    AxisMarks(values: [0, (points - 1) / 2, points - 1]) { value in
+                    AxisMarks(values: Set([0, (points - 1) / 2, points - 1]).sorted()) { value in
                         if let index = value.as(Int.self) {
-                            AxisValueLabel { Text(spotterDay(SecondaryDate.shift(range.lowerBound, (rangeCount(range) - 1) * index / (points - 1))).suffix(5)) }
+                            AxisValueLabel { Text(spotterDay(SecondaryDate.shift(elapsedRange.lowerBound, (rangeCount(elapsedRange) - 1) * index / (points - 1))).suffix(5)) }
                         }
                     }
                 }
@@ -554,14 +721,113 @@ private func statNumber(_ value: Double) -> String { value.formatted(.number.pre
 
 private func stepButton(_ name: String, symbol: String, action: @escaping () -> Void) -> some View {
     Button(action: action) {
-        Image(systemName: symbol).font(.subheadline.weight(.semibold)).frame(width: 40, height: 40).contentShape(Rectangle())
-    }.buttonStyle(.spotterPress).accessibilityLabel(name)
+        Image(systemName: symbol).font(.subheadline.weight(.semibold)).frame(width: 22)
+    }.buttonStyle(.spotterControl).accessibilityLabel(name)
+}
+
+private struct SecondaryDateRangeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    @State var start: Date
+    @State var end: Date
+    let apply: (Date, Date) -> Void
+    @State private var edge = Edge.start
+
+    private enum Edge: String, CaseIterable {
+        case start = "开始", end = "结束"
+    }
+
+    private var valid: Bool { (1...3_660).contains(SecondaryDate.days(start, through: end)) }
+    private var firstDate: Date { SecondaryDate.parse("1900-01-01") ?? start }
+    private var selectedDate: Binding<Date> {
+        Binding(get: { edge == .start ? start : end }, set: { selected in
+            let day = SecondaryDate.calendar.startOfDay(for: selected)
+            if edge == .start {
+                start = day
+                if end < start { end = start }
+            } else {
+                end = day
+                if start > end { start = end }
+            }
+        })
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 9) {
+                        edgeButton(.start, date: start)
+                        Image(systemName: "arrow.right").font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                            .accessibilityHidden(true)
+                        edgeButton(.end, date: end)
+                    }
+                    DatePicker(edge == .start ? "开始日期" : "结束日期", selection: selectedDate,
+                               in: firstDate...SecondaryDate.today, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .labelsHidden()
+                        .environment(\.locale, Locale(identifier: "zh_CN"))
+                        .tint(accent.tint)
+                        .padding(7).secondaryCard(radius: 20)
+                    HStack(spacing: 7) {
+                        ForEach([7, 30, 90], id: \.self) { count in
+                            Button("近 \(count) 天") {
+                                withAnimation(motion) {
+                                    end = SecondaryDate.today
+                                    start = SecondaryDate.shift(end, 1 - count)
+                                }
+                            }.buttonStyle(.spotterControl)
+                        }
+                    }
+                    if !valid {
+                        Label("日期范围最长 10 年", systemImage: "exclamationmark.circle")
+                            .font(.footnote).foregroundStyle(.red)
+                    }
+                }.secondaryPage()
+            }
+            .background(SpotterPalette.background)
+            .navigationTitle("选择日期范围").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.buttonStyle(.spotterPress) }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button {
+                    apply(start, end)
+                    dismiss()
+                } label: {
+                    Text("应用范围 · \(SecondaryDate.days(start, through: end)) 天").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SpotterNativeButtonStyle(primary: true))
+                .disabled(!valid)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(SpotterPalette.background)
+            }
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private func edgeButton(_ value: Edge, date: Date) -> some View {
+        Button { withAnimation(motion) { edge = value } } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(value.rawValue, systemImage: "calendar").font(.caption2.weight(.semibold))
+                    .foregroundStyle(edge == value ? accent.tint : SpotterPalette.muted)
+                Text(spotterDay(date)).font(.subheadline.weight(.bold)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.72)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+            .spotterGlass(cornerRadius: 14, tint: accent.selection.opacity(edge == value ? 0.85 : 0.20), interactive: motion != nil)
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityAddTraits(edge == value ? .isSelected : [])
+    }
 }
 
 private struct SecondaryActivityCalendar: View {
     let entries: [NativeWorkoutEntry]
     let end: Date
     @State private var selected: String?
+    @Environment(\.spotterInteractionMotion) private var motion
 
     private static let colors = [
         Color(red: 0.90, green: 0.93, blue: 0.90), Color(red: 0.77, green: 0.89, blue: 0.76),
@@ -591,7 +857,7 @@ private struct SecondaryActivityCalendar: View {
                     }.foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal) {
-                            HStack(spacing: 3) {
+                            LazyHStack(spacing: 3) {
                                 ForEach(0..<weeks, id: \.self) { week in
                                     VStack(spacing: 3) {
                                         Text(monthTitle(SecondaryDate.shift(start, 7 * week)))
@@ -647,7 +913,7 @@ private struct SecondaryActivityCalendar: View {
         let minutes = SecondaryMetric.minutes.value(in: entries)
         let (amount, thresholds) = volume > 0 ? (volume, [500.0, 1_500, 3_000]) : sets > 0 ? (sets, [5, 10, 18]) : (minutes, [15, 30, 60])
         let level = amount > 0 ? 1 + thresholds.filter { amount >= $0 }.count : 0
-        return Button { selected = key } label: {
+        return Button { withAnimation(motion) { selected = key } } label: {
             RoundedRectangle(cornerRadius: 2).fill(Self.colors[level])
                 .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(selected == key ? SpotterPalette.ink : SpotterPalette.line, lineWidth: 1))
                 .frame(width: 14, height: 14)
@@ -1104,7 +1370,7 @@ struct SecondaryMusclePanel: View {
         VStack(alignment: .leading, spacing: 9) {
             Text("肌群训练分布").font(.headline)
             Text("按完成的正式组计数，不含热身。每组可能训练多个肌群。").font(.caption).foregroundStyle(SpotterPalette.muted)
-            SecondarySegment(options: Layer.allCases, value: $layer, title: \.rawValue)
+            SecondarySegment(options: Layer.allCases, value: $layer, title: \.rawValue, glass: true)
             if let catalogue {
                 let (totals, counts) = distribution(catalogue)
                 let highest = max(1, totals.max() ?? 0)
@@ -1225,6 +1491,7 @@ struct SecondaryMusclePanel: View {
 private struct SecondaryPerformance: View {
     let entries: [NativeWorkoutEntry]
     let compared: [NativeWorkoutEntry]?
+    let onRecord: (NativeWorkoutEntry) -> Void
     @State private var metric = Metric.maximum
     @AppStorage(NativePreferenceKey.oneRepMax) private var oneRepMax = "epley"
 
@@ -1236,32 +1503,69 @@ private struct SecondaryPerformance: View {
         let value: Double
         let weight: Double
         let reps: Double
+        let entry: NativeWorkoutEntry
     }
 
     var body: some View {
         let prior = compared.map(results)
         let current = results(entries).values.sorted { $0.value > $1.value }
+        let gain = mostImproved(current, compared: prior)
         return VStack(alignment: .leading, spacing: 10) {
             Text("动作表现").font(.headline)
-            SecondarySegment(options: Metric.allCases, value: $metric, title: \.rawValue)
+            SecondarySegment(options: Metric.allCases, value: $metric, title: \.rawValue, glass: true)
+            if let gain {
+                Button { onRecord(gain.lift.entry) } label: {
+                    HStack(spacing: 7) {
+                        Label(gain.lift.title, systemImage: "arrow.up.right").font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                        Spacer(minLength: 4)
+                        Text("+\(statNumber(gain.delta)) kg").font(.subheadline.weight(.bold)).monospacedDigit().lineLimit(1)
+                    }
+                    .foregroundStyle(SpotterPalette.ink)
+                    .padding(10).spotterGlass(cornerRadius: 12, tint: SpotterPalette.wash)
+                }.buttonStyle(.spotterPress)
+                    .accessibilityHint("对比期进步最多，打开训练记录")
+            }
             if current.isEmpty { SecondaryNotice(message: "此周期没有可计算的负重纪录。") }
             else {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                     ForEach(Array(current.prefix(8))) { lift in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Label(lift.title, systemImage: "dumbbell").font(.caption.weight(.semibold)).lineLimit(2)
-                            Text("\(statNumber(lift.value)) kg").font(.title3.weight(.heavy)).foregroundStyle(SpotterPalette.accent).monospacedDigit()
-                            Text("\(statNumber(lift.weight)) kg × \(Int(lift.reps)) 次 · \(lift.day.suffix(5))").font(.caption2)
-                            if let prior {
-                                Text(prior[lift.id].map { "对比期 \(statNumber($0.value)) kg" } ?? "对比期暂无记录").font(.caption2)
+                        Button { onRecord(lift.entry) } label: {
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack {
+                                    Label(lift.title, systemImage: "dumbbell").font(.caption.weight(.semibold)).lineLimit(2)
+                                    Spacer(minLength: 1)
+                                    Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).accessibilityHidden(true)
+                                }
+                                Text("\(statNumber(lift.value)) kg").font(.title3.weight(.heavy)).foregroundStyle(SpotterPalette.accent).monospacedDigit()
+                                Text("\(statNumber(lift.weight)) kg × \(Int(lift.reps)) 次 · \(lift.day.suffix(5))").font(.caption2)
+                                if let prior {
+                                    Text(prior[lift.id].map { "对比期 \(statNumber($0.value)) kg" } ?? "对比期暂无记录").font(.caption2)
+                                }
                             }
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(9)
-                            .background(SpotterPalette.wash.opacity(0.54), in: RoundedRectangle(cornerRadius: 9))
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(9)
+                            .spotterGlass(cornerRadius: 11, tint: SpotterPalette.wash.opacity(0.54))
+                        }
+                        .buttonStyle(.spotterPress)
+                        .accessibilityHint("查看这条训练记录")
                     }
                 }
             }
             Text("重量统一换算为 kg。分侧记录按较重一侧统计个人纪录。").font(.caption2).foregroundStyle(SpotterPalette.muted)
         }.padding(12).secondaryCard()
+    }
+
+    private func mostImproved(_ current: [Result], compared: [String: Result]?) -> (lift: Result, delta: Double)? {
+        guard let compared else { return nil }
+        var best: (lift: Result, delta: Double)?
+        for lift in current {
+            guard let previous = compared[lift.id] else { continue }
+            let difference = lift.value - previous.value
+            if difference >= 0.1 && difference > (best?.delta ?? 0) {
+                best = (lift, difference)
+            }
+        }
+        return best
     }
 
     private func results(_ records: [NativeWorkoutEntry]) -> [String: Result] {
@@ -1281,7 +1585,7 @@ private struct SecondaryPerformance: View {
                         let value = metric == .weight || reps == 1 ? weight :
                             oneRepMax == "brzycki" ? weight * 36 / (37 - reps) : weight * (1 + reps / 30)
                         if value > (result[key]?.value ?? 0) {
-                            result[key] = Result(id: key, title: title, day: entry.day, value: value, weight: weight, reps: reps)
+                            result[key] = Result(id: key, title: title, day: entry.day, value: value, weight: weight, reps: reps, entry: entry)
                         }
                     }
                 }
@@ -1294,11 +1598,9 @@ private struct SecondaryPerformance: View {
 @MainActor
 private struct SecondaryHistory: View {
     @ObservedObject var store: NativeWorkoutStore
-    let availableHeight: CGFloat
     @Environment(\.spotterInteractionMotion) private var motion
     @ScaledMetric(relativeTo: .caption) private var dateHeight: CGFloat = 29
     @ScaledMetric(relativeTo: .caption2) private var chipHeight: CGFloat = 25
-    @ScaledMetric(relativeTo: .caption) private var legendHeight: CGFloat = 18
     @State private var month = SecondaryDate.monthStart(SecondaryDate.today)
     @State private var scope = Scope.all
     @State private var selection: Selection?
@@ -1325,10 +1627,11 @@ private struct SecondaryHistory: View {
 
     private static let ownTone = SpotterPalette.color(0x476a42)
     private static let partnerTone = SpotterPalette.color(0x694b99)
-    private let cardInset: CGFloat = 12
-    private let sectionSpacing: CGFloat = 9
+    private let cardInset: CGFloat = 10
+    private let sectionSpacing: CGFloat = 7
     private let navigationButtonSize: CGFloat = 44
-    private let weekdayHeight: CGFloat = 20
+    private let weekdayHeight: CGFloat = 19
+    private let legendHeight: CGFloat = 21
     private let weekSpacing: CGFloat = 2
 
     private var owner: String { store.owner }
@@ -1353,38 +1656,51 @@ private struct SecondaryHistory: View {
         return byDay
     }
 
+    private var gridStart: Date { SecondaryDate.weekStart(month) }
+    private var nextMonth: Date { SecondaryDate.shift(month, 1, component: .month) }
+    private var weeks: Int {
+        (SecondaryDate.days(gridStart, through: SecondaryDate.shift(nextMonth, -1)) + 6) / 7
+    }
+    private var columns: [GridItem] { Array(repeating: GridItem(.flexible(minimum: 0), spacing: 3), count: 7) }
+
     var body: some View {
-        let start = SecondaryDate.weekStart(month)
-        let next = SecondaryDate.shift(month, 1, component: .month)
-        let last = SecondaryDate.shift(next, -1)
-        let days = (SecondaryDate.days(start, through: last) + 6) / 7 * 7
-        let weeks = CGFloat(days / 7)
-        let calendarChrome = navigationButtonSize + weekdayHeight + legendHeight + 2 * (cardInset + sectionSpacing) + weeks * weekSpacing
-        let rowHeight = max(dateHeight + 2 * chipHeight + 8, (availableHeight - calendarChrome) / weeks)
         let records = grouped
-        return VStack(alignment: .leading, spacing: sectionSpacing) {
-            monthHeader
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 3), count: 7), spacing: weekSpacing) {
-                ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) {
-                    Text($0).font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
-                        .frame(minHeight: weekdayHeight)
-                        .accessibilityLabel("星期\($0)")
+        return GeometryReader { size in
+            let chrome = navigationButtonSize + weekdayHeight + legendHeight + cardInset * 2
+                + sectionSpacing * 3 + CGFloat(weeks - 1) * weekSpacing
+            let rowHeight = max(0, floor((size.size.height - chrome) / CGFloat(weeks)))
+            VStack(alignment: .leading, spacing: sectionSpacing) {
+                monthHeader.frame(height: navigationButtonSize)
+                LazyVGrid(columns: columns, spacing: 0) {
+                    ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) {
+                        Text($0).font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                            .lineLimit(1).minimumScaleFactor(0.65)
+                            .frame(height: weekdayHeight)
+                            .accessibilityLabel("星期\($0)")
+                    }
                 }
-                ForEach(0..<days, id: \.self) { index in
-                    let date = SecondaryDate.shift(start, index)
-                    calendarCell(date, records: records[spotterDay(date), default: []], inside: date >= month && date < next, rowHeight: rowHeight)
+                LazyVGrid(columns: columns, spacing: weekSpacing) {
+                    ForEach(0..<(weeks * 7), id: \.self) { index in
+                        let date = SecondaryDate.shift(gridStart, index)
+                        calendarCell(date, records: records[spotterDay(date), default: []],
+                                     inside: date >= month && date < nextMonth, rowHeight: rowHeight)
+                    }
                 }
+                HStack(spacing: 14) {
+                    if visibleScope != .partner { legend("我", tone: Self.ownTone) }
+                    if partnerID != nil, visibleScope != .mine { legend(partnerName, tone: Self.partnerTone) }
+                }.frame(height: legendHeight)
             }
-            HStack(spacing: 14) {
-                if visibleScope != .partner { legend("我", tone: Self.ownTone) }
-                if partnerID != nil, visibleScope != .mine { legend(partnerName, tone: Self.partnerTone) }
-            }
-            .frame(minHeight: legendHeight)
+            .padding(cardInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .secondaryCard(radius: 20)
         }
-        .padding(cardInset).secondaryCard(radius: 20)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("训练月历")
         .onChange(of: partnerID) { _ in scope = .all }
+        .task(id: month) {
+            await store.loadHistory(from: spotterDay(gridStart), through: spotterDay(SecondaryDate.shift(gridStart, weeks * 7 - 1)))
+        }
         .sheet(item: $selection, onDismiss: endOrdering) { selection in
             NavigationStack {
                 switch selection {
@@ -1426,17 +1742,16 @@ private struct SecondaryHistory: View {
     private func headerIcon(_ symbol: String) -> some View {
         Image(systemName: symbol).font(.subheadline.weight(.semibold))
             .foregroundStyle(SpotterPalette.ink)
-            .frame(width: navigationButtonSize, height: navigationButtonSize)
-            .secondaryCard(radius: 10)
+            .frame(width: 22)
     }
 
     private func monthStep(_ label: String, symbol: String, direction: Int) -> some View {
         Button {
-            month = SecondaryDate.shift(month, direction, component: .month)
+            withAnimation(motion) { month = SecondaryDate.shift(month, direction, component: .month) }
         } label: {
             headerIcon(symbol)
         }
-        .buttonStyle(.spotterPress)
+        .buttonStyle(.spotterControl)
         .accessibilityLabel(label)
     }
 
@@ -1444,6 +1759,7 @@ private struct SecondaryHistory: View {
         HStack(spacing: 6) {
             Capsule().fill(tone).frame(width: 12, height: 7).accessibilityHidden(true)
             Text(name).font(.caption).foregroundStyle(SpotterPalette.muted)
+                .lineLimit(1).minimumScaleFactor(0.65)
         }
     }
 
@@ -1452,9 +1768,14 @@ private struct SecondaryHistory: View {
         let isToday = key == spotterDay(SecondaryDate.today)
         let mine = records.filter { $0.owner == owner }
         let other = records.first { $0.owner != owner }
-        let previews = if let own = mine.first, let other { [own, other] } else { Array(records.prefix(2)) }
+        let headerSize = min(dateHeight, max(18, rowHeight - 3))
+        let chipSize = min(chipHeight, 25)
+        let capacity = min(2, max(0, Int((rowHeight - headerSize - 4) / (chipSize + 2))))
+        let previewOrder = if let own = mine.first, let other { [own, other] } else { Array(records.prefix(2)) }
+        let previews = Array(previewOrder.prefix(capacity))
         let extra = records.count - previews.count
-        let badgeSize = min(dateHeight - 4, 29)
+        let badgeSize = min(headerSize - 2, 28)
+        let hasAbbreviatedChips = !records.isEmpty && previews.isEmpty
         let counts = [isToday ? "今天" : "", key, "\(records.count) 次打卡",
                       mine.isEmpty ? "" : "我 \(mine.count) 次",
                       other == nil ? "" : "\(partnerName) \(records.count - mine.count) 次"]
@@ -1462,26 +1783,37 @@ private struct SecondaryHistory: View {
         return VStack(alignment: .leading, spacing: 2) {
             Rectangle().fill(SpotterPalette.line).frame(height: 1).accessibilityHidden(true)
             Button { selection = .day(key) } label: {
-                HStack(spacing: 1) {
-                    Text(SecondaryDate.calendar.component(.day, from: date).formatted())
-                        .font(.subheadline.weight(.bold)).monospacedDigit()
-                        .lineLimit(1).minimumScaleFactor(0.55)
-                        .foregroundStyle(isToday ? .white : (inside ? SpotterPalette.ink : SpotterPalette.muted))
-                        .frame(width: badgeSize, height: badgeSize)
-                        .background(isToday ? SpotterPalette.color(0x375b3b) : .clear, in: Circle())
-                    if extra > 0 {
-                        Text("+\(extra)").font(.caption2.weight(.bold)).monospacedDigit().minimumScaleFactor(0.5)
-                            .foregroundStyle(Self.ownTone).lineLimit(1)
+                VStack(spacing: 1) {
+                    HStack(spacing: 1) {
+                        Text(SecondaryDate.calendar.component(.day, from: date).formatted())
+                            .font(.subheadline.weight(.bold)).monospacedDigit()
+                            .lineLimit(1).minimumScaleFactor(0.55)
+                            .foregroundStyle(isToday ? .white : (inside ? SpotterPalette.ink : SpotterPalette.muted))
+                            .frame(width: badgeSize, height: badgeSize)
+                            .background(isToday ? SpotterPalette.color(0x375b3b) : .clear, in: Circle())
+                        if extra > 0 {
+                            Text(previews.isEmpty ? "\(extra)" : "+\(extra)")
+                                .font(.caption2.weight(.bold)).monospacedDigit().minimumScaleFactor(0.50)
+                                .foregroundStyle(Self.ownTone).lineLimit(1)
+                        }
+                    }
+                    if hasAbbreviatedChips && rowHeight >= headerSize + 10 {
+                        HStack(spacing: 3) {
+                            if !mine.isEmpty { Circle().fill(Self.ownTone).frame(width: 5, height: 5) }
+                            if other != nil { Circle().fill(Self.partnerTone).frame(width: 5, height: 5) }
+                        }.accessibilityHidden(true)
                     }
                 }
-                .frame(maxWidth: .infinity).frame(height: dateHeight).contentShape(Rectangle())
+                .frame(maxWidth: .infinity)
+                .frame(height: previews.isEmpty ? max(0, rowHeight - 3) : headerSize, alignment: .top)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.spotterPress)
             .accessibilityLabel(counts)
             ForEach(previews, id: \.key) { record in
                 Button { selection = .workout(record) } label: {
                     Text(record.title).font(.caption2.weight(.bold)).lineLimit(2).minimumScaleFactor(0.85)
-                        .padding(.horizontal, 3).frame(maxWidth: .infinity, alignment: .leading).frame(height: chipHeight)
+                        .padding(.horizontal, 3).frame(maxWidth: .infinity, alignment: .leading).frame(height: chipSize)
                         .foregroundStyle(.white)
                         .background(record.owner == owner ? Self.ownTone : Self.partnerTone, in: RoundedRectangle(cornerRadius: 5))
                 }
@@ -1511,11 +1843,11 @@ private struct SecondaryHistory: View {
                         if let draftOrder {
                             Button(savingOrder ? "保存中…" : "保存排序") {
                                 Task { await saveOrder(day, ids: draftOrder) }
-                            }.buttonStyle(SecondaryButtonStyle(primary: true)).disabled(savingOrder)
+                            }.buttonStyle(.spotterControl).disabled(savingOrder)
                             Button("取消排序", action: endOrdering)
-                                .buttonStyle(SecondaryButtonStyle()).disabled(savingOrder)
+                                .buttonStyle(.spotterControl).disabled(savingOrder)
                         } else {
-                            Button("排序我的训练") { draftOrder = ownIDs }.buttonStyle(SecondaryButtonStyle())
+                            Button("排序我的训练") { withAnimation(motion) { draftOrder = ownIDs } }.buttonStyle(.spotterControl)
                         }
                     }
                 }
@@ -1568,7 +1900,7 @@ private struct SecondaryHistory: View {
         } label: {
             headerIcon(direction < 0 ? "arrow.up" : "arrow.down")
         }
-        .buttonStyle(.spotterPress)
+        .buttonStyle(.spotterControl)
         .accessibilityLabel("\(name) \(record.title)")
         .disabled(savingOrder || !ids.indices.contains(target))
     }
@@ -1627,6 +1959,8 @@ struct NativeSettings: View {
     var refreshPlans: @MainActor () async -> Void = {}
     var openTraining: (() -> Void)? = nil
     var workoutStore: NativeWorkoutStore? = nil
+    var trainingPreferences: NativeAccountPreferences? = nil
+    var restartWelcome: (() -> Void)? = nil
 
     private enum Page: String, CaseIterable, Identifiable {
         case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", planImport = "粘贴已有内容", programs = "训练周期", reminders = "训练提醒"
@@ -1768,7 +2102,7 @@ struct NativeSettings: View {
     @ViewBuilder private func destination(_ page: Page) -> some View {
         switch page {
         case .protein: NativeProteinView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
-        case .equipment: NativeEquipmentPreferences()
+        case .equipment: NativeEquipmentPreferences(sync: trainingPreferences)
         case .planImport: NativePlanImportView(api: account.api, owner: owner, didImport: refreshPlans)
         case .programs: NativeProgramsView(api: account.api, owner: owner, didSchedule: refreshPlans, store: workoutStore)
         default:
@@ -1778,17 +2112,17 @@ struct NativeSettings: View {
                     switch page {
                     case .account: accountContent
                     case .workout: NativeWorkoutPreferences()
-                    case .timer: NativeTimerPreferences()
+                    case .timer: NativeTimerPreferences(sync: trainingPreferences)
                     case .schedule: scheduleContent
                     case .planImport: EmptyView()
                     case .programs: EmptyView()
                     case .reminders: NativeTrainingReminderSettings(owner: owner)
-                    case .units: NativeUnitsPreferences()
+                    case .units: NativeUnitsPreferences(sync: trainingPreferences)
                     case .equipment: EmptyView()
                     case .appearance: NativeAppearancePreferences()
                     case .modules: NativeModulePreferences()
                     case .data: NativeBackupSettings(api: account.api, owner: owner, didImport: refreshPlans)
-                    case .watches: NativeHealthSummary(api: account.api, owner: owner)
+                    case .watches: NativeHealthSummary(api: account.api, owner: owner, workouts: workoutStore)
                     case .integrations:
                         rows([.watches], title: "健康与设备")
                         rows([.coach], title: "数据和 AI")
@@ -1825,6 +2159,8 @@ struct NativeSettings: View {
 
     private var coachContent: some View {
         SecondaryGroup {
+            NativeCoachMessageUsage(api: account.api)
+            Divider()
             NavigationLink {
                 NativeCoachView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
             } label: { SecondaryRow(title: "打开 AI 教练", icon: "sparkles") }.buttonStyle(.spotterPress)
@@ -1854,8 +2190,9 @@ struct NativeSettings: View {
                 Button {
                     Task { await refreshPlans(); await loadHandle() }
                 } label: {
-                    SecondaryRow(title: "立即同步", icon: "arrow.clockwise", accessory: nil)
+                    SecondaryRow(title: "立即同步", detail: workoutStore?.status, icon: "arrow.clockwise", accessory: nil)
                 }.buttonStyle(.spotterPress).disabled(handleBusy || nicknameBusy || account.isBusy)
+                if let trainingPreferences { NativePreferenceSyncStatus(sync: trainingPreferences) }
                 Divider()
                 Button { Task { await account.signOut() } } label: {
                     SecondaryRow(title: "退出当前账号", icon: "rectangle.portrait.and.arrow.right", accessory: nil)
@@ -2036,6 +2373,12 @@ struct NativeSettings: View {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
         return SecondaryGroup(title: "训练搭子 · Spotter") {
             SecondaryRow(title: "App 版本", detail: "\(version) (\(build))", icon: "info.circle", accessory: nil)
+            if let restartWelcome {
+                Divider()
+                Button(action: restartWelcome) {
+                    SecondaryRow(title: "重新查看使用引导", icon: "sparkle.magnifyingglass")
+                }.buttonStyle(.spotterPress)
+            }
             Divider()
             NativeSupportLinks().frame(maxWidth: .infinity, minHeight: 54, alignment: .leading).padding(.horizontal, 13)
         }
@@ -2119,15 +2462,91 @@ private struct NativeWorkoutPreferences: View {
     }
 }
 
+private struct NativePreferenceSyncStatus: View {
+    @ObservedObject var sync: NativeAccountPreferences
+
+    var body: some View {
+        if let notice = sync.notice {
+            Text(notice).font(.footnote).foregroundStyle(SpotterPalette.muted).padding(.horizontal, 13).padding(.bottom, 9)
+        }
+    }
+}
+
+private struct NativeCoachMessageUsage: View {
+    private struct Config: Decodable {
+        var enabled: Bool
+        var quota: Quota?
+    }
+
+    private struct Quota: Decodable {
+        let dailyLimit: Int
+        let dailyRemaining: Int
+        let monthlyLimit: Int
+        let monthlyRemaining: Int
+        let dailyResetsAt: String
+        let monthlyResetsAt: String
+    }
+
+    let api: NativeAPI
+    @State private var config: Config?
+    @State private var failed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("AI 消息用量", systemImage: "chart.bar").font(.headline)
+            if let quota = config?.quota {
+                allowance("今天", remaining: quota.dailyRemaining, limit: quota.dailyLimit, reset: quota.dailyResetsAt)
+                allowance("本月", remaining: quota.monthlyRemaining, limit: quota.monthlyLimit, reset: quota.monthlyResetsAt)
+            } else if failed {
+                Button { Task { await load() } } label: { Label("暂时无法读取用量，点此重试", systemImage: "arrow.clockwise") }
+                    .buttonStyle(.spotterPress).font(.subheadline)
+            } else if config != nil {
+                Text("AI 教练当前不可用。").font(.subheadline).foregroundStyle(SpotterPalette.muted)
+            } else {
+                ProgressView("正在读取用量").font(.subheadline)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(13)
+        .task { await load() }
+    }
+
+    private func allowance(_ label: String, remaining: Int, limit: Int, reset: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                Spacer()
+                Text("剩余 \(remaining.formatted()) / \(limit.formatted()) 条")
+                    .fontWeight(.semibold).monospacedDigit()
+            }.font(.subheadline)
+            ProgressView(value: Double(limit - remaining), total: Double(max(1, limit))).tint(SpotterPalette.accent)
+            if let time = ISO8601DateFormatter().date(from: reset) {
+                Text("重置于 \(time.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption).foregroundStyle(SpotterPalette.muted)
+            }
+        }
+    }
+
+    private func load() async {
+        failed = false
+        do { config = try await api.spotterRead("/api/ai-coach", as: Config.self) }
+        catch { if !Task.isCancelled { failed = true } }
+    }
+}
+
 private struct NativeTimerPreferences: View {
     @AppStorage(NativePreferenceKey.defaultRest) private var rest = 30
     @AppStorage(NativePreferenceKey.restSound) private var sound = false
     @AppStorage(NativePreferenceKey.restHaptics) private var haptics = false
     @AppStorage(NativePreferenceKey.keepAwake) private var keepAwake = false
+    var sync: NativeAccountPreferences?
 
     var body: some View {
         SecondaryGroup(title: "组间休息") {
-            Stepper("默认休息 · \(rest) 秒", value: $rest, in: 0...600, step: 5).padding(13)
+            Stepper("默认休息 · \(rest) 秒", value: Binding(get: { rest }, set: { value in
+                rest = value
+                sync?.save(rest: value)
+            }), in: 0...600, step: 5).padding(13)
             Divider()
             NativeSettingToggle(title: "提示声音", detail: "训练页面打开时，组间休息倒数结束后提示。", value: $sound)
             Divider()
@@ -2143,6 +2562,8 @@ private struct NativeTrainingReminderSettings: View {
     @AppStorage private var enabled: Bool
     @AppStorage private var minute: Int
     @State private var showPreview = false
+    @State private var permissionMessage: String?
+    @Environment(\.openURL) private var openURL
 
     init(owner: String) {
         _enabled = AppStorage(wrappedValue: false, NativePreferenceKey.reminderKey(owner, field: "enabled"))
@@ -2160,9 +2581,26 @@ private struct NativeTrainingReminderSettings: View {
 
     var body: some View {
         SecondaryGroup {
-            NativeSettingToggle(title: "每日训练提醒", detail: "在 App 打开时提醒当天未完成的训练。", value: $enabled)
+            NativeSettingToggle(title: "每日训练提醒", detail: "按已排训练发送提醒，锁屏时也可收到。", value: Binding(
+                get: { enabled },
+                set: { value in
+                    if value { Task { await requestNotifications() } }
+                    else { enabled = false; permissionMessage = nil }
+                }
+            ))
             Divider()
             DatePicker("提醒时间", selection: time, displayedComponents: .hourAndMinute).padding(13).disabled(!enabled)
+            if enabled {
+                Divider()
+                Button("检查系统通知权限") { Task { await requestNotifications() } }
+                    .buttonStyle(.spotterPress).padding(13)
+            }
+            if let permissionMessage {
+                Text(permissionMessage).font(.footnote).foregroundStyle(SpotterPalette.muted).padding(.horizontal, 13)
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    Button("打开 iPhone 设置") { openURL(url) }.buttonStyle(.spotterPress).padding(13)
+                }
+            }
             Divider()
             Button { showPreview = true } label: {
                 SecondaryRow(title: "试试提醒", icon: "bell.badge", accessory: nil)
@@ -2172,16 +2610,30 @@ private struct NativeTrainingReminderSettings: View {
             Text(NativePreferenceKey.reminderTitle)
         }
     }
+
+    private func requestNotifications() async {
+        if await NativeTrainingNotifications.shared.enable() {
+            enabled = true
+            permissionMessage = nil
+        } else {
+            enabled = false
+            permissionMessage = "系统通知未开启。可以在 iPhone 设置中选取训练搭子并允许通知。"
+        }
+    }
 }
 
 private struct NativeUnitsPreferences: View {
     @AppStorage(NativePreferenceKey.unit) private var unit = "kg"
     @AppStorage(NativePreferenceKey.exerciseLanguage) private var language = "zh"
     @AppStorage(NativePreferenceKey.oneRepMax) private var oneRepMax = "epley"
+    var sync: NativeAccountPreferences?
 
     var body: some View {
         SecondaryGroup {
-            SpotterMenuPicker("新动作的重量单位", selection: $unit, options: [("kg", "千克（kg）"), ("lb", "磅（lb）")]).padding(9)
+            SpotterMenuPicker("新动作的重量单位", selection: Binding(get: { unit }, set: { value in
+                unit = value
+                sync?.save(unit: value)
+            }), options: [("kg", "千克（kg）"), ("lb", "磅（lb）")]).padding(9)
             Divider()
             SpotterMenuPicker("动作库名称", selection: $language, options: [("zh", "中文"), ("en", "English"), ("both", "中英文")]).padding(9)
             Divider()
@@ -2196,6 +2648,7 @@ private struct NativeEquipmentPreferences: View {
     @AppStorage(NativeGymPreferences.storageKey) private var saved = Data()
     @AppStorage(NativePreferenceKey.equipment) private var legacy = ""
     @State private var name = ""
+    var sync: NativeAccountPreferences?
 
     private var preferences: NativeGymPreferences { .read(saved, legacy: legacy) }
 
@@ -2209,7 +2662,7 @@ private struct NativeEquipmentPreferences: View {
                 gymPicker
                 NativeGymEquipmentGrid(preferences: preferences, toggle: { key in update { $0.toggle(key) } },
                                        toggleAll: { update { $0.toggleAll() } })
-                Text("动作库可按当前配置筛选器械。配置留空时显示所有器械。")
+                Text("器械配置随账号同步。配置留空时显示所有器械。")
                     .font(.footnote).foregroundStyle(SpotterPalette.muted).padding(.horizontal, 12)
             }.secondaryPage()
         }
@@ -2246,13 +2699,14 @@ private struct NativeEquipmentPreferences: View {
         var next = preferences
         guard next.add(name), let data = try? JSONEncoder().encode(next) else { return }
         saved = data
+        sync?.save(gyms: next)
         name = ""
     }
 
     private func update(_ change: (inout NativeGymPreferences) -> Void) {
         var next = preferences
         change(&next)
-        if let data = try? JSONEncoder().encode(next) { saved = data }
+        if let data = try? JSONEncoder().encode(next) { saved = data; sync?.save(gyms: next) }
     }
 }
 
@@ -2602,6 +3056,39 @@ private struct SecondaryFriendFeed: Decodable {
     let days: [Day]
 }
 
+private struct SecondaryFriendEngagement: Decodable {
+    struct Cheers: Decodable, Identifiable {
+        struct Workout: Decodable, Identifiable {
+            let id: String
+            let title: String
+        }
+        let date: String
+        let names: [String]
+        let workouts: [Workout]
+        var id: String { date }
+    }
+
+    struct Appointment: Decodable, Identifiable {
+        let id: String
+        let sender: String
+        let recipient: String
+        let startsAt: Double
+        let note: String
+        let status: String
+        var date: Date { Date(timeIntervalSince1970: startsAt / 1000) }
+        var statusLabel: String {
+            switch status {
+            case "accepted": "已约好"
+            case "declined": "已婉拒"
+            case "cancelled": "已取消"
+            default: date < .now ? "已过期" : "待确认"
+            }
+        }
+    }
+    let cheers: [Cheers]
+    var appointments: [Appointment]
+}
+
 private func friendPath(_ query: [URLQueryItem]) -> String {
     var parts = URLComponents()
     parts.path = "/api/friends"
@@ -2617,6 +3104,7 @@ struct NativeFriends: View {
     let owner: String
     let buddySearchRequest: Int
     let openOwnLog: (@MainActor (String) -> Void)?
+    let openOwnLogDay: (@MainActor (String, String) -> Void)?
     let refreshPlans: @MainActor () async -> Void
     @AppStorage(NativePreferenceKey.coachingEntry) private var showsCoaching = false
     @Environment(\.spotterAccent) private var accent
@@ -2639,8 +3127,18 @@ struct NativeFriends: View {
     @State private var notice: String?
     @State private var error = false
     @State private var busy = false
+    @State private var engagement: SecondaryFriendEngagement?
+    @State private var engagementError: String?
+    @State private var engagementLoading = false
+    @State private var appointmentTime = Date.now.addingTimeInterval(3_600)
+    @State private var appointmentNote = ""
+    @State private var appointmentID = UUID().uuidString.lowercased()
+    @State private var selectedCheerWorkout: (id: String, date: String)?
 
-    private enum Dialog: String, Identifiable { case invite = "添加好友", requests = "新的朋友"; var id: Self { self } }
+    private enum Dialog: String, Identifiable {
+        case invite = "添加好友", requests = "新的朋友", cheers = "收到的加油", appointments = "约下次训练"
+        var id: Self { self }
+    }
     private enum InviteTab: String, CaseIterable { case search = "搜索用户名", code = "邀请链接" }
     private struct SearchPerson: Decodable, Identifiable { let id: String; let name: String; let handle: String? }
     private struct SearchResponse: Decodable { let results: [SearchPerson] }
@@ -2652,11 +3150,13 @@ struct NativeFriends: View {
 
     init(api: NativeAPI, owner: String, initialPage: NativeFriendsPage = .contacts, initialBuddySearch: Bool = false,
          buddySearchRequest: Int = 0, openOwnLog: (@MainActor (String) -> Void)? = nil,
+         openOwnLogDay: (@MainActor (String, String) -> Void)? = nil,
          refreshPlans: @escaping @MainActor () async -> Void) {
         self.api = api
         self.owner = owner
         self.buddySearchRequest = buddySearchRequest
         self.openOwnLog = openOwnLog
+        self.openOwnLogDay = openOwnLogDay
         self.refreshPlans = refreshPlans
         _page = State(initialValue: initialPage)
         _dialog = State(initialValue: initialBuddySearch ? .invite : nil)
@@ -2666,6 +3166,8 @@ struct NativeFriends: View {
     private var listPath: String { friendPath([URLQueryItem(name: "today", value: spotterDay())]) }
     private var socialPath: String { "/api/friends?section=social&includeBuddy=1" }
     private var feedPath: String { "/api/friends?feed=2" }
+    private var engagementPath: String { "/api/friends/engagement" }
+    private var buddy: SecondaryFriend? { data?.friends.first(where: \.buddy) }
     private var cleanedCode: String { code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
     var body: some View {
@@ -2690,15 +3192,19 @@ struct NativeFriends: View {
         .onChange(of: buddySearchRequest) { _ in presentRequestedBuddySearch() }
         .onChange(of: search) { _ in results = nil }
         .task(id: page) {
-            if page == .feed, feed == nil { await loadFeed() }
+            if page == .feed { await loadFeed() }
         }
         .refreshable { await load(); if page == .feed { await loadFeed() } }
-        .sheet(item: $dialog) { item in
+        .sheet(item: $dialog, onDismiss: openSelectedCheerWorkout) { item in
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 13) {
-                        if item == .invite { invitation }
-                        else { requests }
+                        switch item {
+                        case .invite: invitation
+                        case .requests: requests
+                        case .cheers: receivedCheers
+                        case .appointments: appointments
+                        }
                         if let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
                     }.secondaryPage()
                 }.background(SpotterPalette.background)
@@ -2706,6 +3212,9 @@ struct NativeFriends: View {
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) { Button("完成") { closeDialog() }.buttonStyle(.spotterPress).disabled(busy) }
                     }
+            }
+            .task {
+                if item == .cheers || item == .appointments { await loadEngagement() }
             }
             .presentationDetents(item == .invite ? [.medium, .large] : [.large])
             .presentationDragIndicator(.visible)
@@ -2733,6 +3242,13 @@ struct NativeFriends: View {
                 let buddies = data.friends.filter(\.buddy)
                 let ordinary = data.friends.filter { !$0.buddy }
                 if !buddies.isEmpty { contactGroup("训练搭子", friends: buddies) }
+                if let buddy {
+                    Button { open(.appointments) } label: {
+                        SecondaryRow(title: "约下次训练", detail: "与 \(buddy.name) 确认时间",
+                                     icon: "calendar.badge.plus", color: accent.selection)
+                            .spotterGlass(cornerRadius: 15, interactive: motion != nil)
+                    }.buttonStyle(.spotterPress)
+                }
                 if !ordinary.isEmpty { contactGroup("普通好友", friends: ordinary) }
                 if data.friends.isEmpty { SecondaryNotice(message: "添加好友后，可从联系人查看对方分享的每日记录。") }
             } else if !error { ProgressView("正在读取好友…") }
@@ -2793,6 +3309,11 @@ struct NativeFriends: View {
 
     private var feedContent: some View {
         LazyVStack(alignment: .leading, spacing: 18) {
+            Button { open(.cheers) } label: {
+                SecondaryRow(title: "收到的加油", detail: "查看好友最近为你的哪些打卡加油了",
+                             icon: "heart.fill", color: accent.selection)
+                    .spotterGlass(cornerRadius: 15, interactive: motion != nil)
+            }.buttonStyle(.spotterPress)
             if let feed {
                 let activeDays = feed.days.filter { !$0.items.isEmpty }
                 if let feedError { SecondaryNotice(message: feedError, warning: true) }
@@ -2816,6 +3337,151 @@ struct NativeFriends: View {
         }
         .animation(motion, value: feed?.days.map { $0.items.count })
         .animation(motion, value: feedError)
+    }
+
+    @ViewBuilder private var receivedCheers: some View {
+        Text("近 14 天").font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+        if let engagement {
+            if engagement.cheers.isEmpty {
+                SecondaryNotice(message: "这段时间还没有收到加油。")
+            }
+            ForEach(engagement.cheers) { day in
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack(spacing: 8) {
+                        SecondaryTile(icon: "heart.fill", color: accent.selection)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(day.date).font(.caption.monospacedDigit()).foregroundStyle(SpotterPalette.muted)
+                            Text(day.names.joined(separator: "、") + " 给你加油了").font(.subheadline.weight(.semibold))
+                        }
+                    }
+                    ForEach(day.workouts) { workout in
+                        Button {
+                            selectedCheerWorkout = (workout.id, day.date)
+                            closeDialog()
+                        } label: {
+                            SecondaryRow(title: workout.title, icon: "dumbbell", color: SpotterPalette.wash)
+                        }
+                        .buttonStyle(.spotterPress)
+                        .disabled(openOwnLogDay == nil && openOwnLog == nil)
+                    }
+                }.padding(11).secondaryCard()
+            }
+        } else {
+            engagementLoadState
+        }
+    }
+
+    @ViewBuilder private var appointments: some View {
+        if let buddy {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("邀请 \(buddy.name) 一起训练", systemImage: "person.2.fill").font(.headline)
+                DatePicker("训练时间", selection: $appointmentTime, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
+                    .tint(accent.tint).font(.subheadline)
+                TextField("地点或备注（选填）", text: $appointmentNote)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: appointmentNote) { value in
+                        if value.count > 180 { appointmentNote = String(value.prefix(180)) }
+                        appointmentID = UUID().uuidString.lowercased()
+                    }
+                Button {
+                    let body: [String: Any] = ["action": "propose", "expectedOwner": owner, "id": appointmentID,
+                      "partner": buddy.id, "startsAt": Int(appointmentTime.timeIntervalSince1970 * 1000), "note": appointmentNote]
+                    Task { await mutateAppointment(body, proposed: true) }
+                } label: {
+                    Label("发出训练邀约", systemImage: "paperplane.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SpotterNativeButtonStyle(primary: true))
+                .disabled(busy || engagementLoading || engagement == nil || appointmentTime <= .now)
+            }
+            .onChange(of: appointmentTime) { _ in appointmentID = UUID().uuidString.lowercased() }
+            .padding(13).secondaryCard()
+        }
+        if let engagement {
+            if engagement.appointments.isEmpty { SecondaryNotice(message: "还没有近期训练邀约。") }
+            ForEach(engagement.appointments) { appointment in
+                appointmentCard(appointment)
+            }
+        } else {
+            engagementLoadState
+        }
+    }
+
+    @ViewBuilder private var engagementLoadState: some View {
+        if let engagementError {
+            SecondaryNotice(message: engagementError, warning: true)
+            Button("重新读取") { Task { await loadEngagement() } }.buttonStyle(.spotterControl)
+        } else {
+            ProgressView("正在读取…").font(.footnote)
+        }
+    }
+
+    private func appointmentCard(_ appointment: SecondaryFriendEngagement.Appointment) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(appointment.sender == owner ? "我发起的邀约" : "搭子的邀约", systemImage: "calendar")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 3)
+                SecondaryBadge(text: appointment.statusLabel, green: appointment.status == "accepted")
+            }
+            Text(appointment.date, format: .dateTime.month().day().hour().minute()).font(.headline)
+            if !appointment.note.isEmpty { Text(appointment.note).font(.footnote).foregroundStyle(SpotterPalette.muted) }
+            if appointment.date > .now {
+                if appointment.recipient == owner && appointment.status == "pending" {
+                    HStack {
+                        appointmentButton("接受", action: "accept", item: appointment, primary: true)
+                        appointmentButton("婉拒", action: "decline", item: appointment)
+                    }
+                } else if (appointment.sender == owner && appointment.status == "pending") || appointment.status == "accepted" {
+                    appointmentButton("取消邀约", action: "cancel", item: appointment)
+                }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(13).secondaryCard()
+    }
+
+    private func appointmentButton(_ title: String, action: String, item: SecondaryFriendEngagement.Appointment, primary: Bool = false) -> some View {
+        Button(title) {
+            Task { await mutateAppointment(["action": action, "expectedOwner": owner, "id": item.id]) }
+        }.buttonStyle(SecondaryButtonStyle(primary: primary)).disabled(busy || engagementLoading)
+    }
+
+    private func openSelectedCheerWorkout() {
+        guard let workout = selectedCheerWorkout else { return }
+        selectedCheerWorkout = nil
+        if let openOwnLogDay { openOwnLogDay(workout.id, workout.date) }
+        else { openOwnLog?(workout.id) }
+    }
+
+    private func loadEngagement() async {
+        guard !engagementLoading else { return }
+        engagementLoading = true
+        defer { engagementLoading = false }
+        engagementError = nil
+        do {
+            let response = try await api.request(engagementPath, method: "GET", json: nil, for: owner)
+            let current = try JSONDecoder().decode(SecondaryFriendEngagement.self, from: response)
+            withAnimation(motion) { engagement = current }
+        } catch is CancellationError {
+        } catch { engagementError = error.localizedDescription }
+    }
+
+    private func mutateAppointment(_ body: [String: Any], proposed: Bool = false) async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            struct Update: Decodable { let appointments: [SecondaryFriendEngagement.Appointment] }
+            let json = try JSONSerialization.data(withJSONObject: body)
+            let response = try await api.request(engagementPath, method: "POST", json: json, for: owner)
+            let update = try JSONDecoder().decode(Update.self, from: response)
+            withAnimation(motion) {
+                engagement = SecondaryFriendEngagement(cheers: engagement?.cheers ?? [], appointments: update.appointments)
+            }
+            if proposed {
+                appointmentNote = ""
+                appointmentID = UUID().uuidString.lowercased()
+            }
+            report(proposed ? "训练邀约已发出。" : "训练邀约已更新。")
+        } catch { report(error.localizedDescription, failure: true) }
     }
 
     private var emptyFeed: some View {
@@ -3065,7 +3731,7 @@ struct NativeFriends: View {
                         .font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
                 HStack {
-                    ShareLink(item: api.origin + "/#friend-invite=" + invite.code) { Label("分享链接", systemImage: "square.and.arrow.up") }
+                    ShareLink(item: api.origin + "/invite/" + invite.code) { Label("分享链接", systemImage: "square.and.arrow.up") }
                         .buttonStyle(SecondaryButtonStyle(primary: true))
                     Button("复制邀请码") { UIPasteboard.general.string = invite.code; report("已复制邀请码。") }
                         .buttonStyle(SecondaryButtonStyle())

@@ -724,6 +724,7 @@ private struct NativeCatalogueFiltersSheet: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccountPreferences) private var accountPreferences
     let index: NativeCatalogIndex
     @Binding var filters: NativeCatalogueFilters
     @Binding var savedGyms: Data
@@ -771,7 +772,10 @@ private struct NativeCatalogueFiltersSheet: View {
     private func updateGear(_ change: (inout NativeGymPreferences) -> Void) {
         var next = preferences
         change(&next)
-        if let data = try? JSONEncoder().encode(next) { savedGyms = data }
+        if let data = try? JSONEncoder().encode(next) {
+            savedGyms = data
+            accountPreferences?.save(gyms: next)
+        }
     }
 
     private var muscleFilters: some View {

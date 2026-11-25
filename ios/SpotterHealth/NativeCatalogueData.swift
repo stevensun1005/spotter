@@ -1,6 +1,6 @@
 import Foundation
 
-struct NativeGymPreferences: Codable {
+struct NativeGymPreferences: Codable, Equatable {
     struct Equipment: Identifiable {
         let id: String
         let label: String
@@ -11,7 +11,7 @@ struct NativeGymPreferences: Codable {
         }
     }
 
-    struct Gym: Identifiable, Codable {
+    struct Gym: Identifiable, Codable, Equatable {
         let id: String
         let name: String
         var gear: Set<String>
@@ -56,7 +56,7 @@ struct NativeGymPreferences: Codable {
         let prior = Set(legacy.split(separator: "\n").map { key in
             let value = String(key)
             return aliases[value] ?? value
-        })
+        }).intersection(allGear)
         return Self(active: "goodlife", profiles: [Gym(id: "goodlife", name: "GoodLife", gear: prior)])
     }
 

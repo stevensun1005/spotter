@@ -34,7 +34,7 @@ enum NativeHealthGroup: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum NativeHealthMetric: Hashable, Identifiable, Sendable {
+enum NativeHealthMetric: String, Hashable, Identifiable, Sendable {
     case heartRate, restingHeartRate, walkingHeartRate, heartRateVariability, heartRateRecovery, vo2Max, respiratoryRate, oxygenSaturation
     case steps, walkRunDistance, cyclingDistance, swimmingDistance, wheelchairDistance, wheelchairPushes, flightsClimbed
     case activeEnergy, basalEnergy, exerciseTime, standTime, workouts
@@ -139,6 +139,7 @@ struct NativeHealthBodySample: Identifiable, Sendable {
     let metric: NativeHealthMetric
     let date: Date
     let value: Double
+    let sourceName: String
 }
 
 enum NativeHealthReading: Sendable {
@@ -243,7 +244,8 @@ final class HealthKitReader {
                 let converted = readings.compactMap { sample -> NativeHealthBodySample? in
                     let value = sample.quantity.doubleValue(for: spec.unit) * spec.multiplier
                     guard value.isFinite && value > 0 else { return nil }
-                    return NativeHealthBodySample(id: sample.uuid.uuidString.lowercased(), metric: metric, date: sample.startDate, value: value)
+                    return NativeHealthBodySample(id: sample.uuid.uuidString.lowercased(), metric: metric, date: sample.startDate,
+                                                  value: value, sourceName: sample.sourceRevision.source.name)
                 }
                 return converted.isEmpty ? nil : .body(converted)
             }

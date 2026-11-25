@@ -70,6 +70,41 @@ struct NativeWorkoutSmoke {
         var free = NativeWorkoutSession.free(now: started)
         free.addExercise(name: " 新动作 ")
         expect(free.plan.exercises[0]["name"].string == "新动作" && free.rows[0].count == 3, "Free training uses an actual named move")
+        let recentMove: NativeJSON = .object(["name": .string("划船"), "catalogueId": .string("12345"),
+                                               "sets": .number(2), "reps": .number(9), "weight": .number(18),
+                                               "seconds": .number(0), "unit": .string("lb")])
+        free.addExercise(recentMove, previousSet: .object(["weight": .number(18), "reps": .number(9), "seconds": .number(0),
+                                                           "done": .bool(true), "rpe": .number(7),
+                                                           "right": .object(["weight": .number(16), "reps": .number(8)])]))
+        expect(free.rows[1][0]["right"]["weight"].number == 16 && free.rows[1][0]["right"]["reps"].number == 8,
+               "Reuse copies actual left/right weights and reps")
+        expect(!free.rows[1][0]["done"].bool && free.rows[1][0]["rpe"] == .null &&
+               free.plan.exercises[1]["catalogueId"].string == "12345", "Reused sets remain unfinished and retain the stable catalogue ID")
+        for activity in [NativeWorkoutSession.CardioActivity.cardio, .hiit, .incline] {
+            let scheduled = NativeWorkoutSession.free(cardio: activity, now: started)
+            let log = try scheduled.finalizing(at: started + 97_000)
+            expect(log.cardioActivity == activity && log.raw["cardio"]["durationSeconds"].number == 97 && log.rows.isEmpty,
+                   "All cardio types complete with elapsed time and no strength sets")
+            do { _ = try scheduled.finalizing(at: started); preconditionFailure("Zero-duration cardio check-in rejected") }
+            catch NativeWorkoutProblem.invalidCardioDuration { }
+        }
+        var firstMove = recentMove
+        firstMove["block"] = .string("A")
+        var secondMove = firstMove
+        secondMove["name"] = .string("哑铃推举")
+        secondMove["restSeconds"] = .number(50)
+        plan.raw["defaultRestSeconds"] = .number(25)
+        plan.raw["exercises"] = .array([firstMove, secondMove])
+        var superset = NativeWorkoutSession.start(plan: plan, planId: "", now: started)
+        let a1 = NativeWorkoutSession.SetPosition(move: 0, row: 0)
+        let b1 = NativeWorkoutSession.SetPosition(move: 1, row: 0)
+        let a2 = NativeWorkoutSession.SetPosition(move: 0, row: 1)
+        superset.setLine(move: 0, row: 0, key: "done", value: .bool(true))
+        expect(superset.nextSet(after: a1) == b1 && superset.restBetween(a1, and: b1).kind == "换动作",
+               "A superset advances to its second exercise before the next round")
+        superset.setLine(move: 1, row: 0, key: "done", value: .bool(true))
+        expect(superset.nextSet(after: b1) == a2 && superset.restBetween(b1, and: a2).seconds == 50 &&
+               superset.restBetween(b1, and: a2).kind == "轮间休息", "Round rest uses the longest movement rest")
 
         let imported = try NativePlanImport.parse("""
         ## Synthetic lower body
@@ -96,6 +131,6 @@ struct NativeWorkoutSmoke {
             struct Upload: Encodable { let action = "log"; let expectedOwner = "synthetic-owner"; let id: String; let data: NativeJSON }
             let data = try JSONEncoder().encode(Upload(id: id, data: result.raw))
             print(String(decoding: data, as: UTF8.self))
-        } else { print("PASS native workout: Cloudflare fields, lock clock, side volume, sets, check-in ID, exact time window, own-day share, text/JSON/video import") }
+        } else { print("PASS native workout: clock, side volume, set reuse, supersets, cardio/HIIT, check-in ID, time window, sharing and imports") }
     }
 }

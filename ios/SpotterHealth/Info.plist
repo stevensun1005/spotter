@@ -18,13 +18,23 @@
                 <string>spotter-auth</string>
             </array>
         </dict>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>CFBundleURLName</key>
+            <string>app.spotter.health.invite</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>spotter</string>
+            </array>
+        </dict>
     </array>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>NSCameraUsageDescription</key>
     <string>当你选择拍照记录饮食时，使用相机拍摄本次餐食，供你预览和识别。</string>
     <key>NSHealthShareUsageDescription</key>
-    <string>按您选择的日期和项目读取 Apple 健康的心率、训练、活动、身体、睡眠和饮食数据。您可以在 App 查看，并将您确认的训练心率或身体测量保存到当前训练搭子账号。</string>
+    <string>按您选择的日期和项目读取 Apple 健康数据。您可以查看健康数据、手动保存身体测量和训练心率，或开启自动匹配后将训练期间的心率保存到自己的训练搭子帐户。</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>训练搭子通过只读授权同步您选择的 Apple 健康数据，训练记录保存在您的训练搭子账号中。</string>
     <key>NSLocalNetworkUsageDescription</key>
@@ -42,13 +52,13 @@
         <key>hosting</key>
         <string>cloudflare</string>
         <key>version</key>
-		<integer>87</integer>
+		<integer>88</integer>
         <key>sourceCommit</key>
-		<string>d3eefe752202b67dd8c0c99a9dae196f50bc6900</string>
+		<string>3e01caef43c63ef51019fed3ac354179ac429b64</string>
         <key>exportRef</key>
         <string>origin/codex/cloudflare-free</string>
         <key>exportCommit</key>
-		<string>d3eefe752202b67dd8c0c99a9dae196f50bc6900</string>
+		<string>3e01caef43c63ef51019fed3ac354179ac429b64</string>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>

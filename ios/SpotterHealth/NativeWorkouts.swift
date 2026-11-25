@@ -1,20 +1,13 @@
 import CryptoKit
 import Foundation
 import AudioToolbox
+import Network
 import SwiftUI
 import UIKit
 
 @MainActor
 final class NativeWorkoutStore: ObservableObject {
-    @Published private(set) var entries: [NativeWorkoutEntry] = [] {
-        didSet {
-            plans = entries.filter { $0.kind == "plan" }
-            plansByKey = Dictionary(plans.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-            savedDrafts = entries.filter { $0.kind == "draft" && $0.owner == owner }
-            savedLogs = entries.filter { $0.kind == "log" && $0.owner == owner }
-            rebuildLogs()
-        }
-    }
+    @Published private(set) var entries: [NativeWorkoutEntry] = [] { didSet { rebuildEntries() } }
     @Published private(set) var active: NativeWorkoutEntry?
     @Published private(set) var pendingCheckins: [NativeWorkoutEntry] = [] {
         didSet { rebuildLogs() }
@@ -29,17 +22,26 @@ final class NativeWorkoutStore: ObservableObject {
     @Published private(set) var libraryRows: [NativeJSON] = []
     @Published private(set) var room: NativeJSON = .null
     @Published private(set) var viewerName = "我"
+    @Published private(set) var recentHistoryStart: String?
+    @Published private var completedPlanIds: Set<String> = []
+    @Published private var discardedDrafts: [String] = []
     let owner: String
     let api: NativeAPI
     private let origin: String
     private let cacheURL: URL?
+    private let snapshotURL: URL?
+    private let reachability = NWPathMonitor()
+    private static let snapshotQueue = DispatchQueue(label: "app.spotter.health.workout-snapshot", qos: .utility)
     private var draftTask: Task<Void, Never>?
     private var draftInFlight = false
     private var draftAgain = false
+    private var draftNeedsSync = false
     private var uploading = false
     private var reloadAfterPlanWrite = false
     private var localRevision = 0
     private var entryRevision = 0
+    private var localCompletedPlanIds: Set<String> = []
+    private var networkAvailable: Bool?
 
     private(set) var plans: [NativeWorkoutEntry] = []
     private(set) var logs: [NativeWorkoutEntry] = []
@@ -47,6 +49,8 @@ final class NativeWorkoutStore: ObservableObject {
     private var savedDrafts: [NativeWorkoutEntry] = []
     private var savedLogs: [NativeWorkoutEntry] = []
     var drafts: [NativeWorkoutEntry] { savedDrafts.filter { $0.id != active?.id } }
+    var pendingDraftRemovalCount: Int { discardedDrafts.count }
+    var todayPendingPlans: [NativeWorkoutEntry] { pendingPlans(on: NativeWorkoutSession.day()) }
     var partnerID: String { room["partner"]["id"].string }
     var partnerName: String {
         let name = room["partner"]["name"].string
@@ -55,6 +59,27 @@ final class NativeWorkoutStore: ObservableObject {
     var partnerLogs: [NativeWorkoutEntry] {
         guard !partnerID.isEmpty, room["partnerTrainingShared"] != .bool(false) else { return [] }
         return entries.filter { $0.kind == "log" && $0.owner == partnerID }
+    }
+
+    private func rebuildEntries() {
+        plans = entries.filter { $0.kind == "plan" }
+        plansByKey = Dictionary(plans.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        savedDrafts = entries.filter { $0.kind == "draft" && $0.owner == owner && !discardedDrafts.contains($0.id) }
+        savedLogs = entries.filter { $0.kind == "log" && $0.owner == owner }
+        rebuildLogs()
+    }
+
+    private func pendingPlans(on day: String) -> [NativeWorkoutEntry] {
+        plans.filter { $0.owner == owner && $0.day == day && !hasCompletedPlan(id: $0.id) }
+    }
+
+    func hasCompletedPlan(id: String) -> Bool {
+        completedPlanIds.contains(id) || localCompletedPlanIds.contains(id)
+    }
+
+    func nextPlan(after day: String) -> NativeWorkoutEntry? {
+        plans.filter { $0.owner == owner && $0.day > day && !hasCompletedPlan(id: $0.id) }
+            .min { $0.day < $1.day }
     }
 
     private func rebuildLogs() {
@@ -66,6 +91,7 @@ final class NativeWorkoutStore: ObservableObject {
             }
             .sorted { $0.started > $1.started }
             .map(\.record)
+        localCompletedPlanIds = Set(logs.compactMap { $0.planKey?.id })
     }
 
     init(api: NativeAPI, owner: String) {
@@ -76,29 +102,82 @@ final class NativeWorkoutStore: ObservableObject {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("Spotter/WorkoutRecovery", isDirectory: true)
         cacheURL = directory?.appendingPathComponent(digest + ".json")
+        snapshotURL = directory?.appendingPathComponent(digest + "-snapshot.json")
         if let cacheURL, let data = try? Data(contentsOf: cacheURL), let saved = try? JSONDecoder().decode(Recovery.self, from: data),
            saved.owner == owner, saved.origin == api.origin {
             active = saved.active?.owner == owner && saved.active?.kind == "draft" ? saved.active : nil
+            draftNeedsSync = active != nil && (saved.draftNeedsSync ?? true)
             pendingCheckins = saved.pending.filter { $0.owner == owner && $0.kind == "log" }
-            rebuildLogs()
-            status = active != nil || !pendingCheckins.isEmpty ? "本机记录已恢复，等待同步" : "正在连接"
+            discardedDrafts = (saved.discarded ?? []).filter { UUID(uuidString: $0) != nil }
         }
+        if let snapshotURL, let data = try? Data(contentsOf: snapshotURL), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
+           snapshot.owner == owner, snapshot.origin == api.origin {
+            completedPlanIds = Set(snapshot.completedPlanIds ?? [])
+            recentHistoryStart = snapshot.historyFrom
+            entries = snapshot.entries.filter { $0.owner == owner }
+            rebuildEntries()
+        } else { rebuildLogs() }
+        if active != nil || !pendingCheckins.isEmpty || !entries.isEmpty { status = "本机记录已恢复，等待同步" }
+        reachability.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let reconnected = networkAvailable == false && available
+                networkAvailable = available
+                guard reconnected else { return }
+                if isLoading { reloadAfterPlanWrite = true }
+                else { await load() }
+            }
+        }
+        reachability.start(queue: DispatchQueue(label: "app.spotter.health.workout-connectivity"))
     }
 
-    private struct Recovery: Codable { let origin: String; let owner: String; let active: NativeWorkoutEntry?; let pending: [NativeWorkoutEntry] }
+    deinit { reachability.cancel() }
+
+    private struct Recovery: Codable {
+        let origin: String
+        let owner: String
+        let active: NativeWorkoutEntry?
+        let pending: [NativeWorkoutEntry]
+        let discarded: [String]?
+        let draftNeedsSync: Bool?
+    }
+
+    private struct Snapshot: Codable {
+        let origin: String
+        let owner: String
+        let entries: [NativeWorkoutEntry]
+        let completedPlanIds: [String]?
+        let historyFrom: String?
+    }
+
+    nonisolated private static func writeLocal<Value: Encodable>(_ value: Value, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        try JSONEncoder().encode(value).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        var target = url; try? target.setResourceValues(values)
+    }
 
     @discardableResult
     private func persist() -> Bool {
         guard let cacheURL else { errorMessage = "无法保存本机恢复记录，请保持 App 打开并联网保存。"; return false }
         do {
-            try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                                    attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
-            let recovery = Recovery(origin: origin, owner: owner, active: active, pending: pendingCheckins)
-            try JSONEncoder().encode(recovery).write(to: cacheURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            var values = URLResourceValues(); values.isExcludedFromBackup = true
-            var url = cacheURL; try? url.setResourceValues(values)
+            let recovery = Recovery(origin: origin, owner: owner, active: active, pending: pendingCheckins,
+                                    discarded: discardedDrafts, draftNeedsSync: draftNeedsSync)
+            try Self.writeLocal(recovery, to: cacheURL)
             return true
         } catch { errorMessage = "本机恢复记录未保存，请保持 App 打开并联网保存。"; return false }
+    }
+
+    private func saveSnapshot() {
+        guard let snapshotURL else { return }
+        let own = entries.filter { $0.owner == owner }
+        let scheduled = own.filter { $0.kind == "plan" }
+        let history = own.filter { $0.kind == "log" }.sorted { $0.updated > $1.updated }.prefix(120)
+        let snapshot = Snapshot(origin: origin, owner: owner, entries: scheduled + history,
+                                completedPlanIds: completedPlanIds.sorted(), historyFrom: recentHistoryStart)
+        Self.snapshotQueue.async { try? Self.writeLocal(snapshot, to: snapshotURL) }
     }
 
     func load() async {
@@ -115,25 +194,85 @@ final class NativeWorkoutStore: ObservableObject {
             let revision = localRevision
             let edit = entryRevision
             let loadedViewerName = viewerName
-            let value = try await api.spotterRead("/api/workout", as: NativeWorkoutState.self)
+            let value = try await api.spotterRead("/api/workout?scope=overview", as: NativeWorkoutState.self)
             guard revision == localRevision, edit == entryRevision else { return }
             guard value.me.id == owner else { entries = []; throw NativeWorkoutProblem.accountChanged }
-            if entries != value.entries { entries = value.entries }
             let currentRoom = value.room ?? .null
+            let cutoff = value.historyFrom ?? ""
+            let incomingCompleted = Set(value.completedPlanIds ?? [])
+            let snapshotNeedsRefresh = recentHistoryStart != value.historyFrom || completedPlanIds != incomingCompleted
+            if recentHistoryStart != value.historyFrom { recentHistoryStart = value.historyFrom }
+            if completedPlanIds != incomingCompleted { completedPlanIds = incomingCompleted }
+            let sharedSince = currentRoom["partnerCheckinsFrom"].string
+            let partner = currentRoom["partner"]["id"].string
+            let retained = entries.filter {
+                guard $0.kind == "log", $0.day < cutoff else { return false }
+                return $0.owner == owner || (!partner.isEmpty && $0.owner == partner && $0.day >= sharedSince)
+            }
+            let updatedKeys = Set(value.entries.map(\.key))
+            let updated = value.entries.filter { $0.kind != "draft" || !discardedDrafts.contains($0.id) } +
+                retained.filter { !updatedKeys.contains($0.key) }
+            let historyChanged = entries != updated
+            if historyChanged { entries = updated }
+            if historyChanged || snapshotNeedsRefresh { saveSnapshot() }
             if room != currentRoom { room = currentRoom }
             if viewerName == loadedViewerName, let name = value.me.name { useConfirmedViewerName(name) }
             if let active, value.entries.contains(where: { $0.owner == owner && $0.kind == "log" && $0.id == active.id }) {
                 self.active = nil
+                draftNeedsSync = false
                 persist()
             }
             if status != "云端已连接" { status = "云端已连接" }
             if errorMessage != nil { errorMessage = nil }
-            await loadProteinPreferences()
             await retryPending()
+            await saveDraft()
+            await loadProteinPreferences()
         } catch {
             status = "暂未连接云端"
             errorMessage = error.localizedDescription
         }
+    }
+
+    func loadHistory(from: String, through: String) async {
+        guard from <= through, let first = nativePlanDate(from), let last = nativePlanDate(through) else { return }
+        var start = first
+        while start <= last, !Task.isCancelled {
+            guard let bound = Calendar.current.date(byAdding: .day, value: 3_660, to: start) else { return }
+            let end = min(bound, last)
+            guard await loadHistoryPage(from: NativeWorkoutSession.day(start), through: NativeWorkoutSession.day(end)) else { return }
+            guard end < last, let next = Calendar.current.date(byAdding: .day, value: 1, to: end) else { return }
+            start = next
+        }
+    }
+
+    func loadOlderHistoryIfNeeded(from: String, through: String) async {
+        guard let recentHistoryStart, from < recentHistoryStart else { return }
+        await loadHistory(from: from, through: through)
+    }
+
+    func loadEarlierHistory(before: String) async -> String? {
+        guard let first = nativePlanDate(before),
+              let end = Calendar.current.date(byAdding: .day, value: -1, to: first),
+              let begin = Calendar.current.date(byAdding: .day, value: -30, to: end) else { return nil }
+        let next = NativeWorkoutSession.day(begin)
+        return await loadHistoryPage(from: next, through: NativeWorkoutSession.day(end)) ? next : nil
+    }
+
+    private func loadHistoryPage(from: String, through: String) async -> Bool {
+        let revision = localRevision
+        let edit = entryRevision
+        do {
+            let value = try await api.spotterRead("/api/workout?scope=history&from=\(from)&to=\(through)", as: NativeWorkoutState.self)
+            guard !Task.isCancelled, revision == localRevision, edit == entryRevision, value.me.id == owner else { return false }
+            let partner = (value.room ?? .null)["partner"]["id"].string
+            let records = value.entries.filter {
+                $0.kind == "log" && $0.day >= from && $0.day <= through &&
+                    ($0.owner == owner || (!partner.isEmpty && $0.owner == partner))
+            }
+            let updated = entries.filter { $0.kind != "log" || $0.day < from || $0.day > through } + records
+            if entries != updated { entries = updated }
+            return true
+        } catch { return false }
     }
 
     func useConfirmedViewerName(_ name: String) {
@@ -185,9 +324,49 @@ final class NativeWorkoutStore: ObservableObject {
     func clearLocalData() {
         localRevision &+= 1
         draftTask?.cancel()
+        draftNeedsSync = false
+        discardedDrafts = []
+        completedPlanIds = []
+        recentHistoryStart = nil
         active = nil; pendingCheckins = []; entries = []; room = .null
+        libraryRows = []
         proteinProducts = []; defaultProteinProductID = nil; tracksWorkoutProtein = false
         if let cacheURL { try? FileManager.default.removeItem(at: cacheURL) }
+        if let snapshotURL { Self.snapshotQueue.sync { try? FileManager.default.removeItem(at: snapshotURL) } }
+    }
+
+    func startScheduled(_ entry: NativeWorkoutEntry) {
+        guard entry.kind == "plan", entry.owner == owner else { return }
+        start(plan: NativePlan(raw: entry.data), id: entry.id)
+    }
+
+    @discardableResult
+    func discardDraft(_ entry: NativeWorkoutEntry) -> Bool {
+        guard entry.owner == owner, entry.kind == "draft", UUID(uuidString: entry.id) != nil,
+              active?.key == entry.key || drafts.contains(where: { $0.key == entry.key }) else { return false }
+        let current = active
+        let previousDirty = draftNeedsSync
+        let previousRemovals = discardedDrafts
+        if active?.id == entry.id {
+            active = nil
+            draftNeedsSync = false
+        }
+        if !discardedDrafts.contains(entry.id) { discardedDrafts.append(entry.id) }
+        guard persist() else {
+            active = current
+            draftNeedsSync = previousDirty
+            discardedDrafts = previousRemovals
+            return false
+        }
+        if current?.id == entry.id { draftTask?.cancel() }
+        entryRevision &+= 1
+        if isLoading { reloadAfterPlanWrite = true }
+        entries.removeAll { $0.key == entry.key && $0.kind == "draft" }
+        saveSnapshot()
+        errorMessage = nil
+        status = "训练草稿已删除，等待同步"
+        Task { await retryPending() }
+        return true
     }
 
     func start(plan: NativePlan, id: String) {
@@ -199,13 +378,8 @@ final class NativeWorkoutStore: ObservableObject {
 
     func startFreeWorkout(kind: String = "strength") {
         guard active == nil, !isBusy else { return }
-        var session = NativeWorkoutSession.free()
-        if kind != "strength" {
-            session.raw["plan"]["title"] = .string(kind == "incline" ? "爬坡走" : kind == "hiit" ? "HIIT 训练" : "有氧训练")
-            session.raw["plan"]["category"] = .string("有氧训练")
-        }
-        if kind == "incline" { session.raw["cardio"] = .object(["activity": .string("incline-walk")]) }
-        begin(session)
+        let cardio = kind == "incline" ? .incline : NativeWorkoutSession.CardioActivity(rawValue: kind)
+        begin(.free(cardio: cardio))
     }
 
     private func begin(_ session: NativeWorkoutSession) {
@@ -253,11 +427,12 @@ final class NativeWorkoutStore: ObservableObject {
             session.setLine(move: move, row: row, key: "done", value: .bool(!session.rows[move][row]["done"].bool))
             var raw = session.raw.object
             raw.removeValue(forKey: "rest")
-            if session.rows[move][row]["done"].bool && session.rows.flatMap({ $0 }).contains(where: { !$0["done"].bool }) {
-                let moveRest = session.plan.exercises[move]["restSeconds"]
-                let rest = session.raw["defaultRestOverride"] != .null ? session.raw["defaultRestOverride"].number :
-                    (moveRest != .null ? moveRest.number : session.plan.raw["defaultRestSeconds"] != .null ? session.plan.raw["defaultRestSeconds"].number : Double(NativePreferenceKey.restSeconds))
-                if rest > 0 { raw["rest"] = .object(["until": .number(Double(session.elapsedMilliseconds()) + rest * 1000), "kind": .string("组间休息")]) }
+            let position = NativeWorkoutSession.SetPosition(move: move, row: row)
+            if session.rows[move][row]["done"].bool, let next = session.nextSet(after: position) {
+                let rest = session.restBetween(position, and: next)
+                if rest.seconds > 0 {
+                    raw["rest"] = .object(["until": .number(Double(session.elapsedMilliseconds()) + rest.seconds * 1_000), "kind": .string(rest.kind)])
+                }
             }
             session.raw = .object(raw)
         }
@@ -319,8 +494,8 @@ final class NativeWorkoutStore: ObservableObject {
     }
 
     private func changed() {
-        persist()
-        status = "草稿已保存到本机，等待同步"
+        draftNeedsSync = true
+        if persist() { status = "草稿已保存到本机，等待同步" }
         draftTask?.cancel()
         draftTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -333,6 +508,7 @@ final class NativeWorkoutStore: ObservableObject {
     private struct Receipt: Decodable { let data: NativeJSON; let updated: String }
 
     func saveDraft() async {
+        guard draftNeedsSync else { return }
         guard !draftInFlight else { draftAgain = true; return }
         guard let snapshot = active, snapshot.kind == "draft" else { return }
         draftInFlight = true
@@ -346,7 +522,11 @@ final class NativeWorkoutStore: ObservableObject {
             _ = try await api.request("/api/workout", method: "POST", json: JSONEncoder().encode(body))
             guard revision == localRevision else { return }
             guard active?.id == snapshot.id, active?.kind == "draft" else { return }
-            if active?.data == snapshot.data { status = "草稿已保存到云端" }
+            if active?.data == snapshot.data {
+                draftNeedsSync = false
+                persist()
+                status = "草稿已保存到云端"
+            }
             else { draftAgain = true }
         } catch {
             guard active?.id == snapshot.id else { return }
@@ -362,12 +542,14 @@ final class NativeWorkoutStore: ObservableObject {
             draftTask?.cancel()
             let checkin = NativeWorkoutEntry(id: current.id, owner: owner, kind: "log", updated: ISO8601DateFormatter().string(from: Date()), data: final.raw)
             let oldPending = pendingCheckins
+            let previousDirty = draftNeedsSync
             if !pendingCheckins.contains(where: { $0.id == checkin.id }) { pendingCheckins.append(checkin) }
             active = nil
-            guard persist() else { active = current; pendingCheckins = oldPending; return nil }
+            draftNeedsSync = false
+            guard persist() else { active = current; pendingCheckins = oldPending; draftNeedsSync = previousDirty; return nil }
             status = "打卡已保存在本机，正在上传"
-            await retryPending()
-            return logs.first { $0.key == checkin.key } ?? checkin
+            Task { await retryPending() }
+            return checkin
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -375,12 +557,31 @@ final class NativeWorkoutStore: ObservableObject {
     }
 
     func retryPending() async {
-        guard !uploading, !pendingCheckins.isEmpty else { return }
+        guard !uploading, !pendingCheckins.isEmpty || !discardedDrafts.isEmpty else { return }
         uploading = true
-        isBusy = true
-        defer { uploading = false; isBusy = false }
-        for pending in pendingCheckins {
-            guard pending.owner == owner else { continue }
+        defer { uploading = false }
+        while let id = discardedDrafts.first {
+            do {
+                let revision = localRevision
+                let body = try JSONEncoder().encode(["action": "delete", "kind": "draft", "id": id, "expectedOwner": owner])
+                _ = try await api.request("/api/workout", method: "POST", json: body)
+                guard revision == localRevision else { return }
+                discardedDrafts.removeAll { $0 == id }
+                persist()
+                if active == nil && pendingCheckins.isEmpty { status = "训练草稿已删除" }
+            } catch let failure as NativeAPIError where failure.statusCode == 409 {
+                // A completed workout takes precedence over a later deletion of its former draft.
+                discardedDrafts.removeAll { $0 == id }
+                persist()
+                errorMessage = failure.localizedDescription
+                if isLoading { reloadAfterPlanWrite = true }
+                else { Task { await load() } }
+            } catch {
+                errorMessage = error.localizedDescription
+                break
+            }
+        }
+        while let pending = pendingCheckins.first, pending.owner == owner {
             do {
                 let revision = localRevision
                 let body = Upload(action: "log", expectedOwner: owner, id: pending.id, data: pending.data)
@@ -388,11 +589,14 @@ final class NativeWorkoutStore: ObservableObject {
                 guard revision == localRevision else { return }
                 let receipt = try JSONDecoder().decode(Receipt.self, from: payload)
                 let record = NativeWorkoutEntry(id: pending.id, owner: owner, kind: "log", updated: receipt.updated, data: receipt.data)
+                entryRevision &+= 1
+                if isLoading { reloadAfterPlanWrite = true }
                 entries = [record] + entries.filter { $0.id != pending.id || $0.owner != owner }
                 pendingCheckins.removeAll { $0.id == pending.id }
                 persist()
+                saveSnapshot()
                 errorMessage = nil
-                status = "训练已打卡并保存到云端"
+                if active == nil { status = "训练已打卡并保存到云端" }
             } catch {
                 status = "打卡已保存在本机，等待重试"
                 errorMessage = error.localizedDescription
@@ -414,6 +618,7 @@ final class NativeWorkoutStore: ObservableObject {
 
     func canMovePlan(_ plan: NativeWorkoutEntry) -> Bool {
         guard plan.kind == "plan", plan.owner == owner else { return false }
+        guard !hasCompletedPlan(id: plan.id) else { return false }
         func usesPlan(_ entry: NativeWorkoutEntry) -> Bool {
             entry.owner == owner && (entry.id == plan.id || entry.data["planId"].string == plan.id)
         }
@@ -592,6 +797,9 @@ struct NativeWorkoutView: View {
     @State private var selectedDate = Date()
     @State private var trainingTab = "我的计划"
     @State private var completedPlans = false
+    @State private var earlierHistoryAnchor: String?
+    @State private var loadingEarlierHistory = false
+    @State private var earlierHistoryFailed = false
     @State private var showsMoves = false
     @State private var planEditor: NativePlanDraft?
     @State private var planScheduleAction: PlanScheduleAction?
@@ -599,6 +807,7 @@ struct NativeWorkoutView: View {
     @State private var cataloguePlanMove: NativeCataloguePlanMove?
     @State private var queuedCatalogueDraft: NativePlanDraft?
     @State private var recordSheet: RecordSheet?
+    @State private var draftToDiscard: NativeWorkoutEntry?
     @State private var cheering = false
     @State private var cheerError: String?
 
@@ -709,6 +918,21 @@ struct NativeWorkoutView: View {
                 editCataloguePlan(pending.entry, in: plan)
             }
         }
+        .alert("删除训练草稿？", isPresented: Binding(
+            get: { draftToDiscard != nil },
+            set: { if !$0 { draftToDiscard = nil } }
+        ), presenting: draftToDiscard) { entry in
+            Button("删除草稿", role: .destructive) {
+                withAnimation(motion) { _ = store.discardDraft(entry) }
+            }
+            Button("取消", role: .cancel) {}
+        } message: { entry in
+            Text("「\(entry.title)」的计时和已填写组次将删除。原计划及已完成的打卡会保留。")
+        }
+        .task(id: selectedDay + (store.recentHistoryStart ?? "")) {
+            guard !showsAllPlans, let start = weekDates.first, let end = weekDates.last else { return }
+            await store.loadOlderHistoryIfNeeded(from: NativeWorkoutSession.day(start), through: NativeWorkoutSession.day(end))
+        }
     }
 
     private func workoutOverview(topPadding: CGFloat) -> some View {
@@ -721,7 +945,7 @@ struct NativeWorkoutView: View {
                         .transition(.opacity)
                 }
                 if showsAllPlans { trainingLanding } else { todayLanding }
-                if !store.pendingCheckins.isEmpty { pendingCard }
+                if showsAllPlans, !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
                 if let message = store.errorMessage {
                     Button { Task { await store.load() } } label: {
                         Label(message, systemImage: "arrow.clockwise").font(.footnote).foregroundStyle(SpotterPalette.muted)
@@ -736,7 +960,9 @@ struct NativeWorkoutView: View {
 
     @ViewBuilder private var todayLanding: some View {
         let byPlan = completions
-        let dayPlans = store.plans.filter { $0.day == selectedDay && byPlan[$0.key] == nil }
+        let dayPlans = store.plans.filter {
+            $0.day == selectedDay && byPlan[$0.key] == nil && ($0.owner != store.owner || !store.hasCompletedPlan(id: $0.id))
+        }
             .sorted { ($0.owner == store.owner ? 0 : 1) < ($1.owner == store.owner ? 0 : 1) }
         let scheduledCompletions = store.plans.filter { $0.day == selectedDay && byPlan[$0.key] != nil }
             .flatMap { plan in
@@ -746,7 +972,9 @@ struct NativeWorkoutView: View {
         let dayRecords = (store.logs.filter { $0.day == selectedDay } + store.partnerLogs.filter {
             $0.day == selectedDay && $0.planKey.flatMap { store.plansByKey[$0] } != nil
         } + scheduledCompletions).sorted(by: newestRecord)
-        todayHeader
+        if let openNutrition { nutritionPanel(openNutrition) }
+        else if openSettings != nil { HStack { Spacer(); settingsButton } }
+        if !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
         weekStrip
         HStack {
             Text(selectedDay == NativeWorkoutSession.day() ? "今日训练" : "\(shortDay(selectedDay))的训练")
@@ -770,11 +998,10 @@ struct NativeWorkoutView: View {
                 Link(destination: url) { Label("打开跟练视频", systemImage: "play.circle").frame(maxWidth: .infinity).padding(14).spotterCard() }
                     .buttonStyle(.spotterPress)
             }
-        } else if dayRecords.isEmpty {
-            emptyCard("这天还没有安排", symbol: "dumbbell")
+        } else if dayRecords.isEmpty && (selectedDay != NativeWorkoutSession.day() || store.active == nil) {
+            compactUnscheduledDay
         }
         if !dayRecords.isEmpty { completedRows(dayRecords) }
-        if let openNutrition { nutritionPanel(openNutrition) }
         if openFriends != nil { partnerCard }
         if showCheckins { weeklyCheckins }
         if showPlanShortcut {
@@ -788,20 +1015,33 @@ struct NativeWorkoutView: View {
         }
     }
 
-    private var todayHeader: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(Date.now.formatted(.dateTime.month(.defaultDigits).day().weekday(.wide).locale(Locale(identifier: "zh_CN"))))
-                    .font(.subheadline.weight(.medium)).foregroundStyle(SpotterPalette.muted)
-                Text("今日").font(.largeTitle.weight(.heavy)).accessibilityAddTraits(.isHeader)
-            }
-            Spacer(minLength: 0)
-            Button { openSettings?() } label: {
+    @ViewBuilder private var settingsButton: some View {
+        if let openSettings {
+            Button(action: openSettings) {
                 Image(systemName: "gearshape").font(.body.weight(.semibold))
-                    .frame(width: 46, height: 46).contentShape(Circle())
+                    .frame(width: 44, height: 44).contentShape(Circle())
                     .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.5), interactive: motion != nil)
             }.buttonStyle(.spotterPress).accessibilityLabel("设置")
         }
+    }
+
+    private var compactUnscheduledDay: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("这天还没有安排", systemImage: "calendar")
+                .font(.subheadline).foregroundStyle(SpotterPalette.muted)
+            if let next = store.nextPlan(after: selectedDay), let date = nativePlanDate(next.day) {
+                Button {
+                    withAnimation(motion) { selectedDate = date; showsMoves = false }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("下次 · \(shortDay(next.day))").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+                        Text(next.displayTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(accent.tint)
+                    }.frame(minHeight: 44).contentShape(Rectangle())
+                }.buttonStyle(.spotterPress).accessibilityLabel("下次训练 \(shortDay(next.day)) \(next.displayTitle)")
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13).padding(.vertical, 11).spotterCard(radius: 14)
     }
 
     private func nutritionPanel(_ open: @escaping () -> Void) -> some View {
@@ -829,6 +1069,7 @@ struct NativeWorkoutView: View {
                     }.buttonStyle(.spotterPress).accessibilityLabel("收起饮食记录")
                         .transition(.opacity)
                 }
+                settingsButton
             }
             if !nutritionCollapsed {
                 Group {
@@ -1071,9 +1312,16 @@ struct NativeWorkoutView: View {
             tile("clock", size: 34)
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.title).font(.system(size: 14, weight: .bold))
-                Text("\(entry.session?.completedSets ?? 0) 组完成 · \(current ? store.status : "训练草稿")").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
+                Text("\(entry.session?.completedSets ?? 0) 组完成 · \(current ? "进行中" : "训练草稿")")
+                    .font(.caption).foregroundStyle(SpotterPalette.muted)
             }
             Spacer(minLength: 0)
+            SpotterMenu {
+                Button("删除训练草稿", systemImage: "trash", role: .destructive) { draftToDiscard = entry }
+            } label: {
+                Image(systemName: "ellipsis").font(.body.weight(.semibold))
+                    .frame(width: 22, height: 22)
+            }.accessibilityLabel("训练草稿操作 \(entry.title)")
             Button("继续") { if !current { store.resume(entry) }; openWorkout() }
                 .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(!current && store.active != nil)
         }.padding(12).spotterCard()
@@ -1317,9 +1565,20 @@ struct NativeWorkoutView: View {
                 let records = visibleLogs.sorted(by: newestRecord)
                 if records.isEmpty { emptyCard("还没有已完成的训练", symbol: "list.clipboard") }
                 else { completedRows(records) }
+                if let before = earlierHistoryAnchor ?? store.recentHistoryStart {
+                    Button {
+                        Task { await showEarlierHistory(before: before) }
+                    } label: {
+                        Label(loadingEarlierHistory ? "正在加载" : "加载更早的打卡", systemImage: "clock.arrow.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }.buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(loadingEarlierHistory)
+                    if earlierHistoryFailed { Text("暂时无法读取较早的打卡，请联网重试。").font(.footnote).foregroundStyle(SpotterPalette.muted) }
+                }
             } else {
                 let byPlan = completions
-                let plans = store.plans.filter { byPlan[$0.key] == nil }.sorted { $0.day < $1.day }
+                let plans = store.plans.filter {
+                    byPlan[$0.key] == nil && ($0.owner != store.owner || !store.hasCompletedPlan(id: $0.id))
+                }.sorted { $0.day < $1.day }
                 if plans.isEmpty { emptyCard("还没有训练计划", symbol: "list.clipboard") }
                 else { planRows(plans) }
             }
@@ -1346,11 +1605,28 @@ struct NativeWorkoutView: View {
         }
     }
 
+    private func showEarlierHistory(before: String) async {
+        guard !loadingEarlierHistory else { return }
+        loadingEarlierHistory = true
+        defer { loadingEarlierHistory = false }
+        if let page = await store.loadEarlierHistory(before: before) {
+            earlierHistoryAnchor = page
+            earlierHistoryFailed = false
+        } else {
+            earlierHistoryFailed = true
+        }
+    }
+
     private var pendingCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("待同步打卡 · \(store.pendingCheckins.count) 条", systemImage: "icloud.and.arrow.up").font(.system(size: 15, weight: .semibold))
-            Text("打卡已保存在本机，联网重试不会重复记录。").font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
-            Button("重试上传") { Task { await store.retryPending() } }.buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(store.isBusy)
+            Label("训练待同步", systemImage: "icloud.and.arrow.up").font(.subheadline.weight(.semibold))
+            if !store.pendingCheckins.isEmpty {
+                Text("\(store.pendingCheckins.count) 条打卡已保存在本机。").font(.footnote).foregroundStyle(SpotterPalette.muted)
+            }
+            if store.pendingDraftRemovalCount > 0 {
+                Text("\(store.pendingDraftRemovalCount) 条草稿删除待同步。").font(.footnote).foregroundStyle(SpotterPalette.muted)
+            }
+            Button("重试同步") { Task { await store.retryPending() } }.buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(store.isBusy)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14).spotterCard()
     }
 
@@ -1424,6 +1700,8 @@ struct NativeTrainingLaunch: View {
     let start: (String) -> Void
     var rest: (() -> Void)?
     var bodyAction: (() -> Void)?
+    var scheduled: [NativeWorkoutEntry] = []
+    var startPlan: ((NativeWorkoutEntry) -> Void)?
     @Environment(\.dismiss) private var dismiss
     private let choices = [("strength", "力量训练", "dumbbell", Color(red: 0.82, green: 0.93, blue: 0.64)),
                            ("cardio", "有氧训练", "waveform.path.ecg", Color(red: 0.65, green: 0.89, blue: 0.79)),
@@ -1441,6 +1719,22 @@ struct NativeTrainingLaunch: View {
                             .spotterGlass(cornerRadius: 22, tint: .white.opacity(0.16))
                     }
                     .buttonStyle(.spotterPress).accessibilityLabel("关闭开始训练")
+                }
+                if let startPlan, !scheduled.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("今天的计划").font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                        ForEach(scheduled, id: \.key) { plan in
+                            Button { startPlan(plan) } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "play.circle.fill").font(.title3)
+                                    Text(plan.displayTitle).font(.subheadline.weight(.semibold))
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "chevron.right").font(.footnote.weight(.bold))
+                                }.padding(.horizontal, 13).frame(minHeight: 46)
+                            }.buttonStyle(.spotterPress)
+                                .spotterGlass(cornerRadius: 13, tint: .white.opacity(0.13), interactive: true)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 19) {
                     ForEach(choices, id: \.0) { choice in launchButton(choice.1, symbol: choice.2, color: choice.3) { start(choice.0) } }
@@ -1566,6 +1860,8 @@ struct NativeActiveWorkoutView: View {
     @State private var dismissAfterPanel = false
     @State private var changedIdleTimer = false
     @State private var lastRestRemaining: Int?
+    @State private var recentlyCompleted: NativeWorkoutSession.SetPosition?
+    @State private var setFeedback = UIImpactFeedbackGenerator(style: .light)
 
     private var needsIdleTimer: Bool {
         keepAwake && phase == .active && store.active?.session?.isRunning == true
@@ -1586,7 +1882,9 @@ struct NativeActiveWorkoutView: View {
                 switch item {
                 case .note: NativeWorkoutNotePanel(store: store)
                 case .settings: NativeWorkoutSettingsPanel(store: store)
-                case .add: NativeWorkoutAddPanel(store: store)
+                case .add: NativeWorkoutAddPanel(store: store) {
+                    openedMove = max(0, (store.active?.session?.plan.exercises.count ?? 1) - 1)
+                }
                 case .finish:
                     NativeWorkoutFinishPanel(store: store) { record in
                         completed(record)
@@ -1622,7 +1920,7 @@ struct NativeActiveWorkoutView: View {
                             Spacer(minLength: 0); Text("第 \(next.row + 1) 组").font(.system(size: 13))
                         }.padding(11).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
                     }
-                    if case .object = session.raw["cardio"] { NativeWorkoutCardioFields(store: store) }
+                    if let cardio = session.cardioActivity { NativeWorkoutCardioFields(store: store, activity: cardio) }
                     if let video = URL(string: session.plan.video), !session.plan.video.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Link(destination: video) { Label("打开跟练视频", systemImage: "play.circle") }
@@ -1660,7 +1958,7 @@ struct NativeActiveWorkoutView: View {
                 Spacer(minLength: 5)
                 Button(store.isBusy ? "正在保存" : "完成") { finish() }
                     .font(.system(size: 14, weight: .bold)).buttonStyle(SpotterNativeButtonStyle(primary: true))
-                    .disabled(store.isBusy || edit != nil || (session.completedSets == 0 && !session.raw["finishedVideo"].bool && session.raw["cardio"] == .null))
+                    .disabled(store.isBusy || edit != nil || (session.completedSets == 0 && !session.raw["finishedVideo"].bool && session.cardioActivity == nil))
             }
             HStack(alignment: .center, spacing: 10) {
                 if session.raw["planId"].string.isEmpty {
@@ -1759,12 +2057,13 @@ struct NativeActiveWorkoutView: View {
     private func toggleDone(move: Int, row: Int) {
         edit = nil
         store.toggleDone(move: move, row: row)
-        guard autoAdvance, let session = store.active?.session,
-              session.rows.indices.contains(move), session.rows[move].allSatisfy({ $0["done"].bool }),
-              let next = session.rows.indices.dropFirst(move + 1).first(where: { index in
-                  session.rows[index].contains { !$0["done"].bool }
-              }) else { return }
-        withAnimation(motion) { openedMove = next }
+        guard let session = store.active?.session, session.rows.indices.contains(move), session.rows[move].indices.contains(row),
+              session.rows[move][row]["done"].bool else { return }
+        setFeedback.impactOccurred()
+        let position = NativeWorkoutSession.SetPosition(move: move, row: row)
+        recentlyCompleted = position
+        guard autoAdvance, let next = session.nextSet(after: position) else { return }
+        withAnimation(motion) { openedMove = next.move }
     }
 
     private func updateIdleTimer(_ enabled: Bool) {
@@ -1790,13 +2089,17 @@ struct NativeActiveWorkoutView: View {
         HStack(spacing: 3) {
             footerAction("最小化", symbol: "arrow.down.right.and.arrow.up.left") { Task { await store.saveDraft() }; dismiss() }
             footerAction("更多", symbol: "ellipsis") { panel = .settings }
-            Button { panel = .add } label: {
-                VStack(spacing: 5) { Image(systemName: "plus").font(.system(size: 23, weight: .semibold)).foregroundStyle(SpotterPalette.deep).frame(width: 42, height: 36).background(accent.fill, in: RoundedRectangle(cornerRadius: 13)); Text("加动作").font(.system(size: 11, weight: .bold)) }.frame(maxWidth: .infinity)
-            }.buttonStyle(.spotterPress).disabled(session.plan.exercises.count >= 30)
+            if session.cardioActivity == nil {
+                Button { panel = .add } label: {
+                    VStack(spacing: 5) { Image(systemName: "plus").font(.system(size: 23, weight: .semibold)).foregroundStyle(SpotterPalette.deep).frame(width: 42, height: 36).background(accent.fill, in: RoundedRectangle(cornerRadius: 13)); Text("加动作").font(.system(size: 11, weight: .bold)) }.frame(maxWidth: .infinity)
+                }.buttonStyle(.spotterPress).disabled(session.plan.exercises.count >= 30)
+            }
             footerAction("写心得", symbol: "square.and.pencil") { panel = .note }
-            footerAction("数字键盘", symbol: "keyboard") {
-                if let next = nextSet(session) { let timed = session.plan.exercises[next.move]["seconds"].number > 0; let key = timed ? "seconds" : "weight"; activate(NativeSetTarget(move: next.move, row: next.row, key: key), value: session.rows[next.move][next.row][key].number) }
-            }.disabled(session.rows.isEmpty)
+            if session.cardioActivity == nil {
+                footerAction("数字键盘", symbol: "keyboard") {
+                    if let next = nextSet(session) { let timed = session.plan.exercises[next.move]["seconds"].number > 0; let key = timed ? "seconds" : "weight"; activate(NativeSetTarget(move: next.move, row: next.row, key: key), value: session.rows[next.move][next.row][key].number) }
+                }.disabled(session.rows.isEmpty)
+            }
         }.padding(.horizontal, 12).padding(.top, 7).padding(.bottom, 8).background(SpotterPalette.card).overlay(alignment: .top) { Rectangle().fill(SpotterPalette.line).frame(height: 1) }
     }
 
@@ -1805,8 +2108,7 @@ struct NativeActiveWorkoutView: View {
     }
     private func activate(_ target: NativeSetTarget, value: Double) { edit = target; editText = value.formatted(.number.grouping(.never).precision(.fractionLength(0...2))); pristine = true; openedMove = target.move }
     private func nextSet(_ session: NativeWorkoutSession) -> NativeSetTarget? {
-        for (move, rows) in session.rows.enumerated() { if let row = rows.firstIndex(where: { !$0["done"].bool }) { return NativeSetTarget(move: move, row: row, key: "weight") } }
-        return nil
+        session.nextSet(after: recentlyCompleted).map { NativeSetTarget(move: $0.move, row: $0.row, key: "weight") }
     }
     private func finish() {
         if (store.tracksWorkoutProtein && !store.proteinProducts.isEmpty) || store.active?.data["proteinShake"].bool == true { panel = .finish }
@@ -1919,18 +2221,179 @@ private struct NativeWorkoutSettingsPanel: View {
 }
 
 private struct NativeWorkoutAddPanel: View {
-    @ObservedObject var store: NativeWorkoutStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    var body: some View {
-        Form {
-            Section("动作名称") { TextField("搜索或输入动作名称", text: $name) }
-            Section {
-                Button("添加到本次训练") { store.mutate { $0.addExercise(name: name) }; dismiss() }
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (store.active?.session?.plan.exercises.count ?? 30) >= 30)
+    private struct PreviousMove: Identifiable, Sendable {
+        let move: NativeJSON
+        let set: NativeJSON
+        var id: String { Self.identity(of: move) }
+
+        var amount: String {
+            if set["seconds"].number > 0 { return "\(Int(set["seconds"].number)) 秒" }
+            let unit = move["unit"].string.isEmpty ? "kg" : move["unit"].string
+            let left = "\(set["weight"].number.formatted()) \(unit) × \(Int(set["reps"].number))"
+            if case .object = set["right"] {
+                let right = set["right"]
+                return "左 \(left) · 右 \(right["weight"].number.formatted()) \(unit) × \(Int(right["reps"].number))"
             }
-        }.scrollContentBackground(.hidden).background(SpotterPalette.background).navigationTitle("添加动作").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            return left
+        }
+
+        static func name(_ move: NativeJSON) -> String {
+            NativeExerciseLabel(move).name.precomposedStringWithCompatibilityMapping.lowercased()
+        }
+
+        static func identity(of move: NativeJSON) -> String {
+            let id = move["catalogueId"].string
+            return id.isEmpty ? "name:" + name(move) : "id:" + id
+        }
+    }
+
+    @ObservedObject var store: NativeWorkoutStore
+    var didAdd: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage(NativeGymPreferences.storageKey) private var gyms = Data()
+    @AppStorage(NativePreferenceKey.equipment) private var legacyGear = ""
+    @State private var name = ""
+    @State private var index: NativeCatalogIndex?
+    @State private var catalogueFailed = false
+    @State private var histories: [PreviousMove] = []
+    @State private var matches: [NativeCatalogEntry] = []
+    @State private var selection: NativeCatalogEntry?
+    @State private var availableOnly = true
+    private var query: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var configuredGear: Set<String> { NativeGymPreferences.read(gyms, legacy: legacyGear).catalogueGear }
+    private var searchKey: String { query + "\n" + (availableOnly ? configuredGear.sorted().joined(separator: "|") : "") }
+
+    private static let catalogue = Task.detached(priority: .userInitiated) { try NativeCatalogIndex.load() }
+
+    var body: some View {
+        List {
+            Section {
+                TextField("搜索动作名称", text: $name)
+                    .autocorrectionDisabled()
+                if !configuredGear.isEmpty {
+                    Toggle("只看可用器械", isOn: $availableOnly)
+                }
+            }
+            if query.isEmpty, !histories.isEmpty {
+                Section("最近练过") {
+                    ForEach(Array(histories.prefix(8))) { previous in
+                        Button {
+                            add(NativePreferenceKey.newMove(name: NativeExerciseLabel(previous.move).name), previous: previous)
+                        } label: {
+                            row(NativeExerciseLabel(previous.move).name, detail: "上次 \(previous.amount)", action: "沿用")
+                        }.buttonStyle(.spotterPress)
+                    }
+                }
+            }
+            if let selection {
+                let move = NativeCataloguePlanMove.planMove(selection)
+                Section(selection.name) {
+                    if let previous = previous(for: move) {
+                        Button { add(move, previous: previous) } label: {
+                            row("沿用上次记录", detail: previous.amount, action: "添加")
+                        }.buttonStyle(.spotterPress)
+                    }
+                    Button { add(move) } label: {
+                        row("使用默认组数", detail: prescription(move), action: "添加")
+                    }.buttonStyle(.spotterPress)
+                }
+            }
+            if !matches.isEmpty {
+                Section(query.isEmpty ? "推荐动作" : "搜索结果") {
+                    ForEach(matches) { entry in
+                        Button { selection = entry } label: {
+                            let prior = previous(for: NativeCataloguePlanMove.planMove(entry))
+                            row(entry.name, detail: prior.map { "上次 \($0.amount)" } ?? index?.label(entry.equipment) ?? "", action: "选择")
+                        }.buttonStyle(.spotterPress)
+                    }
+                }
+            } else if catalogueFailed {
+                Section { Text("动作库暂不可用，可以输入动作名称添加。").font(.footnote).foregroundStyle(SpotterPalette.muted) }
+            } else if index == nil {
+                Section { ProgressView("正在读取动作库") }
+            }
+            if !query.isEmpty {
+                Section {
+                    Button {
+                        add(NativePreferenceKey.newMove(name: String(query.prefix(100))))
+                    } label: {
+                        Label("添加手输动作「\(query)」", systemImage: "plus")
+                    }.buttonStyle(.spotterPress)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden).background(SpotterPalette.background)
+        .navigationTitle("添加动作").navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+        .task {
+            let recent = Array(store.logs.prefix(60))
+            histories = await Task.detached(priority: .userInitiated) { Self.prepareHistory(recent) }.value
+            do { index = try await Self.catalogue.value }
+            catch { catalogueFailed = true }
+        }
+        .task(id: searchKey + (index == nil ? "" : "#")) { await search() }
+        .onChange(of: name) { _ in selection = nil }
+    }
+
+    private func row(_ title: String, detail: String, action: String) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.ink)
+                if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(SpotterPalette.muted) }
+            }.multilineTextAlignment(.leading)
+            Spacer(minLength: 5)
+            Text(action).font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.accent)
+        }.frame(minHeight: 44).contentShape(Rectangle())
+    }
+
+    nonisolated private static func prepareHistory(_ logs: [NativeWorkoutEntry]) -> [PreviousMove] {
+        var seen: Set<String> = []
+        return logs.flatMap { record -> [PreviousMove] in
+            guard let session = record.session else { return [] }
+            let rows = session.rows
+            return session.plan.exercises.enumerated().compactMap { index, move in
+                guard !NativeExerciseLabel(move).warmup, rows.indices.contains(index),
+                      let set = rows[index].last(where: { $0["done"].bool && $0["kind"].string.isEmpty }),
+                      seen.insert(PreviousMove.identity(of: move)).inserted else { return nil }
+                return PreviousMove(move: move, set: set)
+            }
+        }
+    }
+
+    private func previous(for move: NativeJSON) -> PreviousMove? {
+        let identity = PreviousMove.identity(of: move)
+        if !move["catalogueId"].string.isEmpty, let match = histories.first(where: { $0.id == identity }) { return match }
+        let named = histories.filter { PreviousMove.name($0.move) == PreviousMove.name(move) }
+        return named.contains(where: { !$0.move["catalogueId"].string.isEmpty }) ? nil : named.first
+    }
+
+    private func search() async {
+        guard let index else { return }
+        let query = self.query
+        let gear = availableOnly ? configuredGear : []
+        let frequent = Set(histories.map { NativeExerciseLabel($0.move).name })
+        if !query.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
+        guard !Task.isCancelled else { return }
+        let result = await Task.detached(priority: .userInitiated) {
+            let result = index.results(query: query, gear: gear, frequent: frequent)
+            return Array((query.isEmpty && !result.featured.isEmpty ? result.featured : result.sections.flatMap(\.rows)).prefix(30))
+        }.value
+        if !Task.isCancelled { matches = result }
+    }
+
+    private func add(_ entry: NativeJSON, previous: PreviousMove? = nil) {
+        guard let active = store.active?.session, active.plan.exercises.count < 30 else { return }
+        var move = entry
+        if let previous {
+            move["unit"] = previous.move["unit"]
+            move["weight"] = previous.set["weight"]
+            move["reps"] = previous.set["reps"]
+            move["seconds"] = previous.set["seconds"]
+            if move["catalogueId"] == .null, previous.move["catalogueId"] != .null { move["catalogueId"] = previous.move["catalogueId"] }
+        }
+        store.mutate { $0.addExercise(move, previousSet: previous?.set) }
+        didAdd()
+        dismiss()
     }
 }
 
@@ -1969,15 +2432,37 @@ private struct NativeWorkoutFinishPanel: View {
 
 private struct NativeWorkoutCardioFields: View {
     @ObservedObject var store: NativeWorkoutStore
+    let activity: NativeWorkoutSession.CardioActivity
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("爬坡走").font(.system(size: 18, weight: .bold))
-            Text("计时结束时记录实际时长，也可以填写跑步机上的读数。").font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
+            Text(activity.title).font(.headline)
+            Text("结束时自动使用本次计时。也可以手动填写实际时长。").font(.footnote).foregroundStyle(SpotterPalette.muted)
+            cardioDuration
             HStack {
                 cardioNumber("距离 km", key: "distanceKm", maximum: 500)
                 cardioNumber("速度 km/h", key: "speedKmh", maximum: 50)
             }
         }.padding(14).spotterCard()
+    }
+
+    private var cardioDuration: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("实际时长（秒）").font(.caption).foregroundStyle(SpotterPalette.muted)
+            TextField("使用本次计时", value: Binding(
+                get: {
+                    guard let cardio = store.active?.data["cardio"], case .number(let seconds) = cardio["durationSeconds"] else { return nil }
+                    return Int(seconds)
+                },
+                set: { (value: Int?) in
+                    store.mutate { session in
+                        var cardio = session.raw["cardio"].object
+                        if let value, value > 0 { cardio["durationSeconds"] = .number(Double(min(43_200, value))) }
+                        else { cardio.removeValue(forKey: "durationSeconds") }
+                        session.raw["cardio"] = .object(cardio)
+                    }
+                }), format: .number.grouping(.never))
+                .keyboardType(.numberPad).padding(10).background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 9))
+        }
     }
     private func cardioNumber(_ label: String, key: String, maximum: Double) -> some View {
         VStack(alignment: .leading, spacing: 5) {

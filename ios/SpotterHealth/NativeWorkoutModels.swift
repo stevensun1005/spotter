@@ -249,12 +249,27 @@ enum NativePlanImport {
 }
 
 struct NativeWorkoutSession: Equatable, Sendable {
+    enum CardioActivity: String {
+        case cardio, hiit, incline = "incline-walk"
+
+        var title: String {
+            switch self {
+            case .cardio: "有氧训练"
+            case .hiit: "HIIT 训练"
+            case .incline: "爬坡走"
+            }
+        }
+    }
+
+    struct SetPosition: Equatable { let move: Int; let row: Int }
+
     var raw: NativeJSON
     var plan: NativePlan { NativePlan(raw: raw["plan"]) }
     var rows: [[NativeJSON]] { raw["rows"].array.map(\.array) }
     var started: Int { Int(raw["started"].number) }
     var isRunning: Bool { if case .number = raw["clock"]["runningSince"] { return true }; return false }
     var completedSets: Int { rows.flatMap { $0 }.filter { $0["done"].bool }.count }
+    var cardioActivity: CardioActivity? { CardioActivity(rawValue: raw["cardio"]["activity"].string) }
     var volumeKg: Double {
         let exercises = plan.exercises
         return rows.enumerated().reduce(0) { total, group in
@@ -313,23 +328,33 @@ struct NativeWorkoutSession: Equatable, Sendable {
             "note": .string(""), "finishedVideo": .bool(false), "rows": .array(rows),
         ]))
     }
-    static func free(now: Int = nowMilliseconds) -> NativeWorkoutSession {
-        start(plan: NativePlan(raw: .object([
-            "title": .string("自由训练"), "date": .string(day()), "category": .string("力量训练"), "minutes": .number(0),
+    static func free(cardio: CardioActivity? = nil, now: Int = nowMilliseconds) -> NativeWorkoutSession {
+        var session = start(plan: NativePlan(raw: .object([
+            "title": .string(cardio?.title ?? "自由训练"), "date": .string(day()),
+            "category": .string(cardio == nil ? "力量训练" : "有氧训练"), "minutes": .number(0),
             "shared": .bool(false), "video": .string(""), "exercises": .array([]),
         ])), planId: "", now: now)
+        if let cardio { session.raw["cardio"] = .object(["activity": .string(cardio.rawValue)]) }
+        return session
     }
     mutating func addExercise(name: String) {
         let title = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
-        guard !title.isEmpty, plan.exercises.count < 30 else { return }
+        addExercise(NativePreferenceKey.newMove(name: title))
+    }
+    mutating func addExercise(_ move: NativeJSON, previousSet: NativeJSON? = nil) {
+        guard !move["name"].string.isEmpty, plan.exercises.count < 30, cardioActivity == nil else { return }
         var moves = plan.exercises
-        let new = NativePreferenceKey.newMove(name: title)
-        moves.append(new)
+        moves.append(move)
         raw["plan"]["exercises"] = .array(moves)
+        var initial: [String: NativeJSON] = [
+            "weight": previousSet?["weight"] ?? move["weight"],
+            "reps": previousSet?["reps"] ?? move["reps"],
+            "seconds": previousSet?["seconds"] ?? move["seconds"],
+            "done": .bool(false),
+        ]
+        if let previousSet, case .object = previousSet["right"] { initial["right"] = previousSet["right"] }
         var groups = raw["rows"].array
-        groups.append(.array((0..<Int(new["sets"].number)).map { _ in
-            .object(["weight": .number(0), "reps": new["reps"], "seconds": .number(0), "done": .bool(false)])
-        }))
+        groups.append(.array(Array(repeating: .object(initial), count: max(1, min(30, Int(move["sets"].number))))))
         raw["rows"] = .array(groups)
     }
     mutating func setLine(move: Int, row: Int, key: String, value: NativeJSON) {
@@ -350,10 +375,64 @@ struct NativeWorkoutSession: Equatable, Sendable {
         moves[move]["sets"] = .number(Double(groups[move].count))
         raw["plan"]["exercises"] = .array(moves)
     }
+    private func exerciseBlocks() -> [[Int]] {
+        let moves = plan.exercises
+        var result: [[Int]] = []
+        for index in moves.indices {
+            let block = moves[index]["block"].string
+            if let previous = result.last?.last, !block.isEmpty, moves[previous]["block"].string == block,
+               moves[previous]["station"] == moves[index]["station"] {
+                result[result.count - 1].append(index)
+            } else { result.append([index]) }
+        }
+        return result
+    }
+
+    func nextSet(after completed: SetPosition? = nil) -> SetPosition? {
+        let rows = self.rows
+        let blocks = exerciseBlocks()
+        let start = completed.flatMap { completed in blocks.firstIndex { $0.contains(completed.move) } } ?? 0
+        for block in blocks.dropFirst(start) + blocks.prefix(start) {
+            let rounds = block.map { rows.indices.contains($0) ? rows[$0].count : 0 }.max() ?? 0
+            for row in 0..<rounds {
+                if let move = block.first(where: {
+                    rows.indices.contains($0) && rows[$0].indices.contains(row) && !rows[$0][row]["done"].bool
+                }) {
+                    return SetPosition(move: move, row: row)
+                }
+            }
+        }
+        return nil
+    }
+
+    func restBetween(_ completed: SetPosition, and next: SetPosition) -> (seconds: Double, kind: String) {
+        let blocks = exerciseBlocks()
+        let moves = plan.exercises
+        let from = moves[completed.move]
+        let destination = moves[next.move]
+        let planDefault = plan.raw["defaultRestSeconds"]
+        let override = raw["defaultRestOverride"]
+        let fallback = override != .null ? override.number : planDefault != .null ? planDefault.number : Double(NativePreferenceKey.restSeconds)
+        let fromBlock = blocks.first { $0.contains(completed.move) } ?? [completed.move]
+        let sameBlock = fromBlock.contains(next.move)
+        if sameBlock && completed.row == next.row && completed.move != next.move { return (fallback, "换动作") }
+        let rest = override != .null || from["restSeconds"] == .null ? fallback : from["restSeconds"].number
+        if !sameBlock && from["station"] != .null && destination["station"] != .null && from["station"] != destination["station"] {
+            return (max(60, fallback, rest), "换站")
+        }
+        if sameBlock, fromBlock.count > 1 {
+            let longest = fromBlock.map { override != .null || moves[$0]["restSeconds"] == .null ? fallback : moves[$0]["restSeconds"].number }.max() ?? rest
+            return (longest, "轮间休息")
+        }
+        return (rest, "组间休息")
+    }
+
     func finalizing(at now: Int = Self.nowMilliseconds) throws -> NativeWorkoutSession {
-        let cardio = raw["cardio"]["activity"].string == "incline-walk"
+        let cardio = cardioActivity != nil
         let cardioDuration = raw["cardio"]["durationSeconds"].number > 0 ? Int(raw["cardio"]["durationSeconds"].number) : min(43_200, elapsedMilliseconds(at: now) / 1000)
-        guard cardio ? cardioDuration > 0 : completedSets > 0 || raw["finishedVideo"].bool else { throw NativeWorkoutProblem.noCompletedSet }
+        if cardio {
+            guard (1...43_200).contains(cardioDuration), plan.exercises.isEmpty, plan.video.isEmpty else { throw NativeWorkoutProblem.invalidCardioDuration }
+        } else if completedSets == 0 && !raw["finishedVideo"].bool { throw NativeWorkoutProblem.noCompletedSet }
         guard !raw["finishedVideo"].bool || !plan.video.isEmpty else { throw NativeWorkoutProblem.invalid }
         guard started > 0, rows.count == plan.exercises.count, raw["note"].string.count <= 1500,
               rows.enumerated().allSatisfy({ index, lines in
@@ -404,10 +483,11 @@ struct NativeExerciseLabel {
 }
 
 enum NativeWorkoutProblem: LocalizedError {
-    case noCompletedSet, invalid, accountChanged
+    case noCompletedSet, invalidCardioDuration, invalid, accountChanged
     var errorDescription: String? {
         switch self {
         case .noCompletedSet: return "请至少完成一组动作，或标记视频跟练完成。"
+        case .invalidCardioDuration: return "请记录实际有氧训练时长后再完成。"
         case .invalid: return "训练数据超出允许范围，请检查组数、重量、次数和时长。"
         case .accountChanged: return "登录账号已切换，请切回记录训练的账号后同步。"
         }
@@ -535,6 +615,8 @@ struct NativeWorkoutState: Decodable, Sendable {
     var me: Viewer
     var entries: [NativeWorkoutEntry]
     var room: NativeJSON?
+    var historyFrom: String?
+    var completedPlanIds: [String]?
 }
 
 struct NativeProteinRecipeEditor: Identifiable {

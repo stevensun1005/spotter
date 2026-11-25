@@ -175,7 +175,7 @@ struct NativeProteinView: View {
     }
 }
 
-private struct NativeProteinEditor: View {
+struct NativeProteinEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterAccent) private var accent
@@ -184,9 +184,15 @@ private struct NativeProteinEditor: View {
     @State private var showCamera = false
     @State private var busy = false
     @State private var message: String?
+    let confirmTitle: String
     let save: (NativeJSON, Bool) async -> String?
 
-    init(initial: NativeProteinRecipeEditor, save: @escaping (NativeJSON, Bool) async -> String?) { _value = State(initialValue: initial); self.save = save }
+    init(initial: NativeProteinRecipeEditor, confirmTitle: String = "核对无误，保存到仓库",
+         save: @escaping (NativeJSON, Bool) async -> String?) {
+        _value = State(initialValue: initial)
+        self.confirmTitle = confirmTitle
+        self.save = save
+    }
 
     var body: some View {
         Form {
@@ -231,7 +237,7 @@ private struct NativeProteinEditor: View {
                 Button { Task { await commit() } } label: {
                     ZStack {
                         if busy { ProgressView().transition(.opacity) }
-                        else { Text("核对无误，保存到仓库").fontWeight(.semibold).transition(.opacity) }
+                        else { Text(confirmTitle).fontWeight(.semibold).transition(.opacity) }
                     }
                     .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
                     .foregroundStyle(SpotterPalette.deep)
@@ -257,7 +263,11 @@ private struct NativeProteinEditor: View {
             }
         }
         .onChange(of: selectedPhoto) { photo in
-            Task { if let data = try? await photo?.loadTransferable(type: Data.self) { await recognize(data) } }
+            Task {
+                guard let photo else { return }
+                if let data = try? await photo.loadTransferable(type: Data.self) { await recognize(data) }
+                else { message = "暂时无法读取照片。你可以重选或手动填写。" }
+            }
         }
         .sheet(isPresented: $showCamera) { ProteinCamera { data in showCamera = false; if let data { Task { await recognize(data) } } } }
     }

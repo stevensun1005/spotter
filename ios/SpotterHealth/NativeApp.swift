@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 enum SpotterTheme: String, CaseIterable, Identifiable {
     case system, light, dark
@@ -236,6 +237,8 @@ struct NativeSpotterApp: View {
     @StateObject private var account = NativeAccount()
     @AppStorage(SpotterTheme.storageKey) private var theme: SpotterTheme = .light
     @AppStorage(SpotterAccent.storageKey) private var accent: SpotterAccent = .lime
+    @State private var sawSignIn = false
+    @State private var friendInvite: String?
 
     var body: some View {
         Group {
@@ -244,10 +247,10 @@ struct NativeSpotterApp: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(SpotterPalette.background)
             } else if let profile = account.profile {
-                NativeSpotterTabs(account: account, owner: profile.id)
+                NativeSpotterTabs(account: account, owner: profile.id, offerWelcome: sawSignIn, inboundInvite: $friendInvite)
                     .id(profile.id)
             } else {
-                NativeSignIn(account: account)
+                NativeSignIn(account: account).onAppear { sawSignIn = true }
             }
         }
         .foregroundStyle(SpotterPalette.ink)
@@ -256,6 +259,29 @@ struct NativeSpotterApp: View {
         .environment(\.spotterAccent, accent)
         .background { SpotterWindowAppearance(theme: theme).accessibilityHidden(true) }
         .task { await account.restore() }
+        .onChange(of: account.profile?.id) { owner in
+            if owner == nil { Task { await NativeTrainingNotifications.shared.clear() } }
+        }
+        .onOpenURL(perform: acceptInviteURL)
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { acceptInviteURL(url) }
+        }
+    }
+
+    private func acceptInviteURL(_ url: URL) {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        let code: String?
+        if url.scheme == "https", url.host == URL(string: AppConfiguration.defaultOrigin)?.host,
+           parts.count == 2, parts.first == "invite" {
+            code = parts.last
+        } else if url.scheme == "spotter", url.host == "friend-invite", parts.count == 1 {
+            code = parts.first
+        } else {
+            code = nil
+        }
+        if let code, code.range(of: "^[a-fA-F0-9]{32}$", options: .regularExpression) != nil {
+            friendInvite = code.lowercased()
+        }
     }
 }
 
@@ -411,6 +437,7 @@ private struct NativeSpotterTabs: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
     @State private var selected: NativeSpotterSection = .today
+    @State private var dockTop: CGFloat?
     @State private var showCoach = false
     @State private var coachDetent: PresentationDetent = .medium
     @State private var showSettings = false
@@ -425,7 +452,14 @@ private struct NativeSpotterTabs: View {
     @State private var finishedWorkout: NativeWorkoutEntry?
     @State private var workoutReceipt: NativeWorkoutEntry?
     @State private var buddySearchRequest = 0
-    @State private var showTrainingReminder = false
+    @State private var showWelcome = false
+    @State private var replayWelcomeAfterSettings = false
+    @State private var welcomeCoachGoal: String?
+    @State private var inboundInviteConfirmation: String?
+    @State private var inviteBusy = false
+    @State private var inviteMessage: String?
+    @State private var friendsRevision = 0
+    @StateObject private var trainingPreferences: NativeAccountPreferences
     @AppStorage private var reminderEnabled: Bool
     @AppStorage private var reminderMinute: Int
     @AppStorage(NativePreferenceKey.friendsTab) private var showsFriends = true
@@ -435,19 +469,25 @@ private struct NativeSpotterTabs: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.dynamicTypeSize) private var systemTextSize
     let owner: String
+    let offerWelcome: Bool
+    @Binding var inboundInvite: String?
 
     private enum TrainingLaunch {
         case workout(String)
+        case plan(NativeWorkoutEntry)
         case rest
         case body
     }
 
     private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
 
-    init(account: NativeAccount, owner: String) {
+    init(account: NativeAccount, owner: String, offerWelcome: Bool, inboundInvite: Binding<String?>) {
         self.account = account
         self.owner = owner
+        self.offerWelcome = offerWelcome
+        _inboundInvite = inboundInvite
         _workouts = StateObject(wrappedValue: NativeWorkoutStore(api: account.api, owner: owner))
+        _trainingPreferences = StateObject(wrappedValue: NativeAccountPreferences(api: account.api, owner: owner))
         _reminderEnabled = AppStorage(wrappedValue: false, NativePreferenceKey.reminderKey(owner, field: "enabled"))
         _reminderMinute = AppStorage(wrappedValue: 18 * 60, NativePreferenceKey.reminderKey(owner, field: "minute"))
     }
@@ -455,33 +495,54 @@ private struct NativeSpotterTabs: View {
     var body: some View {
         navigationTabs
         .background(SpotterPalette.background.ignoresSafeArea())
-        .task { await workouts.load() }
-        .onChange(of: showsFriends) { visible in if !visible && selected == .friends { selected = .today } }
-        .onChange(of: scenePhase) { phase in
-            if phase == .active { Task { await workouts.load() } }
-        }
-        .task(id: reminderEnabled && scenePhase == .active && !showSettings) {
-            guard reminderEnabled, scenePhase == .active, !showSettings else { return }
-            while !Task.isCancelled {
-                checkTrainingReminder()
-                do { try await Task.sleep(nanoseconds: 15_000_000_000) } catch { return }
+        .task { await refreshHome() }
+        .onAppear {
+            if offerWelcome, !UserDefaults.standard.bool(forKey: welcomeKey) {
+                showWelcome = true
+            } else {
+                stageInvite()
             }
         }
-        .alert("训练提醒", isPresented: $showTrainingReminder) { Button("好", role: .cancel) {} } message: {
-            Text(NativePreferenceKey.reminderTitle)
+        .onChange(of: inboundInvite) { _ in stageInvite() }
+        .onChange(of: showsFriends) { visible in if !visible && selected == .friends { selected = .today } }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { Task { await refreshHome() } }
         }
-        .sheet(isPresented: $showCoach, onDismiss: { Task { await workouts.load() } }) {
+        .onChange(of: workouts.pendingCheckins.map(\.id)) { _ in
+            Task { await attachHealthHeartRate() }
+        }
+        .task(id: reminderSchedule) {
+            guard scenePhase == .active else { return }
+            await NativeTrainingNotifications.shared.schedule(reminderSchedule)
+        }
+        .sheet(isPresented: $showCoach, onDismiss: {
+            stageInvite()
+            Task { await workouts.load() }
+        }) {
             NativeCoachView(api: account.api, owner: owner, compact: coachDetent == .medium,
                             onExpand: { coachDetent = .large },
                             onStartWorkout: { selected = .training; showCoach = false })
                 .presentationDetents([.medium, .large], selection: $coachDetent)
                 .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented: $showSettings, onDismiss: { Task { await workouts.load() } }) {
+        .fullScreenCover(isPresented: $showSettings, onDismiss: {
+            if replayWelcomeAfterSettings {
+                replayWelcomeAfterSettings = false
+                showWelcome = true
+            }
+            Task { await refreshHome() }
+        }) {
             NavigationStack {
-                NativeSettings(account: account, owner: owner, onDeleted: workouts.clearLocalData,
-                               refreshPlans: { await workouts.load() }, openTraining: { selected = .training; showSettings = false },
-                               workoutStore: workouts)
+                NativeSettings(account: account, owner: owner, onDeleted: {
+                                   workouts.clearLocalData()
+                                   NativeCoachView.removeSavedConversation(api: account.api, owner: owner)
+                                   trainingPreferences.clear()
+                               },
+                               refreshPlans: { await refreshHome() }, openTraining: { selected = .training; showSettings = false },
+                               workoutStore: workouts, trainingPreferences: trainingPreferences, restartWelcome: {
+                                   replayWelcomeAfterSettings = true
+                                   showSettings = false
+                               })
             }
         }
         .sheet(isPresented: $showPlanImport) {
@@ -508,7 +569,8 @@ private struct NativeSpotterTabs: View {
         }
         .sheet(isPresented: $showTrainingLaunch, onDismiss: finishTrainingLaunch) {
             NativeTrainingLaunch(start: { queueTrainingLaunch(.workout($0)) },
-                                 rest: { queueTrainingLaunch(.rest) }, bodyAction: { queueTrainingLaunch(.body) })
+                                 rest: { queueTrainingLaunch(.rest) }, bodyAction: { queueTrainingLaunch(.body) },
+                                 scheduled: workouts.todayPendingPlans, startPlan: { queueTrainingLaunch(.plan($0)) })
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -519,7 +581,37 @@ private struct NativeSpotterTabs: View {
             NavigationStack { NativeWorkoutDetailView(store: workouts, entry: entry, showsClose: true) }
                 .presentationDragIndicator(.visible)
         }
+        .fullScreenCover(isPresented: $showWelcome, onDismiss: {
+            welcomeCoachGoal = nil
+            stageInvite()
+            Task { await workouts.load() }
+        }) {
+            if let goal = welcomeCoachGoal {
+                NativeCoachView(api: account.api, owner: owner, compact: false,
+                                onStartWorkout: { selected = .training; showWelcome = false },
+                                initialTrainingGoal: goal)
+            } else {
+                NativeWelcomeView { goal in
+                    UserDefaults.standard.set(true, forKey: welcomeKey)
+                    if let goal { welcomeCoachGoal = goal }
+                    else { showWelcome = false }
+                }
+                .interactiveDismissDisabled()
+            }
+        }
+        .alert("接受好友邀请？", isPresented: Binding(
+            get: { inboundInviteConfirmation != nil },
+            set: { if !$0 { inboundInviteConfirmation = nil } }
+        ), presenting: inboundInviteConfirmation) { code in
+            Button("接受邀请") { Task { await redeemInvite(code) } }
+            Button("取消", role: .cancel) {}
+        } message: { _ in Text("接受后会按你的好友分享设置显示训练动态。") }
+        .alert("好友邀请", isPresented: Binding(
+            get: { inviteMessage != nil },
+            set: { if !$0 { inviteMessage = nil } }
+        )) { Button("好", role: .cancel) {} } message: { Text(inviteMessage ?? "") }
         .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
+        .environment(\.spotterAccountPreferences, trainingPreferences)
         .environment(\.spotterReduceMotion, reduceMotion)
         .transaction {
             if reduceMotion || systemReduceMotion {
@@ -534,7 +626,7 @@ private struct NativeSpotterTabs: View {
         view.openSettings = { showSettings = true }
         view.openAllPlans = { selected = .training }
         view.openStats = { selected = .stats }
-        view.openCoach = openCoach
+        view.openCoach = { openCoach() }
         if showsFriends { view.openFriends = openFriends }
         if showsNutrition {
             view.openNutrition = { showNutrition = true }
@@ -548,18 +640,46 @@ private struct NativeSpotterTabs: View {
         selected = .friends
     }
 
-    private func checkTrainingReminder() {
-        let now = Date()
-        let parts = Calendar.current.dateComponents([.hour, .minute], from: now)
-        let minute = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
-        guard minute >= reminderMinute else { return }
-        let today = NativeWorkoutSession.day(now)
-        let deliveredKey = NativePreferenceKey.reminderKey(owner, field: "delivered")
-        guard UserDefaults.standard.string(forKey: deliveredKey) != today else { return }
-        let completed = Set(workouts.logs.map { $0.data["planId"].string })
-        guard workouts.plans.contains(where: { $0.owner == owner && $0.day == today && !completed.contains($0.id) }) else { return }
-        UserDefaults.standard.set(today, forKey: deliveredKey)
-        showTrainingReminder = true
+    private var reminderSchedule: NativeTrainingNotifications.Schedule {
+        let days = Set(workouts.plans.filter { $0.owner == owner && !workouts.hasCompletedPlan(id: $0.id) }.map(\.day))
+        return .init(enabled: reminderEnabled, time: reminderMinute, days: days, active: scenePhase == .active)
+    }
+
+    private var welcomeKey: String { "spotter.native.welcome.v1." + owner }
+
+    private func refreshHome() async {
+        trainingPreferences.activate()
+        async let preferences: Void = trainingPreferences.sync()
+        await workouts.load()
+        await attachHealthHeartRate()
+        await preferences
+    }
+
+    private func attachHealthHeartRate() async {
+        let waiting = Set(workouts.pendingCheckins.map(\.id))
+        let uploaded = workouts.logs.filter { !waiting.contains($0.id) }
+        await NativeAutomaticHeartSync.shared.run(api: account.api, owner: owner, entries: uploaded)
+    }
+
+    private func stageInvite() {
+        guard let code = inboundInvite, !showWelcome, !showCoach, !inviteBusy else { return }
+        inboundInvite = nil
+        inboundInviteConfirmation = code
+    }
+
+    private func redeemInvite(_ code: String) async {
+        guard !inviteBusy else { return }
+        inviteBusy = true
+        defer { inviteBusy = false }
+        do {
+            try await account.api.spotterSend("/api/friends", body: ["action": "join", "code": code, "expectedOwner": owner])
+            showsFriends = true
+            selected = .friends
+            friendsRevision += 1
+            inviteMessage = "已添加好友。"
+        } catch {
+            inviteMessage = error.localizedDescription
+        }
     }
 
     private func openCoach() {
@@ -569,8 +689,12 @@ private struct NativeSpotterTabs: View {
     }
 
     private func openTrainingLaunch() {
-        if workouts.active == nil { showTrainingLaunch = true }
-        else { openActiveWorkout() }
+        let plans = workouts.todayPendingPlans
+        if workouts.active != nil { openActiveWorkout() }
+        else if plans.count == 1, let entry = plans.first {
+            workouts.startScheduled(entry)
+            openActiveWorkout()
+        } else { showTrainingLaunch = true }
     }
 
     private func queueTrainingLaunch(_ action: TrainingLaunch) {
@@ -584,6 +708,9 @@ private struct NativeSpotterTabs: View {
         switch action {
         case .workout(let kind):
             workouts.startFreeWorkout(kind: kind)
+            openActiveWorkout()
+        case .plan(let entry):
+            workouts.startScheduled(entry)
             openActiveWorkout()
         case .rest: showRest = true
         case .body: showBody = true
@@ -601,12 +728,13 @@ private struct NativeSpotterTabs: View {
         finishedWorkout = nil
     }
 
-    private func openOwnFeedWorkout(_ id: String) {
+    private func openOwnFeedWorkout(_ id: String, day: String? = nil) {
         if let entry = workouts.logs.first(where: { $0.id == id }) {
             workoutReceipt = entry
         } else {
             Task {
-                await workouts.load()
+                if let day { await workouts.loadHistory(from: day, through: day) }
+                else { await workouts.load() }
                 workoutReceipt = workouts.logs.first { $0.id == id }
             }
         }
@@ -620,7 +748,17 @@ private struct NativeSpotterTabs: View {
         TabView(selection: $selected) {
             ForEach(contentSections, id: \.self) { section in tabScene(section).tag(section) }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { dock }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            dock.background {
+                GeometryReader { geometry in
+                    let top = geometry.frame(in: .global).minY
+                    Color.clear
+                        .onAppear { dockTop = top }
+                        .onChange(of: top) { dockTop = $0 }
+                        .accessibilityHidden(true)
+                }
+            }
+        }
     }
 
     private func tabScene(_ section: NativeSpotterSection) -> some View {
@@ -635,14 +773,16 @@ private struct NativeSpotterTabs: View {
         switch section {
         case .today: today
         case .training:
-            NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: openCoach,
+            NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: { openCoach() },
                               openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
         case .stats:
-            NativeSpotterStats(store: workouts, api: account.api, owner: owner)
+            NativeSpotterStats(store: workouts, api: account.api, owner: owner, dockTop: dockTop)
         case .friends:
-            NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest, openOwnLog: openOwnFeedWorkout) {
-                await workouts.load()
-            }
+            NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest,
+                          openOwnLog: { openOwnFeedWorkout($0) },
+                          openOwnLogDay: { id, day in openOwnFeedWorkout(id, day: day) },
+                          refreshPlans: { await workouts.load() })
+                .id(friendsRevision)
         }
     }
 
@@ -660,9 +800,10 @@ private struct NativeSpotterTabs: View {
             .animation(allowsMotion ? .spring(response: 0.34, dampingFraction: 0.78) : nil, value: selected)
             .padding(4)
             .frame(height: 59)
-            .spotterGlass(cornerRadius: 30, interactive: false)
+            .spotterGlass(in: Capsule(), interactive: false)
+            .overlay { Capsule().strokeBorder(.white.opacity(0.36)).allowsHitTesting(false) }
 
-            Button(action: openCoach) {
+            Button { openCoach() } label: {
                 Image("DockCoach").renderingMode(.template).resizable()
                     .frame(width: 23, height: 23)
                     .foregroundStyle(accent.tint)
@@ -689,7 +830,9 @@ private struct NativeSpotterTabs: View {
                 let gaps = CGFloat(contentSections.count) * dockSpacing
                 let width = max(0, (geometry.size.width - dockPlayWidth - gaps) / CGFloat(contentSections.count))
                 let previousPlay = index < playIndex ? 0 : dockPlayWidth + dockSpacing
-                Capsule().fill(accent.selection.opacity(0.68))
+                Capsule().fill(accent.fill.opacity(0.13))
+                    .spotterGlass(in: Capsule(), tint: accent.fill.opacity(0.40), interactive: allowsMotion)
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.65)) }
                     .frame(width: width)
                     .offset(x: CGFloat(index) * (width + dockSpacing) + previousPlay)
             }
@@ -721,12 +864,75 @@ private struct NativeSpotterTabs: View {
                 .foregroundStyle(SpotterPalette.deep)
                 .frame(width: 47, height: 47)
                 .contentShape(Circle())
-                .spotterGlass(in: Circle(), tint: SpotterAccent.lime.fill.opacity(0.94), interactive: allowsMotion)
+                .background(SpotterAccent.lime.fill.opacity(0.24), in: Circle())
+                .spotterGlass(in: Circle(), tint: SpotterAccent.lime.fill.opacity(0.72), interactive: allowsMotion)
+                .overlay { Circle().strokeBorder(.white.opacity(0.56)).allowsHitTesting(false) }
                 .frame(width: dockPlayWidth)
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(workouts.active == nil ? "开始训练" : "继续训练")
         .accessibilityIdentifier("spotter-dock-play")
         .disabled(workouts.active == nil && workouts.isBusy)
+    }
+}
+
+@MainActor
+final class NativeTrainingNotifications {
+    struct Schedule: Equatable {
+        let enabled: Bool
+        let time: Int
+        let days: Set<String>
+        let active: Bool
+    }
+
+    static let shared = NativeTrainingNotifications()
+    private let center = UNUserNotificationCenter.current()
+    private let prefix = "spotter.training.reminder."
+    private var generation = 0
+
+    func enable() async -> Bool {
+        (try? await center.requestAuthorization(options: [.alert, .sound])) == true
+    }
+
+    func clear() async {
+        await schedule(.init(enabled: false, time: 0, days: [], active: true))
+    }
+
+    func schedule(_ schedule: Schedule) async {
+        generation += 1
+        let revision = generation
+        let pending = await center.pendingNotificationRequests().filter { $0.identifier.hasPrefix(prefix) }
+        guard revision == generation, !Task.isCancelled else { return }
+        guard schedule.enabled else {
+            center.removePendingNotificationRequests(withIdentifiers: pending.map(\.identifier))
+            return
+        }
+        let permission = await center.notificationSettings().authorizationStatus
+        guard revision == generation, !Task.isCancelled else { return }
+        guard [.authorized, .provisional, .ephemeral].contains(permission) else { return }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let now = Date()
+        let dates: [(String, DateComponents)] = schedule.days.sorted().compactMap { day in
+            let fields = day.split(separator: "-").compactMap { Int($0) }
+            guard fields.count == 3, let date = calendar.date(from: .init(
+                year: fields[0], month: fields[1], day: fields[2], hour: schedule.time / 60, minute: schedule.time % 60
+            )), date > now else { return nil }
+            return (prefix + day + "." + String(schedule.time), calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date))
+        }
+        let upcoming = dates.prefix(28)
+        let identifiers = Set(upcoming.map { $0.0 })
+        center.removePendingNotificationRequests(withIdentifiers: pending.filter { !identifiers.contains($0.identifier) }.map(\.identifier))
+        let existing = Set(pending.map(\.identifier))
+        for (id, components) in upcoming where !existing.contains(id) {
+            guard revision == generation, !Task.isCancelled else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "训练提醒"
+            content.body = NativePreferenceKey.reminderTitle
+            content.sound = .default
+            try? await center.add(UNNotificationRequest(identifier: id, content: content,
+                trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)))
+        }
     }
 }
