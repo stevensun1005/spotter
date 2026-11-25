@@ -15,6 +15,7 @@ import { syncWorkoutProteinMeal } from "@/features/training/protein-nutrition";
 import { buddyCheckins, friendCurrentDay, friendDateLimited, friendDateVisible } from "@/features/friends/server";
 import { activePair, disconnectPair, joinPair, membership, sendPairCheer, validTimeZone } from "@/features/pair/server";
 import { publicPartnerSession } from "@/features/friends/public-training";
+import { dispatchNotifications, notificationAudience, shouldNotifyWorkout, workoutNotificationInsert, type NotificationEvent } from "@/features/notifications/server";
 import { anatomyVariant } from "@/features/body/profile";
 import { dateSchema, offsetDate } from "@/shared/dates";
 
@@ -154,7 +155,8 @@ export const POST = api(async (request) => {
   const body = result.data;
   const owner = user.userId;
   const name = user.fullName || user.email.split("@")[0];
-  const now = new Date().toISOString();
+  const timestamp = Date.now();
+  const now = new Date(timestamp).toISOString();
   const save = (itemId: string, kind: Entry["kind"], data: unknown) => db.prepare(
     "INSERT INTO entries (owner, id, kind, payload, updated) VALUES (?, ?, ?, ?, ?) " +
     "ON CONFLICT (owner, id) DO UPDATE SET kind = excluded.kind, payload = excluded.payload, updated = excluded.updated " +
@@ -196,12 +198,19 @@ export const POST = api(async (request) => {
       return reply({ error: "这次训练没有视频链接。" }, 400);
     }
     const write = save(body.id, body.action, body.data);
-    const saved = body.action === "log" && body.data.proteinProduct
-      ? (await db.batch([write, syncWorkoutProteinMeal(db, owner, body.id, body.data, now)]))[0]
-      : await write.run();
+    const notify = body.action === "log" && shouldNotifyWorkout(body.data, friendCurrentDay(request), timestamp);
+    const writes = [
+      write,
+      ...(notify ? [workoutNotificationInsert(db, owner, body.id, timestamp, notificationAudience(env))] : []),
+      ...(body.action === "log" && body.data.proteinProduct ? [syncWorkoutProteinMeal(db, owner, body.id, body.data, now)] : []),
+    ];
+    const [saved, notifications] = writes.length > 1 ? await db.batch<NotificationEvent>(writes) : [await write.run<NotificationEvent>()];
     if (!saved.meta.changes && body.action === "draft") return reply({ error: "此训练已打卡，草稿不能继续修改。" }, 409);
     if (body.action === "log") {
-      if (saved.meta.changes) return reply({ data: body.data, updated: now });
+      if (saved.meta.changes) {
+        if (notify && notifications) await dispatchNotifications(db, env, notifications.results ?? []);
+        return reply({ data: body.data, updated: now });
+      }
       const previous = await db.prepare("SELECT payload, updated FROM entries WHERE owner = ? AND id = ? AND kind = 'log'")
         .bind(owner, body.id).first<{ payload: string; updated: string }>();
       return previous ? reply({ data: JSON.parse(previous.payload), updated: previous.updated }) : reply({ error: "这条训练已变更，请刷新后重试。" }, 409);

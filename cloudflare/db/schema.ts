@@ -324,6 +324,41 @@ export const spotterAccessSessions = sqliteTable("spotter_access_sessions", {
   index("spotter_access_sessions_account").on(table.accountId),
 ]);
 
+export const notificationPreferences = sqliteTable("notification_preferences", {
+  owner: text().primaryKey().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  buddyReminders: integer("buddy_reminders", { mode: "boolean" }).notNull().default(true),
+  friendWorkouts: integer("friend_workouts", { mode: "boolean" }).notNull().default(true),
+});
+
+export const notificationDevices = sqliteTable("notification_devices", {
+  installationId: text("installation_id").primaryKey().notNull(),
+  owner: text().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  sessionHash: text("session_hash").notNull().references(() => spotterAccessSessions.tokenHash, { onDelete: "cascade" }),
+  token: text().notNull().unique(),
+  environment: text({ enum: ["production", "development"] }).notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("notification_devices_owner_updated").on(table.owner, table.updatedAt),
+  check("notification_device_environment", sql`${table.environment} IN ('production', 'development')`),
+]);
+
+export const notifications = sqliteTable("notifications", {
+  id: text().primaryKey().notNull(),
+  recipient: text().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  actor: text().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  kind: text({ enum: ["buddy-reminder", "friend-workout"] }).notNull(),
+  reference: text().notNull(),
+  createdAt: integer("created_at").notNull(),
+  readAt: integer("read_at"),
+}, (table) => [
+  index("notifications_recipient_created").on(table.recipient, table.createdAt),
+  index("notifications_actor").on(table.actor),
+  uniqueIndex("notifications_friend_workout_once").on(table.recipient, table.actor, table.reference)
+    .where(sql`${table.kind} = 'friend-workout'`),
+  check("notification_kind", sql`${table.kind} IN ('buddy-reminder', 'friend-workout')`),
+  check("notification_distinct_people", sql`${table.recipient} <> ${table.actor}`),
+]);
+
 export const spotterOAuthIdentities = sqliteTable("spotter_oauth_identities", {
   provider: text().notNull(),
   subject: text().notNull(),

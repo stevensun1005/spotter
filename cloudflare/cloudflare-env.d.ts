@@ -15,5 +15,11 @@ declare namespace Cloudflare {
     APPLE_OAUTH_KEY_ID?: string;
     APPLE_OAUTH_PRIVATE_KEY?: string;
     SPOTTER_APPLE_TOKEN_KEY?: string;
+    SPOTTER_APNS_TEAM_ID?: string;
+    SPOTTER_APNS_KEY_ID?: string;
+    SPOTTER_APNS_PRIVATE_KEY?: string;
+    SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS?: string;
+    SPOTTER_APNS_SANDBOX_KEY_ID?: string;
+    SPOTTER_APNS_SANDBOX_PRIVATE_KEY?: string;
   }
 }
