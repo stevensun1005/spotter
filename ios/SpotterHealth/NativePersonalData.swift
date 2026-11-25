@@ -232,6 +232,8 @@ struct NativeBodyData: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 profileCard
+                NativeAppleBodyTrends(origin: api.origin, owner: owner)
+                    .id(api.origin + "\n" + owner)
                 measurementCard
                 if ready { trendCard.transition(.opacity.combined(with: .offset(y: 8))) }
                 if let message { Text(message).font(.footnote).foregroundStyle(SpotterPalette.muted) }
@@ -447,5 +449,142 @@ struct NativeBodyData: View {
             await load(updateProfile: false)
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
         } catch { message = error.localizedDescription }
+    }
+}
+
+@MainActor
+private struct NativeAppleBodyTrends: View {
+    private struct Comparison: Identifiable {
+        let latest: NativeHealthBodySample
+        let baseline: NativeHealthBodySample?
+        var id: NativeHealthMetric { latest.metric }
+    }
+
+    private static let metrics: [NativeHealthMetric] = [.bodyMass, .bodyFat, .leanBodyMass, .waist]
+    let origin: String
+    let owner: String
+
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var window = 90
+    @State private var readings: NativeHealthReadings?
+
+    private var accessRequested: Bool {
+        NativeHealthPreferences(origin: origin, owner: owner).hasRequestedNativeAccess
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Apple 健康体成分").font(.headline).accessibilityAddTraits(.isHeader)
+            if !HealthKitReader.nativeDataAvailable {
+                caption("此设备暂时无法读取 Apple 健康。")
+            } else if !accessRequested {
+                caption("在「设置 → 手表与健康」授权后，这里会显示体成分变化。")
+            } else if let readings {
+                let comparisons = comparisons(in: readings)
+                if !readings.values.isEmpty {
+                    SpotterGlassSegments(options: [30, 90], value: $window, glass: false) { "近 \($0) 天" }
+                }
+                if comparisons.isEmpty {
+                    caption(readings.values.isEmpty
+                            ? "近 90 天没有可读的体成分记录。可在「设置 → 手表与健康」检查授权。"
+                            : "近 \(window) 天没有可读的体成分记录。")
+                } else {
+                    ForEach(comparisons) { comparison in
+                        row(comparison)
+                    }
+                    caption(insight(for: comparisons))
+                }
+            } else {
+                ProgressView("正在读取体成分…").font(.footnote)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14).spotterCard()
+        .task(id: scenePhase) { await monitorBodyHealth() }
+        .onDisappear { readings = nil }
+    }
+
+    private func startDate(days: Int, ending now: Date, calendar: Calendar) -> Date {
+        calendar.date(byAdding: .day, value: 1 - days, to: calendar.startOfDay(for: now)) ?? now
+    }
+
+    private func comparisons(in readings: NativeHealthReadings) -> [Comparison] {
+        let calendar = Calendar.current
+        let start = startDate(days: window, ending: .now, calendar: calendar)
+        return Self.metrics.compactMap { metric in
+            guard let result = readings.values[metric], case let .body(samples) = result,
+                  let latest = samples.last(where: { $0.date >= start }) else { return nil }
+            let baseline = samples.first(where: {
+                $0.date >= start && !$0.sourceID.isEmpty && $0.sourceID == latest.sourceID &&
+                !calendar.isDate($0.date, inSameDayAs: latest.date)
+            })
+            return Comparison(latest: latest, baseline: baseline)
+        }
+    }
+
+    private func row(_ comparison: Comparison) -> some View {
+        let latest = comparison.latest
+        return HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(latest.metric.title).font(.subheadline.weight(.semibold))
+                caption([spotterDay(latest.date), latest.sourceName].filter { !$0.isEmpty }.joined(separator: " · "))
+            }
+            Spacer(minLength: 2)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(amount(latest.value)) \(latest.metric.symbol)").font(.subheadline.weight(.bold)).monospacedDigit()
+                if let baseline = comparison.baseline {
+                    let difference = ((latest.value - baseline.value) * 10).rounded() / 10
+                    let unit = latest.metric == .bodyFat ? "百分点" : latest.metric.symbol
+                    let baselineDay = baseline.date.formatted(.dateTime.month().day())
+                    caption(difference == 0 ? "与 \(baselineDay) 持平"
+                            : "较 \(baselineDay) \(difference > 0 ? "+" : "")\(amount(difference)) \(unit)")
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text).font(.footnote).foregroundStyle(SpotterPalette.muted)
+    }
+
+    private func amount(_ value: Double) -> String {
+        value.formatted(.number.grouping(.never).precision(.fractionLength(0...1)))
+    }
+
+    private func insight(for comparisons: [Comparison]) -> String {
+        if !comparisons.contains(where: { $0.baseline != nil }) {
+            return "同一来源在不同日期有测量后会显示变化。尽量在相近时间和条件下测量。"
+        }
+        if comparisons.contains(where: { $0.id == .leanBodyMass }) {
+            return "去脂体重包含肌肉、水分等非脂肪成分。把连续测量与同一训练动作的重量和次数一起看。"
+        }
+        return "尽量在相近时间和条件下测量。体成分趋势可以和同一训练动作的重量、次数一起比较。"
+    }
+
+    private func monitorBodyHealth() async {
+        guard scenePhase == .active, accessRequested, HealthKitReader.nativeDataAvailable else { return }
+        let reader = HealthKitReader()
+        let metrics = Set(Self.metrics)
+        let updates = AsyncStream<Void>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            reader.observeNativeMetrics(metrics) { continuation.yield(()) }
+        }
+        defer { reader.stopObservingNativeMetrics() }
+
+        await refreshBodyHealth(using: reader, metrics: metrics)
+        for await _ in updates {
+            guard !Task.isCancelled else { break }
+            await refreshBodyHealth(using: reader, metrics: metrics)
+        }
+    }
+
+    private func refreshBodyHealth(using reader: HealthKitReader, metrics: Set<NativeHealthMetric>) async {
+        let now = Date.now
+        let calendar = Calendar.current
+        let start = startDate(days: 90, ending: now, calendar: calendar)
+        let result = try? await reader.readNativeMetrics(metrics, from: start, to: now, calendar: calendar)
+        guard !Task.isCancelled else { return }
+        readings = result ?? NativeHealthReadings()
     }
 }

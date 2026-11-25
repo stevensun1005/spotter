@@ -34,7 +34,7 @@
     <key>NSCameraUsageDescription</key>
     <string>当你选择拍照记录饮食时，使用相机拍摄本次餐食，供你预览和识别。</string>
     <key>NSHealthShareUsageDescription</key>
-    <string>按您选择的日期和项目读取 Apple 健康数据。您可以查看健康数据、手动保存身体测量和训练心率，或开启自动匹配后将训练期间的心率保存到自己的训练搭子帐户。</string>
+    <string>读取你允许的 Apple 健康数据，用于查看训练、活动和身体变化。</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>训练搭子通过只读授权同步您选择的 Apple 健康数据，训练记录保存在您的训练搭子账号中。</string>
     <key>NSLocalNetworkUsageDescription</key>

@@ -4,7 +4,7 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-private struct NativeHealthPreferences {
+struct NativeHealthPreferences {
     let base: String
 
     init(origin: String?, owner: String?) {
@@ -15,16 +15,9 @@ private struct NativeHealthPreferences {
 
     func key(_ field: String) -> String { base + "." + field }
 
-    var selection: Set<NativeHealthMetric> {
-        get {
-            guard let items = UserDefaults.standard.stringArray(forKey: key("selection")) else {
-                return Set(NativeHealthGroup.allCases.flatMap(\.metrics))
-            }
-            return Set(items.compactMap(NativeHealthMetric.init(rawValue:)))
-        }
-        nonmutating set {
-            UserDefaults.standard.set(newValue.map(\.rawValue).sorted(), forKey: key("selection"))
-        }
+    var hasRequestedNativeAccess: Bool {
+        get { UserDefaults.standard.bool(forKey: key("nativeAccessRequested")) }
+        nonmutating set { UserDefaults.standard.set(newValue, forKey: key("nativeAccessRequested")) }
     }
 
     var enabled: Bool { UserDefaults.standard.bool(forKey: key("autoHeart")) }
@@ -369,6 +362,7 @@ struct NativeHeartView: View {
 
 @MainActor
 struct NativeHealthSummary: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterInteractionMotion) private var motion
     private struct Snapshot {
         let data: NativeHealthReadings
@@ -386,13 +380,20 @@ struct NativeHealthSummary: View {
     private let preferences: NativeHealthPreferences
     private let groups: [NativeHealthGroup]
     private let metrics: Set<NativeHealthMetric>
-    @State private var selected: Set<NativeHealthMetric>
+    @State private var reader = HealthKitReader()
+    @State private var didRequestAccess: Bool
+    @State private var needsPermissionPrompt: Bool?
+    @State private var showPermissionInstructions = false
+    @State private var refreshRevision = 0
+    @State private var observing = false
+    @State private var readTask: Task<Void, Never>?
+    @State private var pendingRead = false
     @State private var uploadSelection: Set<NativeHealthMetric> = []
     @State private var days = 7
     @State private var snapshot: Snapshot?
+    @State private var readError: String?
     @State private var message: String?
     @State private var operation: Task<Void, Never>?
-    @State private var linkingHeart = false
     @AppStorage private var autoHeart: Bool
     @AppStorage private var autoAt: Double
     @AppStorage private var autoResult: String
@@ -406,8 +407,8 @@ struct NativeHealthSummary: View {
         let preferences = NativeHealthPreferences(origin: api?.origin, owner: owner)
         self.preferences = preferences
         groups = initialGroup.map { [$0] } ?? NativeHealthGroup.allCases
-        metrics = Set(groups.flatMap(\.metrics))
-        _selected = State(initialValue: preferences.selection.intersection(metrics))
+        metrics = Set(groups.flatMap(\.metrics)).intersection(NativeHealthMetric.supportedMetrics)
+        _didRequestAccess = State(initialValue: preferences.hasRequestedNativeAccess)
         _autoHeart = AppStorage(wrappedValue: false, preferences.key("autoHeart"))
         _autoAt = AppStorage(wrappedValue: 0, preferences.key("autoAt"))
         _autoResult = AppStorage(wrappedValue: "", preferences.key("autoResult"))
@@ -415,95 +416,115 @@ struct NativeHealthSummary: View {
         _readResult = AppStorage(wrappedValue: "", preferences.key("readResult"))
     }
 
+    private var canRead: Bool {
+        HealthKitReader.nativeDataAvailable && didRequestAccess
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Apple 健康", systemImage: "heart.text.square").font(.headline)
-            Text("选择要读取的项目，分别在 Apple 健康授权。此处的活动、睡眠和饮食统计仅在设备上查看。")
-                .font(.footnote).foregroundStyle(SpotterPalette.muted)
-            reportView("最近一次读取", timestamp: readAt, result: readResult)
-            if let api, let owner, groups == NativeHealthGroup.allCases {
-                automaticHeartSettings(api: api, owner: owner)
+            if HealthKitReader.nativeDataAvailable {
+                Button(action: managePermission) {
+                    Label(didRequestAccess && needsPermissionPrompt == false ? "管理 Apple 健康权限" : "授权 Apple 健康",
+                          systemImage: "heart.text.square")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SpotterNativeButtonStyle(primary: true))
+                .disabled(operation != nil)
+            } else {
+                Label("这台设备无法读取 Apple 健康", systemImage: "heart.text.square")
+                    .font(.subheadline).foregroundStyle(SpotterPalette.muted)
             }
-            SpotterMenuPicker("日期范围", selection: $days,
-                              options: [(1, "今天"), (7, "近 7 天"), (30, "近 30 天"), (90, "近 90 天"), (365, "近一年")])
-            .disabled(operation != nil)
-            selectionView.disabled(operation != nil)
-            Button {
-                operation = Task { await read() }
-            } label: {
-                Text("读取所选数据").frame(maxWidth: .infinity)
+            if canRead { availableData }
+            if let api, let owner, canRead || autoHeart {
+                accountSync(api: api, owner: owner)
             }
-            .buttonStyle(SpotterNativeButtonStyle(primary: true))
-            .disabled(operation != nil || selected.isEmpty)
-            if operation != nil {
-                ProgressView("正在处理…").font(.footnote)
-            }
+            if operation != nil { ProgressView("正在处理…").font(.footnote) }
             if let message {
                 Text(message).font(.footnote).foregroundStyle(SpotterPalette.muted)
             }
-            if let snapshot {
-                results(snapshot.data)
-                if let api, let owner {
-                    uploadView(snapshot, api: api, owner: owner)
-                }
+        }
+        .task(id: refreshRevision) { await refreshAccess() }
+        .onChange(of: days) { _ in
+            snapshot = nil
+            uploadSelection = []
+            readError = nil
+            scheduleRead()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { refreshRevision &+= 1 }
+            else {
+                stopReading()
+                if phase == .background { snapshot = nil }
             }
         }
-        .onChange(of: selected) { next in
-            preferences.selection = preferences.selection.subtracting(metrics).union(next)
-            clearResults()
+        .alert("管理 Apple 健康权限", isPresented: $showPermissionInstructions) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("在 iPhone 的「健康」中点头像，选择「App 与服务」→「训练搭子」。")
         }
-        .onChange(of: days) { _ in clearResults() }
         .animation(motion, value: snapshot != nil)
         .onDisappear {
             operation?.cancel()
-            clearResults()
+            stopReading()
+            snapshot = nil
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(spotterCardPadding)
         .spotterCard()
     }
 
-    private func automaticHeartSettings(api: NativeAPI, owner: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Toggle("自动补录训练心率", isOn: Binding(get: { autoHeart }, set: { enabled in
-                if enabled {
-                    linkingHeart = true
-                    Task {
-                        defer { linkingHeart = false }
-                        do {
-                            try await HealthKitReader().authorize(.heartRate)
-                            autoHeart = true
-                            await NativeAutomaticHeartSync.shared.run(api: api, owner: owner, entries: workouts?.logs ?? [], force: true)
-                        } catch is CancellationError {
-                        } catch {
-                            message = error.localizedDescription
-                        }
-                    }
-                } else {
-                    autoHeart = false
-                }
-            }))
-            .font(.subheadline.weight(.semibold))
-            .disabled(linkingHeart)
-            Text("开启后，App 会按每堂训练的实际起止时间，把近 7 天匹配到的心率补到你的账号。手表记录延迟时，下次打开 App 会再试。")
-                .font(.caption).foregroundStyle(SpotterPalette.muted)
-            reportView("最近一次补录", timestamp: autoAt, result: autoResult)
-            if autoHeart {
-                Button("重试近 7 天") {
-                    linkingHeart = true
-                    Task {
-                        defer { linkingHeart = false }
-                        if let workouts { await workouts.load() }
-                        await NativeAutomaticHeartSync.shared.run(api: api, owner: owner, entries: workouts?.logs ?? [], force: true)
-                    }
-                }
-                .buttonStyle(.spotterControl).disabled(linkingHeart)
+    private var availableData: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SpotterMenuPicker("日期范围", selection: $days,
+                              options: [(1, "今天"), (7, "近 7 天"), (30, "近 30 天"), (90, "近 90 天"), (365, "近一年")])
+                .disabled(operation != nil)
+            reportView("最近一次读取", timestamp: readAt, result: readResult)
+            if let readError {
+                Text(readError).font(.footnote).foregroundStyle(SpotterPalette.muted)
             }
-            if linkingHeart { ProgressView("正在处理训练心率…").font(.caption) }
+            if let snapshot {
+                if snapshot.data.values.isEmpty {
+                    Text("此日期范围内没有可读样本。可更换日期范围或检查健康权限。")
+                        .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                } else {
+                    results(snapshot.data)
+                }
+            } else if readTask != nil {
+                ProgressView("正在读取 Apple 健康…").font(.footnote)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 13))
+    }
+
+    private func accountSync(api: NativeAPI, owner: String) -> some View {
+        SpotterDisclosure("同步到我的账号") {
+            VStack(alignment: .leading, spacing: 8) {
+                if groups == NativeHealthGroup.allCases {
+                    Toggle("自动补录训练心率", isOn: Binding(get: { autoHeart }, set: { enabled in
+                        autoHeart = enabled
+                        if enabled { retryHeart(api: api, owner: owner) }
+                    }))
+                    .font(.subheadline.weight(.semibold))
+                    .disabled(!canRead && !autoHeart)
+                    Text("按训练的实际起止时间，补录近 7 天匹配到的心率。")
+                        .font(.caption).foregroundStyle(SpotterPalette.muted)
+                    reportView("最近一次补录", timestamp: autoAt, result: autoResult)
+                    if autoHeart {
+                        Button("重试近 7 天") { retryHeart(api: api, owner: owner) }
+                            .buttonStyle(.spotterControl)
+                    }
+                }
+                if let snapshot { uploadView(snapshot, api: api, owner: owner) }
+            }
+            .disabled(operation != nil)
+        }
+    }
+
+    private func retryHeart(api: NativeAPI, owner: String) {
+        operation = Task {
+            defer { operation = nil }
+            if let workouts { await workouts.load() }
+            await NativeAutomaticHeartSync.shared.run(api: api, owner: owner, entries: workouts?.logs ?? [], force: true)
+        }
     }
 
     @ViewBuilder private func reportView(_ title: String, timestamp: Double, result: String) -> some View {
@@ -516,50 +537,25 @@ struct NativeHealthSummary: View {
         }
     }
 
-    private var selectionView: some View {
-        SpotterDisclosure {
-            VStack(alignment: .leading, spacing: 8) {
-                Button(selected == metrics ? "清空" : "选择全部") {
-                    selected = selected == metrics ? [] : metrics
-                }
-                .buttonStyle(.spotterControl)
-                ForEach(groups) { group in
-                    SpotterDisclosure(group.title) {
-                        ForEach(group.metrics) { metric in
-                            Toggle(metric.title, isOn: enabled(metric, in: $selected))
-                                .padding(.top, 4)
-                        }
-                    }
-                }
-            }
-            .padding(.top, 8)
-        } label: {
-            Text("读取项目（\(selected.count)/\(metrics.count)）").font(.subheadline.weight(.semibold))
-        }
-    }
-
     private func results(_ data: NativeHealthReadings) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(groups) { group in
-                let visible = group.metrics.filter { selected.contains($0) }
+                let visible = group.metrics.filter { data.values[$0] != nil }
                 if !visible.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(group.title).font(.subheadline.weight(.bold))
+                    SpotterDisclosure(group.title) {
                         ForEach(visible) { metric in
-                            readingRow(metric, data.values[metric], failed: data.failed.contains(metric))
+                            if let value = data.values[metric] { readingRow(metric, value) }
                         }
                     }
                 }
             }
-            Text("无可读样本可能表示当前范围内没有记录，或此项目尚未获准读取。")
-                .font(.caption).foregroundStyle(SpotterPalette.muted)
         }
     }
 
-    private func readingRow(_ metric: NativeHealthMetric, _ value: NativeHealthReading?, failed: Bool) -> some View {
+    private func readingRow(_ metric: NativeHealthMetric, _ value: NativeHealthReading) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             LabeledContent {
-                Text(value.map { display($0, metric: metric) } ?? (failed ? "暂不可读取" : "无可读样本"))
+                Text(display(value, metric: metric))
                     .monospacedDigit()
             } label: {
                 Text(metric.isAverage ? "平均" + metric.title : metric.title)
@@ -594,7 +590,6 @@ struct NativeHealthSummary: View {
                 .foregroundStyle(SpotterPalette.muted)
             case let .sleep(_, inBedSeconds):
                 if let inBedSeconds { Text("在床时间 \(minutes(inBedSeconds))").font(.caption).foregroundStyle(SpotterPalette.muted) }
-            case nil: EmptyView()
             }
         }
     }
@@ -658,29 +653,87 @@ struct NativeHealthSummary: View {
         }
     }
 
-    private func clearResults() {
-        snapshot = nil
-        uploadSelection = []
+    private func managePermission() {
+        if didRequestAccess && needsPermissionPrompt == false {
+            showPermissionInstructions = true
+            return
+        }
         message = nil
+        operation = Task {
+            defer { operation = nil }
+            do {
+                try await reader.authorizeNativeMetrics()
+                try Task.checkCancellation()
+                preferences.hasRequestedNativeAccess = true
+                didRequestAccess = true
+                refreshRevision &+= 1
+            } catch is CancellationError {
+            } catch { message = error.localizedDescription }
+        }
+    }
+
+    private func refreshAccess() async {
+        guard HealthKitReader.nativeDataAvailable, scenePhase == .active else { return }
+        if let status = try? await reader.nativeAuthorizationNeedsPrompt(), !Task.isCancelled {
+            needsPermissionPrompt = status
+        }
+        guard canRead, scenePhase == .active, !Task.isCancelled else { return }
+        if !observing {
+            observing = true
+            reader.observeNativeMetrics(metrics) { scheduleRead(coalescing: true) }
+        }
+        scheduleRead()
+    }
+
+    private func stopReading() {
+        reader.stopObservingNativeMetrics()
+        observing = false
+        readTask?.cancel()
+        readTask = nil
+        pendingRead = false
+    }
+
+    private func scheduleRead(coalescing: Bool = false) {
+        guard observing, canRead, scenePhase == .active else { return }
+        if coalescing, readTask != nil {
+            pendingRead = true
+            return
+        }
+        readTask?.cancel()
+        readTask = Task {
+            if coalescing {
+                do { try await Task.sleep(for: .seconds(2)) }
+                catch { return }
+            }
+            await read()
+            guard !Task.isCancelled else { return }
+            readTask = nil
+            if pendingRead {
+                pendingRead = false
+                scheduleRead(coalescing: true)
+            }
+        }
     }
 
     private func read() async {
-        defer { operation = nil }
-        clearResults()
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
         let now = Date.now
         guard let begin = calendar.date(byAdding: .day, value: 1 - days, to: calendar.startOfDay(for: now)) else { return }
         do {
-            let data = try await HealthKitReader().readNativeMetrics(selected, from: begin, to: now, calendar: calendar)
+            let data = try await reader.readNativeMetrics(metrics, from: begin, to: now, calendar: calendar)
             try Task.checkCancellation()
+            let available = Set(bodySamples(data).map(\.metric))
+            if snapshot == nil { uploadSelection = available }
+            else { uploadSelection.formIntersection(available) }
             snapshot = Snapshot(data: data, calendar: calendar)
-            uploadSelection = Set(bodySamples(data).map(\.metric))
-            preferences.report("读取到 \(data.values.count) 项 · Apple 健康", kind: "read")
+            readError = nil
+            preferences.report("读取到 \(data.values.count) 项", kind: "read")
         } catch is CancellationError {
         } catch {
-            message = error.localizedDescription
-            preferences.report("读取未完成 · Apple 健康", kind: "read")
+            guard !Task.isCancelled else { return }
+            readError = error.localizedDescription
+            preferences.report("读取未完成", kind: "read")
         }
     }
 

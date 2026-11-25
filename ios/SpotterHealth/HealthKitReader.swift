@@ -41,6 +41,8 @@ enum NativeHealthMetric: String, Hashable, Identifiable, Sendable {
     case bodyMass, height, bodyMassIndex, bodyFat, leanBodyMass, waist, sleep
     case dietaryEnergy, protein, carbs, dietaryFat, fiber, water
 
+    static var supportedMetrics: Set<Self> { Set(NativeHealthGroup.allCases.flatMap(\.metrics)) }
+
     var id: Self { self }
 
     fileprivate struct Quantity {
@@ -140,6 +142,7 @@ struct NativeHealthBodySample: Identifiable, Sendable {
     let date: Date
     let value: Double
     let sourceName: String
+    let sourceID: String
 }
 
 enum NativeHealthReading: Sendable {
@@ -157,6 +160,47 @@ struct NativeHealthReadings: Sendable {
 @MainActor
 final class HealthKitReader {
     private let store = HKHealthStore()
+    private var nativeObservers: [HKObserverQuery] = []
+
+    static var nativeDataAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
+
+    func authorizeNativeMetrics() async throws {
+        try await store.requestAuthorization(toShare: [], read: nativeReadTypes())
+    }
+
+    func nativeAuthorizationNeedsPrompt() async throws -> Bool {
+        let readTypes = try nativeReadTypes()
+        return try await withCheckedThrowingContinuation { continuation in
+            store.getRequestStatusForAuthorization(toShare: [], read: readTypes) { status, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: status != .unnecessary) }
+            }
+        }
+    }
+
+    private func nativeReadTypes() throws -> Set<HKObjectType> {
+        guard Self.nativeDataAvailable else { throw HealthError.unavailable }
+        return Set(NativeHealthMetric.supportedMetrics.compactMap(\.sampleType))
+    }
+
+    func observeNativeMetrics(_ metrics: Set<NativeHealthMetric>, onChange: @escaping @MainActor () -> Void) {
+        stopObservingNativeMetrics()
+        guard Self.nativeDataAvailable else { return }
+        for type in Set(metrics.compactMap(\.sampleType)) {
+            let query = HKObserverQuery(sampleType: type, predicate: nil) { _, complete, error in
+                defer { complete() }
+                guard error == nil else { return }
+                Task { @MainActor in onChange() }
+            }
+            nativeObservers.append(query)
+            store.execute(query)
+        }
+    }
+
+    func stopObservingNativeMetrics() {
+        nativeObservers.forEach { store.stop($0) }
+        nativeObservers.removeAll()
+    }
 
     private func sampleType(_ selection: HealthSelection) throws -> HKSampleType {
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthError.unavailable }
@@ -183,7 +227,6 @@ final class HealthKitReader {
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthError.unavailable }
         let types = metrics.compactMap { metric in metric.sampleType.map { (metric, $0) } }
         guard !types.isEmpty else { throw HealthError.unavailable }
-        try await store.requestAuthorization(toShare: [], read: Set(types.map { $0.1 as HKObjectType }))
         try Task.checkCancellation()
 
         return await withTaskGroup(of: (NativeHealthMetric, NativeHealthReading?, Bool).self) { group in
@@ -244,8 +287,10 @@ final class HealthKitReader {
                 let converted = readings.compactMap { sample -> NativeHealthBodySample? in
                     let value = sample.quantity.doubleValue(for: spec.unit) * spec.multiplier
                     guard value.isFinite && value > 0 else { return nil }
+                    let source = sample.sourceRevision.source
+                    let sourceID = [source.bundleIdentifier, sample.device?.localIdentifier ?? ""].joined(separator: ":")
                     return NativeHealthBodySample(id: sample.uuid.uuidString.lowercased(), metric: metric, date: sample.startDate,
-                                                  value: value, sourceName: sample.sourceRevision.source.name)
+                                                  value: value, sourceName: source.name, sourceID: sourceID)
                 }
                 return converted.isEmpty ? nil : .body(converted)
             }
