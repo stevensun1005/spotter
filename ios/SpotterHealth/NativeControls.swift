@@ -5,42 +5,50 @@ struct SpotterControlButtonStyle: ButtonStyle {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
     var primary = false
+    var glass = false
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+    @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let label = configuration.label
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(configuration.role == .destructive ? Color.red : (primary ? SpotterPalette.deep : SpotterPalette.ink))
             .padding(.horizontal, 11)
             .frame(minWidth: 44, minHeight: 44)
-            .contentShape(Capsule())
-            .spotterGlass(in: Capsule(), tint: primary ? accent.fill.opacity(0.72) : nil, interactive: enabled && motion != nil)
-            .spotterPressFeedback(configuration.isPressed)
-            .opacity(enabled ? 1 : 0.56)
+            .contentShape(shape)
+        Group {
+            if glass {
+                label.spotterGlass(in: shape, interactive: enabled && motion != nil)
+            } else {
+                label.background(primary ? accent.fill : SpotterPalette.background, in: shape)
+                    .overlay { shape.strokeBorder(primary ? .clear : SpotterPalette.line).allowsHitTesting(false) }
+            }
+        }
+        .spotterPressFeedback(configuration.isPressed)
+        .opacity(enabled ? 1 : 0.56)
     }
 }
 
 extension ButtonStyle where Self == SpotterControlButtonStyle {
     static var spotterControl: Self { .init() }
     static var spotterPrimaryControl: Self { .init(primary: true) }
+    static var spotterGlassControl: Self { .init(glass: true) }
 }
 
-struct SpotterGlassChoiceStyle: ButtonStyle {
+struct SpotterChoiceStyle: ButtonStyle {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.isEnabled) private var enabled
-    @Environment(\.spotterInteractionMotion) private var motion
-    @Environment(\.colorScheme) private var colorScheme
     let selected: Bool
     var horizontalPadding: CGFloat = 10
     var minimumWidth: CGFloat = 44
 
     func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         configuration.label
             .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
             .padding(.horizontal, horizontalPadding)
             .frame(minWidth: minimumWidth, minHeight: 44)
-            .contentShape(Capsule())
-            .spotterGlass(in: Capsule(), tint: selected ? accent.fill.opacity(colorScheme == .dark ? 0.30 : 0.54) : nil,
-                          interactive: enabled && motion != nil)
+            .background(selected ? accent.selection : SpotterPalette.background.opacity(0.76), in: shape)
+            .contentShape(shape)
             .spotterPressFeedback(configuration.isPressed)
             .opacity(enabled ? 1 : 0.56)
     }
@@ -60,6 +68,7 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     let options: [Option]
     @Binding var value: Option
     let title: (Option) -> String
+    let glass: Bool
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dynamicTypeSize) private var textSize
@@ -67,23 +76,37 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     @Environment(\.colorScheme) private var colorScheme
     @Namespace private var selection
 
-    var body: some View {
+    init(options: [Option], value: Binding<Option>, glass: Bool = true, title: @escaping (Option) -> String) {
+        self.options = options
+        _value = value
+        self.glass = glass
+        self.title = title
+    }
+
+    @ViewBuilder var body: some View {
+        if glass {
+            SpotterGlassGroup(spacing: 5) { buttons }
+                .spotterGlassToolbar()
+        } else {
+            buttons.padding(3)
+                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    private var buttons: some View {
         let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 3)) : AnyLayout(HStackLayout(spacing: 3))
-        SpotterGlassGroup(spacing: 5) {
-            layout {
-                ForEach(options, id: \.self) { option in
-                    let selected = option == value
-                    Button {
-                        if !selected { withAnimation(motion) { value = option } }
-                    } label: {
-                        label(for: option, selected: selected)
-                    }
-                    .buttonStyle(.spotterPress)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
+        return layout {
+            ForEach(options, id: \.self) { option in
+                let selected = option == value
+                Button {
+                    if !selected { withAnimation(motion) { value = option } }
+                } label: {
+                    label(for: option, selected: selected)
                 }
+                .buttonStyle(.spotterPress)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
-        .spotterGlassToolbar()
         .animation(motion, value: value)
     }
 
@@ -100,7 +123,7 @@ struct SpotterGlassSegments<Option: Hashable>: View {
 
         if !selected {
             label
-        } else if #available(iOS 26.0, *) {
+        } else if glass, #available(iOS 26.0, *) {
             label
                 .glassEffect(.regular.tint(accent.fill.opacity(colorScheme == .dark ? 0.30 : 0.46))
                     .interactive(enabled && motion != nil), in: Capsule())
@@ -117,15 +140,17 @@ struct SpotterGlassSegments<Option: Hashable>: View {
 struct SpotterMenu<Items: View, Label: View>: View {
     let items: Items
     let label: Label
+    let glass: Bool
 
-    init(@ViewBuilder content: () -> Items, @ViewBuilder label: () -> Label) {
+    init(glass: Bool = false, @ViewBuilder content: () -> Items, @ViewBuilder label: () -> Label) {
         self.items = content()
         self.label = label()
+        self.glass = glass
     }
 
     var body: some View {
         Menu { items } label: { label }
-            .buttonStyle(.spotterControl)
+            .buttonStyle(glass ? .spotterGlassControl : .spotterControl)
     }
 }
 

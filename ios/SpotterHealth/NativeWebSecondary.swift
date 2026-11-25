@@ -71,7 +71,7 @@ private struct SecondaryActionHeader<Actions: View>: View {
 
     private var actionRow: some View {
         HStack(spacing: 6) { actions }
-            .spotterGlassCluster()
+
             .fixedSize(horizontal: true, vertical: false)
     }
 }
@@ -429,7 +429,7 @@ struct NativeSpotterStats: View {
     private var rangePicker: some View {
         VStack(alignment: .leading, spacing: 7) {
             if let partner, !sharedLogs.isEmpty {
-                SpotterGlassSegments(options: [false, true], value: $partnerSelected, title: { $0 ? "搭子 · \(partner.name)" : "我" })
+                SpotterGlassSegments(options: [false, true], value: $partnerSelected, glass: false, title: { $0 ? "搭子 · \(partner.name)" : "我" })
             }
             SpotterGlassSegments(options: Period.allCases, value: $period, title: \.rawValue)
                 .onChange(of: period) { value in
@@ -457,7 +457,7 @@ struct NativeSpotterStats: View {
                 }
                 stepButton("下一周期", symbol: "chevron.right") { withAnimation(motion) { shiftPeriod(1) } }.disabled(!canStepForward)
             }
-            .spotterGlassCluster()
+
         }.padding(9).secondaryCard().animation(motion, value: period)
     }
 
@@ -711,7 +711,7 @@ private struct SecondaryDateRangeSheet: View {
                             .accessibilityHidden(true)
                         edgeButton(.end, date: end)
                     }
-                    .spotterGlassCluster()
+
                     DatePicker(edge == .start ? "开始日期" : "结束日期", selection: selectedDate,
                                in: firstDate...SecondaryDate.today, displayedComponents: .date)
                         .datePickerStyle(.graphical)
@@ -729,7 +729,7 @@ private struct SecondaryDateRangeSheet: View {
                             }.buttonStyle(.spotterControl)
                         }
                     }
-                    .spotterGlassCluster()
+
                     if !valid {
                         Label("日期范围最长 10 年", systemImage: "exclamationmark.circle")
                             .font(.footnote).foregroundStyle(.red)
@@ -766,7 +766,7 @@ private struct SecondaryDateRangeSheet: View {
                     .lineLimit(1).minimumScaleFactor(0.72)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-            .spotterGlass(in: Capsule(), tint: edge == value ? accent.fill.opacity(0.46) : nil, interactive: motion != nil)
+            .background(edge == value ? accent.selection : SpotterPalette.background, in: RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.spotterPress)
         .accessibilityAddTraits(edge == value ? .isSelected : [])
@@ -1462,7 +1462,7 @@ private struct SecondaryPerformance: View {
         let gain = mostImproved(current, compared: prior)
         return VStack(alignment: .leading, spacing: 10) {
             Text("动作表现").font(.headline)
-            SpotterGlassSegments(options: Metric.allCases, value: $metric, title: \.rawValue)
+            SpotterGlassSegments(options: Metric.allCases, value: $metric, glass: false, title: \.rawValue)
             if let gain {
                 Button { onRecord(gain.lift.entry) } label: {
                     HStack(spacing: 7) {
@@ -1472,7 +1472,7 @@ private struct SecondaryPerformance: View {
                         Text("+\(statNumber(gain.delta)) kg").font(.subheadline.weight(.bold)).monospacedDigit().lineLimit(1)
                     }
                     .foregroundStyle(SpotterPalette.ink)
-                    .padding(10).spotterGlass(cornerRadius: 12, tint: SpotterPalette.wash)
+                    .padding(10).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 12))
                 }.buttonStyle(.spotterPress)
                     .accessibilityHint("对比期进步最多，打开训练记录")
             }
@@ -1494,7 +1494,7 @@ private struct SecondaryPerformance: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading).padding(9)
-                            .spotterGlass(cornerRadius: 11, tint: SpotterPalette.wash.opacity(0.54))
+                            .background(SpotterPalette.wash.opacity(0.54), in: RoundedRectangle(cornerRadius: 11))
                         }
                         .buttonStyle(.spotterPress)
                         .accessibilityHint("查看这条训练记录")
@@ -1704,7 +1704,7 @@ private struct SecondaryHistory: View {
             monthStep("上个月", symbol: "chevron.left", direction: -1)
             monthStep("下个月", symbol: "chevron.right", direction: 1)
         }
-        .spotterGlassCluster()
+
     }
 
     private func goToMonth(_ date: Date) {
@@ -1850,7 +1850,7 @@ private struct SecondaryHistory: View {
                             Button("排序我的训练") { withAnimation(motion) { draftOrder = ownIDs } }.buttonStyle(.spotterControl)
                         }
                     }
-                    .spotterGlassCluster()
+
                 }
                 if let orderError { SecondaryNotice(message: orderError, warning: true) }
                 if daily.isEmpty {
@@ -2876,12 +2876,12 @@ private struct NativeAppearancePreferences: View {
                             .frame(maxWidth: .infinity, minHeight: 57)
                             .foregroundStyle(SpotterPalette.ink)
                         }
-                        .buttonStyle(SpotterGlassChoiceStyle(selected: accent == choice, horizontalPadding: 2))
+                        .buttonStyle(SpotterChoiceStyle(selected: accent == choice, horizontalPadding: 2))
                         .accessibilityAddTraits(accent == choice ? .isSelected : [])
                         .accessibilityIdentifier("spotter-appearance-\(choice.rawValue)")
                     }
                 }
-                .spotterGlassCluster()
+
             }.padding(13)
             Divider()
             NativeSettingToggle(title: "加大文字", detail: "增大使用系统动态字体的文字。", value: $largerText)
@@ -3323,7 +3323,7 @@ struct NativeFriends: View {
             }
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 7) { contactActions }
-                    .spotterGlassCluster()
+
                     .fixedSize(horizontal: true, vertical: false)
                 VStack(alignment: .leading, spacing: 7) { contactActions }
             }
@@ -3340,7 +3340,7 @@ struct NativeFriends: View {
                     Button { open(.appointments) } label: {
                         SecondaryRow(title: "约下次训练", detail: "与 \(buddy.name) 确认时间",
                                      icon: "calendar.badge.plus", color: accent.selection)
-                            .spotterGlass(cornerRadius: 15, interactive: motion != nil)
+                            .secondaryCard()
                     }.buttonStyle(.spotterPress)
                 }
                 if !ordinary.isEmpty { contactGroup("普通好友", friends: ordinary) }
@@ -3406,7 +3406,7 @@ struct NativeFriends: View {
             Button { open(.cheers) } label: {
                 SecondaryRow(title: "收到的加油", detail: "查看好友最近为你的哪些打卡加油了",
                              icon: "heart.fill", color: accent.selection)
-                    .spotterGlass(cornerRadius: 15, interactive: motion != nil)
+                    .secondaryCard()
             }.buttonStyle(.spotterPress)
             if let feed {
                 let activeDays = feed.days.filter { !$0.items.isEmpty }
@@ -3525,7 +3525,7 @@ struct NativeFriends: View {
                         appointmentButton("接受", action: "accept", item: appointment, primary: true)
                         appointmentButton("婉拒", action: "decline", item: appointment)
                     }
-                    .spotterGlassCluster()
+
                 } else if (appointment.sender == owner && appointment.status == "pending") || appointment.status == "accepted" {
                     appointmentButton("取消邀约", action: "cancel", item: appointment)
                 }
@@ -3831,7 +3831,7 @@ struct NativeFriends: View {
                     Button("复制邀请码") { UIPasteboard.general.string = invite.code; report("已复制邀请码。") }
                         .buttonStyle(SecondaryButtonStyle())
                 }
-                .spotterGlassCluster()
+
                 Button("停用邀请码") { Task { await mutateList(["action": "revoke"], confirmation: "邀请码已停用。") } }
                     .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.accent).disabled(busy)
             } else {
@@ -3872,7 +3872,7 @@ struct NativeFriends: View {
                         requestButton(incoming ? "拒绝" : "撤回", request: request, decision: incoming ? "decline" : "cancel",
                                       confirmation: incoming ? "已拒绝申请。" : "申请已撤回。")
                     }
-                    .spotterGlassCluster()
+
                 }.padding(11)
             }
         }
@@ -4094,7 +4094,7 @@ private struct SecondaryFriendDetail: View {
                         DatePicker("好友记录日期", selection: $date, in: (SecondaryDate.parse("1900-01-01") ?? date)...SecondaryDate.today, displayedComponents: .date).labelsHidden()
                         Spacer()
                         stepButton("后一天", symbol: "chevron.right") { date = SecondaryDate.shift(date, 1) }.disabled(date >= SecondaryDate.today)
-                    }.spotterGlassCluster()
+                    }
                 }.padding(12).secondaryCard()
                 ZStack(alignment: .topLeading) {
                     if let record {

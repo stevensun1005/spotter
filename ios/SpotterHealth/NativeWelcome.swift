@@ -137,7 +137,7 @@ struct NativeWelcomeView: View {
                     }
                     .padding(.horizontal, 14)
                     .frame(minHeight: 54)
-                    .spotterGlass(cornerRadius: 15, tint: goal == option ? accent.fill.opacity(0.30) : nil)
+                    .background(goal == option ? accent.selection : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 15))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.spotterPress)

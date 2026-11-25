@@ -136,7 +136,7 @@ struct NativeProteinView: View {
                                 recipeAction("设为训练默认", icon: "checkmark.circle") { Task { await store.chooseDefault(id) } }
                                     .transition(.opacity)
                             }
-                        }.spotterGlassCluster().disabled(store.busy || !store.loaded)
+                        }.disabled(store.busy || !store.loaded)
                     }
                     .padding(.vertical, 5)
                     .animation(motion, value: isDefault)

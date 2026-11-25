@@ -78,7 +78,7 @@ struct NativeProgramsView: View {
                     .font(.title3)
             }.accessibilityLabel("周期操作")
         }
-        .spotterGlassCluster()
+
     }
 
     private func recordCard(_ record: NativeProgramRecord) -> some View {
@@ -327,7 +327,7 @@ private struct NativeTrainingProgramEditor: View {
                 Button(dirty ? "保存并预览排期" : "预览排入日历") { Task { await act { try await checkSchedule() } } }
                     .buttonStyle(.spotterPrimaryControl).disabled(busy)
             }
-            .spotterGlassCluster()
+
             if busy { ProgressView().accessibilityLabel("正在处理周期") }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14).spotterCard()
     }
@@ -339,7 +339,7 @@ private struct NativeTrainingProgramEditor: View {
                     weekButton(number)
                 }
             }
-            .spotterGlassCluster()
+
         }.accessibilityLabel("周期周次")
     }
 
@@ -348,7 +348,7 @@ private struct NativeTrainingProgramEditor: View {
         return Button { withAnimation(motion) { week = number } } label: {
             Text("第 \(number) 周").font(.footnote.weight(.semibold)).lineLimit(1)
         }
-        .buttonStyle(SpotterGlassChoiceStyle(selected: selected))
+        .buttonStyle(SpotterChoiceStyle(selected: selected))
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
@@ -369,7 +369,7 @@ private struct NativeTrainingProgramEditor: View {
                 Button("批量调整", systemImage: "slider.horizontal.3") { sheet = .adjust }
                     .buttonStyle(.spotterControl)
             }
-            .spotterGlassCluster()
+
             if sessions.isEmpty { Text("这一周还没有训练。").font(.subheadline).foregroundStyle(SpotterPalette.muted) }
             ForEach(sessions) { sessionCard($0) }
             SpotterMenu {
@@ -747,12 +747,12 @@ private struct NativeCreateProgram: View {
                         Text(draft.weekday(day)).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(SpotterGlassChoiceStyle(selected: selected, horizontalPadding: 1))
+                    .buttonStyle(SpotterChoiceStyle(selected: selected, horizontalPadding: 1))
                     .accessibilityLabel("第 \(day) 天 · \(draft.weekday(day))")
                     .accessibilityAddTraits(selected ? [.isSelected] : [])
                 }
             }
-            .spotterGlassCluster(spacing: 2)
+
             if let templateIssue { Text(templateIssue).font(.footnote).foregroundStyle(SpotterPalette.muted) }
             ForEach(Array(days.enumerated()), id: \.element.day) { index, day in
                 VStack(alignment: .leading, spacing: 7) {

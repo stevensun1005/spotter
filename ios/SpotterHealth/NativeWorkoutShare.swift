@@ -121,7 +121,7 @@ struct NativeWorkoutShareView: View {
                     .frame(maxWidth: .infinity)
                 }
             }
-            .spotterGlassCluster()
+
             HStack(spacing: 12) {
                 Button {
                     withAnimation(motion) { includeHeart.toggle() }
@@ -130,7 +130,7 @@ struct NativeWorkoutShareView: View {
                     Label("附带心率", systemImage: includeHeart ? "checkmark.square.fill" : "square")
                         .frame(minHeight: 32)
                 }
-                .buttonStyle(SpotterGlassChoiceStyle(selected: includeHeart))
+                .buttonStyle(SpotterChoiceStyle(selected: includeHeart))
                 .accessibilityAddTraits(includeHeart ? .isSelected : [])
                 .disabled(api == nil)
                 Spacer(minLength: 5)
@@ -140,7 +140,7 @@ struct NativeWorkoutShareView: View {
                     }
                 }
             }
-            .spotterGlassCluster()
+
             .font(.subheadline.weight(.semibold)).foregroundStyle(theme.quiet)
             if let message { Text(message).font(.footnote).foregroundStyle(theme.quiet) }
             else if includeHeart {
@@ -165,7 +165,8 @@ struct NativeWorkoutShareView: View {
                 }
                 .buttonStyle(ShareControlStyle(theme: theme, isOutput: true, highlighted: true))
             }
-            .spotterGlassCluster()
+
+            .spotterGlassToolbar()
             .disabled(saving || artwork == nil || shading?.entries != displayedLogs || (includeHeart && selectedHeart == nil))
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -275,9 +276,8 @@ private struct ShareControlStyle: ButtonStyle {
             .frame(maxWidth: .infinity, minHeight: isOutput ? 46 : 44)
             .padding(.horizontal, 4)
             .foregroundStyle(theme.ink.opacity(enabled ? 1 : 0.44))
-            .contentShape(Capsule())
-            .spotterGlass(in: Capsule(), tint: highlighted ? theme.highlight.opacity(0.72) : theme.light.opacity(0.20),
-                          interactive: enabled && motion != nil)
+            .background(highlighted ? theme.highlight : theme.light, in: RoundedRectangle(cornerRadius: 12))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
             .spotterPressFeedback(configuration.isPressed)
     }
 }

@@ -69,7 +69,7 @@ struct NativePlanImportView: View {
                 .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 10))
                 .focused($editingText).disabled(busy)
             ViewThatFits(in: .horizontal) {
-                HStack { chooseFile; Spacer(); previewButton }.spotterGlassCluster()
+                HStack { chooseFile; Spacer(); previewButton }
                 VStack(alignment: .leading) { chooseFile; previewButton }
             }
         }.padding(14).spotterCard()

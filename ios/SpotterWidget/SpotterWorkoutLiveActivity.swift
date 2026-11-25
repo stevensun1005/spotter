@@ -21,26 +21,34 @@ struct SpotterWorkoutLiveActivity: Widget {
                         .font(.caption.weight(.semibold)).foregroundStyle(lime).lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    timing(context.state).foregroundStyle(lime)
+                    elapsed(context.state).foregroundStyle(lime)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack { nextSet(context.state); Spacer(minLength: 6); sets(context.state) }
-                        progress(context.state)
+                        HStack(spacing: 8) {
+                            nextSet(context.state)
+                            Spacer(minLength: 0)
+                            if #available(iOS 16.2, *), !context.isStale, let heart = context.state.visibleHeart() {
+                                Label("\(heart) BPM", systemImage: "heart.fill")
+                                    .font(.caption.weight(.semibold)).monospacedDigit().foregroundStyle(lime)
+                                    .fixedSize(horizontal: true, vertical: false).privacySensitive()
+                                    .accessibilityLabel("心率 \(heart) 次每分钟")
+                            }
+                        }
+                        rest(context.state)
+                        HStack(spacing: 8) {
+                            progress(context.state)
+                            if context.state.totalSets > 0 { sets(context.state) }
+                        }
                     }.padding(.top, 3)
                 }
             } compactLeading: {
-                Image(systemName: context.state.isRunning ? "dumbbell.fill" : "pause.fill")
-                    .font(.caption.weight(.bold)).foregroundStyle(lime)
-                    .accessibilityLabel(context.state.isRunning ? "训练中" : "训练已暂停")
+                elapsed(context.state, compact: true).foregroundStyle(lime)
             } compactTrailing: {
-                if context.state.restDeadline != nil {
-                    timing(context.state).foregroundStyle(lime).fixedSize(horizontal: true, vertical: false)
-                } else {
-                    Text("\(context.state.completedSets)/\(context.state.totalSets)")
-                        .font(.caption2.weight(.semibold)).monospacedDigit().foregroundStyle(lime)
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                }
+                Text("\(context.state.completedSets)/\(context.state.totalSets)")
+                    .font(.caption2.weight(.semibold)).monospacedDigit().foregroundStyle(lime)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .accessibilityLabel("已完成 \(context.state.completedSets) 组，共 \(context.state.totalSets) 组")
             } minimal: {
                 Image(systemName: context.state.restDeadline == nil ? "dumbbell.fill" : "timer")
                     .font(.caption.weight(.bold)).foregroundStyle(lime).accessibilityLabel("训练搭子")
@@ -63,13 +71,9 @@ struct SpotterWorkoutLiveActivity: Widget {
                         .font(.caption.weight(.semibold)).foregroundStyle(lime)
                     nextSet(state)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                VStack(alignment: .trailing, spacing: 2) {
-                    timing(state).foregroundStyle(lime)
-                    if state.restDeadline != nil || state.pausedRestSeconds != nil {
-                        Text(state.isRunning ? "休息倒计时" : "休息已暂停").font(.caption2).foregroundStyle(soft)
-                    }
-                }.fixedSize(horizontal: true, vertical: false)
+                elapsed(state).foregroundStyle(lime).fixedSize(horizontal: true, vertical: false)
             }
+            rest(state)
             HStack(spacing: 10) {
                 progress(state)
                 if state.totalSets > 0 { sets(state) }
@@ -100,16 +104,42 @@ struct SpotterWorkoutLiveActivity: Widget {
             .accessibilityValue("\(state.completedSets) / \(state.totalSets)")
     }
 
-    @ViewBuilder private func timing(_ state: SpotterTrainingActivityAttributes.ContentState) -> some View {
-        if let end = state.restDeadline {
-            Text(timerInterval: end.addingTimeInterval(-600)...end, countsDown: true, showsHours: false)
-                .font(.subheadline.weight(.bold)).monospacedDigit().accessibilityLabel("休息倒计时")
-        } else if let seconds = state.pausedRestSeconds {
-            Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
-                .font(.subheadline.weight(.bold)).monospacedDigit().accessibilityLabel("剩余 \(seconds) 秒")
-        } else {
-            Image(systemName: state.isRunning ? "arrow.up.right" : "pause.fill").font(.caption.weight(.bold))
-                .accessibilityHidden(true)
+    private func elapsed(_ state: SpotterTrainingActivityAttributes.ContentState, compact: Bool = false) -> some View {
+        Group {
+            if let start = state.elapsedStartedAt, state.isRunning {
+                Text(timerInterval: start...start.addingTimeInterval(86_400), countsDown: false, showsHours: true)
+                    .accessibilityLabel("训练用时")
+            } else if let seconds = state.elapsedSeconds {
+                Text(duration(seconds))
+                    .accessibilityLabel("训练用时 \(seconds) 秒，已暂停")
+            } else {
+                Image(systemName: state.isRunning ? "dumbbell.fill" : "pause.fill")
+                    .accessibilityLabel(state.isRunning ? "训练中" : "训练已暂停")
+            }
         }
+        .font(compact ? .caption2.weight(.semibold) : .subheadline.weight(.bold))
+        .monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+    }
+
+    @ViewBuilder private func rest(_ state: SpotterTrainingActivityAttributes.ContentState) -> some View {
+        if state.restDeadline != nil || state.pausedRestSeconds != nil {
+            HStack(spacing: 8) {
+                Label(state.isRunning ? "组间休息" : "休息已暂停", systemImage: "timer")
+                Spacer(minLength: 0)
+                if let end = state.restDeadline {
+                    Text(timerInterval: end.addingTimeInterval(-600)...end, countsDown: true, showsHours: false)
+                        .accessibilityLabel("休息倒计时")
+                } else if let seconds = state.pausedRestSeconds {
+                    Text(duration(seconds)).accessibilityLabel("剩余 \(seconds) 秒")
+                }
+            }
+            .font(.caption.weight(.semibold)).monospacedDigit().foregroundStyle(soft)
+        }
+    }
+
+    private func duration(_ seconds: Int) -> String {
+        let seconds = max(0, min(86_400, seconds))
+        if seconds >= 3_600 { return String(format: "%d:%02d:%02d", seconds / 3_600, seconds / 60 % 60, seconds % 60) }
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }

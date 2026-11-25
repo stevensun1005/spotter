@@ -90,11 +90,11 @@ struct NativeRestSchedule: View {
                         .font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(SpotterGlassChoiceStyle(selected: selected, horizontalPadding: 2))
+                .buttonStyle(SpotterChoiceStyle(selected: selected, horizontalPadding: 2))
                 .disabled(!ready || busy || (weekdays.count >= 6 && !selected))
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
-        }.spotterGlassCluster()
+        }
     }
 
     private func load() async {
@@ -307,7 +307,7 @@ struct NativeBodyData: View {
                 .buttonStyle(.spotterPrimaryControl)
                 .disabled(busy || !ready)
             }
-            .spotterGlassCluster()
+
             .animation(motion, value: editing != nil)
         }
         .padding(14).spotterCard()

@@ -229,7 +229,7 @@ struct NativeHeartView: View {
             Button("取消预览") { preview = nil; message = nil }.buttonStyle(.spotterPress)
         } else {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 5) { fileButton; appleButton(window) }.spotterGlassCluster()
+                HStack(spacing: 5) { fileButton; appleButton(window) }
                 VStack(alignment: .leading, spacing: 8) { fileButton; appleButton(window) }
             }
             if stored != nil {

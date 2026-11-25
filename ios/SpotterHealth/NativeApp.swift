@@ -1,3 +1,4 @@
+import Combine
 import CryptoKit
 import SwiftUI
 import UIKit
@@ -179,7 +180,7 @@ extension EnvironmentValues {
     }
 
     var spotterInteractionMotion: Animation? {
-        accessibilityReduceMotion || spotterReduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.84)
+        accessibilityReduceMotion || spotterReduceMotion ? nil : .spring(response: 0.27, dampingFraction: 0.86)
     }
 }
 
@@ -191,10 +192,9 @@ private struct SpotterPressFeedback: ViewModifier {
     func body(content: Content) -> some View {
         let animate = !systemReduceMotion && !reduceMotion
         content
-            .scaleEffect(pressed && animate ? 0.945 : 1)
-            .brightness(pressed && animate ? 0.035 : 0)
-            .opacity(pressed ? 0.86 : 1)
-            .animation(animate ? (pressed ? .easeOut(duration: 0.11) : .spring(response: 0.30, dampingFraction: 0.72)) : nil,
+            .scaleEffect(pressed && animate ? 0.97 : 1)
+            .opacity(pressed ? 0.83 : 1)
+            .animation(animate ? (pressed ? .easeOut(duration: 0.09) : .spring(response: 0.23, dampingFraction: 0.82)) : nil,
                        value: pressed)
     }
 }
@@ -273,7 +273,7 @@ struct NativeSpotterApp: View {
             NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
             if owner == nil {
                 clearTrainingLiveActivity()
-                if #available(iOS 17.0, *) { NativeWatchHeartRate.shared.useWorkout(nil) }
+                if #available(iOS 17.0, *) { NativeWatchHeartRate.shared.updateWorkout(context: nil, snapshot: nil) }
                 Task {
                     await NativeTrainingNotifications.shared.scheduleRest(nil)
                     await NativeTrainingNotifications.shared.clear()
@@ -634,12 +634,9 @@ private struct NativeSpotterTabs: View {
             refreshLiveActivity()
         }
         .onChange(of: workouts.active?.id) { _ in refreshLiveActivity() }
-        .onChange(of: watchWorkoutContext) { context in
-            if #available(iOS 17.0, *) { NativeWatchHeartRate.shared.useWorkout(context) }
-        }
-        .task {
-            if #available(iOS 17.0, *) { NativeWatchHeartRate.shared.useWorkout(watchWorkoutContext) }
-        }
+        .onChange(of: workouts.active) { _ in updateWatchWorkout() }
+        .task { updateWatchWorkout() }
+        .onReceive(liveHeartRateUpdates) { _ in refreshLiveActivity() }
         .onChange(of: showsTrainingLiveActivity) { _ in refreshLiveActivity() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
             refreshWidget()
@@ -834,18 +831,46 @@ private struct NativeSpotterTabs: View {
             return date > now ? date : nil
         }
         let restSeconds = session.restStatus()?.remainingSeconds ?? 0
+        let counterStart: Date? = if session.isRunning {
+            Date(timeIntervalSince1970: (session.raw["clock"]["runningSince"].number - session.raw["clock"]["elapsed"].number) / 1_000)
+        } else { nil }
+        let heartReading: NativeWatchHeartRateReading? = if #available(iOS 17.0, *) {
+            NativeWatchHeartRate.shared.latest(for: .init(owner: owner, workoutID: entry.id, isRunning: session.isRunning))
+                .flatMap { $0.isFresh(at: now) ? $0 : nil }
+        } else { nil }
         let state = SpotterTrainingActivityAttributes.ContentState(
             completedSets: session.completedSets,
             totalSets: session.rows.reduce(0) { $0 + $1.count },
             nextMovement: name, nextSet: next.map { $0.row + 1 }, isRunning: session.isRunning,
-            restDeadline: deadline, pausedRestSeconds: !session.isRunning && restSeconds > 0 ? restSeconds : nil
+            restDeadline: deadline, pausedRestSeconds: !session.isRunning && restSeconds > 0 ? restSeconds : nil,
+            elapsedStartedAt: counterStart, elapsedSeconds: session.isRunning ? nil : session.elapsedMilliseconds() / 1_000,
+            heartBPM: heartReading?.bpm, heartExpiresAt: heartReading?.measuredAt.addingTimeInterval(30)
         )
         manager.sync(workoutKey: key, state: state, foreground: scenePhase == .active)
     }
 
-    private var watchWorkoutContext: NativeWatchWorkoutContext? {
-        guard let entry = workouts.active, entry.owner == owner, let session = entry.session else { return nil }
-        return .init(owner: owner, workoutID: entry.id, isRunning: session.isRunning)
+    private var liveHeartRateUpdates: AnyPublisher<Void, Never> {
+        guard #available(iOS 17.0, *) else { return Empty().eraseToAnyPublisher() }
+        let readings = NativeWatchHeartRate.shared.$reading.removeDuplicates()
+        return readings.filter { $0 == nil }.map { _ in () }
+            .merge(with: readings.filter { $0 != nil }
+                .throttle(for: .seconds(5), scheduler: RunLoop.main, latest: true).map { _ in () })
+            .receive(on: RunLoop.main)
+            .eraseToAnyPublisher()
+    }
+
+    private func updateWatchWorkout() {
+        guard #available(iOS 17.0, *) else { return }
+        let watch = NativeWatchHeartRate.shared
+        guard let entry = workouts.active, entry.owner == owner, let session = entry.session else {
+            watch.updateWorkout(context: nil, snapshot: nil)
+            return
+        }
+        let workoutID = entry.id
+        watch.updateWorkout(context: .init(owner: owner, workoutID: workoutID, isRunning: session.isRunning),
+                            snapshot: .init(session: session, previous: workouts.undoableSet)) { [weak workouts] command in
+            workouts?.applyWatchAction(command, workoutID: workoutID)
+        }
     }
 
     private var isAvailableForWidget: Bool {
@@ -1011,20 +1036,7 @@ private struct NativeSpotterTabs: View {
 
     private var dock: some View {
         HStack(spacing: 8) {
-            ZStack(alignment: .leading) {
-                dockIndicator
-                HStack(spacing: dockSpacing) {
-                    ForEach(contentSections, id: \.self) { section in
-                        if section == .stats { dockPlay }
-                        dockTab(section)
-                    }
-                }
-            }
-            .animation(allowsMotion ? .spring(response: 0.34, dampingFraction: 0.78) : nil, value: selected)
-            .padding(4)
-            .frame(height: 59)
-            .spotterGlass(in: Capsule(), interactive: false)
-            .overlay { Capsule().strokeBorder(.white.opacity(0.36)).allowsHitTesting(false) }
+            NativeDockTabRail(sections: contentSections, selection: $selected, play: dockPlay)
 
             Button { openCoach() } label: {
                 Image("DockCoach").renderingMode(.template).resizable()
@@ -1044,42 +1056,6 @@ private struct NativeSpotterTabs: View {
         .padding(.bottom, 4)
     }
 
-    private let dockSpacing: CGFloat = 2
-    private let dockPlayWidth: CGFloat = 53
-
-    private var dockIndicator: some View {
-        GeometryReader { geometry in
-            if let index = contentSections.firstIndex(of: selected),
-               let playIndex = contentSections.firstIndex(of: .stats) {
-                let gaps = CGFloat(contentSections.count) * dockSpacing
-                let width = max(0, (geometry.size.width - dockPlayWidth - gaps) / CGFloat(contentSections.count))
-                let previousPlay = index < playIndex ? 0 : dockPlayWidth + dockSpacing
-                Capsule().fill(accent.fill.opacity(0.13))
-                    .spotterGlass(in: Capsule(), tint: accent.fill.opacity(0.40), interactive: allowsMotion)
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.65)) }
-                    .frame(width: width)
-                    .offset(x: CGFloat(index) * (width + dockSpacing) + previousPlay)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func dockTab(_ section: NativeSpotterSection) -> some View {
-        Button { selected = section } label: {
-            VStack(spacing: 3) {
-                Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
-                Text(section.rawValue).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(selected == section ? accent.tint : SpotterPalette.muted)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.spotterPress)
-        .accessibilityLabel(section.rawValue)
-        .accessibilityAddTraits(selected == section ? .isSelected : [])
-    }
-
     private var dockPlay: some View {
         Button(action: openTrainingLaunch) {
             Image(systemName: "play.fill")
@@ -1088,15 +1064,96 @@ private struct NativeSpotterTabs: View {
                 .foregroundStyle(SpotterPalette.deep)
                 .frame(width: 47, height: 47)
                 .contentShape(Circle())
-                .background(SpotterAccent.lime.fill.opacity(0.24), in: Circle())
-                .spotterGlass(in: Circle(), tint: SpotterAccent.lime.fill.opacity(0.72), interactive: allowsMotion)
-                .overlay { Circle().strokeBorder(.white.opacity(0.56)).allowsHitTesting(false) }
-                .frame(width: dockPlayWidth)
+                .background(SpotterAccent.lime.fill, in: Circle())
+                .overlay { Circle().strokeBorder(SpotterPalette.deep.opacity(0.15)).allowsHitTesting(false) }
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(workouts.active == nil ? "开始训练" : "继续训练")
         .accessibilityIdentifier("spotter-dock-play")
         .disabled(workouts.active == nil && workouts.isBusy)
+    }
+}
+
+private struct NativeDockTabRail<Play: View>: View {
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    @GestureState private var dragDistance: CGFloat? = nil
+    let sections: [NativeSpotterSection]
+    @Binding var selection: NativeSpotterSection
+    let play: Play
+
+    private let spacing: CGFloat = 2
+    private let playWidth: CGFloat = 53
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(0, (geometry.size.width - playWidth - CGFloat(sections.count) * spacing) / CGFloat(sections.count))
+            let offsets = sections.indices.map { index in
+                CGFloat(index) * (width + spacing) + (index >= (sections.firstIndex(of: .stats) ?? 2) ? playWidth + spacing : 0)
+            }
+            let base = offsets[sections.firstIndex(of: selection) ?? 0]
+            let position = min(offsets.last ?? base, max(offsets.first ?? base, base + (dragDistance ?? 0)))
+            let touchTab = nearest(to: position, offsets: offsets)
+            ZStack(alignment: .leading) {
+                Capsule().fill(accent.selection.opacity(0.2))
+                    .spotterGlass(in: Capsule(), tint: accent.fill.opacity(0.36), interactive: false)
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.62)) }
+                    .frame(width: width)
+                    .scaleEffect(dragDistance != nil && motion != nil ? 1.06 : 1)
+                    .offset(x: position)
+                    .animation(dragDistance == nil ? motion : nil, value: selection)
+                    .animation(dragDistance == nil ? motion : nil, value: dragDistance == nil)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                HStack(spacing: spacing) {
+                    ForEach(sections, id: \.self) { section in
+                        if section == .stats { play.frame(width: playWidth) }
+                        tab(section, highlighted: touchTab == section).frame(width: width)
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 12)
+                    .updating($dragDistance) { value, distance, transaction in
+                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                        transaction.animation = nil
+                        distance = value.translation.width
+                    }
+                    .onEnded { value in
+                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                        let momentum = value.predictedEndTranslation.width - value.translation.width
+                        let destination = base + value.translation.width + min(18, max(-18, momentum))
+                        selection = nearest(to: destination, offsets: offsets)
+                    }
+            )
+        }
+        .padding(4)
+        .frame(height: 59)
+        .spotterGlass(in: Capsule(), interactive: false)
+        .overlay { Capsule().strokeBorder(.white.opacity(0.36)).allowsHitTesting(false) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("spotter-dock-tabs")
+    }
+
+    private func nearest(to position: CGFloat, offsets: [CGFloat]) -> NativeSpotterSection {
+        guard let index = offsets.indices.min(by: { abs(offsets[$0] - position) < abs(offsets[$1] - position) }) else { return selection }
+        return sections[index]
+    }
+
+    private func tab(_ section: NativeSpotterSection, highlighted: Bool) -> some View {
+        Button { selection = section } label: {
+            VStack(spacing: 3) {
+                Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
+                Text(section.rawValue).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(highlighted ? accent.tint : SpotterPalette.muted)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel(section.rawValue)
+        .accessibilityAddTraits(selection == section ? .isSelected : [])
     }
 }
 

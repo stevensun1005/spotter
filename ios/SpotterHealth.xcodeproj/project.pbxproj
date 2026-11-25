@@ -60,6 +60,7 @@
 		A130000000000000000000A9 /* SpotterWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A130000000000000000000A1; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A130000000000000000000B5 /* NativeWatchHeartRate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000B3; };
 		A130000000000000000000B6 /* NativeWatchHeartRatePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000B4; };
+		A130000000000000000000B7 /* NativeWatchHeartRatePacket.swift in Watch Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000B4; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -247,7 +248,7 @@
 		A13000000000000000000090 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A13000000000000000000091 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 
-		A130000000000000000000AD /* Watch Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A130000000000000000000A7); runOnlyForDeploymentPostprocessing = 0; };
+		A130000000000000000000AD /* Watch Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A130000000000000000000A7, A130000000000000000000B7); runOnlyForDeploymentPostprocessing = 0; };
 		A130000000000000000000AE /* Watch Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A130000000000000000000AF /* Watch Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A130000000000000000000A8); runOnlyForDeploymentPostprocessing = 0; };
 
@@ -259,12 +260,12 @@
 /* Begin XCBuildConfiguration section */
 		A13000000000000000000011 = {
 			isa = XCBuildConfiguration;
-			buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CURRENT_PROJECT_VERSION = 28; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; MARKETING_VERSION = 1.0; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; };
+			buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CURRENT_PROJECT_VERSION = 29; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; MARKETING_VERSION = 1.0; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; };
 			name = Debug;
 		};
 		A13000000000000000000012 = {
 			isa = XCBuildConfiguration;
-			buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CURRENT_PROJECT_VERSION = 28; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; MARKETING_VERSION = 1.0; SWIFT_VERSION = 5.0; SWIFT_COMPILATION_MODE = wholemodule; };
+			buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CURRENT_PROJECT_VERSION = 29; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; MARKETING_VERSION = 1.0; SWIFT_VERSION = 5.0; SWIFT_COMPILATION_MODE = wholemodule; };
 			name = Release;
 		};
 		A13000000000000000000013 = {

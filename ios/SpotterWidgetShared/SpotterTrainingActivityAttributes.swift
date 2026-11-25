@@ -11,10 +11,24 @@ struct SpotterTrainingActivityAttributes: ActivityAttributes {
         let isRunning: Bool
         let restDeadline: Date?
         let pausedRestSeconds: Int?
+        var elapsedStartedAt: Date? = nil
+        var elapsedSeconds: Int? = nil
+        var heartBPM: Int? = nil
+        var heartExpiresAt: Date? = nil
 
         var progress: Double {
             guard totalSets > 0 else { return 0 }
             return min(1, Double(completedSets) / Double(totalSets))
+        }
+
+        var staleHeartDate: Date? {
+            guard isRunning, let heartBPM, (20...260).contains(heartBPM) else { return nil }
+            return heartExpiresAt
+        }
+
+        func visibleHeart(at now: Date = .now) -> Int? {
+            guard let expiry = staleHeartDate, expiry > now else { return nil }
+            return heartBPM
         }
     }
 

@@ -502,8 +502,9 @@ final class NativeWorkoutStore: ObservableObject {
     func mutate(_ change: (inout NativeWorkoutSession) -> Void) {
         guard var current = active, !isBusy, var session = current.session else { return }
         change(&session)
+        guard current.data != session.raw else { return }
         current.data = session.raw
-        current.updated = ISO8601DateFormatter().string(from: Date())
+        current.updated = Date.now.formatted(.iso8601)
         active = current
         changed()
     }
@@ -607,6 +608,43 @@ final class NativeWorkoutStore: ObservableObject {
 
     func toggleClock() {
         mutate { session in if session.isRunning { session.pause() } else { session.resume() } }
+    }
+
+    func applyWatchAction(_ command: NativeWatchWorkoutCommand, workoutID: String) -> NativeWatchWorkoutSnapshot? {
+        guard !isBusy, let entry = active, entry.owner == owner, entry.id == workoutID, let session = entry.session else { return nil }
+        let previous = undoableSet
+        switch command.action {
+        case .completeSet:
+            guard let target = command.position else { return nil }
+            let position = NativeWorkoutSession.SetPosition(move: target.move, row: target.row)
+            guard session.nextSet(after: previous) == position else { return nil }
+            var completed = false
+            mutate { workout in
+                var candidate = workout
+                if let weight = command.weight { candidate.setLine(move: target.move, row: target.row, key: "weight", value: .number(weight)) }
+                if let reps = command.reps { candidate.setLine(move: target.move, row: target.row, key: "reps", value: .number(Double(reps))) }
+                if let seconds = command.seconds { candidate.setLine(move: target.move, row: target.row, key: "seconds", value: .number(Double(seconds))) }
+                guard let result = candidate.completeSet(at: position, after: previous) else { return }
+                workout = candidate
+                self.lastSetCompletion = LastSetCompletion(workoutID: workoutID, completion: result)
+                completed = true
+            }
+            guard completed else { return nil }
+        case .setRunning:
+            guard let running = command.running else { return nil }
+            if running != session.isRunning { toggleClock() }
+        case .skipRest:
+            mutate { $0.clearRest() }
+        case .adjustRest:
+            guard let adjustment = command.adjustment else { return nil }
+            var changedRest = false
+            mutate { changedRest = $0.adjustRest(by: adjustment) }
+            guard changedRest else { return nil }
+        case .refresh:
+            break
+        }
+        guard let updated = active?.session else { return nil }
+        return NativeWatchWorkoutSnapshot(session: updated, previous: undoableSet)
     }
 
     private func changed() {
@@ -1391,7 +1429,8 @@ struct NativeWorkoutView: View {
     }
 
     private var weekStrip: some View {
-        VStack(spacing: 12) {
+        let scheduledDays = Set(store.plans.map(\.day)).union(store.logs.map(\.day))
+        return VStack(spacing: 12) {
             HStack {
                 Text("训练日程").font(.system(size: 18, weight: .bold))
                 Spacer()
@@ -1400,7 +1439,6 @@ struct NativeWorkoutView: View {
                     Button { shiftWeek(7) } label: { Image(systemName: "chevron.right") }.accessibilityLabel("下一周")
                 }
                 .buttonStyle(.spotterControl)
-                .spotterGlassCluster()
             }
             HStack(spacing: 3) {
                 ForEach(Array(weekDates.enumerated()), id: \.offset) { offset, date in
@@ -1410,15 +1448,14 @@ struct NativeWorkoutView: View {
                             Text("周\(["一", "二", "三", "四", "五", "六", "日"][offset])").font(.system(size: 11, weight: .semibold))
                             Text(date.formatted(.dateTime.day())).font(.system(size: 19, weight: .bold))
                             Circle().fill(SpotterPalette.accent).frame(width: 4, height: 4)
-                                .opacity(store.plans.contains { $0.day == day } || store.logs.contains { $0.day == day } ? 1 : 0)
+                                .opacity(scheduledDays.contains(day) ? 1 : 0)
                         }.frame(maxWidth: .infinity).padding(.vertical, 7)
                     }
-                    .buttonStyle(SpotterGlassChoiceStyle(selected: day == selectedDay, horizontalPadding: 0, minimumWidth: 0))
+                    .buttonStyle(SpotterChoiceStyle(selected: day == selectedDay, horizontalPadding: 0, minimumWidth: 0))
                     .accessibilityLabel(day)
                     .accessibilityAddTraits(day == selectedDay ? .isSelected : [])
                 }
             }
-            .spotterGlassCluster(spacing: 3)
         }.padding(14).spotterCard()
     }
 
@@ -1725,7 +1762,7 @@ struct NativeWorkoutView: View {
                     Text("全部计划").font(.system(size: 18, weight: .bold))
                     Spacer()
                     HStack(spacing: 4) {
-                        SpotterMenu {
+                        SpotterMenu(glass: true) {
                             if let openCoach { Button("AI 教练起草", systemImage: "sparkles", action: openCoach) }
                             if let openImport { Button("粘贴已有内容", systemImage: "list.bullet.clipboard", action: openImport) }
                             if let openPrograms { Button("训练周期", systemImage: "calendar.badge.plus", action: openPrograms) }
@@ -1739,7 +1776,7 @@ struct NativeWorkoutView: View {
                     }
                     .spotterGlassCluster()
                 }
-                SpotterGlassSegments(options: [false, true], value: $completedPlans) { $0 ? "已完成" : "待训练" }
+                SpotterGlassSegments(options: [false, true], value: $completedPlans, glass: false) { $0 ? "已完成" : "待训练" }
             }.padding(12).spotterCard()
             if completedPlans {
                 let records = visibleLogs.sorted(by: newestRecord)
@@ -1832,13 +1869,15 @@ struct NativeWorkoutView: View {
 struct SpotterNativeButtonStyle: ButtonStyle {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.isEnabled) private var enabled
-    @Environment(\.spotterInteractionMotion) private var motion
     var primary: Bool
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.padding(.horizontal, 13).padding(.vertical, 11)
             .foregroundStyle(primary ? SpotterPalette.deep : SpotterPalette.ink)
-            .spotterGlass(cornerRadius: 11, tint: primary ? accent.fill : SpotterPalette.card.opacity(0.85),
-                          interactive: enabled && motion != nil)
+            .background(primary ? accent.fill : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 11))
+            .overlay {
+                RoundedRectangle(cornerRadius: 11)
+                    .strokeBorder(primary ? .clear : SpotterPalette.line).allowsHitTesting(false)
+            }
             .spotterPressFeedback(configuration.isPressed)
             .opacity(enabled ? 1 : 0.54)
     }
@@ -1911,13 +1950,13 @@ struct NativeTrainingLaunch: View {
                         ForEach(scheduled, id: \.key) { plan in
                             Button { startPlan(plan) } label: {
                                 HStack(spacing: 12) {
-                                    Image(systemName: "play.circle.fill").font(.title3)
+                                    Image(systemName: "play.circle.fill").font(.title3).foregroundStyle(SpotterAccent.lime.fill)
                                     Text(plan.displayTitle).font(.subheadline.weight(.semibold))
                                     Spacer(minLength: 0)
                                     Image(systemName: "chevron.right").font(.footnote.weight(.bold))
                                 }.padding(.horizontal, 13).frame(minHeight: 46)
                             }.buttonStyle(.spotterPress)
-                                .spotterGlass(cornerRadius: 13, tint: .white.opacity(0.13), interactive: true)
+                                .background(SpotterPalette.color(0x294333), in: RoundedRectangle(cornerRadius: 13))
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -2294,7 +2333,6 @@ struct NativeActiveWorkoutView: View {
             .accessibilityIdentifier("workout-rest-skip")
         }
         .buttonStyle(.spotterControl)
-        .spotterGlassCluster(spacing: 5)
         .disabled(store.isBusy)
     }
 
@@ -2371,7 +2409,6 @@ struct NativeActiveWorkoutView: View {
             }
         }
         .buttonStyle(.spotterControl)
-        .spotterGlassCluster(spacing: 6)
     }
 
     private func reuseButton(_ index: Int, move: NativeJSON, record: NativeExerciseHistory.Record) -> some View {
@@ -2520,7 +2557,7 @@ struct NativeActiveWorkoutView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .buttonStyle(SpotterGlassChoiceStyle(selected: true, horizontalPadding: 1))
+                .buttonStyle(SpotterChoiceStyle(selected: true, horizontalPadding: 1))
                 .disabled(session.plan.exercises.count >= 30)
             }
             footerAction("写心得", symbol: "square.and.pencil") { panel = .note }
@@ -2530,7 +2567,6 @@ struct NativeActiveWorkoutView: View {
                 }.disabled(session.rows.isEmpty)
             }
         }
-        .spotterGlassCluster(spacing: 3)
         .spotterGlassToolbar()
         .padding(.horizontal, 10).padding(.vertical, 5)
     }
@@ -2543,7 +2579,7 @@ struct NativeActiveWorkoutView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 50)
         }
-        .buttonStyle(SpotterGlassChoiceStyle(selected: false, horizontalPadding: 1))
+        .buttonStyle(SpotterChoiceStyle(selected: false, horizontalPadding: 1))
     }
     private func activate(_ target: NativeSetTarget, value: Double) { edit = target; editText = value.formatted(.number.grouping(.never).precision(.fractionLength(0...2))); pristine = true; openedMove = target.move }
     private func nextSet(_ session: NativeWorkoutSession) -> NativeSetTarget? {
@@ -3025,7 +3061,6 @@ struct NativeWorkoutDetailView: View {
                 HStack(spacing: 5) { actionButtons(session) }
                 VStack(alignment: .leading, spacing: 6) { actionButtons(session) }
             }
-            .spotterGlassCluster(spacing: 5)
             .spotterGlassToolbar()
         }
         .frame(maxWidth: .infinity)

@@ -311,19 +311,16 @@ private func nutritionNumber(_ value: Double) -> String {
 
 private struct NutritionShortcuts: View {
     @Environment(\.spotterAccent) private var accent
-    @Environment(\.spotterInteractionMotion) private var motion
     var zoomNamespace: Namespace.ID? = nil
     let onSelect: (NutritionShortcut) -> Void
 
     var body: some View {
-        SpotterGlassGroup(spacing: 5) {
-            HStack(spacing: 3) {
-                ForEach(NutritionShortcut.allCases) { shortcut in
-                    if #available(iOS 18.0, *), let zoomNamespace {
-                        button(shortcut).matchedTransitionSource(id: shortcut, in: zoomNamespace)
-                    } else {
-                        button(shortcut)
-                    }
+        HStack(spacing: 3) {
+            ForEach(NutritionShortcut.allCases) { shortcut in
+                if #available(iOS 18.0, *), let zoomNamespace {
+                    button(shortcut).matchedTransitionSource(id: shortcut, in: zoomNamespace)
+                } else {
+                    button(shortcut)
                 }
             }
         }
@@ -341,8 +338,8 @@ private struct NutritionShortcuts: View {
                     .minimumScaleFactor(0.75)
             }
             .frame(minWidth: 44, maxWidth: .infinity, minHeight: 51)
-            .contentShape(Rectangle())
-            .spotterGlass(in: Capsule(), tint: accent.selection.opacity(0.34), interactive: motion != nil)
+            .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(shortcut.rawValue)
@@ -598,9 +595,9 @@ struct NativeNutritionDetail: View {
     private var header: some View {
         SpotterGlassGroup {
             HStack(spacing: 7) {
-                iconButton("arrow.left", "返回", size: 43) { dismiss() }
+                iconButton("arrow.left", "返回", glass: true) { dismiss() }
                 Spacer(minLength: 0)
-                iconButton("chevron.left", "前一天", size: 43) { move(-1) }.disabled(date <= dateBounds.lowerBound)
+                iconButton("chevron.left", "前一天", glass: true) { move(-1) }.disabled(date <= dateBounds.lowerBound)
                 Button { showDate = true } label: {
                     Text(day == spotterDay() ? "今天" : day)
                         .font(.subheadline.weight(.semibold)).monospacedDigit().lineLimit(1)
@@ -610,29 +607,27 @@ struct NativeNutritionDetail: View {
                 }
                 .buttonStyle(.spotterPress)
                 .accessibilityLabel("选择饮食日期，\(day)")
-                iconButton("chevron.right", "后一天", size: 43) { move(1) }.disabled(date >= dateBounds.upperBound)
+                iconButton("chevron.right", "后一天", glass: true) { move(1) }.disabled(date >= dateBounds.upperBound)
                 Spacer(minLength: 0)
-                iconButton("slider.horizontal.3", "饮食设置", size: 43) { destination = .settings }
+                iconButton("slider.horizontal.3", "饮食设置", glass: true) { destination = .settings }
             }
         }
         .animation(motion, value: day)
     }
 
     private var summaryActions: some View {
-        SpotterGlassGroup {
-            HStack(spacing: 6) {
-                Button { destination = .goals } label: {
-                    Text("营养目标").font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                }
-                .buttonStyle(.spotterControl)
-                .disabled(!ready)
-                ShareLink(item: shareText) {
-                    Label("分享", systemImage: "square.and.arrow.up")
-                        .font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                }
-                .buttonStyle(.spotterControl)
-                .disabled(!ready || rows.isEmpty)
+        HStack(spacing: 6) {
+            Button { destination = .goals } label: {
+                Text("营养目标").font(.system(size: 13, weight: .semibold)).lineLimit(1)
             }
+            .buttonStyle(.spotterControl)
+            .disabled(!ready)
+            ShareLink(item: shareText) {
+                Label("分享", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+            }
+            .buttonStyle(.spotterControl)
+            .disabled(!ready || rows.isEmpty)
         }
     }
 
@@ -650,18 +645,14 @@ struct NativeNutritionDetail: View {
 
     private var planningActions: some View {
         VStack(spacing: 6) {
-            SpotterGlassGroup {
-                HStack(spacing: 6) {
-                    shortcutButton("碳循环设置") { destination = .cycle }.disabled(!ready)
-                    shortcutButton("智能食谱") { destination = .recipes }.disabled(!ready)
-                    shortcutButton("食物推荐") { destination = .recommendations }.disabled(!ready)
-                }
+            HStack(spacing: 6) {
+                shortcutButton("碳循环设置") { destination = .cycle }.disabled(!ready)
+                shortcutButton("智能食谱") { destination = .recipes }.disabled(!ready)
+                shortcutButton("食物推荐") { destination = .recommendations }.disabled(!ready)
             }
-            SpotterGlassGroup {
-                HStack(spacing: 6) {
-                    shortcutButton("记蛋白粉", icon: "cup.and.saucer") { destination = .protein }
-                    shortcutButton("复制往日餐食", icon: "doc.on.doc") { destination = .copy }
-                }
+            HStack(spacing: 6) {
+                shortcutButton("记蛋白粉", icon: "cup.and.saucer") { destination = .protein }
+                shortcutButton("复制往日餐食", icon: "doc.on.doc") { destination = .copy }
             }
             shortcutButton("常用餐", icon: "star") { destination = .favorites }
         }
@@ -720,13 +711,11 @@ struct NativeNutritionDetail: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if row.sourceWorkoutId == nil {
-                    SpotterGlassGroup {
-                        HStack(spacing: 6) {
-                            if meal.isMeal {
-                                iconButton("pencil", "编辑 \(name)", size: 42) { destination = .entry(meal, row, nil, nil) }
-                            }
-                            iconButton("trash", "删除 \(name)", size: 42) { deleteCandidate = row }.disabled(deleting)
+                    HStack(spacing: 6) {
+                        if meal.isMeal {
+                            iconButton("pencil", "编辑 \(name)") { destination = .entry(meal, row, nil, nil) }
                         }
+                        iconButton("trash", "删除 \(name)") { deleteCandidate = row }.disabled(deleting)
                     }
                 }
             }
@@ -762,12 +751,10 @@ struct NativeNutritionDetail: View {
     private var toolbar: some View {
         VStack(spacing: 5) {
             if expandTools {
-                SpotterGlassGroup {
-                    HStack(spacing: 6) {
-                        toolButton("统计", icon: "chart.bar.xaxis") { destination = .stats }
-                        toolButton("AI 识别", icon: "wand.and.stars") { destination = .photo }
-                        toolButton("语音", icon: "mic") { destination = .voice }
-                    }
+                HStack(spacing: 6) {
+                    toolButton("统计", icon: "chart.bar.xaxis") { destination = .stats }
+                    toolButton("AI 识别", icon: "wand.and.stars") { destination = .photo }
+                    toolButton("语音", icon: "mic") { destination = .voice }
                 }
                 .transition(.opacity.combined(with: .offset(y: 7)))
             }
@@ -789,6 +776,7 @@ struct NativeNutritionDetail: View {
                 .buttonStyle(.spotterPress)
             }
         }
+        .spotterGlassToolbar()
     }
 
     private func toolButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
@@ -808,11 +796,15 @@ struct NativeNutritionDetail: View {
         }.buttonStyle(.spotterControl)
     }
 
-    private func iconButton(_ icon: String, _ label: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ icon: String, _ label: String, glass: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: icon).font(.system(size: 16, weight: .medium))
-                .frame(width: max(44, size), height: max(44, size))
-                .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.34), interactive: allowsMotion)
+            let symbol = Image(systemName: icon).font(.system(size: 16, weight: .medium))
+                .frame(width: 44, height: 44)
+            if glass {
+                symbol.spotterGlass(in: Circle(), tint: accent.selection.opacity(0.34), interactive: allowsMotion)
+            } else {
+                symbol.background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+            }
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(label)
@@ -1105,22 +1097,20 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
                             .font(.footnote).foregroundStyle(SpotterPalette.muted).lineLimit(2)
                         Text("\(preset.defaultMeal.rawValue) · 一份 \(nutritionNumber(preset.calories)) 千卡 · 蛋白质 \(nutritionNumber(preset.protein)) g")
                             .font(.caption).foregroundStyle(SpotterPalette.muted)
-                        SpotterGlassGroup {
-                            HStack(spacing: 6) {
-                                Button { Task { await log(preset) } } label: {
-                                    Label(retry?.preset.id == preset.id ? "重试记餐" : "记一份", systemImage: "plus.circle.fill")
-                                        .font(.footnote.weight(.semibold))
-                                }
-                                .buttonStyle(.spotterControl)
-                                .disabled(busy || retry.map { $0.preset.id != preset.id } == true)
-                                NavigationLink {
-                                    NativeFavoriteMealOptions(preset: preset, store: store, date: date, onSaved: onSaved)
-                                } label: {
-                                    Text("调整日期与份量").font(.footnote.weight(.semibold))
-                                }
-                                .buttonStyle(.spotterControl)
-                                .disabled(busy || retry != nil)
+                        HStack(spacing: 6) {
+                            Button { Task { await log(preset) } } label: {
+                                Label(retry?.preset.id == preset.id ? "重试记餐" : "记一份", systemImage: "plus.circle.fill")
+                                    .font(.footnote.weight(.semibold))
                             }
+                            .buttonStyle(.spotterControl)
+                            .disabled(busy || retry.map { $0.preset.id != preset.id } == true)
+                            NavigationLink {
+                                NativeFavoriteMealOptions(preset: preset, store: store, date: date, onSaved: onSaved)
+                            } label: {
+                                Text("调整日期与份量").font(.footnote.weight(.semibold))
+                            }
+                            .buttonStyle(.spotterControl)
+                            .disabled(busy || retry != nil)
                         }
                     }
                     .padding(.vertical, 4)
@@ -1273,7 +1263,6 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
     let store: NativeFavoriteMealStore
     let onSaved: (NativeQuickMealReceipt, Date) -> Void
     @Environment(\.spotterAccent) private var accent
-    @Environment(\.spotterInteractionMotion) private var motion
     @State private var date: Date
     @State private var meal: NutritionShortcut
     @State private var amount = "1"
@@ -1298,17 +1287,15 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
                 DatePicker("记入日期", selection: $date, displayedComponents: .date)
                 SpotterMenuPicker("餐次", selection: $meal, options: NutritionShortcut.allCases.filter(\.isMeal).map { ($0, $0.rawValue) })
                 LabeledContent("份数") {
-                    SpotterGlassGroup(spacing: 5) {
-                        HStack(spacing: 4) {
-                            portionControl("减少半份", icon: "minus") {
-                                amount = nutritionNumber(max(0.1, (servings ?? 1) - 0.5))
-                            }.disabled((servings ?? 1) <= 0.1)
-                            TextField("份数", text: $amount).keyboardType(.decimalPad)
-                                .multilineTextAlignment(.center).accessibilityLabel("份数")
-                                .monospacedDigit().frame(width: 46)
-                            portionControl("增加半份", icon: "plus") {
-                                amount = nutritionNumber((servings ?? 1) + 0.5)
-                            }
+                    HStack(spacing: 4) {
+                        portionControl("减少半份", icon: "minus") {
+                            amount = nutritionNumber(max(0.1, (servings ?? 1) - 0.5))
+                        }.disabled((servings ?? 1) <= 0.1)
+                        TextField("份数", text: $amount).keyboardType(.decimalPad)
+                            .multilineTextAlignment(.center).accessibilityLabel("份数")
+                            .monospacedDigit().frame(width: 46)
+                        portionControl("增加半份", icon: "plus") {
+                            amount = nutritionNumber((servings ?? 1) + 0.5)
                         }
                     }
                 }
@@ -1338,10 +1325,10 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
-                .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.52), interactive: motion != nil)
+                .background(accent.selection, in: Circle())
                 .frame(width: 44, height: 44).contentShape(Rectangle())
         }
-        .buttonStyle(.borderless).accessibilityLabel(label)
+        .buttonStyle(.spotterPress).accessibilityLabel(label)
     }
 
     private func log(_ servings: Double) async {
@@ -1610,11 +1597,11 @@ private struct NativeNutritionEditor: View {
                         field("脂肪（g）", value: $fat)
                     } else if shortcut == .water {
                         field("饮水量（ml）", value: $quantity)
-                        SpotterGlassSegments(options: ["150", "250", "500", "750"], value: $quantity) { "\($0) ml" }
+                        SpotterGlassSegments(options: ["150", "250", "500", "750"], value: $quantity, glass: false) { "\($0) ml" }
                             .accessibilityElement(children: .contain)
                             .accessibilityLabel("常用饮水量")
                     } else {
-                        SpotterGlassSegments(options: [false, true], value: $imperialWeight) { $0 ? "磅" : "公斤" }
+                        SpotterGlassSegments(options: [false, true], value: $imperialWeight, glass: false) { $0 ? "磅" : "公斤" }
                             .accessibilityElement(children: .contain)
                             .accessibilityLabel("单位")
                         field(imperialWeight ? "体重（lb）" : "体重（kg）", value: $quantity)

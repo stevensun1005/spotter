@@ -264,7 +264,7 @@ struct NativePlanMoveSheet: View {
     }
 
     private func scopePicker(selection: Bool, choose: @escaping @MainActor @Sendable (Bool) -> Void) -> some View {
-        SpotterGlassSegments(options: [false, true], value: Binding(get: { selection }, set: choose)) {
+        SpotterGlassSegments(options: [false, true], value: Binding(get: { selection }, set: choose), glass: false) {
             $0 ? "后续一起顺延" : "只移动这一堂"
         }
     }

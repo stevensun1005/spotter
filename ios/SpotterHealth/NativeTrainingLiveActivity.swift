@@ -9,6 +9,7 @@ final class NativeTrainingLiveActivity {
     private typealias Training = Activity<SpotterTrainingActivityAttributes>
     private typealias State = SpotterTrainingActivityAttributes.ContentState
     private static let lastStartedKey = "spotter.native.training.live-activity.started"
+    private static let heartRefreshInterval: TimeInterval = 10
 
     private struct Update: Equatable {
         let workoutKey: String?
@@ -51,9 +52,12 @@ final class NativeTrainingLiveActivity {
 
         if let activity = activities.first(where: { $0.attributes.workoutKey == workoutKey }) {
             if #available(iOS 16.2, *) {
-                if activity.content.state != state { await activity.update(ActivityContent(state: state, staleDate: nil)) }
-            } else if activity.contentState != state {
-                await activity.update(using: state)
+                let current = activity.content.state
+                let next = activityState(state, preservingRecentHeartFrom: current)
+                if current != next { await activity.update(ActivityContent(state: next, staleDate: next.staleHeartDate)) }
+            } else {
+                let next = stateWithoutHeart(state)
+                if activity.contentState != next { await activity.update(using: next) }
             }
             return
         }
@@ -64,13 +68,34 @@ final class NativeTrainingLiveActivity {
         let attributes = SpotterTrainingActivityAttributes(workoutKey: workoutKey)
         do {
             if #available(iOS 16.2, *) {
-                _ = try Training.request(attributes: attributes, content: ActivityContent(state: state, staleDate: nil))
+                let next = activityState(state, preservingRecentHeartFrom: nil)
+                _ = try Training.request(attributes: attributes, content: ActivityContent(state: next, staleDate: next.staleHeartDate))
             } else {
-                _ = try Training.request(attributes: attributes, contentState: state)
+                _ = try Training.request(attributes: attributes, contentState: stateWithoutHeart(state))
             }
             defaults.set(workoutKey, forKey: Self.lastStartedKey)
         } catch {
             // ActivityKit can decline a request while the foreground state is changing.
         }
+    }
+
+    private func activityState(_ state: State, preservingRecentHeartFrom previous: State?) -> State {
+        let now = Date()
+        guard state.visibleHeart(at: now) != nil, let newExpiry = state.staleHeartDate else {
+            return stateWithoutHeart(state)
+        }
+        guard let previous, previous.visibleHeart(at: now) != nil, let oldExpiry = previous.staleHeartDate,
+              newExpiry.timeIntervalSince(oldExpiry) < Self.heartRefreshInterval else { return state }
+        var next = state
+        next.heartBPM = previous.heartBPM
+        next.heartExpiresAt = oldExpiry
+        return next
+    }
+
+    private func stateWithoutHeart(_ state: State) -> State {
+        var next = state
+        next.heartBPM = nil
+        next.heartExpiresAt = nil
+        return next
     }
 }
