@@ -1,3 +1,4 @@
+import AVFoundation
 import CryptoKit
 import ImageIO
 import PhotosUI
@@ -283,6 +284,7 @@ struct NativeCoachView: View {
         var textMealHistoryStart = 0
         var isTextMealDraft = false
         @Published var picture: Data?
+        var picturePreview: UIImage?
         var photoDay: String?
         @Published var photoMealHistory: [[String: String]] = []
         @Published var photoNeedsReply = false
@@ -336,6 +338,7 @@ struct NativeCoachView: View {
     var onStartWorkout: (() -> Void)? = nil
     let nutritionDate: String?
     let initialTrainingGoal: String?
+    private let isNutritionPhoto: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
     @Environment(\.colorScheme) private var surroundingColorScheme
@@ -371,11 +374,20 @@ struct NativeCoachView: View {
     @State private var proteinPhotoLogsDrink = false
     @State private var proteinPhotoNotes = ""
     @State private var editingReceipt: MealReceipt?
+    @State private var editingPhotoDraft = false
     @State private var receiptDestination: ReceiptDestination?
 
     init(api: NativeAPI, owner: String, compact: Bool = true, onExpand: (() -> Void)? = nil,
          onStartWorkout: (() -> Void)? = nil, initialMeal: String? = nil, nutritionDate: String? = nil,
          initialTrainingGoal: String? = nil) {
+        self.init(api: api, owner: owner, compact: compact, onExpand: onExpand, onStartWorkout: onStartWorkout,
+                  initialMeal: initialMeal, nutritionDate: nutritionDate, initialTrainingGoal: initialTrainingGoal,
+                  session: Self.activeConversation(api: api, owner: owner), isNutritionPhoto: false)
+    }
+
+    private init(api: NativeAPI, owner: String, compact: Bool, onExpand: (() -> Void)? = nil,
+                 onStartWorkout: (() -> Void)? = nil, initialMeal: String?, nutritionDate: String?,
+                 initialTrainingGoal: String? = nil, session: Conversation, isNutritionPhoto: Bool) {
         self.api = api
         self.owner = owner
         self.compact = compact
@@ -383,8 +395,9 @@ struct NativeCoachView: View {
         self.onStartWorkout = onStartWorkout
         self.nutritionDate = nutritionDate
         self.initialTrainingGoal = initialTrainingGoal
+        self.isNutritionPhoto = isNutritionPhoto
         _sharingAllowed = AppStorage(wrappedValue: false, NativeCoachConsent.key(owner))
-        _session = ObservedObject(wrappedValue: Self.activeConversation(api: api, owner: owner))
+        _session = ObservedObject(wrappedValue: session)
         _entryMeal = State(initialValue: initialMeal ?? "加餐")
     }
 
@@ -412,17 +425,22 @@ struct NativeCoachView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            ZStack(alignment: .top) {
-                if mode == .coach { conversation.transition(.opacity) }
-                else { ownAI.transition(.opacity) }
+            if isNutritionPhoto {
+                nutritionPhotoReview
+            } else {
+                ZStack(alignment: .top) {
+                    if mode == .coach { conversation.transition(.opacity) }
+                    else { ownAI.transition(.opacity) }
+                }
+                .animation(reducesMotion ? nil : .easeInOut(duration: 0.2), value: mode)
             }
-            .animation(reducesMotion ? nil : .easeInOut(duration: 0.2), value: mode)
         }
         .foregroundStyle(CoachColors.text)
         .tint(accent.fill)
         .background(atmosphere)
         .toolbar(.hidden, for: .navigationBar)
         .environment(\.colorScheme, .dark)
+        .interactiveDismissDisabled(isNutritionPhoto && session.busy)
         .task(id: owner) {
             await refreshQuota(ifUnknown: true)
             if initialTrainingGoal != nil, !startedWelcomeGuide, !Task.isCancelled {
@@ -489,6 +507,19 @@ struct NativeCoachView: View {
         .sheet(item: $editingReceipt) { receipt in
             receiptEditor(receipt)
         }
+        .sheet(isPresented: $editingPhotoDraft) {
+            if let draft = session.mealDraft {
+                let receipt = MealReceipt(id: session.mealID, date: session.mealDate, draft: draft, meal: meal, updated: "")
+                EditMealReceipt(receipt: receipt, title: "调整识别结果", confirmation: "完成") { next in
+                    mealSelection.wrappedValue = next.meal
+                    session.mealDraft = next.draft
+                    session.mealEstimate = nil
+                    editingPhotoDraft = false
+                    return nil
+                }
+                .environment(\.colorScheme, surroundingColorScheme)
+            }
+        }
         .sheet(item: $receiptDestination) { destination in
             Group {
                 switch destination {
@@ -527,14 +558,18 @@ struct NativeCoachView: View {
                     .background(accent.fill.opacity(0.13), in: RoundedRectangle(cornerRadius: 11))
                     .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(accent.fill.opacity(0.34)).allowsHitTesting(false))
                     .accessibilityHidden(true)
-                Text(mode == .coach ? "Spotter 教练" : "用自己的 AI")
+                Text(isNutritionPhoto ? "拍照记录" : mode == .coach ? "Spotter 教练" : "用自己的 AI")
                     .font(.headline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
                     .accessibilityAddTraits(.isHeader)
             }
             Spacer(minLength: 0)
-            if compact, let onExpand { headerButton("arrow.up.left.and.arrow.down.right", label: "展开 AI 教练", action: onExpand) }
-            headerMenu
-            headerButton("xmark", label: "关闭 AI 教练") { dismiss() }
+            if isNutritionPhoto {
+                headerButton("xmark", label: "关闭拍照记录") { dismiss() }.disabled(session.busy)
+            } else {
+                if compact, let onExpand { headerButton("arrow.up.left.and.arrow.down.right", label: "展开 AI 教练", action: onExpand) }
+                headerMenu
+                headerButton("xmark", label: "关闭 AI 教练") { dismiss() }
+            }
         }
         .spotterGlassCluster()
         .padding(.horizontal, 17).padding(.top, 6).padding(.bottom, 3)
@@ -651,6 +686,119 @@ struct NativeCoachView: View {
         session.pendingProteinPhotoPrompt = nil
     }
 
+    private var nutritionPhotoReview: some View {
+        let receipt = session.lines.last?.receipt
+        return VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let receipt {
+                        savedMealCard(receipt, summary: "")
+                    } else {
+                        nutritionPhoto
+                        nutritionPhotoMeal
+                        if let draft = session.mealDraft {
+                            nutritionPhotoDraft(draft)
+                        } else {
+                            if session.photoNeedsReply, let question = session.lines.last?.content {
+                                Label(question, systemImage: "text.bubble")
+                                    .font(.subheadline).foregroundStyle(CoachColors.text)
+                                    .frame(maxWidth: .infinity, alignment: .leading).padding(12).coachPanel()
+                            }
+                            NativeNutritionPhotoNotes(text: $text, focused: $editingMessage,
+                                                      needsReply: session.photoNeedsReply,
+                                                      disabled: session.busy || camera || showPhotoPicker)
+                            if !sharingAllowed {
+                                NativeCoachSharingChoice(allowed: $sharingAllowed, origin: api.origin)
+                                    .padding(12).coachPanel()
+                            }
+                        }
+                    }
+                    if let error {
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .font(.footnote).foregroundStyle(CoachColors.error)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(12).coachPanel()
+                    }
+                    if let quota = session.quota?.limitMessage, receipt == nil, session.mealDraft == nil {
+                        Text(quota).font(.footnote).foregroundStyle(CoachColors.muted)
+                    }
+                }
+                .padding(.horizontal, 18).padding(.vertical, 14)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            Group {
+                if receipt != nil {
+                    nutritionPhotoAction("返回饮食记录", identifier: "nutrition-photo-done") { dismiss() }
+                        .disabled(session.busy)
+                } else if let draft = session.mealDraft {
+                    nutritionPhotoAction(session.busy ? "正在保存…" : "记入\(meal)", identifier: "nutrition-photo-save") {
+                        Task { await retryMeal(draft) }
+                    }
+                    .disabled(session.busy)
+                } else {
+                    nutritionPhotoAction(session.busy ? "正在识别…" : (session.photoNeedsReply ? "继续识别" : "识别餐食"),
+                                         identifier: "nutrition-photo-recognize") { submit(.photo) }
+                        .disabled(session.busy || hasReachedLimit || !sharingAllowed || !canSendInput)
+                }
+            }
+            .padding(.horizontal, 18).padding(.top, 9).padding(.bottom, 8)
+        }
+    }
+
+    private var nutritionPhoto: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let image = session.picturePreview {
+                Color.clear.frame(height: 188)
+                    .overlay { Image(uiImage: image).resizable().scaledToFill() }
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityLabel("这次拍摄的餐食")
+            }
+            HStack(spacing: 8) {
+                Label(nutritionDate ?? spotterDay(), systemImage: "calendar")
+                    .font(.footnote.monospacedDigit()).foregroundStyle(CoachColors.muted)
+                Spacer(minLength: 0)
+                if canUseCamera && AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
+                    Button("重拍", systemImage: "camera") { editingMessage = false; camera = true }
+                        .buttonStyle(.spotterControl)
+                }
+                Button("换照片", systemImage: "photo") { editingMessage = false; showPhotoPicker = true }
+                    .buttonStyle(.spotterControl)
+            }
+            .disabled(session.busy)
+        }
+    }
+
+    private var nutritionPhotoMeal: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("记入餐次").font(.subheadline.weight(.semibold))
+            SpotterGlassSegments(options: mealOptions.map(\.0), value: mealSelection, glass: false) { $0 }
+                .accessibilityElement(children: .contain).accessibilityIdentifier("nutrition-photo-meal")
+                .disabled(session.busy)
+        }
+    }
+
+    private func nutritionPhotoDraft(_ draft: NativeMealDraft) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("营养估算").font(.footnote.weight(.semibold)).foregroundStyle(CoachColors.muted)
+            Text(draft.name).font(.title3.weight(.bold))
+            Text("\(coachAmount(draft.calories)) 千卡")
+                .font(.title2.weight(.semibold).monospacedDigit())
+            Text("蛋白质 \(coachAmount(draft.protein)) g · 碳水 \(coachAmount(draft.carbs)) g · 脂肪 \(coachAmount(draft.fat)) g")
+                .font(.footnote).foregroundStyle(CoachColors.muted)
+            if let estimate = session.mealEstimate { Text(estimate).font(.footnote).foregroundStyle(CoachColors.muted) }
+            Button("调整识别结果", systemImage: "pencil") { editingPhotoDraft = true }
+                .buttonStyle(.spotterControl).disabled(session.busy)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(14).coachPanel()
+    }
+
+    private func nutritionPhotoAction(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.spotterPrimaryControl)
+        .accessibilityIdentifier(identifier)
+    }
+
     private static func legacyConversationURL(api: NativeAPI, owner: String) -> URL? {
         guard !owner.isEmpty else { return nil }
         let digest = SHA256.hash(data: Data((api.origin + "\n" + owner).utf8)).map { String(format: "%02x", $0) }.joined()
@@ -741,7 +889,9 @@ struct NativeCoachView: View {
                     .accessibilityLabel("估算依据：\(estimate)")
             }
             HStack(spacing: 16) {
-                Button("日记", systemImage: "calendar") { receiptDestination = .diary(receipt.date) }
+                if !isNutritionPhoto {
+                    Button("日记", systemImage: "calendar") { receiptDestination = .diary(receipt.date) }
+                }
                 Button("编辑", systemImage: "pencil") { editingReceipt = receipt }
                 Button("撤销", systemImage: "arrow.uturn.backward") { Task { await undoMeal(receipt) } }
             }
@@ -1648,6 +1798,13 @@ struct NativeCoachView: View {
     private func attachMealPhoto(_ jpeg: Data) {
         guard !session.isTextMealDraft else { return }
         session.textMealPendingDate = nil
+        if isNutritionPhoto {
+            session.mealDraft = nil
+            session.mealEstimate = nil
+            session.photoMealHistory = []
+            session.lines = []
+            session.picturePreview = UIImage(data: jpeg)
+        }
         if session.picture == nil {
             session.photoDay = nutritionDate ?? spotterDay()
             session.meal = meal
@@ -1659,6 +1816,7 @@ struct NativeCoachView: View {
 
     private func clearMealPhoto() {
         session.picture = nil
+        session.picturePreview = nil
         photoChoice = nil
         session.photoMealHistory = []
         session.photoNeedsReply = false
@@ -1676,7 +1834,7 @@ struct NativeCoachView: View {
         guard let picture = session.picture else { return }
         let input = cleanText
         let recipeNotes = [session.pendingProteinPhotoPrompt, input].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "，")
-        if looksLikeProteinPhoto(recipeNotes) || session.pendingProteinPhotoPrompt != nil {
+        if !isNutritionPhoto && (looksLikeProteinPhoto(recipeNotes) || session.pendingProteinPhotoPrompt != nil) {
             await recognizeProtein(picture, notes: recipeNotes)
             return
         }
@@ -1703,8 +1861,10 @@ struct NativeCoachView: View {
                 session.mealEstimate = answer.estimate
                 session.mealID = UUID().uuidString.lowercased()
                 session.mealDate = session.photoDay ?? nutritionDate ?? spotterDay()
-                clearMealPhoto()
-                try await saveMeal(draft)
+                if !isNutritionPhoto {
+                    clearMealPhoto()
+                    try await saveMeal(draft)
+                }
             } else if let question = answer.needs?.first, !question.isEmpty {
                 rememberMealTurn(question, role: "assistant")
                 session.lines.append(Line(role: "meal", content: question))
@@ -1940,10 +2100,15 @@ struct NativeCoachView: View {
         @State private var receipt: MealReceipt
         @State private var busy = false
         @State private var error: String?
+        let title: String
+        let confirmation: String
         let save: (MealReceipt) async -> String?
 
-        init(receipt: MealReceipt, save: @escaping (MealReceipt) async -> String?) {
+        init(receipt: MealReceipt, title: String = "编辑饮食记录", confirmation: String = "保存",
+             save: @escaping (MealReceipt) async -> String?) {
             _receipt = State(initialValue: receipt)
+            self.title = title
+            self.confirmation = confirmation
             self.save = save
         }
 
@@ -1963,12 +2128,12 @@ struct NativeCoachView: View {
                     }
                     if let error { Text(error).foregroundStyle(.red) }
                 }
-                .navigationTitle("编辑饮食记录")
+                .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(busy ? "保存中…" : "保存") {
+                        Button(busy ? "保存中…" : confirmation) {
                             Task {
                                 busy = true
                                 error = await save(receipt)
@@ -2434,6 +2599,195 @@ private struct NativePlanQuestions: View {
             }.value
         } catch is CancellationError { return }
         catch { catalogueError = true }
+    }
+}
+
+typealias NativeNutritionPhotoCapture = NativeCoachView.NutritionPhotoCapture
+
+extension NativeCoachView {
+    @MainActor
+    struct NutritionPhotoCapture: View {
+        private enum Stage {
+            case opening, camera, preparing, review(Conversation), fallback(message: String, settings: Bool)
+        }
+
+        let api: NativeAPI
+        let owner: String
+        let nutritionDate: String
+        let initialMeal: String?
+        @Environment(\.dismiss) private var dismiss
+        @Environment(\.openURL) private var openURL
+        @Environment(\.scenePhase) private var scenePhase
+        @State private var stage: Stage
+        @State private var selection: PhotosPickerItem?
+
+        init(api: NativeAPI, owner: String, nutritionDate: String, initialMeal: String? = nil) {
+            self.api = api
+            self.owner = owner
+            self.nutritionDate = nutritionDate
+            self.initialMeal = initialMeal
+            let canOpen = UIImagePickerController.isSourceTypeAvailable(.camera) &&
+                AVCaptureDevice.authorizationStatus(for: .video) == .authorized
+            _stage = State(initialValue: canOpen ? .camera : .opening)
+        }
+
+        var body: some View {
+            Group {
+                switch stage {
+                case .opening, .preparing:
+                    VStack(spacing: 16) {
+                        ProgressView("正在准备照片…")
+                        Button("取消") { dismiss() }.buttonStyle(.spotterControl)
+                    }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(SpotterPalette.background.ignoresSafeArea())
+                case .camera:
+                    NativeFoodCamera { data in
+                        if let data { Task { await prepare(data) } }
+                        else { dismiss() }
+                    }
+                    .ignoresSafeArea()
+                case .review(let session):
+                    NativeCoachView(api: api, owner: owner, compact: false, initialMeal: initialMeal,
+                                    nutritionDate: nutritionDate, session: session, isNutritionPhoto: true)
+                case .fallback(let message, let settings):
+                    fallback(message: message, settings: settings)
+                }
+            }
+            .task {
+                if case .opening = stage { await openCamera() }
+            }
+            .onChange(of: scenePhase) { phase in
+                guard phase == .active, case .fallback(_, true) = stage,
+                      UIImagePickerController.isSourceTypeAvailable(.camera),
+                      AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+                stage = .camera
+            }
+            .onChange(of: selection) { choice in
+                guard let choice else { return }
+                Task {
+                    stage = .preparing
+                    do {
+                        guard let data = try await choice.loadTransferable(type: Data.self) else {
+                            photoUnavailable()
+                            return
+                        }
+                        await prepare(data)
+                    } catch { photoUnavailable() }
+                }
+            }
+        }
+
+        private func openCamera() async {
+            guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+                stage = .fallback(message: "这台设备暂时无法拍照。", settings: false)
+                return
+            }
+            let permission = AVCaptureDevice.authorizationStatus(for: .video)
+            let allowed = permission == .notDetermined ? await AVCaptureDevice.requestAccess(for: .video) : permission == .authorized
+            guard !Task.isCancelled else { return }
+            stage = allowed ? .camera : .fallback(message: "允许相机权限后即可拍照记录。", settings: permission != .restricted)
+        }
+
+        private func prepare(_ data: Data) async {
+            stage = .preparing
+            let processed = await Task.detached(priority: .userInitiated) { coachImage(data) }.value
+            guard !Task.isCancelled else { return }
+            guard let jpeg = processed else { photoUnavailable(); return }
+            let session = Conversation()
+            session.picturePreview = UIImage(data: jpeg)
+            session.picture = jpeg
+            session.photoDay = nutritionDate
+            session.meal = initialMeal
+            stage = .review(session)
+        }
+
+        private func photoUnavailable() {
+            selection = nil
+            stage = .fallback(message: "这张照片无法读取，请选择其他照片。", settings: false)
+        }
+
+        private func fallback(message: String, settings: Bool) -> some View {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label(message, systemImage: "camera")
+                            .font(.headline).foregroundStyle(SpotterPalette.ink)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        PhotosPicker(selection: $selection, matching: .images) {
+                            Label("从相册选择", systemImage: "photo")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.spotterPrimaryControl)
+                        .accessibilityIdentifier("nutrition-photo-library")
+                        if settings {
+                            Button("打开相机设置", systemImage: "gear") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                            }
+                            .buttonStyle(.spotterControl)
+                        }
+                    }
+                    .padding(16)
+                    .background(SpotterPalette.card, in: RoundedRectangle(cornerRadius: 18))
+                    .padding(16)
+                }
+                .background(SpotterPalette.background.ignoresSafeArea())
+                .navigationTitle("拍照记录")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            }
+        }
+    }
+}
+
+@MainActor
+private struct NativeNutritionPhotoNotes: View {
+    @Binding var text: String
+    @FocusState.Binding var focused: Bool
+    let needsReply: Bool
+    let disabled: Bool
+    @StateObject private var voice = NativeNutritionSpeech()
+    @State private var priorNotes = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Text(needsReply ? "补充这餐的信息" : "份量备注").font(.subheadline.weight(.semibold))
+                if !needsReply { Text("选填").font(.caption).foregroundStyle(CoachColors.muted) }
+                Spacer(minLength: 0)
+                Button(voice.recording ? "结束录音" : "说份量", systemImage: voice.recording ? "stop.circle.fill" : "mic") {
+                    if voice.recording {
+                        voice.stop()
+                    } else {
+                        focused = false
+                        priorNotes = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        voice.text = ""
+                        Task { await voice.start() }
+                    }
+                }
+                .buttonStyle(.spotterControl)
+                .disabled(voice.starting)
+            }
+            TextField("份量备注", text: $text, prompt: Text("例如半碗米饭、鸡胸肉 120 克").foregroundColor(CoachColors.muted), axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...4)
+                .focused($focused)
+                .padding(.horizontal, 10).frame(minHeight: 44)
+                .coachPanel(CoachColors.dark, radius: 10)
+                .accessibilityIdentifier("nutrition-photo-notes")
+                .disabled(voice.recording || voice.starting)
+            if let error = voice.error {
+                Text(error).font(.footnote).foregroundStyle(CoachColors.muted)
+            }
+        }
+        .padding(12).coachPanel()
+        .disabled(disabled)
+        .onChange(of: voice.text) { transcript in
+            guard !transcript.isEmpty else { return }
+            text = priorNotes.isEmpty ? transcript : priorNotes + "，" + transcript
+        }
+        .onChange(of: disabled) { inactive in if inactive { voice.stop() } }
+        .onDisappear { voice.stop() }
     }
 }
 

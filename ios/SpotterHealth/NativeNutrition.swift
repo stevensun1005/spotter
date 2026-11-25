@@ -12,6 +12,22 @@ private enum NutritionShortcut: String, CaseIterable, Identifiable {
     case water = "饮水"
     case weight = "记体重"
 
+    static let mainMeals: [Self] = [.breakfast, .lunch, .dinner]
+
+    static var suggestedMeal: Self {
+        switch Calendar.current.component(.hour, from: .now) {
+        case ..<10: return .breakfast
+        case ..<14: return .lunch
+        case ..<17: return .snack
+        default: return .dinner
+        }
+    }
+
+    static var suggestedMainMeal: Self {
+        let meal = suggestedMeal
+        return meal == .snack ? .lunch : meal
+    }
+
     var id: Self { self }
     var isMeal: Bool { self != .water && self != .weight }
     var icon: String {
@@ -100,6 +116,10 @@ private struct NutritionPayload: Decodable {
                   let food = foods.first(where: { $0.id == previous.foodId }) else { return nil }
             return NativeRecentServing(food: food, grams: previous.grams)
         }.prefix(4))
+    }
+
+    var mainMealRecents: [NutritionShortcut: [NativeRecentServing]] {
+        Dictionary(uniqueKeysWithValues: NutritionShortcut.mainMeals.map { ($0, recentServings(for: $0)) })
     }
 
     func targets(on date: String, countingWorkoutIDs ids: Set<String>?) -> Values {
@@ -327,10 +347,11 @@ private func nutritionNumber(_ value: Double) -> String {
 private struct NutritionShortcuts: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.dynamicTypeSize) private var textSize
+    let onMainMeal: () -> Void
     let onSelect: (NutritionShortcut) -> Void
     let onFavorites: () -> Void
+    let onPhoto: () -> Void
 
-    private static let entries = NutritionShortcut.allCases.filter { $0 != .weight }
     private let buttonWidth: CGFloat = 44
     private let spacing: CGFloat = 3
 
@@ -340,7 +361,7 @@ private struct NutritionShortcuts: View {
         } else {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: spacing) { buttons }
-                    .frame(minWidth: buttonWidth * CGFloat(Self.entries.count + 1) + spacing * CGFloat(Self.entries.count))
+                    .frame(minWidth: buttonWidth * 5 + spacing * 4)
                 grid
             }
         }
@@ -353,10 +374,11 @@ private struct NutritionShortcuts: View {
     }
 
     @ViewBuilder private var buttons: some View {
-        ForEach(Self.entries) { shortcut in
-            button(shortcut.rawValue, icon: Image(shortcut.icon)) { onSelect(shortcut) }
-        }
+        button("记录正餐", icon: Image(systemName: "fork.knife"), action: onMainMeal)
+        button("加餐", icon: Image(NutritionShortcut.snack.icon)) { onSelect(.snack) }
+        button("饮水", icon: Image(NutritionShortcut.water.icon)) { onSelect(.water) }
         button("常用餐", icon: Image(systemName: "star"), action: onFavorites)
+        button("拍照记录", icon: Image(systemName: "camera"), action: onPhoto)
     }
 
     private func button(_ title: String, icon: Image, action: @escaping () -> Void) -> some View {
@@ -365,7 +387,8 @@ private struct NutritionShortcuts: View {
                 icon.renderingMode(.template).resizable().scaledToFit()
                     .frame(width: 18, height: 18).foregroundStyle(accent.tint)
                     .accessibilityHidden(true)
-                Text(title).font(.caption2.weight(.semibold)).lineLimit(1)
+                Text(title).font(.caption2.weight(.semibold)).lineLimit(textSize.isAccessibilitySize ? 2 : 1)
+                    .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.75)
             }
             .frame(minWidth: buttonWidth, maxWidth: .infinity, minHeight: 51)
@@ -377,6 +400,12 @@ private struct NutritionShortcuts: View {
     }
 }
 
+private struct NutritionPhotoRequest: Identifiable {
+    let id = UUID()
+    let day: String
+    let meal = NutritionShortcut.suggestedMeal
+}
+
 @MainActor
 struct NativeHomeNutrition: View {
     let api: NativeAPI
@@ -386,9 +415,9 @@ struct NativeHomeNutrition: View {
 
     @Environment(\.scenePhase) private var phase
     @State private var payload = NutritionPayload(rows: [])
-    @State private var shortcut: NutritionShortcut?
+    @State private var destination: NutritionDestination?
+    @State private var photoCapture: NutritionPhotoRequest?
     @State private var quickMeal: NativeQuickMealReceipt?
-    @State private var showFavoriteMeals = false
     @State private var error: String?
     @State private var reloadRevision = 0
     @Environment(\.spotterInteractionMotion) private var motion
@@ -397,7 +426,10 @@ struct NativeHomeNutrition: View {
         VStack(alignment: .leading, spacing: 10) {
             NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs, onOpen: onOpen)
             Divider().overlay(SpotterPalette.line)
-            NutritionShortcuts(onSelect: { shortcut = $0 }, onFavorites: { showFavoriteMeals = true })
+            NutritionShortcuts(onMainMeal: { destination = .mainMeal },
+                               onSelect: { destination = .entry($0, nil, nil, nil) },
+                               onFavorites: { destination = .favorites },
+                               onPhoto: { photoCapture = NutritionPhotoRequest(day: spotterDay()) })
             if let quickMeal {
                 NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
                     .id(quickMeal.id).transition(.opacity)
@@ -418,16 +450,24 @@ struct NativeHomeNutrition: View {
             if phase == .active { reloadRevision &+= 1 }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
-        .sheet(item: $shortcut) { selected in
-            NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: selected, recent: payload.recentServings(for: selected)) {
-                quickMeal = $0
+        .sheet(item: $destination) { item in
+            switch item {
+            case .mainMeal:
+                NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: .suggestedMainMeal,
+                                      mainMealRecents: payload.mainMealRecents) { quickMeal = $0 }
+            case .entry(let shortcut, _, _, _):
+                NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: shortcut,
+                                      recent: payload.recentServings(for: shortcut)) { quickMeal = $0 }
+            case .favorites:
+                NativeFavoriteMeals(api: api, owner: owner, date: .now) { receipt, _ in
+                    quickMeal = receipt
+                    destination = nil
+                }
+            default: EmptyView()
             }
         }
-        .sheet(isPresented: $showFavoriteMeals) {
-            NativeFavoriteMeals(api: api, owner: owner, date: .now) { receipt, _ in
-                quickMeal = receipt
-                showFavoriteMeals = false
-            }
+        .fullScreenCover(item: $photoCapture) { request in
+            NativeNutritionPhotoCapture(api: api, owner: owner, nutritionDate: request.day, initialMeal: request.meal.rawValue)
         }
     }
 
@@ -446,11 +486,13 @@ struct NativeHomeNutrition: View {
 }
 
 private enum NutritionDestination: Identifiable {
+    case mainMeal
     case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
-    case settings, goals, cycle, recipes, recommendations, protein, stats, photo, voice, energy, copy, favorites
+    case settings, goals, cycle, recipes, recommendations, protein, stats, voice, energy, copy, favorites
 
     var id: String {
         switch self {
+        case .mainMeal: return "main-meal"
         case .entry(let shortcut, let row, let food, _): return row?.id ?? food?.id ?? shortcut.rawValue
         case .settings: return "settings"
         case .goals: return "goals"
@@ -459,7 +501,6 @@ private enum NutritionDestination: Identifiable {
         case .recommendations: return "recommendations"
         case .protein: return "protein"
         case .stats: return "stats"
-        case .photo: return "photo"
         case .voice: return "voice"
         case .energy: return "energy"
         case .copy: return "copy"
@@ -491,6 +532,7 @@ struct NativeNutritionDetail: View {
     @State private var mutationError: String?
     @State private var destination: NutritionDestination?
     @State private var queuedDestination: NutritionDestination?
+    @State private var photoCapture: NutritionPhotoRequest?
     @State private var showDate = false
     @State private var deleting = false
     @State private var deleteCandidate: NutritionPayload.Row?
@@ -520,12 +562,7 @@ struct NativeNutritionDetail: View {
     private var day: String { spotterDay(date) }
     private var ready: Bool { loadedDate == day && loadError == nil }
     private var rows: [NutritionPayload.Row] { payload.entries(on: day).filter { $0.entry?.type != "measurement" } }
-    private var mealNow: NutritionShortcut {
-        let hour = Calendar.current.component(.hour, from: .now)
-        if hour < 10 { return .breakfast }
-        if hour < 14 { return .lunch }
-        return hour < 17 ? .snack : .dinner
-    }
+    private var mealNow: NutritionShortcut { .suggestedMeal }
     private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
     private var dateBounds: ClosedRange<Date> {
         var calendar = Calendar(identifier: .gregorian)
@@ -560,6 +597,9 @@ struct NativeNutritionDetail: View {
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
         .sheet(item: $destination, onDismiss: openQueuedDestination) { item in
             destinationView(item)
+        }
+        .fullScreenCover(item: $photoCapture) { request in
+            NativeNutritionPhotoCapture(api: api, owner: owner, nutritionDate: request.day, initialMeal: request.meal.rawValue)
         }
         .sheet(isPresented: $showDate) {
             NavigationStack {
@@ -736,11 +776,10 @@ struct NativeNutritionDetail: View {
     }
 
     private var toolbar: some View {
-        NutritionShortcuts { shortcut in
-            destination = .entry(shortcut, nil, nil, nil)
-        } onFavorites: {
-            destination = .favorites
-        }
+        NutritionShortcuts(onMainMeal: { destination = .mainMeal },
+                           onSelect: { destination = .entry($0, nil, nil, nil) },
+                           onFavorites: { destination = .favorites },
+                           onPhoto: { photoCapture = NutritionPhotoRequest(day: day) })
         .spotterGlassToolbar()
         .padding(.bottom, 3)
     }
@@ -764,6 +803,9 @@ struct NativeNutritionDetail: View {
 
     @ViewBuilder private func destinationView(_ item: NutritionDestination) -> some View {
         switch item {
+        case .mainMeal:
+            NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: .suggestedMainMeal,
+                                  mainMealRecents: payload.mainMealRecents) { quickMeal = $0 }
         case .entry(let shortcut, let row, let food, let grams):
             NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: shortcut, existing: row, food: food, grams: grams,
                                   recent: row == nil && food == nil ? payload.recentServings(for: shortcut) : []) {
@@ -779,7 +821,6 @@ struct NativeNutritionDetail: View {
                     settingsLink("食物推荐", icon: "fork.knife", destination: .recommendations).disabled(!ready)
                 }
                 Section("记录方式") {
-                    settingsLink("AI 识别", icon: "wand.and.stars", destination: .photo)
                     settingsLink("语音", icon: "mic", destination: .voice)
                     settingsLink("记蛋白粉", icon: "cup.and.saucer", destination: .protein)
                     settingsLink("复制往日餐食", icon: "doc.on.doc", destination: .copy)
@@ -802,9 +843,6 @@ struct NativeNutritionDetail: View {
             NativeNutritionProtein(api: api, owner: owner, day: day)
         case .stats:
             NativeNutritionStats(api: api, day: date)
-        case .photo:
-            NativeCoachView(api: api, owner: owner, compact: false, initialMeal: mealNow.rawValue, nutritionDate: day)
-                .presentationDetents([.large])
         case .copy:
             NativeNutritionCopy(api: api, owner: owner, destination: date, suggestedMeal: mealNow, dateBounds: dateBounds)
         case .favorites:
@@ -1600,14 +1638,15 @@ private struct NativeNutritionEditor: View {
     let api: NativeAPI
     let owner: String
     let date: String
-    let shortcut: NutritionShortcut
     private let isEditing: Bool
     private let foodId: String?
     private let proteinProductId: String?
     private let recent: [NativeRecentServing]
+    private let mainMealRecents: [NutritionShortcut: [NativeRecentServing]]?
     private let onQuickSave: ((NativeQuickMealReceipt) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @State private var shortcut: NutritionShortcut
     @State private var id = UUID().uuidString.lowercased()
     @State private var name = ""
     @State private var calories = ""
@@ -1622,12 +1661,14 @@ private struct NativeNutritionEditor: View {
 
     init(api: NativeAPI, owner: String, date: String, shortcut: NutritionShortcut,
          existing: NutritionPayload.Row? = nil, food: NativeNutritionFood? = nil, grams: Double? = nil,
-         recent: [NativeRecentServing] = [], onQuickSave: ((NativeQuickMealReceipt) -> Void)? = nil) {
+         recent: [NativeRecentServing] = [], mainMealRecents: [NutritionShortcut: [NativeRecentServing]]? = nil,
+         onQuickSave: ((NativeQuickMealReceipt) -> Void)? = nil) {
         self.api = api
         self.owner = owner
         self.date = date
-        self.shortcut = shortcut
+        _shortcut = State(initialValue: shortcut)
         self.recent = recent
+        self.mainMealRecents = mainMealRecents
         self.onQuickSave = onQuickSave
         self.proteinProductId = existing?.proteinProductId
         isEditing = existing != nil
@@ -1659,7 +1700,14 @@ private struct NativeNutritionEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if shortcut.isMeal {
-                        if !recent.isEmpty { recentFoods }
+                        if mainMealRecents != nil {
+                            SpotterGlassSegments(options: NutritionShortcut.mainMeals, value: $shortcut, glass: false) { $0.rawValue }
+                                .accessibilityElement(children: .contain)
+                                .accessibilityLabel("正餐餐次")
+                                .disabled(busy || quickItem != nil)
+                        }
+                        let servings = mainMealRecents?[shortcut] ?? recent
+                        if !servings.isEmpty { recentFoods(servings) }
                         field("食物名称", value: $name, numeric: false)
                         field("重量（g，选填）", value: $quantity)
                         field("热量（千卡）", value: $calories)
@@ -1701,7 +1749,7 @@ private struct NativeNutritionEditor: View {
             }
             .background(SpotterPalette.background.ignoresSafeArea())
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle(isEditing ? "编辑食物" : (shortcut.isMeal ? "记\(shortcut.rawValue)" : shortcut.rawValue))
+            .navigationTitle(editorTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { NutritionDismissButton(label: "取消") { dismiss() }.disabled(busy) } }
         }
@@ -1722,10 +1770,16 @@ private struct NativeNutritionEditor: View {
         }
     }
 
-    private var recentFoods: some View {
+    private var editorTitle: String {
+        if isEditing { return "编辑食物" }
+        if mainMealRecents != nil { return "记录正餐" }
+        return shortcut.isMeal ? "记\(shortcut.rawValue)" : shortcut.rawValue
+    }
+
+    private func recentFoods(_ servings: [NativeRecentServing]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("最近记过").font(.subheadline.weight(.semibold))
-            ForEach(recent) { serving in
+            ForEach(servings) { serving in
                 Button {
                     Task { await saveQuick(serving) }
                 } label: {
@@ -2487,7 +2541,7 @@ private struct NativeNutritionIdeas: View {
 }
 
 @MainActor
-private final class NativeNutritionSpeech: ObservableObject {
+final class NativeNutritionSpeech: ObservableObject {
     @Published var text = ""
     @Published private(set) var recording = false
     @Published private(set) var starting = false
