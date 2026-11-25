@@ -356,9 +356,6 @@ struct NativeSpotterStats: View {
         GeometryReader { viewport in
             ScrollView {
                 VStack(alignment: .leading, spacing: 9) {
-                    if page == .overview {
-                        Text("统计").font(.system(.largeTitle, weight: .heavy)).padding(.bottom, 4).accessibilityAddTraits(.isHeader)
-                    }
                     SecondarySegment(options: Page.allCases, value: $page, title: \.rawValue)
                     if page == .overview {
                         overview
@@ -1654,7 +1651,7 @@ struct NativeSettings: View {
             case .units: return "新动作的重量单位、动作名称、1RM 估算方式"
             case .equipment: return "健身房配置和可用器械"
             case .appearance: return "主题、强调色、文字大小和减少动画"
-            case .modules: return "首页营养、训练计划、每周打卡和好友入口"
+            case .modules: return "首页营养、训练计划、好友和教练入口"
             case .data: return "导出训练资料、恢复 Spotter 备份"
             case .watches: return "Apple Watch 与 Apple 健康"
             case .integrations: return "健康数据、AI 工具"
@@ -1880,10 +1877,6 @@ struct NativeSettings: View {
                         .toolbar(.visible, for: .navigationBar)
                 } label: { SecondaryRow(title: "好友分享设置", detail: "调整好友和搭子可见的数据", icon: "lock.shield") }
                     .buttonStyle(.spotterPress)
-                Divider()
-                NavigationLink { NativeCoachingView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar) } label: {
-                    SecondaryRow(title: "教练与学员", icon: "graduationcap")
-                }.buttonStyle(.spotterPress)
                 if let privacy = URL(string: account.api.origin + "/privacy") {
                     Divider()
                     Link(destination: privacy) { SecondaryRow(title: "隐私政策", icon: "shield") }.buttonStyle(.spotterPress)
@@ -2340,6 +2333,7 @@ private struct NativeAppearancePreferences: View {
 
 private struct NativeModulePreferences: View {
     @AppStorage(NativePreferenceKey.friendsTab) private var friends = true
+    @AppStorage(NativePreferenceKey.coachingEntry) private var coaching = false
     @AppStorage(NativePreferenceKey.nutritionModule) private var nutrition = true
     @AppStorage(NativePreferenceKey.weeklyCheckins) private var checkins = true
     @AppStorage(NativePreferenceKey.planShortcut) private var plans = true
@@ -2347,6 +2341,8 @@ private struct NativeModulePreferences: View {
     var body: some View {
         SecondaryGroup {
             NativeSettingToggle(title: "好友入口", detail: "在底栏和今日页显示好友与搭子。", value: $friends)
+            Divider()
+            NativeSettingToggle(title: "教练与学员入口", detail: "在好友页的「找搭子」旁显示。", value: $coaching)
             Divider()
             NativeSettingToggle(title: "今日饮食", detail: "在今日页显示饮食记录。", value: $nutrition)
             Divider()
@@ -2588,6 +2584,7 @@ struct NativeFriends: View {
     let owner: String
     let buddySearchRequest: Int
     let refreshPlans: @MainActor () async -> Void
+    @AppStorage(NativePreferenceKey.coachingEntry) private var showsCoaching = false
 
     @State private var page: NativeFriendsPage
     @State private var data: SecondaryFriendList?
@@ -2628,13 +2625,6 @@ struct NativeFriends: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("好友").font(.system(.largeTitle, weight: .heavy)).accessibilityAddTraits(.isHeader)
-                    Spacer()
-                    NavigationLink {
-                        NativeCoachingView(api: api, owner: owner).onDisappear { Task { await refreshPlans() } }
-                    } label: { Label("教练与学员", systemImage: "graduationcap") }.buttonStyle(SecondaryButtonStyle())
-                }.padding(.bottom, 4)
                 SecondarySegment(options: NativeFriendsPage.allCases, value: $page, title: \.rawValue)
                 if dialog == nil, let notice { SecondaryNotice(message: notice, warning: error) }
                 switch page {
@@ -2680,11 +2670,9 @@ struct NativeFriends: View {
                 if let data { SecondaryBadge(text: "\(data.friends.count) 位") }
                 Spacer()
             }
-            HStack(spacing: 7) {
-                Button { open(.invite) } label: { Label("添加好友", systemImage: "person.badge.plus") }
-                    .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy)
-                Button { open(.invite, kind: .buddy) } label: { Label("找搭子", systemImage: "person.2") }
-                    .buttonStyle(SecondaryButtonStyle()).disabled(busy)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 7) { contactActions }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading, spacing: 7) { contactActions }
             }
             Button { open(.requests) } label: {
                 let count = social?.incoming.count ?? 0
@@ -2699,6 +2687,20 @@ struct NativeFriends: View {
                 if data.friends.isEmpty { SecondaryNotice(message: "添加好友后，可从联系人查看对方分享的每日记录。") }
             } else if !error { ProgressView("正在读取好友…") }
             else { Button("重新读取") { Task { await load() } }.buttonStyle(SecondaryButtonStyle()) }
+        }
+    }
+
+    @ViewBuilder private var contactActions: some View {
+        Button { open(.invite) } label: { Label("添加好友", systemImage: "person.badge.plus") }
+            .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy)
+        Button { open(.invite, kind: .buddy) } label: { Label("找搭子", systemImage: "person.2") }
+            .buttonStyle(SecondaryButtonStyle()).disabled(busy)
+        if showsCoaching {
+            NavigationLink {
+                NativeCoachingView(api: api, owner: owner).onDisappear { Task { await refreshPlans() } }
+            } label: {
+                Label("教练与学员", systemImage: "graduationcap")
+            }.buttonStyle(SecondaryButtonStyle())
         }
     }
 

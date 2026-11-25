@@ -18,6 +18,7 @@ enum NativePreferenceKey {
     static let reduceMotion = "spotter.native.appearance.reduceMotion"
     static let largerText = "spotter.native.appearance.largerText"
     static let friendsTab = "spotter.native.modules.friends"
+    static let coachingEntry = "spotter.native.modules.coaching"
     static let nutritionModule = "spotter.native.modules.nutrition"
     static let weeklyCheckins = "spotter.native.modules.weeklyCheckins"
     static let planShortcut = "spotter.native.modules.planShortcut"
