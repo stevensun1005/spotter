@@ -106,6 +106,14 @@ private enum SpotterCard {
         }
     }
 
+    var families: [WidgetFamily] {
+        switch self {
+        case .buddy: [.systemSmall, .systemMedium]
+        case .year: [.systemMedium, .systemLarge]
+        case .nutrition, .weekly: [.systemMedium]
+        }
+    }
+
     var route: String {
         switch self {
         case .buddy: "buddy"
@@ -149,7 +157,7 @@ private struct SpotterYearWidget: Widget {
     }
     .configurationDisplayName(card.title)
     .description(card.description)
-    .supportedFamilies(card == .year ? [.systemMedium, .systemLarge] : [.systemMedium])
+    .supportedFamilies(card.families)
 }
 
 private struct SpotterHomeCard: View {
@@ -166,6 +174,7 @@ private struct SpotterHomeCard: View {
     private var dark: Bool { scheme == .dark }
     private var privateView: Bool { redactionReasons.contains(.privacy) }
     private var supportsActions: Bool { !entry.isPreview && redactionReasons.isEmpty }
+    private var smallBuddy: Bool { card == .buddy && family == .systemSmall }
     private var ink: Color {
         guard fullColor else { return .primary }
         return dark || card == .weekly ? Color(red: 0.94, green: 0.97, blue: 0.92) : Color(red: 0.10, green: 0.17, blue: 0.13)
@@ -182,8 +191,9 @@ private struct SpotterHomeCard: View {
     private var limeInk: Color { fullColor ? Color(red: 0.11, green: 0.20, blue: 0.11) : .primary }
     private var track: Color { ink.opacity(fullColor && !dark ? 0.08 : 0.15) }
     private var buddy: SpotterWidgetSnapshot.Buddy? {
-        guard entry.snapshot?.day == entry.day, entry.snapshot?.weekStart == entry.weekStart else { return nil }
-        return entry.snapshot?.buddy
+        guard let snapshot = entry.snapshot, snapshot.weekStart == entry.weekStart,
+              snapshot.day == entry.day || (smallBuddy && snapshot.day < entry.day) else { return nil }
+        return snapshot.buddy
     }
     private var nutrition: SpotterWidgetSnapshot.Nutrition? {
         guard entry.snapshot?.day == entry.day else { return nil }
@@ -222,7 +232,11 @@ private struct SpotterHomeCard: View {
         switch card {
         case .buddy:
             if let buddy {
-                buddyContent(buddy)
+                if smallBuddy {
+                    smallBuddyContent(buddy)
+                } else {
+                    buddyContent(buddy)
+                }
             } else {
                 emptyState(
                     entry.snapshot?.day == entry.day ? "还没有可显示的搭子" : "等待同步搭子打卡",
@@ -261,7 +275,7 @@ private struct SpotterHomeCard: View {
                 .font(.system(size: 11, weight: .semibold))
                 .widgetAccentable()
                 .accessibilityHidden(true)
-            Text(card.title)
+            Text(smallBuddy ? "搭子本周" : card.title)
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -281,10 +295,15 @@ private struct SpotterHomeCard: View {
 
     private var caption: String? {
         switch card {
-        case .buddy: buddy == nil ? nil : dateRange(entry.weekStart)
-        case .nutrition: nutrition.map { "饮水 \(number($0.waterML)) mL" }
-        case .weekly: weekly.flatMap { dateRange($0.weekStart) }
-        case .year: "过去 365 天"
+        case .buddy:
+            guard buddy != nil else { return nil }
+            if !smallBuddy { return dateRange(entry.weekStart) }
+            guard let day = entry.snapshot?.day, day < entry.day,
+                  let dayIndex = SpotterWidgetSnapshot.weekDays(startingAt: entry.weekStart).firstIndex(of: day) else { return nil }
+            return "截至周\(Self.weekdays[dayIndex])"
+        case .nutrition: return nutrition.map { "饮水 \(number($0.waterML)) mL" }
+        case .weekly: return weekly.flatMap { dateRange($0.weekStart) }
+        case .year: return "过去 365 天"
         }
     }
 
@@ -317,6 +336,77 @@ private struct SpotterHomeCard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private func smallBuddyContent(_ value: SpotterWidgetSnapshot.Buddy) -> some View {
+        let week = SpotterWidgetSnapshot.weekDays(startingAt: entry.weekStart)
+        let today = week.firstIndex(of: entry.day) ?? 6
+        let latest = entry.snapshot.flatMap { week.firstIndex(of: $0.day) } ?? today
+        return VStack(spacing: 0) {
+            Spacer(minLength: 3)
+            HStack(spacing: 3) {
+                ForEach(Self.weekdays.indices, id: \.self) { index in
+                    Text(Self.weekdays[index])
+                        .font(.system(size: 9, weight: today == index ? .bold : .medium))
+                        .foregroundStyle(today == index ? green : muted)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .accessibilityHidden(true)
+            Spacer(minLength: 2)
+            smallBuddyRow("我", days: value.ownDays, today: today, latest: latest)
+            Spacer(minLength: 4)
+            smallBuddyRow(value.name, days: value.buddyDays, today: today, latest: latest)
+            Spacer(minLength: 2)
+        }
+        .accessibilityHint("打开搭子页面")
+    }
+
+    private func smallBuddyRow(_ name: String, days: [SpotterWidgetSnapshot.DayState], today: Int, latest: Int) -> some View {
+        let elapsed = days.prefix(latest + 1)
+        let visible = elapsed.filter { $0 != .unavailable }
+        let completed = visible.filter { $0 == .completed }.count
+        let count = visible.isEmpty ? "未公开" :
+            visible.count == elapsed.count ? "\(completed) 天" :
+            completed > 0 ? "可见 \(completed) 天" : "部分公开"
+        let countLabel = visible.isEmpty ? "本周打卡未公开" :
+            visible.count == elapsed.count ? "本周已打卡 \(completed) 天" : "公开记录中已打卡 \(completed) 天"
+        let cutoffLabel = latest < today ? "截至周\(Self.weekdays[latest])" : nil
+
+        return VStack(spacing: 2) {
+            HStack(spacing: 2) {
+                Text(name)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(count)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(muted)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            HStack(spacing: 3) {
+                ForEach(Self.weekdays.indices, id: \.self) { index in
+                    let state = days.indices.contains(index) ? days[index] : .unavailable
+                    buddyDay(index > latest && state == .unavailable ? .none : state, today: today == index)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            ([name, cutoffLabel, countLabel].compactMap { $0 } + days.prefix(7).enumerated().map { index, state in
+                let label: String
+                if index > today && (state == .none || state == .unavailable) {
+                    label = "日期未到"
+                } else if index > latest && (state == .none || state == .unavailable) {
+                    label = "等待同步"
+                } else {
+                    label = dayStateLabel(state)
+                }
+                return "周\(Self.weekdays[index])\(label)"
+            }).joined(separator: "，")
+        )
     }
 
     private func buddyContent(_ value: SpotterWidgetSnapshot.Buddy) -> some View {
@@ -864,6 +954,8 @@ private struct SpotterYearLayout {
 struct SpotterWidgetPreviews: PreviewProvider {
     static var previews: some View {
         Group {
+            SpotterHomeCard(card: .buddy, entry: .preview())
+                .previewContext(WidgetPreviewContext(family: .systemSmall))
             SpotterHomeCard(card: .buddy, entry: .preview())
                 .previewContext(WidgetPreviewContext(family: .systemMedium))
             SpotterHomeCard(card: .nutrition, entry: .preview())
