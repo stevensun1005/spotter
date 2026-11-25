@@ -1625,6 +1625,10 @@ struct NativeSettings: View {
     @State private var handleBusy = false
     @State private var handleNotice: String?
     @State private var handleError = false
+    @State private var nicknameDraft: String?
+    @State private var nicknameBusy = false
+    @State private var nicknameNotice: String?
+    @State private var nicknameError = false
     @State private var showRestSchedule = false
     let owner: String
     var onDeleted: () -> Void
@@ -1640,7 +1644,7 @@ struct NativeSettings: View {
 
         var detail: String {
             switch self {
-            case .account: return "用户名、登录绑定、云端同步和隐私"
+            case .account: return "昵称、用户名、登录绑定、云端同步和隐私"
             case .workout: return "默认组数和次数、下一组、动作节奏"
             case .protein: return "常喝的蛋白粉、一勺粉量和杯量"
             case .timer: return "休息时间、提示声音和震动、保持屏幕常亮"
@@ -1739,7 +1743,7 @@ struct NativeSettings: View {
     }
 
     private var accountHeader: some View {
-        let name = account.profile?.name ?? "训练搭子用户"
+        let name = account.profile?.name ?? handle?.handle ?? "我的账号"
         return NavigationLink(value: Page.account) {
             HStack(spacing: 12) {
                 Text(name.first.map(String.init) ?? "我").font(.title3.weight(.heavy))
@@ -1839,6 +1843,7 @@ struct NativeSettings: View {
 
     private var accountContent: some View {
         VStack(alignment: .leading, spacing: 15) {
+            nicknameContent
             usernameContent
             VStack(alignment: .leading, spacing: 10) {
                 Text("绑定登录方式").font(.headline).accessibilityAddTraits(.isHeader)
@@ -1858,7 +1863,7 @@ struct NativeSettings: View {
                     Task { await refreshPlans(); await loadHandle() }
                 } label: {
                     SecondaryRow(title: "立即同步", icon: "arrow.clockwise", accessory: nil)
-                }.buttonStyle(.spotterPress).disabled(handleBusy || account.isBusy)
+                }.buttonStyle(.spotterPress).disabled(handleBusy || nicknameBusy || account.isBusy)
                 Divider()
                 Button { Task { await account.signOut() } } label: {
                     SecondaryRow(title: "退出当前账号", icon: "rectangle.portrait.and.arrow.right", accessory: nil)
@@ -1902,6 +1907,55 @@ struct NativeSettings: View {
         }
     }
 
+    private var nicknameContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("昵称").font(.headline).accessibilityAddTraits(.isHeader)
+            TextField("输入昵称", text: Binding(get: { nicknameDraft ?? account.profile?.name ?? "" }, set: { nicknameDraft = $0 }))
+                .textFieldStyle(.roundedBorder).textContentType(.nickname).submitLabel(.done)
+                .accessibilityLabel("昵称")
+                .onSubmit { Task { await saveNickname() } }
+                .disabled(nicknameBusy)
+            Text("搭子、好友和搜索结果默认显示昵称。昵称最多 32 个字符。")
+                .font(.caption).foregroundStyle(SpotterPalette.muted)
+            Button(nicknameBusy ? "正在保存…" : "保存昵称") { Task { await saveNickname() } }
+                .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(!canSaveNickname)
+            if let nicknameNotice { SecondaryNotice(message: nicknameNotice, warning: nicknameError) }
+        }.padding(14).frame(maxWidth: .infinity, alignment: .leading).secondaryCard()
+    }
+
+    private var proposedNickname: String? {
+        nicknameDraft?.split(whereSeparator: \.isWhitespace).joined(separator: " ").precomposedStringWithCanonicalMapping
+    }
+
+    private var canSaveNickname: Bool {
+        guard let proposedNickname, proposedNickname != account.profile?.name,
+              account.profile?.id == owner, !handleBusy, !nicknameBusy, !account.isBusy else { return false }
+        return (1...32).contains(proposedNickname.unicodeScalars.count)
+    }
+
+    private func saveNickname() async {
+        guard canSaveNickname, let proposedNickname else { return }
+        nicknameBusy = true
+        nicknameNotice = nil
+        defer { nicknameBusy = false }
+        do {
+            let body = try JSONEncoder().encode(NicknameUpdate(name: proposedNickname, expectedOwner: owner))
+            let data = try await account.api.request("/api/auth/profile", method: "PATCH", json: body, for: owner)
+            let result = try JSONDecoder().decode(NativeHandleResponse.self, from: data).profile
+            guard let name = result.name, !name.isEmpty else { throw NativeAPIError.invalidResponse }
+            try useProfileName(name)
+            nicknameDraft = nil
+            nicknameNotice = "已更新昵称。"
+            nicknameError = false
+        } catch is CancellationError { }
+        catch { nicknameNotice = error.localizedDescription; nicknameError = true }
+    }
+
+    private func useProfileName(_ name: String) throws {
+        try account.useConfirmedName(name, for: owner)
+        workoutStore?.useConfirmedViewerName(name)
+    }
+
     private var usernameContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("用户名").font(.headline).accessibilityAddTraits(.isHeader)
@@ -1931,7 +1985,7 @@ struct NativeSettings: View {
                     Button("保存") { Task { await saveHandle() } }
                         .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(!canSaveHandle)
                 }
-                Text("名字用 3–24 个英文字母、数字、点或下划线，两端须为字母或数字。标签为四位数字。完整组合需唯一。")
+                Text("用于搜索好友和搭子。由 3–24 个英文字母、数字、点或下划线组成，两端须为字母或数字。标签为四位数字，完整组合需唯一。")
                     .font(.caption).foregroundStyle(SpotterPalette.muted)
             } else if handleBusy {
                 ProgressView("正在读取用户名…")
@@ -1947,18 +2001,19 @@ struct NativeSettings: View {
     }
 
     private var canSaveHandle: Bool {
-        guard let handle, !handleBusy, !account.isBusy,
+        guard let handle, !handleBusy, !nicknameBusy, !account.isBusy,
               proposedUsername != handle.username || usernameTag != handle.tag,
               usernameTag.count == 4, usernameTag.allSatisfy({ ("0"..."9").contains($0) }) else { return false }
         return proposedUsername.range(of: "^[a-z0-9][a-z0-9._]{1,22}[a-z0-9]$", options: .regularExpression) != nil
     }
 
     private func loadHandle() async {
-        guard !handleBusy else { return }
+        guard !handleBusy, !nicknameBusy else { return }
         handleBusy = true
         defer { handleBusy = false }
         do {
             let result = try await account.api.spotterRead("/api/auth/profile", as: NativeHandleResponse.self)
+            if let name = result.profile.name, !name.isEmpty { try useProfileName(name) }
             handle = result.profile
             username = result.profile.username
             usernameTag = result.profile.tag
@@ -1976,6 +2031,7 @@ struct NativeSettings: View {
                 "username": proposedUsername, "tag": usernameTag, "expectedOwner": owner
             ])
             let updated = try JSONDecoder().decode(NativeHandleResponse.self, from: result).profile
+            if let name = updated.name, !name.isEmpty { try useProfileName(name) }
             handle = updated
             username = updated.username
             usernameTag = updated.tag
@@ -2024,9 +2080,11 @@ private struct NativeHandleProfile: Decodable {
     let username: String
     let tag: String
     let handle: String
+    let name: String?
 }
 
 private struct NativeHandleResponse: Decodable { let profile: NativeHandleProfile }
+private struct NicknameUpdate: Encodable { let name: String; let expectedOwner: String }
 
 private struct NativeSettingToggle: View {
     let title: String
@@ -2519,7 +2577,6 @@ private struct SecondaryFriend: Decodable, Identifiable {
 
     let id: String
     let name: String
-    let handle: String?
     let buddy: Bool
     let checkedIn: Bool?
     let sharing: Sharing?
@@ -2730,7 +2787,6 @@ struct NativeFriends: View {
                         if friend.buddy { SecondaryBadge(text: "训练搭子", green: true) }
                         if friend.checkedIn == true { SecondaryBadge(text: "已打卡", green: true) }
                     }
-                    if let handle = friend.handle { Text(handle).font(.caption.monospaced()).foregroundStyle(SpotterPalette.muted) }
                     if day == nil { Text("查看每日记录").font(.caption).foregroundStyle(SpotterPalette.muted) }
                     else if summary.isEmpty { Text("已打卡").font(.caption).foregroundStyle(SpotterPalette.muted) }
                     ForEach(summary) { workout in

@@ -114,14 +114,14 @@ final class NativeWorkoutStore: ObservableObject {
         do {
             let revision = localRevision
             let edit = entryRevision
+            let loadedViewerName = viewerName
             let value = try await api.spotterRead("/api/workout", as: NativeWorkoutState.self)
             guard revision == localRevision, edit == entryRevision else { return }
             guard value.me.id == owner else { entries = []; throw NativeWorkoutProblem.accountChanged }
             if entries != value.entries { entries = value.entries }
             let currentRoom = value.room ?? .null
             if room != currentRoom { room = currentRoom }
-            let name = value.me.name ?? "我"
-            if viewerName != name { viewerName = name }
+            if viewerName == loadedViewerName, let name = value.me.name { useConfirmedViewerName(name) }
             if let active, value.entries.contains(where: { $0.owner == owner && $0.kind == "log" && $0.id == active.id }) {
                 self.active = nil
                 persist()
@@ -134,6 +134,10 @@ final class NativeWorkoutStore: ObservableObject {
             status = "暂未连接云端"
             errorMessage = error.localizedDescription
         }
+    }
+
+    func useConfirmedViewerName(_ name: String) {
+        if viewerName != name { viewerName = name }
     }
 
     func loadProteinPreferences() async {

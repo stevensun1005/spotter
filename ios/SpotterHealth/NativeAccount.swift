@@ -7,16 +7,21 @@ import UIKit
 
 struct NativeProfile: Decodable, Equatable, Sendable {
     let id: String
-    let name: String
+    let name: String?
 
     private enum CodingKeys: String, CodingKey { case id, name }
 
+    init(id: String, name: String?) {
+        self.id = id
+        self.name = name
+    }
+
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        id = try values.decode(String.self, forKey: .id)
+        let id = try values.decode(String.self, forKey: .id)
         guard !id.isEmpty, id.utf8.count <= 250 else { throw NativeAPIError.invalidResponse }
         let displayName = try values.decodeIfPresent(String.self, forKey: .name)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        name = displayName.flatMap { $0.isEmpty ? nil : $0 } ?? "训练搭子用户"
+        self.init(id: id, name: displayName.flatMap { $0.isEmpty ? nil : $0 })
     }
 }
 
@@ -335,6 +340,11 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
     }
 
     func clearError() { errorMessage = nil }
+
+    func useConfirmedName(_ name: String, for owner: String) throws {
+        guard let profile, profile.id == owner else { throw NativeAPIError.accountChanged }
+        if profile.name != name { self.profile = NativeProfile(id: owner, name: name) }
+    }
 
     private func clearProfile() {
         profile = nil
