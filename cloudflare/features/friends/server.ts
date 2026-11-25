@@ -1,5 +1,6 @@
 import { HttpError } from "@/server/http";
 import { accountName } from "@/features/auth/display-name";
+import { publicName } from "./public-name";
 import { asDate, dateSchema, offsetDate } from "@/shared/dates";
 import { anatomyVariant } from "@/features/body/profile";
 import type { MealEntry } from "@/features/library/model";
@@ -162,44 +163,74 @@ function publicWorkout(id: string, data: Session): SharedWorkout {
     sets: exercises.reduce((total, move) => total + move.sets.length, 0), exercises };
 }
 
-export async function friendFeed(db: D1Database, owner: string, today = friendCurrentDay()): Promise<FriendFeed> {
+export async function friendFeed(db: D1Database, owner: string, today = friendCurrentDay(), ownName: string | null = "我"): Promise<FriendFeed> {
   const dates = [today, offsetDate(today, -1), offsetDate(today, -2)];
   const { friends } = await listFriends(db, owner);
+  const people = ownName === null ? friends : [{ id: owner, name: publicName(ownName), buddy: false }, ...friends];
+  const visibleOwners = JSON.stringify(people.map(({ id }) => id));
+  const visibleDays = JSON.stringify(dates);
   const days: FriendFeed["days"] = dates.map((date) => ({ date, items: [] }));
-  if (!friends.length) return { days };
 
   const day = "json_extract(e.payload, '$.date')";
   const pair = "SELECT ? AS viewer, e.owner AS peer";
-  const { results } = await db.prepare(
-    "SELECT e.owner, e.id, " + day + " AS date, CASE WHEN " + relationshipAccess(pair, "training") +
-    " THEN e.payload END AS payload FROM entries e WHERE e.owner IN (SELECT value FROM json_each(?)) " +
-    "AND e.kind = 'log' AND " + day + " IN (SELECT value FROM json_each(?)) AND " +
-    relationshipAccess(pair, "checkin") + " ORDER BY e.updated DESC, e.id ASC"
-  ).bind(owner, JSON.stringify(friends.map((friend) => friend.id)), JSON.stringify(dates), owner)
-    .all<{ owner: string; id: string; date: string; payload: string | null }>();
+  const [workoutRows, cheerRows] = await Promise.all([
+    db.prepare(
+      "SELECT e.owner, e.id, " + day + " AS date, CASE WHEN e.owner = ? OR " + relationshipAccess(pair, "training") +
+      " THEN e.payload END AS payload FROM entries e WHERE e.owner IN (SELECT value FROM json_each(?)) " +
+      "AND e.kind = 'log' AND " + day + " IN (SELECT value FROM json_each(?)) AND (e.owner = ? OR " +
+      relationshipAccess(pair, "checkin") + ") ORDER BY e.updated DESC, e.id ASC"
+    ).bind(owner, owner, visibleOwners, visibleDays, owner, owner)
+      .all<{ owner: string; id: string; date: string; payload: string | null }>(),
+    db.prepare(
+      "SELECT c.recipient, c.day, COUNT(*) AS count, MAX(c.sender = ?) AS given FROM friend_feed_cheers c " +
+      "WHERE c.recipient IN (SELECT value FROM json_each(?)) AND c.day IN (SELECT value FROM json_each(?)) AND " +
+      relationshipAccess("SELECT c.sender AS viewer, c.recipient AS peer", "checkin") + " GROUP BY c.recipient, c.day"
+    ).bind(owner, visibleOwners, visibleDays).all<{ recipient: string; day: string; count: number; given: number }>(),
+  ]);
 
-  const grouped = new Map<string, Map<string, SharedWorkoutSummary[] | null>>();
-  for (const { owner: id, date, payload, id: workoutId } of results) {
-    const byFriend = grouped.get(date) ?? new Map();
-    grouped.set(date, byFriend);
+  const key = (id: string, date: string) => JSON.stringify([id, date]);
+  const workoutsByPersonDay = new Map<string, SharedWorkoutSummary[] | null>();
+  for (const { owner: id, date, payload, id: workoutId } of workoutRows.results) {
+    const personDay = key(id, date);
     if (!payload) {
-      byFriend.set(id, null);
+      workoutsByPersonDay.set(personDay, null);
       continue;
     }
     const { title, category, minutes, sets, exercises } = publicWorkout(workoutId, JSON.parse(payload) as Session);
-    const workouts = byFriend.get(id) ?? [];
+    const workouts = workoutsByPersonDay.get(personDay) ?? [];
     workouts.push({ id: workoutId, title, category, minutes, sets, exercises: exercises.length });
-    byFriend.set(id, workouts);
+    workoutsByPersonDay.set(personDay, workouts);
   }
+  const cheersByPersonDay = new Map(cheerRows.results.map((row) => [key(row.recipient, row.day), row]));
   for (const day of days) {
-    const byFriend = grouped.get(day.date);
-    if (!byFriend) continue;
-    for (const { id, name, buddy } of friends) {
-      const workouts = byFriend.get(id);
-      if (workouts !== undefined) day.items.push({ friend: { id, name, buddy }, workouts });
+    for (const { id, name, buddy } of people) {
+      const personDay = key(id, day.date);
+      const workouts = workoutsByPersonDay.get(personDay);
+      if (workouts === undefined) continue;
+      const own = id === owner;
+      const cheer = cheersByPersonDay.get(personDay);
+      day.items.push({ friend: { id, name, buddy }, own, workouts,
+        cheer: { count: cheer?.count ?? 0, given: Boolean(cheer?.given), available: !own } });
     }
   }
   return { days };
+}
+
+export async function changeFriendFeedCheer(db: D1Database, owner: string, friend: string, date: string, active: boolean, today: string) {
+  if (owner === friend) throw new HttpError(400, "不能给自己的打卡加油。");
+  if (!active) {
+    await db.prepare("DELETE FROM friend_feed_cheers WHERE recipient = ? AND day = ? AND sender = ?")
+      .bind(friend, date, owner).run();
+    return;
+  }
+  if (date < offsetDate(today, -2) || date > today) throw new HttpError(404, "这条打卡已不在朋友圈里。");
+  const { condition, identifiers } = shareAccess(owner, friend, "checkin");
+  const result = await db.prepare(
+    "INSERT INTO friend_feed_cheers (recipient, day, sender) SELECT ?, ?, ? WHERE " + condition +
+    " AND EXISTS (SELECT 1 FROM entries WHERE owner = ? AND kind = 'log' AND json_extract(payload, '$.date') = ?) " +
+    "ON CONFLICT(recipient, day, sender) DO UPDATE SET sender = excluded.sender RETURNING sender"
+  ).bind(friend, date, owner, ...identifiers, friend, date).first();
+  if (!result) throw new HttpError(404, "这条打卡已不在朋友圈里。");
 }
 
 function publicMeal(id: string, entry: MealEntry): SharedMeal {

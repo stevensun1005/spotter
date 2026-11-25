@@ -2567,6 +2567,12 @@ private struct SecondarySocial: Decodable {
 private struct SecondaryFriendFeed: Decodable {
     struct Day: Decodable, Identifiable {
         struct Item: Decodable, Identifiable {
+            struct Cheer: Decodable {
+                let count: Int
+                let given: Bool
+                let available: Bool
+            }
+
             struct Workout: Decodable, Identifiable {
                 let id: String
                 let title: String
@@ -2586,6 +2592,7 @@ private struct SecondaryFriendFeed: Decodable {
             }
             let friend: SecondaryFriend
             let workouts: [Workout]?
+            let cheer: Cheer?
             var id: String { friend.id }
         }
         let date: String
@@ -2609,6 +2616,7 @@ struct NativeFriends: View {
     let api: NativeAPI
     let owner: String
     let buddySearchRequest: Int
+    let openOwnLog: (@MainActor (String) -> Void)?
     let refreshPlans: @MainActor () async -> Void
     @AppStorage(NativePreferenceKey.coachingEntry) private var showsCoaching = false
     @Environment(\.spotterAccent) private var accent
@@ -2620,6 +2628,7 @@ struct NativeFriends: View {
     @State private var feed: SecondaryFriendFeed?
     @State private var feedError: String?
     @State private var feedRevision = 0
+    @State private var pendingCheer: PendingCheer?
     @State private var dialog: Dialog?
     @State private var inviteTab = InviteTab.search
     @State private var inviteKind = NativeConnectionKind.friend
@@ -2635,13 +2644,19 @@ struct NativeFriends: View {
     private enum InviteTab: String, CaseIterable { case search = "搜索用户名", code = "邀请链接" }
     private struct SearchPerson: Decodable, Identifiable { let id: String; let name: String; let handle: String? }
     private struct SearchResponse: Decodable { let results: [SearchPerson] }
+    private struct PendingCheer {
+        let friend: String
+        let date: String
+        let value: SecondaryFriendFeed.Day.Item.Cheer
+    }
 
     init(api: NativeAPI, owner: String, initialPage: NativeFriendsPage = .contacts, initialBuddySearch: Bool = false,
-         buddySearchRequest: Int = 0,
+         buddySearchRequest: Int = 0, openOwnLog: (@MainActor (String) -> Void)? = nil,
          refreshPlans: @escaping @MainActor () async -> Void) {
         self.api = api
         self.owner = owner
         self.buddySearchRequest = buddySearchRequest
+        self.openOwnLog = openOwnLog
         self.refreshPlans = refreshPlans
         _page = State(initialValue: initialPage)
         _dialog = State(initialValue: initialBuddySearch ? .invite : nil)
@@ -2650,6 +2665,7 @@ struct NativeFriends: View {
 
     private var listPath: String { friendPath([URLQueryItem(name: "today", value: spotterDay())]) }
     private var socialPath: String { "/api/friends?section=social&includeBuddy=1" }
+    private var feedPath: String { "/api/friends?feed=2" }
     private var cleanedCode: String { code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
     var body: some View {
@@ -2783,7 +2799,7 @@ struct NativeFriends: View {
                 if activeDays.isEmpty { emptyFeed }
                 ForEach(activeDays) { day in
                     feedDayHeading(day.date)
-                    ForEach(day.items) { item in
+                    ForEach(day.items.filter(isOwn) + day.items.filter { !isOwn($0) }) { item in
                         feedCard(item, day: day.date)
                     }
                 }
@@ -2809,7 +2825,7 @@ struct NativeFriends: View {
                 .foregroundStyle(accent.tint).frame(width: 58, height: 58)
                 .background(accent.selection, in: Circle()).accessibilityHidden(true)
             Text("还没有新打卡").font(.headline).accessibilityAddTraits(.isHeader)
-            Text(hasNoFriends ? "添加好友后，就能在这里查看对方分享的训练打卡。" : "这里会显示好友分享的近 3 天训练打卡。")
+            Text(hasNoFriends ? "在这里查看自己的训练打卡，添加好友后也能看到对方分享的动态。" : "这里会显示你和好友近 3 天的训练打卡。")
                 .font(.subheadline).foregroundStyle(SpotterPalette.muted).multilineTextAlignment(.center)
             if hasNoFriends {
                 Button { open(.invite) } label: { Label("添加好友", systemImage: "person.badge.plus") }
@@ -2843,47 +2859,100 @@ struct NativeFriends: View {
         }.padding(.horizontal, 3).accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
     }
 
+    private func isOwn(_ item: SecondaryFriendFeed.Day.Item) -> Bool { item.id == owner }
+
     private func feedCard(_ item: SecondaryFriendFeed.Day.Item, day: String) -> some View {
-        NavigationLink { friendDetail(item.friend, day: day) } label: {
-            VStack(alignment: .leading, spacing: 13) {
-                HStack(spacing: 11) {
-                    avatar(item.friend.name, buddy: item.friend.buddy, size: 44, circular: true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.friend.name).font(.headline)
-                        if item.friend.buddy {
-                            Text("训练搭子").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    Label("已打卡", systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.accent)
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(SpotterPalette.wash, in: Capsule())
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                        .foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
-                }
-                if let workouts = item.workouts {
-                    ForEach(workouts) { workout in
+        VStack(alignment: .leading, spacing: 12) {
+            if isOwn(item) {
+                feedHeader(item)
+                ForEach(item.workouts ?? []) { workout in
+                    if let openOwnLog {
+                        Button { openOwnLog(workout.id) } label: {
+                            feedWorkout(workout, opensRecord: true)
+                        }.buttonStyle(.spotterPress).accessibilityHint("查看这条训练记录")
+                    } else {
                         feedWorkout(workout)
                     }
-                } else {
-                    Label("训练详情未共享", systemImage: "lock").font(.caption)
-                        .foregroundStyle(SpotterPalette.muted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(11).background(SpotterPalette.background.opacity(0.64), in: RoundedRectangle(cornerRadius: 12))
                 }
+                if let cheer = item.cheer {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Label("收到 \(cheer.count) 次加油", systemImage: "heart")
+                            .font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                    }
+                }
+            } else {
+                NavigationLink { friendDetail(item.friend, day: day) } label: {
+                    VStack(alignment: .leading, spacing: 12) {
+                        feedHeader(item)
+                        if let workouts = item.workouts {
+                            ForEach(workouts) { workout in feedWorkout(workout) }
+                        } else {
+                            Label("训练详情未共享", systemImage: "lock").font(.caption)
+                                .foregroundStyle(SpotterPalette.muted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(11).background(SpotterPalette.background.opacity(0.64), in: RoundedRectangle(cornerRadius: 12))
+                        }
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.spotterPress).accessibilityHint("查看这一天的好友记录")
+                if let cheer = item.cheer, cheer.available { feedCheerButton(item, cheer: cheer, day: day) }
             }
-            .padding(13)
-            .background {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(LinearGradient(colors: [accent.selection.opacity(item.friend.buddy ? 0.76 : 0.31), SpotterPalette.card],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-            }
-            .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
-            .contentShape(RoundedRectangle(cornerRadius: 20))
-        }.buttonStyle(.spotterPress).accessibilityHint("查看这一天的好友记录")
+        }
+        .padding(13)
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(LinearGradient(colors: [accent.selection.opacity(isOwn(item) || item.friend.buddy ? 0.76 : 0.31), SpotterPalette.card],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+        }
+        .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
     }
 
-    private func feedWorkout(_ workout: SecondaryFriendFeed.Day.Item.Workout) -> some View {
+    private func feedHeader(_ item: SecondaryFriendFeed.Day.Item) -> some View {
+        HStack(spacing: 11) {
+            avatar(item.friend.name, buddy: isOwn(item) || item.friend.buddy, size: 44, circular: true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.friend.name).font(.headline)
+                if isOwn(item) || item.friend.buddy {
+                    Text(isOwn(item) ? "我的打卡" : "训练搭子").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Label("已打卡", systemImage: "checkmark.circle.fill")
+                .font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.accent)
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(SpotterPalette.wash, in: Capsule())
+            if !isOwn(item) {
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
+            }
+        }
+    }
+
+    private func feedCheerButton(_ item: SecondaryFriendFeed.Day.Item, cheer: SecondaryFriendFeed.Day.Item.Cheer, day: String) -> some View {
+        let shown = pendingCheer.flatMap { $0.friend == item.id && $0.date == day ? $0.value : nil } ?? cheer
+        return HStack {
+            Spacer(minLength: 0)
+            Button {
+                Task { await updateCheer(item, cheer: cheer, day: day) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: shown.given ? "heart.fill" : "heart").accessibilityHidden(true)
+                    Text(shown.given ? "已加油" : "加油")
+                    Text(shown.count.formatted()).monospacedDigit()
+                }
+                .font(.caption.weight(.semibold)).foregroundStyle(shown.given ? accent.tint : SpotterPalette.muted)
+                .padding(.horizontal, 13).frame(minHeight: 44)
+                .background(shown.given ? accent.selection : SpotterPalette.background, in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.spotterPress).disabled(pendingCheer != nil)
+            .accessibilityLabel(shown.given ? "取消给\(item.friend.name)加油" : "给\(item.friend.name)加油")
+            .accessibilityValue("\(shown.count) 次加油")
+            .accessibilityIdentifier("feed-cheer-\(item.id)-\(day)")
+        }
+    }
+
+    private func feedWorkout(_ workout: SecondaryFriendFeed.Day.Item.Workout, opensRecord: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 10) {
             SecondaryTile(icon: workout.icon, color: accent.selection, size: 36)
             VStack(alignment: .leading, spacing: 6) {
@@ -2893,6 +2962,11 @@ struct NativeFriends: View {
                     VStack(alignment: .leading, spacing: 5) { feedWorkoutMetrics(workout) }
                 }.font(.caption).foregroundStyle(SpotterPalette.muted)
             }.frame(maxWidth: .infinity, alignment: .leading)
+            if opensRecord {
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
+                    .frame(minHeight: 36)
+            }
         }.padding(10)
             .background(SpotterPalette.background.opacity(0.72), in: RoundedRectangle(cornerRadius: 12))
     }
@@ -3091,12 +3165,37 @@ struct NativeFriends: View {
         let revision = feedRevision
         feedError = nil
         do {
-            let value = try await api.spotterRead("/api/friends?feed=1", as: SecondaryFriendFeed.self)
+            let value = try await api.spotterRead(feedPath, as: SecondaryFriendFeed.self)
             if !Task.isCancelled, revision == feedRevision { feed = value }
         }
         catch is CancellationError { }
         catch let reason as URLError where reason.code == .cancelled { }
         catch { if !Task.isCancelled, revision == feedRevision { feedError = error.localizedDescription } }
+    }
+
+    private func updateCheer(_ item: SecondaryFriendFeed.Day.Item, cheer: SecondaryFriendFeed.Day.Item.Cheer, day: String) async {
+        guard !isOwn(item), cheer.available, pendingCheer == nil else { return }
+        let active = !cheer.given
+        let value = SecondaryFriendFeed.Day.Item.Cheer(count: max(0, cheer.count + (active ? 1 : -1)), given: active, available: true)
+        feedRevision += 1
+        let revision = feedRevision
+        withAnimation(motion) {
+            pendingCheer = PendingCheer(friend: item.id, date: day, value: value)
+            feedError = nil
+        }
+        defer { withAnimation(motion) { pendingCheer = nil } }
+        do {
+            let body: [String: Any] = ["action": "feed-cheer", "friend": item.id, "date": day, "active": active, "expectedOwner": owner]
+            let result = try await api.request(feedPath, method: "POST", json: JSONSerialization.data(withJSONObject: body), for: owner)
+            let updated = try JSONDecoder().decode(SecondaryFriendFeed.self, from: result)
+            if revision == feedRevision {
+                withAnimation(motion) { feed = updated }
+            } else if page == .feed {
+                await loadFeed()
+            }
+        } catch is CancellationError { }
+        catch let reason as URLError where reason.code == .cancelled { }
+        catch { if revision == feedRevision { feedError = error.localizedDescription } }
     }
 
     private func findFriends() async {

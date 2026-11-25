@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Dumbbell, Link, Lock, Search, UserRoundPlus, Utensils } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Dumbbell, Heart, Link, Lock, Search, UserRoundPlus, Utensils } from "lucide-react";
 import { Anatomy } from "@/features/exercises/anatomy";
 import { exerciseMuscles } from "@/features/exercises/guidance";
 import { muscleNames, regionMuscle } from "@/features/exercises/labels";
@@ -10,7 +10,7 @@ import { signInPath } from "@/features/auth/paths";
 import { errorText } from "@/shared/client";
 import { offsetDate, shortDate } from "@/shared/dates";
 import { avatar, Dialog, displayNumber } from "@/shared/ui";
-import type { Friend, FriendDay, FriendList, FriendMutation, SharedMeal, SharedWorkout } from "./model";
+import type { Friend, FriendDay, FriendFeed as Feed, FriendList, FriendMutation, SharedMeal, SharedWorkout, SharedWorkoutSummary } from "./model";
 import type { FriendRequest, SocialMutation, SocialPerson, SocialPreferences, SocialState } from "./social-model";
 
 const endpoint = "/api/friends";
@@ -178,8 +178,6 @@ function SharingSettings({ friend, busy, save }: {
 }
 
 type FriendsTab = "contacts" | "feed" | "privacy";
-type FeedWorkout = Pick<SharedWorkout, "id" | "title" | "category" | "minutes" | "sets"> & { exercises: number };
-type Feed = { days: { date: string; items: { friend: Pick<Friend, "id" | "name" | "buddy">; workouts: FeedWorkout[] | null }[] }[] };
 const tabOptions = [["contacts", "联系人"], ["feed", "朋友圈"], ["privacy", "权限设置"]] as const;
 const initials = [
   ["阿", "A"], ["八", "B"], ["擦", "C"], ["搭", "D"], ["蛾", "E"], ["发", "F"], ["嘎", "G"], ["哈", "H"], ["击", "J"],
@@ -272,22 +270,37 @@ function ContactList({ people, sharingOnly = false, open }: { people: Friend[]; 
   </>;
 }
 
-function FriendFeed({ days, today, open }: { days: Feed["days"]; today: string; open: (person: { id: string }, date: string) => void }) {
-  return <div className="feature-stack friend-feed" aria-label="好友训练动态">
-    {days.map(({ date, items }) => <section className="card padded feature-stack" key={date}>
+function feedSummary(workout: SharedWorkoutSummary) {
+  return <><strong>{workout.title}</strong>
+    <small>{[workout.category, workout.minutes > 0 ? displayNumber(workout.minutes) + " 分钟" : "",
+      workout.exercises > 0 ? workout.exercises + " 个动作" : "", workout.sets > 0 ? workout.sets + " 组" : ""].filter(Boolean).join(" · ")}</small></>;
+}
+
+function FriendFeed({ days, today, open, openOwnLog, setCheer, busy }: {
+  days: Feed["days"]; today: string; open: (person: { id: string }, date: string) => void;
+  openOwnLog?: (id: string) => void; setCheer: (id: string, date: string, active: boolean) => void; busy: boolean;
+}) {
+  const activeDays = days.filter(({ items }) => items.length);
+  return <div className="feature-stack friend-feed" aria-label="训练打卡动态">
+    {activeDays.length === 0 && <p className="card padded empty-copy">最近三天暂无训练打卡。</p>}
+    {activeDays.map(({ date, items }) => <section className="feature-stack" key={date}>
       <div className="section-head"><h2>{date === today ? "今天 · " : ""}{shortDate(date)}</h2></div>
-      {items.length === 0 && <p className="empty-copy">当天暂无可见训练打卡。</p>}
-      {items.map(({ friend, workouts }) => <button key={friend.id} type="button" className="friend-feed-entry" onClick={() => open(friend, date)}>
-        <span className={"avatar " + (friend.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(friend.name)}</span>
-        <span className="friend-feed-copy"><strong>{friend.name}{friend.buddy && <span className="state-tag checked">训练搭子</span>}</strong>
-          {!workouts?.length ? <small>训练已打卡</small> : workouts.map((workout) => <span key={workout.id} className="friend-feed-summary">
-            <span>{workout.title}</span>
-            <small>{[workout.category, workout.minutes > 0 ? displayNumber(workout.minutes) + " 分钟" : "",
-              workout.exercises > 0 ? workout.exercises + " 个动作" : "", workout.sets > 0 ? workout.sets + " 组" : ""].filter(Boolean).join(" · ")}</small>
-          </span>)}
-        </span>
-        <ChevronRight size={18} aria-hidden="true" />
-      </button>)}
+      {items.map(({ friend, workouts, own, cheer }) => {
+        const identity = <><span className={"avatar " + (friend.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(friend.name)}</span>
+          <span className="friend-feed-copy"><strong>{friend.name}{(own || friend.buddy) && <span className="state-tag checked">{own ? "我" : "训练搭子"}</span>}</strong></span></>;
+        return <article key={friend.id} className="card padded feature-stack friend-feed-card">
+          {own ? <div className="friend-feed-entry">{identity}</div> :
+            <button type="button" className="friend-feed-entry" onClick={() => open(friend, date)}>{identity}<ChevronRight size={18} aria-hidden="true" /></button>}
+          {workouts?.length ? workouts.map((workout) => own && openOwnLog
+            ? <button key={workout.id} type="button" onClick={() => openOwnLog(workout.id)} className="friend-feed-summary friend-feed-own-log">{feedSummary(workout)}</button>
+            : <div key={workout.id} className="friend-feed-summary">{feedSummary(workout)}</div>)
+            : <p className="friend-private"><Lock size={15} aria-hidden="true" /> 训练详情未共享</p>}
+          {cheer?.available ? <button type="button" className="friend-feed-cheer" aria-pressed={cheer.given} disabled={busy}
+            onClick={() => setCheer(friend.id, date, !cheer.given)}><Heart size={16} fill={cheer.given ? "currentColor" : "none"} aria-hidden="true" />
+            {cheer.given ? "已加油" : "加油"}{cheer.count > 0 && ` · ${cheer.count}`}</button> :
+            own && cheer?.count > 0 && <p className="friend-feed-received"><Heart size={16} aria-hidden="true" /> {cheer.count} 人加油</p>}
+        </article>;
+      })}
     </section>)}
   </div>;
 }
@@ -414,8 +427,9 @@ export function BuddyFinder({ owner, onConnected }: { owner: string; onConnected
   </section>;
 }
 
-export function FriendsView({ enabled, owner, today, initialFriendId, initialDate, sharingOnly = false, onChanged }: {
+export function FriendsView({ enabled, owner, today, initialFriendId, initialDate, sharingOnly = false, onChanged, openOwnLog }: {
   enabled: boolean; owner?: string; today: string; initialFriendId?: string; initialDate?: string; sharingOnly?: boolean; onChanged?: () => void;
+  openOwnLog?: (id: string) => void;
 }) {
   const sharingView = useRef<HTMLDivElement>(null);
   const listUrl = sharingOnly ? endpoint : endpoint + "?" + new URLSearchParams({ today });
@@ -438,7 +452,7 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
   const invite = friends?.invite;
   const day = useFriendDay(enabled && !sharingOnly ? friend?.id : undefined, date, dayRevision);
   const socialUrl = enabled ? handleSocialEndpoint : undefined;
-  const feedUrl = enabled && !sharingOnly && tab === "feed" && !friend ? endpoint + "?feed=1" : undefined;
+  const feedUrl = enabled && !sharingOnly && tab === "feed" && !friend ? endpoint + "?feed=2" : undefined;
   const social = useFriendResource<SocialState>(socialUrl, loadAttempt);
   const feed = useFriendResource<Feed>(feedUrl, loadAttempt);
 
@@ -505,6 +519,19 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
     setRequestsOpen(true);
     setError("");
     setStatus("");
+  }
+
+  async function setFeedCheer(friend: string, date: string, active: boolean) {
+    if (!feedUrl || busy || !owner) return;
+    setBusy(true);
+    setError("");
+    try {
+      feed.replace(await request<Feed>(feedUrl, {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(12000),
+        body: JSON.stringify({ action: "feed-cheer", friend, date, active, expectedOwner: owner }),
+      }));
+    } catch (reason) { setError(errorText(reason)); }
+    finally { setBusy(false); }
   }
 
   async function mutate(body: FriendMutation, message: string) {
@@ -657,7 +684,8 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
         </section>
         {friendList}
       </>}
-      {tab === "feed" && (feed.data ? <FriendFeed days={feed.data.days} today={today} open={openFriend} /> :
+      {tab === "feed" && (feed.data ? <FriendFeed days={feed.data.days} today={today} open={openFriend}
+        openOwnLog={openOwnLog} setCheer={(friend, date, active) => void setFeedCheer(friend, date, active)} busy={busy} /> :
         feed.error ? <section className="card padded feature-stack"><p className="inline-error" role="alert">{feed.error}</p>
           <button className="button outline" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>重新读取</button></section> :
           <p className="muted" role="status">正在读取朋友圈…</p>)}

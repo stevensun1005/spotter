@@ -7,6 +7,11 @@ import type { SetLine } from "@/features/training/model";
 
 const friendId = z.string().trim().min(1).max(120);
 export const friendDateQuery = z.object({ friend: friendId, date: dateSchema });
+export const friendFeedCheerInput = friendDateQuery.extend({
+  action: z.literal("feed-cheer"),
+  active: z.boolean(),
+  expectedOwner: z.string().min(1).max(250),
+}).strict();
 const shareOptions = z.object({
   training: z.boolean(),
   nutrition: z.boolean(),
@@ -58,6 +63,11 @@ export type SharedWorkoutSummary = Pick<SharedWorkout, "id" | "title" | "categor
 export type FriendFeed = {
   days: {
     date: string;
-    items: { friend: Pick<Friend, "id" | "name" | "buddy">; workouts: SharedWorkoutSummary[] | null }[];
+    items: {
+      friend: Pick<Friend, "id" | "name" | "buddy">;
+      own: boolean;
+      workouts: SharedWorkoutSummary[] | null;
+      cheer: { count: number; given: boolean; available: boolean };
+    }[];
   }[];
 };

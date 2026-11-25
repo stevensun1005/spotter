@@ -69,6 +69,16 @@ export const friendInvites = sqliteTable("friend_invites", {
   expiresAt: text("expires_at").notNull(),
 });
 
+export const friendFeedCheers = sqliteTable("friend_feed_cheers", {
+  recipient: text().notNull(),
+  day: text().notNull(),
+  sender: text().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.recipient, table.day, table.sender] }),
+  index("friend_feed_cheers_sender").on(table.sender),
+  check("friend_feed_cheers_distinct_people", sql`${table.sender} <> ${table.recipient}`),
+]);
+
 export const friendProfiles = sqliteTable("friend_profiles", {
   owner: text().primaryKey().notNull(),
   name: text().notNull(),

@@ -70,6 +70,18 @@
 .friend-feed-copy > strong { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-weight: 760; }
 .friend-feed-summary { padding: 8px 9px; background: #f3f6ef; border: 1px solid #e6ede1; border-radius: 9px; }
 .friend-feed-copy small { color: var(--muted); }
+.friend-feed-card { gap: 8px; }
+.friend-feed-card .friend-feed-entry { min-height: 44px; padding: 0; align-items: center; }
+.friend-feed-summary small { color: var(--muted); }
+.friend-feed-own-log { text-align: left; }
+.friend-feed-cheer, .friend-feed-received {
+  display: inline-flex; align-items: center; justify-self: start; gap: 6px;
+  border-radius: 999px; padding: 6px 12px; min-height: 38px; font-weight: 650;
+}
+.friend-feed-cheer { color: var(--muted); border: 1px solid var(--stroke); transition: transform 140ms ease, background-color 170ms ease; }
+.friend-feed-cheer[aria-pressed="true"], .friend-feed-received { color: #983b49; background: #fcf0f1; border-color: #f1d8da; }
+.friend-feed-cheer:active:not(:disabled) { transform: scale(.95); }
+@media (prefers-reduced-motion: reduce) { .friend-feed-cheer { transition: none; } .friend-feed-cheer:active:not(:disabled) { transform: none; } }
 .friend-settings-dialog .friend-privacy { padding: 0; border: 0; }
 .friend-search-form { grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; }
 .friend-people-list { display: grid; gap: 5px; }

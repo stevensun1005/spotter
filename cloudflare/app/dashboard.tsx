@@ -958,7 +958,8 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
               savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
         </div>}
         {view === "friends" && <FriendsView key={(viewer?.id ?? "guest") + ":" + (friendFocus?.id ?? "friends")} enabled={Boolean(viewer)} owner={viewer?.id}
-          today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()} />}
+          today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()}
+          openOwnLog={(id) => { const log = logs.find((entry) => entry.id === id && entry.owner === viewer?.id); if (log) open({ kind: "log", log }); }} />}
 
         <CoachSheet size={coachSheet} inlineOpen={assistantPage} mode={assistantMode} onModeChange={changeAssistantMode}
           onResize={setCoachSheet} onClose={() => setCoachSheet(undefined)}>

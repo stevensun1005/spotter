@@ -380,6 +380,7 @@ function seedAccountData(db) {
     INSERT INTO members (user,room,name) VALUES ('one','shared','First'),('two','shared','Second');
     INSERT INTO entries VALUES ('two','cheer','cheer','{"recipient":"one"}','now');
     INSERT INTO friend_links (first_id,second_id,first_name,second_name) VALUES ('one','two','First','Second');
+    INSERT INTO friend_feed_cheers (recipient,day,sender) VALUES ('one','2026-11-23','two'),('two','2026-11-23','one'),('two','2026-11-23','unrelated');
     INSERT INTO friend_requests (id,first_id,second_id,sender,receiver,sender_name,receiver_name,created_at)
       VALUES ('request','one','two','one','two','First','Second','now');
     INSERT INTO coaching_invites (coach_id,coach_name,code_hash,expires_at,claimed_by)
@@ -472,6 +473,7 @@ test("account deletion revokes the encrypted Apple token and clears the account 
   const removes = ["friend_links", "friend_requests", "members", "coaching_invites", "coaching_assignments",
     "coaching_links", "coaching_lessons", "spotter_oauth_grants"];
   for (const table of removes) assert.equal(db.prepare(`SELECT count(*) AS count FROM ${table}`).get().count, 0, table);
+  assert.deepEqual(db.prepare("SELECT sender FROM friend_feed_cheers").all().map(({ sender }) => sender), ["unrelated"]);
   assert.equal(db.prepare("SELECT id FROM rooms").get().id, "unrelated");
   assert.equal(db.prepare("SELECT account_id FROM spotter_oauth_identities").get().account_id, "two");
   assert.equal(db.prepare("SELECT account_id FROM spotter_oauth_flows").get().account_id, "two");

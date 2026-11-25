@@ -601,6 +601,17 @@ private struct NativeSpotterTabs: View {
         finishedWorkout = nil
     }
 
+    private func openOwnFeedWorkout(_ id: String) {
+        if let entry = workouts.logs.first(where: { $0.id == id }) {
+            workoutReceipt = entry
+        } else {
+            Task {
+                await workouts.load()
+                workoutReceipt = workouts.logs.first { $0.id == id }
+            }
+        }
+    }
+
     private var contentSections: [NativeSpotterSection] {
         showsFriends ? [.today, .training, .stats, .friends] : [.today, .training, .stats]
     }
@@ -629,7 +640,9 @@ private struct NativeSpotterTabs: View {
         case .stats:
             NativeSpotterStats(store: workouts, api: account.api, owner: owner)
         case .friends:
-            NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest) { await workouts.load() }
+            NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest, openOwnLog: openOwnFeedWorkout) {
+                await workouts.load()
+            }
         }
     }
 
