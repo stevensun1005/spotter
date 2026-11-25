@@ -3,6 +3,7 @@ import SwiftUI
 struct NativeOfficialTemplates: View {
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterGuide) private var guide
     @State private var goal = NativeOfficialTrainingTemplate.Goal.hypertrophy
     @State private var level = NativeOfficialTrainingTemplate.Level.beginner
     @State private var selected: NativeOfficialTrainingTemplate?
@@ -22,6 +23,7 @@ struct NativeOfficialTemplates: View {
                     ForEach(matches) { template in
                         Button { selected = template } label: { templateCard(template) }
                             .buttonStyle(.spotterPress)
+                            .disabled(guide?.step == .officialFilters)
                             .accessibilityHint("查看每周安排和动作")
                     }
                     references

@@ -68,7 +68,7 @@ enum NativeGuideStep: Hashable {
         case .findBuddy: return "邀请一起练的人时点「找搭子」，加普通朋友时点旁边的「添加好友」。"
         case .buddySearch: return "填对方的用户名或完整的「用户名#数字」，搜索后就能核对结果。发送前看一眼页面上的共享范围。"
         case .privacy: return "点「权限设置」可查看朋友圈共享范围。也可以进某位联系人的资料调整对这个人的分享。"
-        case .coach: return "点右侧的星星，教练会先问你想练什么，再按目标、器械和时间帮你选计划。"
+        case .coach: return "点右侧的星星，教练会按你的目标、器械和时间帮你制定计划。"
         }
     }
 
@@ -106,6 +106,14 @@ private struct NativeGuideAnchors: PreferenceKey {
 
     static func reduce(value: inout Value, nextValue: () -> Value) {
         value.merge(nextValue(), uniquingKeysWith: { first, _ in first })
+    }
+}
+
+private struct NativeGuideTooltipHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -150,6 +158,7 @@ private struct NativeGuideSpotlight: View {
     @Environment(\.spotterInteractionMotion) private var motion
     @AccessibilityFocusState private var focusTitle: Bool
     @State private var showFallback = false
+    @State private var contentHeight: CGFloat = 170
     let guide: NativeGuideContext
     let target: Anchor<CGRect>?
     let leave: () -> Void
@@ -223,16 +232,26 @@ private struct NativeGuideSpotlight: View {
     }
 
     private func tooltip(space: CGFloat, anchored: Bool) -> some View {
-        ViewThatFits(in: .vertical) {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return ScrollView {
             tooltipContent(anchored: anchored)
-            ScrollView {
-                tooltipContent(anchored: anchored)
-            }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: NativeGuideTooltipHeight.self, value: geometry.size.height)
+                    }
+                }
         }
-        .frame(maxHeight: space)
+        .scrollDisabled(contentHeight <= space)
+        .scrollIndicators(.hidden)
+        .onPreferenceChange(NativeGuideTooltipHeight.self) { height in
+            if height > 0, abs(contentHeight - height) > 1 { contentHeight = height }
+        }
+        .frame(height: min(space, contentHeight))
         .frame(maxWidth: 370)
-        .background(SpotterPalette.card, in: RoundedRectangle(cornerRadius: 18))
-        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(accent.tint.opacity(0.32)) }
+        .background(SpotterPalette.card, in: shape)
+        .clipShape(shape)
+        .overlay { shape.strokeBorder(accent.tint.opacity(0.32)).allowsHitTesting(false) }
         .shadow(color: .black.opacity(0.22), radius: 12, y: 4)
         .frame(maxWidth: .infinity)
     }
