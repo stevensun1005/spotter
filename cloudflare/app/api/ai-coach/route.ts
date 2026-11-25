@@ -10,7 +10,11 @@ function coachApi(handler: (owner: string, request: Request) => Promise<Response
   return async (request: Request) => {
     try {
       const user = await getChatGPTUser();
-      if (!user) throw new HttpError(401, "请先登录训练搭子。");
+      if (!user) {
+        const response = json({ error: "请先登录训练搭子。" }, 401);
+        response.headers.set("x-spotter-coach-protocol", "text-meal-v1");
+        return response;
+      }
       return await handler(user.userId, request);
     } catch (error) {
       // Raw exceptions can contain private request text or provider details.
@@ -25,5 +29,5 @@ export const GET = coachApi(async (owner) => json(await aiCoachConfig(owner)));
 
 export const POST = coachApi(async (owner, request) => {
   const input = await readJson(request, coachRequestSchema, 128_000);
-  return json(await coachReply(owner, input));
+  return json(await coachReply(owner, input, request.signal));
 });

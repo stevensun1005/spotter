@@ -124,13 +124,34 @@ struct NativeCoachView: View {
         }
     }
 
-    private struct QuotaResponse: Decodable { let quota: Quota? }
+    private struct QuotaResponse: Decodable {
+        let quota: Quota?
+        let mealLoggingEnabled: Bool?
+    }
+
+    private struct ChatResponse: Decodable {
+        struct MealAction: Decodable {
+            enum Kind: String, Decodable { case needs, ready, cancelled }
+
+            let kind: Kind
+            let question: String?
+            let date: String?
+            let meal: String?
+            let draft: NativeMealDraft?
+            let estimate: String?
+        }
+
+        let reply: String
+        let quota: Quota?
+        let mealAction: MealAction?
+    }
 
     private struct Line: Codable, Equatable {
         let role: String
         let content: String
         var receipt: MealReceipt? = nil
         var proteinReceipt: ProteinOperationReceipt? = nil
+        var mealConversationReply: String? = nil
     }
     private struct MealReceipt: Codable, Equatable, Identifiable {
         let id: String
@@ -251,12 +272,16 @@ struct NativeCoachView: View {
         @Published var lines: [Line] = []
         @Published var busy = false
         @Published var quota: Quota?
+        @Published var textMealLoggingEnabled = false
         @Published var planDrafts: [PlanDraft] = []
         @Published var mealDraft: NativeMealDraft?
         var mealID = UUID().uuidString.lowercased()
         var mealDate = ""
         var mealEstimate: String?
         @Published var meal: String?
+        var textMealPendingDate: String?
+        var textMealHistoryStart = 0
+        var isTextMealDraft = false
         @Published var picture: Data?
         var photoDay: String?
         @Published var photoMealHistory: [[String: String]] = []
@@ -377,7 +402,8 @@ struct NativeCoachView: View {
     private var panelTransition: AnyTransition { reducesMotion ? .identity : .opacity.combined(with: .offset(y: 6)) }
     private var showsOptions: Bool { showOptions && session.picture == nil && !session.weightPrompt }
     private var showsSuggestions: Bool {
-        !showsOptions && session.picture == nil && !session.weightPrompt && session.mealDraft == nil && session.pendingDrink == nil && !editingMessage && cleanText.isEmpty
+        !showsOptions && session.picture == nil && !session.weightPrompt && session.mealDraft == nil && session.textMealPendingDate == nil
+            && session.pendingDrink == nil && !editingMessage && cleanText.isEmpty
     }
     private var showsContextChip: Bool { includePlans && !showsOptions && !session.weightPrompt && session.picture == nil }
     private var hasReachedLimit: Bool { session.quota?.limitMessage != nil }
@@ -611,7 +637,7 @@ struct NativeCoachView: View {
             Text("今天想怎么练？")
                 .font(compact ? .title2.weight(.semibold) : .largeTitle.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
-            Text("问一个训练问题，看看本周练了什么，或一起排个计划。")
+            Text(session.textMealLoggingEnabled ? "问训练问题、排计划，也可以说「帮我记午餐」。" : "问一个训练问题，看看本周练了什么，或一起排个计划。")
                 .font(.body).lineSpacing(4).foregroundStyle(CoachColors.muted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -619,6 +645,7 @@ struct NativeCoachView: View {
 
     private func resetConversation() {
         session.lines = []; session.planDrafts = []; session.mealDraft = nil; session.mealEstimate = nil; error = nil; text = ""
+        session.textMealPendingDate = nil; session.textMealHistoryStart = 0; session.isTextMealDraft = false
         clearMealPhoto(); planMode = false; session.weightPrompt = false; session.pendingWeight = nil; guidedDraft = nil
         includePlans = false; showOptions = false; copiedReply = nil; editingMessage = false
         session.pendingDrink = nil; session.duplicateDrink = nil; session.drinkOptions = []; session.lastDrink = nil
@@ -1008,6 +1035,7 @@ struct NativeCoachView: View {
         if session.picture != nil {
             return session.photoMealHistory.isEmpty ? "例如一碗粥、一杯牛奶" : "回复教练，继续这餐…"
         }
+        if session.textMealPendingDate != nil { return "继续补充这餐…" }
         if session.pendingDrink != nil { return "补充这一杯的信息…" }
         if session.weightPrompt { return "例如 80.5 kg" }
         if planMode { return "想怎么调整这份草稿？" }
@@ -1022,6 +1050,7 @@ struct NativeCoachView: View {
     }
 
     private func showPhotoHelp() {
+        guard !session.isTextMealDraft else { return }
         session.lines += [Line(role: "local-user", content: "拍照记饮食"),
                   Line(role: "meal", content: "用输入栏旁的加号拍照或选照片。写下食物和份量后，可以识别并记餐。")]
         if canUseCamera { camera = true } else { showPhotoPicker = true }
@@ -1037,6 +1066,26 @@ struct NativeCoachView: View {
     private func sendComposer() {
         guard !session.busy, canSendConversation() else { return }
         let input = cleanText
+        let shortReply = input.trimmingCharacters(in: CharacterSet(charactersIn: "。！!，, "))
+        if session.isTextMealDraft, let draft = session.mealDraft {
+            if ["取消", "取消本次", "不用记了"].contains(shortReply) {
+                discardTextMealRetry()
+            } else if ["重试", "重试记录", "就这些", "保存"].contains(shortReply) {
+                text = ""
+                Task { await retryMeal(draft) }
+            } else {
+                error = "这餐还没确认保存。可以重试，或到日记核对。"
+            }
+            return
+        }
+        if session.picture == nil, !session.weightPrompt,
+           let last = session.lines.last, last.mealConversationReply != nil, let receipt = last.receipt,
+           ["就这些", "没有了", "没别的"].contains(shortReply) {
+            text = ""
+            session.lines += [Line(role: "local-user", content: input),
+                              Line(role: "local", content: "这餐已记入\(receipt.date)的\(receipt.meal)。")]
+            return
+        }
         if session.picture != nil {
             if ["取消", "取消本次", "不用记了"].contains(input) {
                 clearMealPhoto()
@@ -1097,7 +1146,7 @@ struct NativeCoachView: View {
             } else { Task { await recordWeight() } }
         } else if ["看本周训练统计", "看训练统计", "本周训练统计", "查看本周训练统计"].contains(input) {
             text = ""; Task { await trainingStats() }
-        } else if ["拍照记饮食", "记饮食", "记录饮食"].contains(input) {
+        } else if input == "拍照记饮食" || (!session.textMealLoggingEnabled && ["记饮食", "记录饮食"].contains(input)) {
             text = ""; showPhotoHelp()
         } else if !planMode && input.range(of: "^(?:(?:帮我|请|给我|我要|我想)\\s*)*(?:生成|制定|定制|起草)(?:一个|一份)?(?:训练|健身)?计划[。！!？? ]*$", options: .regularExpression) != nil {
             text = ""
@@ -1391,14 +1440,22 @@ struct NativeCoachView: View {
 
     private func mealPreview(_ draft: NativeMealDraft) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            messageTitle("camera", draft.name, .orange)
+            messageTitle(session.isTextMealDraft ? "fork.knife" : "camera", draft.name, .orange)
             Text("估算 \(Int(draft.calories.rounded())) 千卡 · 蛋白质 \(Int(draft.protein.rounded())) 克")
                 .font(.footnote).foregroundStyle(CoachColors.muted)
             Text("碳水 \(Int(draft.carbs.rounded())) 克 · 脂肪 \(Int(draft.fat.rounded())) 克")
                 .font(.footnote).foregroundStyle(CoachColors.muted)
-            SpotterMenuPicker("餐次", selection: mealSelection, options: mealOptions)
-                .disabled(session.busy)
-            coachPrimary("添加到\(meal)") { Task { await retryMeal(draft) } }
+            if session.isTextMealDraft {
+                Text("\(session.mealDate) · \(meal)").font(.footnote).foregroundStyle(CoachColors.muted)
+                HStack(spacing: 12) {
+                    coachPrimary("重试记录") { Task { await retryMeal(draft) } }
+                    Button("关闭重试", action: discardTextMealRetry).buttonStyle(.spotterPress).disabled(session.busy)
+                }
+            } else {
+                SpotterMenuPicker("餐次", selection: mealSelection, options: mealOptions)
+                    .disabled(session.busy)
+                coachPrimary("添加到\(meal)") { Task { await retryMeal(draft) } }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14).coachPanel()
@@ -1453,9 +1510,9 @@ struct NativeCoachView: View {
     private static let sharingDisabledMessage = "可在对话上方或「设置 → AI 教练」开启 AI 数据授权。"
 
     private func refreshQuota(ifUnknown: Bool = false) async {
-        guard let result = try? await api.spotterRead("/api/ai-coach", as: QuotaResponse.self),
-              let next = result.quota, !Task.isCancelled, !ifUnknown || session.quota == nil else { return }
-        session.quota = next
+        guard let result = try? await api.spotterRead("/api/ai-coach", as: QuotaResponse.self), !Task.isCancelled else { return }
+        session.textMealLoggingEnabled = result.mealLoggingEnabled == true
+        if let next = result.quota, !ifUnknown || session.quota == nil { session.quota = next }
     }
 
     private func showRequestFailure(_ reason: Error) async {
@@ -1491,11 +1548,20 @@ struct NativeCoachView: View {
         let selection = kind == .guided ? guidedDraft : nil
         let user = Line(role: "user", content: selection == nil ? String(cleanText.prefix(4000)) : "请根据我选择的条件起草训练计划。")
         guard !user.content.isEmpty else { return }
-        var context = Array((session.lines.filter { $0.role == "user" || $0.role == "assistant" } + [user]).suffix(9))
-        while let first = context.first, first.role != "user" { context.removeFirst() }
-        while context.count > 1 && context.reduce(0, { $0 + $1.content.utf16.count }) > 9000 { context.removeFirst(2) }
-        let messages = (selection == nil ? context : [user]).map { ["role": $0.role, "content": $0.content] }
         let messageIndex = session.lines.count
+        let mealAnchorDate = session.textMealPendingDate ?? spotterDay()
+        let history = session.lines.enumerated().compactMap { index, line -> (offset: Int, element: Line)? in
+            if line.role == "user" || line.role == "assistant" { return (index, line) }
+            if let reply = line.mealConversationReply {
+                return (index, Line(role: "assistant", content: reply))
+            }
+            return nil
+        }
+        var context = Array(history.suffix(8))
+        context.append((offset: messageIndex, element: user))
+        while let first = context.first, first.element.role != "user" { context.removeFirst() }
+        while context.count > 1 && context.reduce(0, { $0 + $1.element.content.utf16.count }) > 9000 { context.removeFirst(2) }
+        let messages = (selection == nil ? context.map { $0.element } : [user]).map { ["role": $0.role, "content": $0.content] }
         session.lines.append(Line(role: "local-user", content: user.content))
         text = ""
         do {
@@ -1505,6 +1571,12 @@ struct NativeCoachView: View {
                 "model": "haiku", "date": selection?.date ?? (attachingPlans ? spotterDay(contextDate) : spotterDay()),
                 "includePlans": attachingPlans, "messages": messages
             ]
+            if kind == .chat, session.textMealLoggingEnabled, session.mealDraft == nil {
+                request["mealLogging"] = [
+                    "pending": session.textMealPendingDate != nil, "date": mealAnchorDate,
+                    "historyStart": context.prefix { $0.offset < session.textMealHistoryStart }.count
+                ] as [String: Any]
+            }
             if attachingPlans { request["contextRange"] = contextRange }
             if let selection { request["guided"] = selection.values; request["draftDays"] = selection.days }
             if kind == .plan && !session.planDrafts.isEmpty {
@@ -1516,14 +1588,18 @@ struct NativeCoachView: View {
                 }
             }
             let result = try await api.spotterSend("/api/ai-coach", body: request)
-            if let next = (try? JSONDecoder().decode(QuotaResponse.self, from: result))?.quota { session.quota = next }
-            guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any],
-                  let reply = object["reply"] as? String else { throw CocoaError(.coderReadCorrupt) }
+            let response = try JSONDecoder().decode(ChatResponse.self, from: result)
+            if let next = response.quota { session.quota = next }
             session.lines[messageIndex] = user
-            session.lines.append(Line(role: "assistant", content: reply))
             planMode = false
             guidedDraft = nil
-            if let draft = object["draft"] as? [String: Any], let plans = draft["plans"] as? [[String: Any]] {
+            if kind == .chat, let action = response.mealAction {
+                try await applyTextMeal(action, reply: response.reply, anchorDate: mealAnchorDate)
+                return
+            }
+            session.lines.append(Line(role: "assistant", content: response.reply))
+            let object = try JSONSerialization.jsonObject(with: result) as? [String: Any]
+            if let draft = object?["draft"] as? [String: Any], let plans = draft["plans"] as? [[String: Any]] {
                 let revised = plans.compactMap(PlanDraft.init(data:))
                 if kind == .plan && !session.planDrafts.isEmpty {
                     let old = Set(session.planDrafts.map { $0.date + $0.title })
@@ -1537,7 +1613,48 @@ struct NativeCoachView: View {
         } catch { await showRequestFailure(error) }
     }
 
+    private func applyTextMeal(_ action: ChatResponse.MealAction, reply: String, anchorDate: String) async throws {
+        session.textMealPendingDate = action.kind == .needs ? anchorDate : nil
+        switch action.kind {
+        case .needs:
+            session.lines.append(Line(role: "assistant", content: action.question ?? reply))
+        case .cancelled:
+            session.lines.append(Line(role: "local", content: "已取消这次记餐。", mealConversationReply: "已取消这次记餐。"))
+            session.textMealHistoryStart = session.lines.count
+        case .ready:
+            guard var draft = action.draft, let date = action.date,
+                  let parsedDate = nativePlanDate(date), spotterDay(parsedDate) == date,
+                  let meal = action.meal, mealOptions.contains(where: { $0.0 == meal }) else {
+                throw CocoaError(.coderReadCorrupt)
+            }
+            if !draft.name.hasSuffix("（估算）") {
+                draft.name = String(decoding: draft.name.utf16.prefix(96), as: UTF16.self) + "（估算）"
+            }
+            session.mealDraft = draft
+            session.mealEstimate = action.estimate
+            session.mealID = UUID().uuidString.lowercased()
+            session.mealDate = date
+            session.meal = meal
+            session.isTextMealDraft = true
+            try await saveMeal(draft)
+        }
+    }
+
+    private func discardTextMealRetry() {
+        session.mealDraft = nil
+        session.mealEstimate = nil
+        session.meal = nil
+        session.isTextMealDraft = false
+        session.textMealHistoryStart = session.lines.count
+        text = ""
+        error = nil
+        session.lines.append(Line(role: "local", content: "已关闭重试。可以在饮食日记核对这餐。",
+                                  mealConversationReply: "这餐尚未确认保存，已关闭重试。"))
+    }
+
     private func attachMealPhoto(_ jpeg: Data) {
+        guard !session.isTextMealDraft else { return }
+        session.textMealPendingDate = nil
         if session.picture == nil {
             session.photoDay = nutritionDate ?? spotterDay()
             session.meal = meal
@@ -1749,21 +1866,28 @@ struct NativeCoachView: View {
         ])
         let updated = try JSONDecoder().decode(NativeJSON.self, from: data)["updated"].string
         session.mealDraft = nil
-        setReceipt(MealReceipt(id: session.mealID, date: session.mealDate, draft: draft, meal: meal, updated: updated, estimate: session.mealEstimate))
+        setReceipt(MealReceipt(id: session.mealID, date: session.mealDate, draft: draft, meal: meal, updated: updated, estimate: session.mealEstimate),
+                   mealConversationReply: session.isTextMealDraft ? "已把刚才这餐记入饮食日记。" : nil)
+        if session.isTextMealDraft {
+            session.textMealHistoryStart = session.lines.count
+            session.isTextMealDraft = false
+        }
         session.mealEstimate = nil
         session.meal = nil
         nutritionChanged()
         error = nil
     }
 
-    private func setReceipt(_ receipt: MealReceipt, summary: String = "") {
+    private func setReceipt(_ receipt: MealReceipt, summary: String = "", mealConversationReply: String? = nil) {
         if updateProteinMeal(receipt.id, change: { step in
             step.meal = receipt
             step.detail = "\(receipt.draft.name) · \(coachAmount(receipt.draft.calories)) 千卡"
         }) { return }
-        let line = Line(role: "status", content: summary, receipt: receipt)
-        if let index = session.lines.firstIndex(where: { $0.receipt?.id == receipt.id }) { session.lines[index] = line }
-        else { session.lines.append(line) }
+        var line = Line(role: "status", content: summary, receipt: receipt, mealConversationReply: mealConversationReply)
+        if let index = session.lines.firstIndex(where: { $0.receipt?.id == receipt.id }) {
+            line.mealConversationReply = mealConversationReply ?? session.lines[index].mealConversationReply
+            session.lines[index] = line
+        } else { session.lines.append(line) }
     }
 
     private func updateProteinMeal(_ recordID: String, change: (inout ProteinOperationReceipt.Step) -> Void) -> Bool {
@@ -1792,7 +1916,8 @@ struct NativeCoachView: View {
                 step.meal = nil
                 step.detail = "已撤销「\(receipt.draft.name)」。"
             }), let index = session.lines.firstIndex(where: { $0.receipt?.id == receipt.id }) {
-                session.lines[index] = Line(role: "local", content: "已撤销 \(receipt.date) 的「\(receipt.draft.name)」。")
+                let reply = session.lines[index].mealConversationReply.map { _ in "已撤销刚才的饮食记录。" }
+                session.lines[index] = Line(role: "local", content: "已撤销 \(receipt.date) 的「\(receipt.draft.name)」。", mealConversationReply: reply)
             }
             nutritionChanged()
         } catch { self.error = error.localizedDescription }

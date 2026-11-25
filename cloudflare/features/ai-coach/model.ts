@@ -4,6 +4,7 @@ import { phaseOf } from "@/features/plans/move-phase";
 import { dateSchema, offsetDate, weekdayIndex } from "@/shared/dates";
 import { guidedDateRanges, guidedMessage, guidedMoveNameKey, guidedSchema, guidedWeeks, maxGuidedSessions,
   type GuidedDraft, type GuidedMove } from "./guided";
+import type { MealLoggingAction } from "@/features/nutrition/coach-meal-inference";
 
 export const coachModel = "haiku" as const;
 export const maxDraftPlans = maxGuidedSessions;
@@ -22,6 +23,8 @@ const priorDraftSchema = z.object({
     .refine((plans) => plans.every((plan) => plan.exercises.length <= maxDraftMoves)),
 }).strict();
 
+const coachDateSchema = dateSchema.refine((date) => date >= "2000-01-01" && date <= "2099-12-31");
+
 export const coachRequestSchema = z.object({
   expectedOwner: z.string().min(1).max(300),
   messages: z.array(messageSchema).min(1).max(maxCoachMessages).refine((messages) =>
@@ -31,13 +34,16 @@ export const coachRequestSchema = z.object({
   intent: z.enum(["chat", "draft"]),
   // Older draft clients can still send the previous selector.
   model: z.enum([coachModel, "sonnet"]),
-  date: dateSchema.refine((date) => date >= "2000-01-01" && date <= "2099-12-31"),
+  date: coachDateSchema,
   includePlans: z.boolean(),
   contextRange: z.enum(["day", "week"]).optional(),
+  mealLogging: z.object({ pending: z.boolean().optional(), historyStart: z.number().int().min(0).optional(),
+    date: coachDateSchema.optional() }).strict().optional(),
   draftDays: z.number().int().min(1).max(28).optional(),
   priorDraft: priorDraftSchema.optional(),
   guided: guidedSchema.optional(),
-}).strict().refine(({ intent, model, priorDraft, guided, draftDays = 7, messages, includePlans }) => {
+}).strict().refine(({ intent, model, priorDraft, guided, draftDays = 7, messages, includePlans, mealLogging }) => {
+  if (mealLogging && (intent !== "chat" || (mealLogging.historyStart ?? 0) >= messages.length)) return false;
   if (!guided) return intent === "draft" || (model === coachModel && !priorDraft);
   return intent === "draft" && !includePlans && !priorDraft && messages.length === 1 && messages[0].content === guidedMessage &&
     guidedWeeks.some((weeks) => draftDays === weeks * 7 && guided.daysPerWeek * weeks <= maxGuidedSessions);
@@ -53,8 +59,8 @@ export type CoachQuota = {
   dailyResetsAt: string;
   monthlyResetsAt: string;
 };
-export type CoachConfig = { enabled: boolean; models: CoachModel[]; quota?: CoachQuota };
-export type CoachResponse = { reply: string; draft?: { plans: Plan[] }; model: CoachModel; quota?: CoachQuota };
+export type CoachConfig = { enabled: boolean; models: CoachModel[]; quota?: CoachQuota; mealLoggingEnabled?: boolean };
+export type CoachResponse = { reply: string; draft?: { plans: Plan[] }; mealAction?: MealLoggingAction; model: CoachModel; quota?: CoachQuota };
 
 export function coachCalendarRange(date: string, range: CoachRequest["contextRange"]) {
   if (range === "day") return { from: date, to: date };

@@ -19,7 +19,7 @@ import type { ProteinProduct } from "@/features/training/protein";
 import type { ActivitySummary } from "./activity-summary";
 import { ChatTrainingDraft } from "./chat-draft";
 import { CoachReplyCard, type CoachReplyKind } from "./reply-card";
-import { asksForTrainingPlan } from "./chat-intent";
+import { asksForTrainingPlan, asksToLogMeal, cancelsMealLogging, continuesMealLogging } from "./chat-intent";
 import { asksToReviseDraft, draftWindowFor, type DraftWindow } from "./plan-conversation";
 import { weightDialogue, type PendingWeight } from "./weight-dialogue";
 import { useAnthropicSharing } from "./sharing-consent";
@@ -61,6 +61,7 @@ type Turn = {
   weight?: WeightRecord;
   unsavedMeal?: CoachMealSubmission;
   mealEstimate?: string;
+  mealDateAnchor?: string;
   savedMealDate?: string;
   proteinFollowup?: "scoop" | "nutrition";
   openWarehouse?: boolean;
@@ -74,7 +75,7 @@ type Turn = {
   error?: string;
 };
 type Availability = CoachConfig | { error: string };
-type BeginCoachRequest = () => { receive: (result: CoachResponse) => void; showError: (message: string) => void };
+type BeginCoachRequest = () => { receive: (result: CoachResponse) => void | Promise<void>; showError: (message: string) => void };
 type PhotoAttachment = {
   id: string; file: File; date: string; meal: MealEntry["meal"]; mealChosen?: boolean;
   mealHistory?: FoodPhotoRequest["mealHistory"];
@@ -98,31 +99,36 @@ function coachLimitMessage(quota: CoachQuota | undefined) {
   return undefined;
 }
 
-function recentMessages(turns: Turn[], question: string): CoachRequest["messages"] {
+function recentMessages(turns: Turn[], question: string) {
   const messages: CoachRequest["messages"] = [{ role: "user", content: question }];
   let size = question.length;
+  let mealContextLength: number | undefined;
   for (let index = turns.length - 1; index >= 0 && messages.length + 2 <= maxCoachMessages; index--) {
-    const { kind, question: previous, response } = turns[index];
+    const { kind, question: previous, response, savedMealDate, localReply } = turns[index];
+    const mealAction = response?.mealAction;
+    if (savedMealDate || mealAction?.kind === "ready" || mealAction?.kind === "cancelled") {
+      mealContextLength ??= messages.length;
+    }
     if (kind === "local" || !response) continue;
-    const { reply } = response;
+    const reply = mealAction ? localReply ?? response.reply : response.reply;
     if (reply.length > maxCoachMessageLength || size + previous.length + reply.length > maxCoachConversationLength) break;
     messages.unshift({ role: "user", content: previous }, { role: "assistant", content: reply });
     size += previous.length + reply.length;
   }
-  return messages;
+  return { messages, mealHistoryStart: mealContextLength === undefined ? 0 : messages.length - mealContextLength };
 }
 
-function CoachWelcome({ compact, actions, blocked, send }: {
-  compact?: boolean; actions?: CoachActions; blocked: boolean; send: (question: string) => void;
+function CoachWelcome({ compact, actions, blocked, textMealEnabled, send }: {
+  compact?: boolean; actions?: CoachActions; blocked: boolean; textMealEnabled: boolean; send: (question: string) => void;
 }) {
   if (compact) return <div className="coach-welcome-compact">
-    <h2>今天想怎么练？</h2><p>在这里记体重、查训练统计，或者一起排训练。</p>
+    <h2>今天想怎么练？</h2><p>{textMealEnabled ? "可用文字记饮食、记体重、查统计或排训练。" : "在这里记体重、查训练统计，或者一起排训练。"}</p>
   </div>;
   return <div className="coach-home">
     <div className="coach-home-intro">
       <div>
         <h2>今天想怎么练？</h2>
-        <p>问一个训练问题，或一起制定计划。</p>
+        <p>{textMealEnabled ? "问训练问题、用文字记饮食，或一起制定计划。" : "问一个训练问题，或一起制定计划。"}</p>
       </div>
       <span className="coach-home-art" aria-hidden="true" />
     </div>
@@ -182,6 +188,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   const latestModelTurn = turns.findLast((turn) => turn.kind !== "local" && turn.response);
   const latestDraft = turns.findLast((turn) => turn.items && turn.window && !turn.superseded);
   const available = !!owner && availability && "enabled" in availability && availability.enabled;
+  const textMealEnabled = Boolean(actions?.photoMeal && availability && "enabled" in availability && availability.mealLoggingEnabled === true);
   const currentQuota = quota && quota.owner === owner ? quota.value : undefined;
   const limitMessage = coachLimitMessage(currentQuota);
   const quotaResetsAt = limitMessage && (currentQuota?.monthlyRemaining === 0 ? currentQuota.monthlyResetsAt : currentQuota?.dailyResetsAt);
@@ -287,13 +294,16 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       if (result?.quota && !controller.signal.aborted) updateQuota(result.quota);
       if (!response.ok) throw new Error(result?.error || "AI 教练暂时无法回复。请稍后重试。");
       if (typeof result?.reply !== "string" || !result.reply || result.model !== coachModel) throw new Error("未收到完整回复。请重试。");
-      if (!controller.signal.aborted) receive(result);
+      if (!controller.signal.aborted) {
+        request.current = null;
+        await receive(result);
+      }
     } catch (reason) {
       if (!controller.signal.aborted) showError(reason instanceof Error && reason.name === "Error"
         ? reason.message : "连接未完成。请检查网络后重试。");
     } finally {
       if (!controller.signal.aborted) {
-        request.current = null;
+        if (request.current === controller) request.current = null;
         setWaiting(false);
       }
     }
@@ -597,7 +607,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     }
   }
 
-  async function savePhotoMeal(turnId: string, submission: CoachMealSubmission, estimate?: string) {
+  async function saveMeal(turnId: string, submission: CoachMealSubmission, estimate?: string) {
     if (!actions?.photoMeal || writing.current || request.current) return;
     writing.current = true;
     setWaiting(true);
@@ -605,9 +615,10 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     try {
       const entry = await actions.photoMeal.save(submission);
       updateTurn(turnId, { replyKind: "saved", savedMealDate: submission.date,
-        localReply: `已添加到${entry.meal}「${entry.name}」 · ${entry.calories} 千卡 · 蛋白质 ${entry.protein} 克${estimate ? `\n估算依据 ${estimate}` : ""}` });
+        localReply: `已记入 ${submission.date} 的${entry.meal}「${entry.name}」 · ${entry.calories} 千卡 · 蛋白质 ${entry.protein} 克${estimate ? `\n估算依据 ${estimate}` : ""}` });
     } catch (reason) {
-      updateTurn(turnId, { localReply: undefined, unsavedMeal: submission, error: errorText(reason, "识别已完成，暂时没能添加。") });
+      updateTurn(turnId, { replyKind: "meal", localReply: undefined, unsavedMeal: submission,
+        error: errorText(reason, "已算出估值，暂时没能记入饮食。") });
     } finally {
       writing.current = false;
       setWaiting(false);
@@ -638,7 +649,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       }
       setPhoto(undefined);
       request.current = null;
-      await savePhotoMeal(turnId, {
+      await saveMeal(turnId, {
         owner: expectedOwner, id: attachment.id, date: attachment.date, meal: attachment.meal, draft: result.draft,
       }, result.estimate);
     } catch (reason) {
@@ -707,6 +718,20 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     setError("");
     const clearInput = () => { if (!fromSuggestion) setInput(""); };
     const localDate = asDate();
+    if (lastTurn?.response?.mealAction?.kind === "ready") {
+      const confirmsMeal = /^(?:就这(?:些|两样)|只有这些|没(?:有)?别的(?:了)?|that['’]s (?:all|it))[。！.!\s]*$/iu.test(question);
+      if (lastTurn.unsavedMeal && (confirmsMeal || question === lastTurn.question ||
+        /^(?:重试(?:保存)?|再试(?:一次)?|再保存(?:一次)?|保存|确认(?:保存)?|retry|try again)[。！.!\s]*$/iu.test(question))) {
+        clearInput();
+        void saveMeal(lastTurn.id, lastTurn.unsavedMeal, lastTurn.mealEstimate);
+        return;
+      }
+      if (lastTurn.savedMealDate && confirmsMeal) {
+        clearInput();
+        addTurn("local", question, { replyKind: "meal", savedMealDate: lastTurn.savedMealDate, localReply: "刚才这顿已记入饮食。" });
+        return;
+      }
+    }
     const weight = weightDialogue(question, weightPrompt ?? false);
     if (weight.kind !== "pass") {
       clearInput();
@@ -740,7 +765,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       return;
     }
 
-    const meal = question.match(/^(?:(?:我想|我要|帮我|给我|拍照)\s*)*(?:拍照记饮食|记饮食|记录饮食|记(?:录)?(早餐|午餐|晚餐|加餐)|拍照识别餐食)[。！!？? ]*$/u);
+    const meal = question.match(/^(?:(?:我想|我要|帮我|给我)\s*)*拍照(?:记(?:录)?(?:饮食|(早餐|午餐|晚餐|加餐))|识别餐食)[。！!？? ]*$/u)
+      ?? (!textMealEnabled ? question.match(/^(?:(?:我想|我要|帮我|给我)\s*)*记(?:录)?(?:饮食|(早餐|午餐|晚餐|加餐))[。！!？? ]*$/u) : null);
     if (meal) {
       clearInput();
       if (actions?.photoMeal && available) {
@@ -763,8 +789,10 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       return;
     }
 
+    const lastMealTurn = turns.findLast((turn) => turn.response?.mealAction || turn.savedMealDate);
+    const pendingMeal = lastMealTurn?.response?.mealAction?.kind === "needs";
     const pending = latestModelTurn && !latestModelTurn.items ? latestModelTurn.window : undefined;
-    if (latestModelTurn && pending && /^(?:取消|先不排了|不排了|算了|cancel)[。！! ]*$/iu.test(question)) {
+    if (!pendingMeal && latestModelTurn && pending && /^(?:取消|先不排了|不排了|算了|cancel)[。！! ]*$/iu.test(question)) {
       clearInput();
       updateTurn(latestModelTurn.id, { window: undefined });
       setRevisionTarget(undefined);
@@ -776,23 +804,40 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       return;
     }
     const freshPlan = asksForTrainingPlan(question);
-    const target = revisionTarget ? turns.find((turn) => turn.id === revisionTarget)
+    const mealRequest = textMealEnabled && !freshPlan &&
+      (asksToLogMeal(question) || pendingMeal && (cancelsMealLogging(question) || continuesMealLogging(question)));
+    const target = mealRequest ? undefined : revisionTarget ? turns.find((turn) => turn.id === revisionTarget)
       : !freshPlan && (asksToReviseDraft(question) || pending && latestModelTurn?.kind === "revision") ? latestDraft : undefined;
     const priorDraft = target?.response?.draft;
-    const draftWindow = freshPlan || pending || priorDraft
+    const draftWindow = !mealRequest && (freshPlan || pending || priorDraft)
       ? draftWindowFor(question, localDate, target?.window ?? pending, priorDraft?.plans) : undefined;
     const date = draftWindow?.date ?? (fromSuggestion ? selectedDate : chatDate);
     if (!date) { setError("请选择要附上的训练日期。"); return; }
+    const { messages, mealHistoryStart } = recentMessages(turns, question);
+    const mealLogging = !draftWindow && textMealEnabled ? {
+      pending: pendingMeal, historyStart: mealHistoryStart,
+      date: pendingMeal ? lastMealTurn?.mealDateAnchor ?? localDate : localDate,
+    } : undefined;
     askCoach({
-      expectedOwner: owner, messages: recentMessages(turns, question), model: coachModel,
+      expectedOwner: owner, messages, model: coachModel,
       ...(draftWindow ? { ...draftWindow, intent: "draft" as const, priorDraft, includePlans: !priorDraft && includePlans, contextRange }
-        : { intent: "chat" as const, date, includePlans: !fromSuggestion && includePlans, contextRange }),
+        : { intent: "chat" as const, date, includePlans: !mealRequest && !fromSuggestion && includePlans, contextRange, mealLogging }),
     }, () => {
       const id = addTurn(priorDraft ? "revision" : draftWindow ? "plan" : "chat", question);
       if (draftWindow) onExpand?.();
       clearInput();
       return {
-        receive(response) {
+        async receive(response) {
+          if (mealLogging && response.mealAction) {
+            const mealAction = response.mealAction;
+            updateTurn(id, { response, replyKind: "meal", ...(mealAction.kind === "needs"
+              ? { localReply: mealAction.question, mealDateAnchor: mealLogging.date } : {}) });
+            if (mealAction.kind === "ready") {
+              const { date, meal, draft, estimate } = mealAction;
+              await saveMeal(id, { owner, id: crypto.randomUUID(), date, meal, draft }, estimate);
+            }
+            return;
+          }
           const items = response.draft?.plans.map((data) => ({ id: crypto.randomUUID(), todayId: crypto.randomUUID(), data }));
           updateTurn(id, { response, window: draftWindow, items });
           if (items) {
@@ -810,7 +855,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
 
   return <section className="coach-surface" aria-label="AI 教练对话">
     <div className="coach-conversation">
-      {!turns.length && !mealPhoto ? <CoachWelcome compact={compact} actions={actions} blocked={Boolean(limitMessage)} send={(question) => submitQuestion(question, true)} /> : <>
+      {!turns.length && !mealPhoto ? <CoachWelcome compact={compact} actions={actions} blocked={Boolean(limitMessage)} textMealEnabled={textMealEnabled}
+        send={(question) => submitQuestion(question, true)} /> : <>
         <div className="coach-thread-controls"><button className="button outline small" type="button" onClick={clearConversation} disabled={waiting}>
           <MessageSquarePlus size={17} aria-hidden="true" />新对话
         </button></div>
@@ -848,7 +894,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
                 {turn.weight && failedWeight.current?.id === turn.weight.id && <button className="button outline small coach-reply-action"
                   type="button" disabled={waiting} onClick={() => { if (turn.weight) void recordWeight(id, turn.weight); }}>重试保存</button>}
                 {turn.unsavedMeal && <button className="button primary small coach-reply-action" type="button" disabled={waiting}
-                  onClick={() => { if (turn.unsavedMeal) void savePhotoMeal(id, turn.unsavedMeal, turn.mealEstimate); }}>添加到{turn.unsavedMeal.meal}</button>}
+                  onClick={() => { if (turn.unsavedMeal) void saveMeal(id, turn.unsavedMeal, turn.mealEstimate); }}>重试保存</button>}
                 {protein?.retry && id === lastTurn?.id && <button className="button primary small coach-reply-action"
                   type="button" disabled={waiting} onClick={() => replyToProtein("重试保存")}>重试保存</button>}
               </CoachReplyCard>}

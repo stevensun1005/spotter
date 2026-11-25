@@ -303,6 +303,12 @@ actor NativeAPI {
         request.httpMethod = method
         request.httpShouldHandleCookies = false
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if parts.path == "/api/ai-coach",
+           origin == "https://spotter-free.couple-ledger-service.workers.dev",
+           let value = Bundle.main.object(forInfoDictionaryKey: "SpotterInternalCoachWorkerVersion") as? String,
+           let version = UUID(uuidString: value) {
+            request.setValue("spotter-free=\"\(version.uuidString.lowercased())\"", forHTTPHeaderField: "Cloudflare-Workers-Version-Overrides")
+        }
         if let cookie { request.setValue("\(NativeSessionVault.cookieName)=\(cookie)", forHTTPHeaderField: "Cookie") }
         if method != "GET" { request.setValue(origin, forHTTPHeaderField: "Origin") }
         if let json {
