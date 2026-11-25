@@ -1194,14 +1194,24 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
                 if loading { ProgressView() }
                 if !loading && foods.isEmpty && error == nil { Text("这一天没有可选的餐食。").foregroundStyle(.secondary) }
                 ForEach(foods) { food in
-                    Toggle(isOn: Binding(get: { selected.contains(food.id) }, set: { checked in
-                        if checked { selected.insert(food.id) } else { selected.remove(food.id) }
-                    })) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(food.name)
-                            Text("\(nutritionNumber(food.calories)) 千卡").font(.caption).foregroundStyle(.secondary)
+                    let checked = selected.contains(food.id)
+                    Button {
+                        if checked { selected.remove(food.id) } else { selected.insert(food.id) }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(food.name).foregroundStyle(SpotterPalette.ink)
+                                Text("\(nutritionNumber(food.calories)) 千卡").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(checked ? SpotterPalette.accent : SpotterPalette.muted)
+                                .accessibilityHidden(true)
                         }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.spotterPress)
+                    .accessibilityValue(checked ? "已选中" : "未选中")
                 }
             }
             Section {
