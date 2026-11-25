@@ -276,6 +276,13 @@ struct NativeCoachView: View {
     }
     private enum Mode { case coach, own }
     private struct Activity: Decodable { let entries: [NativeWorkoutEntry] }
+    private struct ConversationLayout: Equatable {
+        let lineCount: Int
+        let trailingReceipt: ProteinOperationReceipt?
+        let busy: Bool
+        let error: String?
+        let hasDraft: Bool
+    }
 
     let api: NativeAPI
     let owner: String
@@ -539,7 +546,9 @@ struct NativeCoachView: View {
     }
 
     private var conversation: some View {
-        VStack(spacing: 0) {
+        let layout = ConversationLayout(lineCount: lines.count, trailingReceipt: lines.last?.proteinReceipt,
+                                        busy: busy, error: error, hasDraft: mealDraft != nil || !planDrafts.isEmpty)
+        return VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
@@ -562,25 +571,17 @@ struct NativeCoachView: View {
                         Color.clear.frame(height: 1).id("latest")
                     }
                     .padding(.horizontal, 20).padding(.top, compact ? 14 : 24).padding(.bottom, 14)
-                    .animation(controlMotion, value: lines.count)
-                    .animation(controlMotion, value: busy)
-                    .animation(controlMotion, value: sharingAllowed)
-                    .animation(controlMotion, value: planDrafts.isEmpty)
-                    .animation(controlMotion, value: mealDraft == nil)
-                    .animation(controlMotion, value: error != nil)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: lines.count) { _ in scrollToLatest(proxy) }
-                .onChange(of: busy) { _ in scrollToLatest(proxy) }
-                .onChange(of: error) { _ in scrollToLatest(proxy) }
+                .task(id: layout) {
+                    // Wait for the latest reply layout before scrolling, including when steps update in place.
+                    do {
+                        try await Task.sleep(for: .milliseconds(100))
+                        proxy.scrollTo("latest", anchor: .bottom)
+                    } catch {}
+                }
             }
             composer
-        }
-    }
-
-    private func scrollToLatest(_ proxy: ScrollViewProxy) {
-        withAnimation(reducesMotion ? nil : .easeOut(duration: 0.18)) {
-            proxy.scrollTo("latest", anchor: .bottom)
         }
     }
 
