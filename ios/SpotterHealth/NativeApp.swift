@@ -270,7 +270,10 @@ struct NativeSpotterApp: View {
         .buttonStyle(.spotterPress)
         .environment(\.spotterAccent, accent)
         .background { SpotterWindowAppearance(theme: theme).accessibilityHidden(true) }
-        .task { await account.restore() }
+        .task {
+            NativeWidgetMealAction.api = account.api
+            await account.restore()
+        }
         .onChange(of: account.isRestoring) { restoring in
             if !restoring {
                 NativeTrainingWidgetBridge.useAccount(account.profile?.id, origin: account.api.origin)
@@ -326,15 +329,38 @@ struct NativeSpotterApp: View {
     }
 }
 
-private enum NativeWidgetDestination: String {
-    case training, history
+private enum NativeWidgetDestination: Equatable {
+    case training, history, buddy, nutrition, frequentMeals, weekly, year
+    case water(day: String)
+    case cheer(partner: String)
 
     init?(_ url: URL) {
         guard url.scheme == "spotter", url.host == "widget", url.user == nil, url.password == nil,
-              url.port == nil, url.query == nil, url.fragment == nil else { return nil }
+              url.port == nil, url.fragment == nil,
+              let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let query = parts.queryItems ?? []
+        if url.path == "/water", query.count == 2,
+           query.first(where: { $0.name == "ml" })?.value == "250",
+           let day = query.first(where: { $0.name == "day" })?.value, day == spotterDay() {
+            self = .water(day: day)
+            return
+        }
+        if url.path == "/buddy-cheer", query.count == 1, query.first?.name == "buddy",
+           let partner = query.first?.value, (1...120).contains(partner.utf16.count),
+           partner == partner.trimmingCharacters(in: .whitespacesAndNewlines),
+           partner.rangeOfCharacter(from: .controlCharacters) == nil {
+            self = .cheer(partner: partner)
+            return
+        }
+        guard query.isEmpty else { return nil }
         switch url.path {
         case "/training": self = .training
         case "/history": self = .history
+        case "/buddy": self = .buddy
+        case "/nutrition": self = .nutrition
+        case "/frequent-meals": self = .frequentMeals
+        case "/weekly": self = .weekly
+        case "/year": self = .year
         default: return nil
         }
     }
@@ -366,29 +392,86 @@ private enum NativeTrainingWidgetBridge {
         calendar.minimumDaysInFirstWeek = 4
         guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return }
 
-        let logDates = store.logs.filter { $0.owner == store.owner }.map(\.day)
-        let checkedInDates = Set(logDates)
-        let weekCheckins = (0..<7).map { offset in
-            guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else { return false }
-            return checkedInDates.contains(SpotterWidgetSnapshot.dayKey(for: date, timeZone: timeZone))
-        }
-        let next = (store.todayPendingPlans.first ?? store.nextPlan(after: day)).map {
-            SpotterWidgetSnapshot.Workout(title: $0.displayTitle, day: $0.day, minutes: $0.durationMinutes)
-        }
-        let active = store.active.flatMap { entry -> SpotterWidgetSnapshot.Active? in
-            guard entry.owner == store.owner, let session = entry.session else { return nil }
-            return .init(title: entry.displayTitle, completedSets: session.completedSets,
-                         totalSets: session.rows.reduce(0) { $0 + $1.count }, isRunning: session.isRunning)
-        }
-        let snapshot = SpotterWidgetSnapshot(updatedAt: now, day: day,
-                                             todayCompleted: min(10_000, logDates.filter { $0 == day }.count),
-                                             weekStart: SpotterWidgetSnapshot.dayKey(for: weekStart, timeZone: timeZone),
-                                             weekCheckins: weekCheckins, nextWorkout: next, activeWorkout: active)
+        let firstDay = SpotterWidgetSnapshot.dayKey(for: weekStart, timeZone: timeZone)
+        let weekDays = SpotterWidgetSnapshot.weekDays(startingAt: firstDay)
+        let result = SpotterWidgetStore.shared.read(at: now)
+        let previous = result?.day == day ? result : nil
+        let knownOverview = store.widgetOverviewDay == day
+        let logs = store.logs.filter { $0.owner == store.owner && $0.day <= day }
+        let checkedInDates = Set(logs.map(\.day))
+        let nutrition = store.widgetNutritionDay == day ? store.widgetNutrition : previous?.nutrition
+        let partner = knownOverview
+            ? buddy(store, day: day, weekDays: weekDays, checkedInDates: checkedInDates)
+            : previous?.buddy
+        let weekly = knownOverview
+            ? trainingWeek(logs, weekStart: weekStart, calendar: calendar)
+            : previous?.weekly
+        let year = store.widgetYear(endingAt: now) ?? previous?.year
+        guard knownOverview || previous != nil || nutrition != nil else { return }
+
+        let snapshot = SpotterWidgetSnapshot(
+            updatedAt: now, day: day,
+            todayCompleted: min(10_000, logs.filter { $0.day == day }.count),
+            weekStart: firstDay, weekCheckins: weekDays.map(checkedInDates.contains),
+            nextWorkout: nil, activeWorkout: nil,
+            buddy: partner, nutrition: nutrition, weekly: weekly, year: year
+        )
         if SpotterWidgetStore.shared.write(snapshot) { reload() }
     }
 
+    private static func buddy(_ store: NativeWorkoutStore, day: String, weekDays: [String],
+                              checkedInDates: Set<String>) -> SpotterWidgetSnapshot.Buddy? {
+        let id = store.partnerID
+        guard !id.isEmpty, weekDays.count == 7, !store.room["connectionId"].string.isEmpty else { return nil }
+        let shared = store.room["partnerTrainingShared"] != .bool(false)
+        let cutoff = store.room["partnerCheckinsFrom"].string
+        let partnerLogs = store.partnerLogs
+        let sharedDates = Set(store.room["partnerCheckins"].array.filter { $0["count"].number > 0 }
+            .map { $0["date"].string }).union(partnerLogs.map(\.day))
+        let sharedPlans = store.plans.filter { $0.owner == id && $0.data["shared"].bool }
+        let myPlanDates = Set(store.plans.filter {
+            $0.owner == store.owner && !store.hasCompletedPlan(id: $0.id)
+        }.map(\.day))
+        let partnerPlanDates = Set(sharedPlans.map(\.day))
+
+        let ownDays = weekDays.map { key -> SpotterWidgetSnapshot.DayState in
+            if checkedInDates.contains(key) { return .completed }
+            if myPlanDates.contains(key) { return .planned }
+            if let date = nativePlanDate(key), store.isPlanRestDay(date) { return .rest }
+            return .none
+        }
+        let buddyDays = weekDays.map { key -> SpotterWidgetSnapshot.DayState in
+            guard shared, cutoff.isEmpty || (key >= cutoff && key <= day) else { return .unavailable }
+            if sharedDates.contains(key) { return .completed }
+            return partnerPlanDates.contains(key) ? .planned : .none
+        }
+        let todayIsShared = shared && (cutoff.isEmpty || day >= cutoff)
+        let title = todayIsShared ? (partnerLogs.first { $0.day == day }?.displayTitle ??
+            sharedPlans.first { $0.day == day }?.displayTitle) : nil
+        let cheered = store.entries.contains { $0.kind == "cheer" && $0.owner == store.owner && $0.day == day }
+        return .init(id: id, name: store.partnerName, ownDays: ownDays, buddyDays: buddyDays, todayTitle: title, cheered: cheered)
+    }
+
+    private static func trainingWeek(_ logs: [NativeWorkoutEntry], weekStart: Date,
+                                     calendar: Calendar) -> SpotterWidgetSnapshot.Weekly? {
+        guard let first = calendar.date(byAdding: .day, value: -7, to: weekStart),
+              let previous = calendar.date(byAdding: .day, value: -14, to: weekStart) else { return nil }
+        let firstDay = SpotterWidgetSnapshot.dayKey(for: first, timeZone: calendar.timeZone)
+        let previousDay = SpotterWidgetSnapshot.dayKey(for: previous, timeZone: calendar.timeZone)
+        let endDay = SpotterWidgetSnapshot.dayKey(for: weekStart, timeZone: calendar.timeZone)
+        let weekLogs = logs.filter { $0.day >= firstDay && $0.day < endDay }
+        let priorDays = Set(logs.filter { $0.day >= previousDay && $0.day < firstDay }.map(\.day))
+        let minutesByDay = NativeWorkoutStore.widgetMinutes(for: weekLogs)
+        let minutes = SpotterWidgetSnapshot.weekDays(startingAt: firstDay).map { minutesByDay[$0] ?? 0 }
+        return .init(weekStart: firstDay, dailyMinutes: minutes, trainingDays: minutesByDay.count,
+                     totalMinutes: minutes.reduce(0, +), completedSets: weekLogs.reduce(0) { $0 + ($1.session?.completedSets ?? 0) },
+                     previousTrainingDays: priorDays.count)
+    }
+
     private static func reload() {
-        WidgetCenter.shared.reloadTimelines(ofKind: SpotterWidgetStore.widgetKind)
+        for kind in SpotterWidgetStore.widgetKinds {
+            WidgetCenter.shared.reloadTimelines(ofKind: kind)
+        }
     }
 }
 
@@ -566,7 +649,10 @@ private struct NativeSpotterTabs: View {
     @State private var inviteBusy = false
     @State private var inviteMessage: String?
     @State private var friendsRevision = 0
-    @State private var widgetHistoryRequest = false
+    @State private var widgetStatsRequest: NativeWidgetStatsRequest?
+    @State private var widgetNutritionEntry: NativeNutritionWidgetEntry?
+    @State private var widgetCheerPartner: String?
+    @State private var widgetCheerMessage: String?
     @StateObject private var trainingPreferences: NativeAccountPreferences
     @AppStorage private var reminderEnabled: Bool
     @AppStorage private var reminderMinute: Int
@@ -622,7 +708,6 @@ private struct NativeSpotterTabs: View {
             do {
                 try await Task.sleep(for: .milliseconds(250))
                 refreshWidget()
-                refreshLiveActivity()
             } catch {}
         }
         .onChange(of: widgetDestination) { _ in stageWidgetDestination() }
@@ -642,13 +727,18 @@ private struct NativeSpotterTabs: View {
             if phase == .background { refreshWidget() }
             refreshLiveActivity()
         }
-        .onChange(of: workouts.active?.id) { _ in refreshLiveActivity() }
-        .onChange(of: workouts.active) { _ in updateWatchWorkout() }
+        .onChange(of: workouts.active) { _ in
+            updateWatchWorkout()
+            refreshLiveActivity()
+        }
         .task { updateWatchWorkout() }
         .onReceive(liveHeartRateUpdates) { _ in refreshLiveActivity() }
         .onChange(of: showsTrainingLiveActivity) { _ in refreshLiveActivity() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
-            refreshWidget()
+            if scenePhase == .active { Task { await refreshHome() } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in
+            Task { await workouts.refreshWidgetNutrition(force: true) }
         }
         .onChange(of: workouts.pendingCheckins.map(\.id)) { _ in
             Task { await attachHealthHeartRate() }
@@ -703,8 +793,9 @@ private struct NativeSpotterTabs: View {
                 NativeProgramsView(api: account.api, owner: owner, didSchedule: { await workouts.load() }, store: workouts)
             }.presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented: $showNutrition) {
-            NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs)
+        .fullScreenCover(isPresented: $showNutrition, onDismiss: { widgetNutritionEntry = nil }) {
+            NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs,
+                                  initialWidgetEntry: widgetNutritionEntry)
         }
         .sheet(isPresented: $showRest, onDismiss: { Task { await workouts.load() } }) {
             NativeRestSchedule(api: account.api, owner: owner)
@@ -722,7 +813,10 @@ private struct NativeSpotterTabs: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented: $showActiveWorkout, onDismiss: showWorkoutReceipt) {
+        .fullScreenCover(isPresented: $showActiveWorkout, onDismiss: {
+            showWorkoutReceipt()
+            stageWidgetDestination()
+        }) {
             NativeActiveWorkoutView(store: workouts) { finishedWorkout = $0 }
         }
         .sheet(item: $workoutReceipt) { entry in
@@ -759,6 +853,23 @@ private struct NativeSpotterTabs: View {
             get: { inviteMessage != nil },
             set: { if !$0 { inviteMessage = nil } }
         )) { Button("好", role: .cancel) {} } message: { Text(inviteMessage ?? "") }
+        .confirmationDialog("给搭子打气？", isPresented: Binding(
+            get: { widgetCheerPartner != nil },
+            set: { if !$0 { widgetCheerPartner = nil } }
+        ), titleVisibility: .visible, presenting: widgetCheerPartner) { partner in
+            Button("打气") {
+                Task {
+                    do {
+                        try await workouts.cheer(expectedPartner: partner)
+                        widgetCheerMessage = "已给今天的训练搭子打气。"
+                    } catch { widgetCheerMessage = error.localizedDescription }
+                }
+            }
+        }
+        .alert("搭子督练", isPresented: Binding(
+            get: { widgetCheerMessage != nil },
+            set: { if !$0 { widgetCheerMessage = nil } }
+        )) { Button("好", role: .cancel) {} } message: { Text(widgetCheerMessage ?? "") }
         .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
         .environment(\.spotterAccountPreferences, trainingPreferences)
         .environment(\.spotterReduceMotion, reduceMotion)
@@ -806,15 +917,19 @@ private struct NativeSpotterTabs: View {
     private func refreshHome() async {
         trainingPreferences.activate()
         async let preferences: Void = trainingPreferences.sync()
+        async let nutrition: Void = workouts.refreshWidgetNutrition()
         await workouts.load()
         refreshWidget()
+        async let history: Void = workouts.refreshWidgetHistory()
         await attachHealthHeartRate()
         await preferences
+        await nutrition
+        await history
+        refreshWidget()
     }
 
     private func refreshWidget() {
         guard account.profile?.id == owner else { return }
-        guard workouts.hasWidgetOverview || workouts.active != nil || !workouts.pendingCheckins.isEmpty else { return }
         NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
         NativeTrainingWidgetBridge.publish(workouts)
     }
@@ -887,20 +1002,37 @@ private struct NativeSpotterTabs: View {
     private var isAvailableForWidget: Bool {
         !showWelcome && !showCoach && !showSettings && !showPlanImport && !showPrograms &&
         !showNutrition && !showRest && !showBody && !showTrainingLaunch &&
-        workoutReceipt == nil && inboundInviteConfirmation == nil
+        workoutReceipt == nil && inboundInviteConfirmation == nil &&
+        widgetCheerPartner == nil && widgetCheerMessage == nil
     }
 
     private func stageWidgetDestination() {
         guard isAvailableForWidget, let destination = widgetDestination else { return }
+        if showActiveWorkout, destination != .training {
+            showActiveWorkout = false
+            return
+        }
         widgetDestination = nil
         switch destination {
         case .training:
             selected = .today
             if workouts.active != nil { openActiveWorkout() }
         case .history:
-            showActiveWorkout = false
-            widgetHistoryRequest = true
+            widgetStatsRequest = .history
             selected = .stats
+        case .weekly, .year:
+            widgetStatsRequest = destination == .weekly ? .weekly : .year
+            selected = .stats
+        case .buddy, .cheer:
+            selected = showsFriends ? .friends : .today
+            if case .cheer(let partner) = destination { widgetCheerPartner = partner }
+        case .nutrition, .frequentMeals, .water:
+            switch destination {
+            case .frequentMeals: widgetNutritionEntry = .frequentMeals
+            case .water(let day) where day == spotterDay(): widgetNutritionEntry = .water
+            default: widgetNutritionEntry = nil
+            }
+            showNutrition = true
         }
     }
 
@@ -1035,7 +1167,7 @@ private struct NativeSpotterTabs: View {
                               openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
         case .stats:
             NativeStatsTab(store: workouts, api: account.api, owner: owner, dockPosition: dockPosition,
-                           widgetHistoryRequest: $widgetHistoryRequest)
+                           widgetStatsRequest: $widgetStatsRequest)
         case .friends:
             NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest,
                           openOwnLog: { openOwnFeedWorkout($0) },
@@ -1100,11 +1232,11 @@ private struct NativeStatsTab: View {
     let api: NativeAPI
     let owner: String
     @ObservedObject var dockPosition: NativeDockPosition
-    let widgetHistoryRequest: Binding<Bool>
+    let widgetStatsRequest: Binding<NativeWidgetStatsRequest?>
 
     var body: some View {
         NativeSpotterStats(store: store, api: api, owner: owner, dockTop: dockPosition.top,
-                           widgetHistoryRequest: widgetHistoryRequest)
+                           widgetStatsRequest: widgetStatsRequest)
     }
 }
 

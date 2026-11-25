@@ -10,6 +10,16 @@ struct SpotterWidgetSnapshotSmoke {
         precondition(SpotterWidgetSnapshot.weekStartKey(for: date, timeZone: toronto) == "2026-11-16")
         precondition(SpotterWidgetSnapshot.dayKey(for: date, timeZone: utc) == "2026-11-23")
         precondition(SpotterWidgetSnapshot.weekStartKey(for: date, timeZone: utc) == "2026-11-23")
+        precondition(SpotterWidgetSnapshot.weekDays(startingAt: "2026-11-16")
+            == ["2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20", "2026-11-21", "2026-11-22"])
+        precondition(SpotterWidgetSnapshot.weekDays(startingAt: "2026-11-17").isEmpty)
+        let heatmap = SpotterWidgetSnapshot.yearDays(endingAt: date, timeZone: toronto)
+        let heatmapDays = heatmap.compactMap { $0 }
+        precondition(heatmap.count == 371 && heatmapDays.count == 365)
+        precondition(heatmapDays.first == "2025-11-23" && heatmapDays.last == "2026-11-22")
+        precondition(heatmap.prefix(6).allSatisfy { $0 == nil })
+        precondition(SpotterWidgetSnapshot.yearDays(endingOn: "2024-03-01").contains("2024-02-29"))
+        precondition(SpotterWidgetSnapshot.yearDays(endingOn: "2023-02-29").isEmpty)
 
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -63,6 +73,38 @@ struct SpotterWidgetSnapshotSmoke {
         precondition(store.read(at: heartbeat.updatedAt) == nil)
         precondition(store.remove())
         precondition(store.read(at: heartbeat.updatedAt) == nil && !store.remove())
-        print("PASS widget snapshot: local day/week rollover, minimal payload, expiry, coalesced refresh, corruption, and sign-out removal")
+
+        let buddy = SpotterWidgetSnapshot.Buddy(
+            id: "synthetic-buddy", name: " 示例\n搭子 ", ownDays: [.completed, .rest, .none, .planned, .none, .none, .none],
+            buddyDays: [.unavailable, .completed, .none, .rest, .none, .none, .planned], todayTitle: " 示例\t训练 ")
+        let meals = (1...4).map { SpotterWidgetSnapshot.Nutrition.FrequentMeal(id: "meal-\($0)", name: " 常用\n餐 \($0) ") }
+        let nutrition = SpotterWidgetSnapshot.Nutrition(
+            calories: 1_840, protein: 112, carbs: 204, fat: 63, waterML: 1_250,
+            goals: .init(calories: 2_300, protein: 145, carbs: 260, fat: 75), frequentMeals: meals)
+        let weekly = SpotterWidgetSnapshot.Weekly(weekStart: "2026-11-09", dailyMinutes: [44, 0, 52, 0, 0, 48, 0],
+                                                trainingDays: 3, totalMinutes: 144, completedSets: 51, previousTrainingDays: 3)
+        let yearly = SpotterWidgetSnapshot.Year(dailyMinutes: ["2025-11-23": 20, "2026-11-16": 0, "2026-11-22": 48])
+        func collection(at updatedAt: Date = date, nutrition: SpotterWidgetSnapshot.Nutrition? = nutrition,
+                        year: SpotterWidgetSnapshot.Year? = yearly) -> SpotterWidgetSnapshot {
+            SpotterWidgetSnapshot(updatedAt: updatedAt, day: "2026-11-22", todayCompleted: 1, weekStart: "2026-11-16",
+                                  weekCheckins: week, nextWorkout: nil, activeWorkout: nil,
+                                  buddy: buddy, nutrition: nutrition, weekly: weekly, year: year)
+        }
+        let cards = collection()
+        precondition(buddy.name == "示例 搭子" && buddy.todayTitle == "示例 训练")
+        precondition(nutrition.frequentMeals.count == 3 && nutrition.frequentMeals.first?.name == "常用 餐 1")
+        precondition(!store.write(collection(year: .init(dailyMinutes: ["2025-11-22": 40]))))
+        precondition(!store.write(collection(year: .init(dailyMinutes: ["2026-11-23": 40]))))
+        precondition(!store.write(collection(nutrition: .init(calories: 0, protein: 0, carbs: 0, fat: 0, waterML: .infinity))))
+        precondition(store.write(cards))
+        precondition(store.read(at: date) == cards)
+        precondition(store.read(at: date)?.year?.dailyMinutes["2026-11-16"] == 0)
+        precondition(!store.write(collection(at: date.addingTimeInterval(60))))
+        let newNutrition = SpotterWidgetSnapshot.Nutrition(calories: 1_840, protein: 112, carbs: 204, fat: 63, waterML: 1_500)
+        precondition(store.write(collection(at: date.addingTimeInterval(60), nutrition: newNutrition)))
+        precondition(store.read(at: date)?.nutrition?.waterML == 1_500)
+        precondition(store.read(at: date)?.nutrition?.frequentMeals.isEmpty == true)
+        precondition(store.remove())
+        print("PASS widget snapshots: civil-day boundaries, rolling year, four payloads, refresh, expiry and sign-out removal")
     }
 }

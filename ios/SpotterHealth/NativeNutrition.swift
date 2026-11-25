@@ -155,6 +155,26 @@ private struct NativeRecentServing: Identifiable {
     var id: String { food.id }
 }
 
+extension NativeWorkoutStore {
+    func readWidgetNutrition(on day: String) async throws -> SpotterWidgetSnapshot.Nutrition {
+        let data = try await api.request("/api/library?date=" + day, method: "GET", json: nil, for: owner)
+        let payload = try JSONDecoder().decode(NutritionPayload.self, from: data)
+        let workoutIDs = widgetOverviewDay == day
+            ? Set(logs.filter { $0.day == day && $0.owner == owner }.map(\.id))
+            : nil
+        let totals = payload.totals(on: day)
+        let targets = payload.targets(on: day, countingWorkoutIDs: workoutIDs)
+        let goals: SpotterWidgetSnapshot.Nutrition.Goals? =
+            [targets.calories, targets.protein, targets.carbs, targets.fat].contains(where: { $0 > 0 })
+                ? .init(calories: max(0, targets.calories), protein: max(0, targets.protein),
+                        carbs: max(0, targets.carbs), fat: max(0, targets.fat))
+                : nil
+        return .init(calories: max(0, totals.calories), protein: max(0, totals.protein),
+                     carbs: max(0, totals.carbs), fat: max(0, totals.fat), waterML: max(0, totals.water),
+                     goals: goals, frequentMeals: NativeNutritionDetail.widgetFrequentMeals(api: api, owner: owner))
+    }
+}
+
 private struct NativeQuickMealReceipt: Equatable {
     let id: String
     let updated: String
@@ -448,12 +468,17 @@ private enum NutritionDestination: Identifiable {
     }
 }
 
+enum NativeNutritionWidgetEntry {
+    case frequentMeals, water
+}
+
 @MainActor
 struct NativeNutritionDetail: View {
     @Environment(\.spotterAccent) private var accent
     let api: NativeAPI
     let owner: String
     var logs: [NativeWorkoutEntry]? = nil
+    var initialWidgetEntry: NativeNutritionWidgetEntry? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -471,16 +496,25 @@ struct NativeNutritionDetail: View {
     @State private var deleteCandidate: NutritionPayload.Row?
     @State private var quickMeal: NativeQuickMealReceipt?
     @State private var reloadRevision = 0
+    @State private var didOpenWidgetEntry = false
 
-    init(api: NativeAPI, owner: String, logs: [NativeWorkoutEntry]? = nil, initialDate: Date = .now) {
+    init(api: NativeAPI, owner: String, logs: [NativeWorkoutEntry]? = nil, initialDate: Date = .now,
+         initialWidgetEntry: NativeNutritionWidgetEntry? = nil) {
         self.api = api
         self.owner = owner
         self.logs = logs
+        self.initialWidgetEntry = initialWidgetEntry
         _date = State(initialValue: initialDate)
     }
 
     static func clearFavoriteMeals(api: NativeAPI, owner: String) {
         NativeFavoriteMealStore(api: api, owner: owner).clear()
+    }
+
+    static func widgetFrequentMeals(api: NativeAPI, owner: String) -> [SpotterWidgetSnapshot.Nutrition.FrequentMeal] {
+        let store = NativeFavoriteMealStore(api: api, owner: owner)
+        guard let favorites = try? store.widgetMeals() else { return [] }
+        return favorites.map { .init(id: $0.id.uuidString.lowercased(), name: $0.name) }
     }
 
     private var day: String { spotterDay(date) }
@@ -515,6 +549,14 @@ struct NativeNutritionDetail: View {
         .tint(accent.tint)
         .background(SpotterPalette.background.ignoresSafeArea())
         .task(id: "\(day)/\(reloadRevision)") { await load(day) }
+        .onAppear {
+            guard !didOpenWidgetEntry, let initialWidgetEntry else { return }
+            didOpenWidgetEntry = true
+            switch initialWidgetEntry {
+            case .frequentMeals: destination = .favorites
+            case .water: destination = .entry(.water, nil, nil, 250)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
         .sheet(item: $destination, onDismiss: openQueuedDestination) { item in
             destinationView(item)
@@ -940,10 +982,15 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
     let api: NativeAPI
     let owner: String
 
+    private var scope: String {
+        SHA256.hash(data: Data((api.origin + "\n" + owner).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private var widgetSelectionKey: String { "spotter.native.widget.meals." + scope }
+
     private var url: URL? {
-        let digest = SHA256.hash(data: Data((api.origin + "\n" + owner).utf8)).map { String(format: "%02x", $0) }.joined()
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Spotter/FavoriteMeals", isDirectory: true).appendingPathComponent(digest + ".json")
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Spotter/FavoriteMeals", isDirectory: true).appendingPathComponent(scope + ".json")
     }
 
     func load() throws -> [NativeFavoriteMeal] {
@@ -968,6 +1015,36 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
 
     func clear() {
         if let url { try? FileManager.default.removeItem(at: url) }
+        UserDefaults.standard.removeObject(forKey: widgetSelectionKey)
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(widgetAttemptPrefix) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    func widgetMeals() throws -> [NativeFavoriteMeal] {
+        let presets = try load()
+        return (UserDefaults.standard.stringArray(forKey: widgetSelectionKey) ?? []).prefix(3).compactMap { id in
+            presets.first { $0.id.uuidString == id }
+        }
+    }
+
+    func saveWidgetMeals(_ ids: [UUID]) {
+        UserDefaults.standard.set(Array(ids.prefix(3)).map(\.uuidString), forKey: widgetSelectionKey)
+        NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+    }
+
+    private var widgetAttemptPrefix: String { "spotter.native.widget.meal-attempt." + scope + "." }
+
+    func widgetAttemptKey(id: UUID, day: String) -> String {
+        widgetAttemptPrefix + day + "." + id.uuidString
+    }
+
+    func cleanOldWidgetAttempts(except day: String) {
+        let currentPrefix = widgetAttemptPrefix + day + "."
+        for key in UserDefaults.standard.dictionaryRepresentation().keys
+            where key.hasPrefix(widgetAttemptPrefix) && !key.hasPrefix(currentPrefix) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     func log(_ preset: NativeFavoriteMeal, id: String, date: Date, meal: NutritionShortcut,
@@ -983,6 +1060,46 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
     }
 }
 
+@MainActor
+enum NativeWidgetMealAction {
+    static var api: NativeAPI?
+    private static var inProgress: Set<String> = []
+    private static var lastSaved: [String: Date] = [:]
+
+    static func log(mealID: String, day: String) async throws -> String {
+        let now = Date.now
+        guard day == spotterDay(now) else { throw SpotterWidgetMealError.outdated }
+        guard let mealID = UUID(uuidString: mealID) else { throw SpotterWidgetMealError.missingMeal }
+        let api = Self.api ?? NativeAPI()
+        guard let profile = try await api.loadProfile() else { throw NativeAPIError.accountChanged }
+        let store = NativeFavoriteMealStore(api: api, owner: profile.id)
+        guard let meal = try store.widgetMeals().first(where: { $0.id == mealID }) else {
+            throw SpotterWidgetMealError.missingMeal
+        }
+        let key = store.widgetAttemptKey(id: mealID, day: day)
+        guard inProgress.insert(key).inserted else { throw SpotterWidgetMealError.inProgress }
+        defer { inProgress.remove(key) }
+        lastSaved = lastSaved.filter { now.timeIntervalSince($0.value) < 2 }
+        if lastSaved[key] != nil { return meal.name }
+
+        let defaults = UserDefaults.standard
+        store.cleanOldWidgetAttempts(except: day)
+        let id = defaults.string(forKey: key) ?? UUID().uuidString.lowercased()
+        defaults.set(id, forKey: key)
+        do {
+            _ = try await store.log(meal, id: id, date: now, meal: meal.defaultMeal, servings: 1)
+        } catch let error as NativeAPIError where error.statusCode == 409 {
+            let data = try await api.request("/api/library?date=" + day, method: "GET", json: nil, for: profile.id)
+            let payload = try JSONDecoder().decode(NutritionPayload.self, from: data)
+            guard payload.entries(on: day).contains(where: { $0.id == id }) else { throw error }
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+        }
+        defaults.removeObject(forKey: key)
+        lastSaved[key] = .now
+        return meal.name
+    }
+}
+
 @MainActor private struct NativeFavoriteMeals: View {
     let api: NativeAPI
     let owner: String
@@ -990,6 +1107,7 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
     let onSaved: (NativeQuickMealReceipt, Date) -> Void
 
     @State private var presets: [NativeFavoriteMeal] = []
+    @State private var widgetMealIDs: [UUID] = []
     @State private var removing: NativeFavoriteMeal?
     @State private var retry: (preset: NativeFavoriteMeal, id: String)?
     @State private var busy = false
@@ -1006,6 +1124,28 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
                 .disabled(busy || retry != nil)
             } footer: {
                 Text("快速记餐会记入 \(spotterDay(date))。常用组合保存在这台 iPhone，新的饮食记录会自动同步。")
+            }
+            Section {
+                if presets.isEmpty { Text("新建常用餐后就可以添加到桌面。").foregroundStyle(.secondary) }
+                ForEach(presets) { preset in
+                    let pinned = widgetMealIDs.contains(preset.id)
+                    Toggle(preset.name, isOn: Binding(
+                        get: { widgetMealIDs.contains(preset.id) },
+                        set: { selected in
+                            if selected && widgetMealIDs.count < 3 {
+                                widgetMealIDs.append(preset.id)
+                            } else if !selected {
+                                widgetMealIDs.removeAll { $0 == preset.id }
+                            }
+                            store.saveWidgetMeals(widgetMealIDs)
+                        }
+                    ))
+                    .disabled(!pinned && widgetMealIDs.count >= 3)
+                }
+            } header: {
+                Text("桌面快捷记餐 · \(widgetMealIDs.count)/3")
+            } footer: {
+                Text("最多选三款。从今日饮食小组件点一下，就按默认餐次记一份。")
             }
             Section("我的常用餐") {
                 if presets.isEmpty { Text("还没有常用餐").foregroundStyle(.secondary) }
@@ -1039,13 +1179,23 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
             if let error { Section { Text(error).font(.footnote).foregroundStyle(.red) } }
         }
         .task {
-            do { presets = try store.load() }
+            do {
+                presets = try store.load()
+                widgetMealIDs = try store.widgetMeals().map(\.id)
+            }
             catch { self.error = "暂时无法读取此设备的常用餐。" }
         }
         .confirmationDialog("删除这份常用组合？", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
                             presenting: removing) { preset in
             Button("删除", role: .destructive) {
-                do { presets = try store.edit { $0.removeAll(where: { $0.id == preset.id }) }; error = nil }
+                do {
+                    presets = try store.edit { $0.removeAll(where: { $0.id == preset.id }) }
+                    if widgetMealIDs.contains(preset.id) {
+                        widgetMealIDs.removeAll { $0 == preset.id }
+                        store.saveWidgetMeals(widgetMealIDs)
+                    }
+                    error = nil
+                }
                 catch { self.error = "暂时无法删除常用餐。" }
             }
         }
@@ -1498,6 +1648,8 @@ private struct NativeNutritionEditor: View {
             _protein = State(initialValue: nutritionInput(facts.protein))
             _carbs = State(initialValue: nutritionInput(facts.carbs))
             _fat = State(initialValue: nutritionInput(facts.fat))
+            _quantity = State(initialValue: nutritionInput(grams))
+        } else if shortcut == .water, let grams {
             _quantity = State(initialValue: nutritionInput(grams))
         }
     }

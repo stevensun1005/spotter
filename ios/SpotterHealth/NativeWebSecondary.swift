@@ -211,6 +211,10 @@ private enum SecondaryMetric: String, CaseIterable, Hashable {
     }
 }
 
+enum NativeWidgetStatsRequest: Equatable {
+    case history, weekly, year
+}
+
 @MainActor
 struct NativeSpotterStats: View {
     @Environment(\.spotterInteractionMotion) private var motion
@@ -219,7 +223,7 @@ struct NativeSpotterStats: View {
     let api: NativeAPI
     let owner: String
     var dockTop: CGFloat? = nil
-    var widgetHistoryRequest: Binding<Bool>? = nil
+    var widgetStatsRequest: Binding<NativeWidgetStatsRequest?>? = nil
 
     private enum Page: String, CaseIterable { case overview = "训练统计", history = "打卡历史" }
     private enum Period: String, CaseIterable { case week = "周", month = "月", quarter = "季", year = "年", recent = "最近", custom = "自定义" }
@@ -345,8 +349,8 @@ struct NativeSpotterStats: View {
         .foregroundStyle(SpotterPalette.ink)
         .background(SpotterPalette.background)
         .animation(motion, value: page)
-        .onAppear(perform: openWidgetHistory)
-        .onChange(of: widgetHistoryRequest?.wrappedValue) { _ in openWidgetHistory() }
+        .onAppear(perform: openWidgetStats)
+        .onChange(of: widgetStatsRequest?.wrappedValue) { _ in openWidgetStats() }
         .task { await loadPartner() }
         .task(id: page == .overview ? historyKey : nil) {
             if page == .overview { await loadStatsHistory() }
@@ -366,10 +370,27 @@ struct NativeSpotterStats: View {
         }
     }
 
-    private func openWidgetHistory() {
-        guard let request = widgetHistoryRequest, request.wrappedValue else { return }
-        page = .history
-        request.wrappedValue = false
+    private func openWidgetStats() {
+        guard let request = widgetStatsRequest, let destination = request.wrappedValue else { return }
+        request.wrappedValue = nil
+        switch destination {
+        case .history:
+            page = .history
+        case .weekly:
+            partnerSelected = false
+            period = .week
+            step = -1
+            metric = .sessions
+            page = .overview
+        case .year:
+            partnerSelected = false
+            period = .custom
+            customEnd = SecondaryDate.today
+            customStart = SecondaryDate.shift(customEnd, -364)
+            step = 0
+            metric = .minutes
+            page = .overview
+        }
     }
 
     private var historyKey: String {

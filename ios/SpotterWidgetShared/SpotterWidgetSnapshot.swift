@@ -1,6 +1,6 @@
 import Foundation
 
-/// A local summary derived from the signed-in user's own training.
+/// A local summary of the signed-in user's activity and their buddy's shared check-ins.
 struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
     struct Workout: Codable, Equatable, Sendable {
         let title: String
@@ -28,6 +28,94 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
         }
     }
 
+    enum DayState: String, Codable, Sendable {
+        case completed
+        case rest
+        case planned
+        case none
+        case unavailable
+    }
+
+    struct Buddy: Codable, Equatable, Sendable {
+        let id: String
+        let name: String
+        let ownDays: [DayState]
+        let buddyDays: [DayState]
+        let todayTitle: String?
+        let todayTime: String?
+        let cheered: Bool
+
+        init(id: String, name: String, ownDays: [DayState], buddyDays: [DayState],
+             todayTitle: String? = nil, todayTime: String? = nil, cheered: Bool = false) {
+            self.id = id
+            self.name = SpotterWidgetSnapshot.widgetTitle(name, fallback: "训练搭子")
+            self.ownDays = ownDays
+            self.buddyDays = buddyDays
+            self.todayTitle = SpotterWidgetSnapshot.optionalLabel(todayTitle, limit: 72)
+            self.todayTime = SpotterWidgetSnapshot.optionalLabel(todayTime, limit: 24)
+            self.cheered = cheered
+        }
+    }
+
+    struct Nutrition: Codable, Equatable, Sendable {
+        struct Goals: Codable, Equatable, Sendable {
+            let calories: Double
+            let protein: Double
+            let carbs: Double
+            let fat: Double
+        }
+
+        struct FrequentMeal: Codable, Equatable, Sendable {
+            let id: String
+            let name: String
+
+            init(id: String, name: String) {
+                self.id = id
+                self.name = SpotterWidgetSnapshot.widgetTitle(name, fallback: "常用餐")
+            }
+        }
+
+        let calories: Double
+        let protein: Double
+        let carbs: Double
+        let fat: Double
+        let waterML: Double
+        let goals: Goals?
+        private let mealShortcuts: [FrequentMeal]?
+
+        var frequentMeals: [FrequentMeal] { mealShortcuts ?? [] }
+
+        private enum CodingKeys: String, CodingKey {
+            case calories, protein, carbs, fat, waterML, goals
+            case mealShortcuts = "frequentMeals"
+        }
+
+        init(calories: Double, protein: Double, carbs: Double, fat: Double, waterML: Double,
+             goals: Goals? = nil, frequentMeals: [FrequentMeal] = []) {
+            self.calories = calories
+            self.protein = protein
+            self.carbs = carbs
+            self.fat = fat
+            self.waterML = waterML
+            self.goals = goals
+            self.mealShortcuts = frequentMeals.isEmpty ? nil : Array(frequentMeals.prefix(3))
+        }
+    }
+
+    struct Weekly: Codable, Equatable, Sendable {
+        let weekStart: String
+        let dailyMinutes: [Int]
+        let trainingDays: Int
+        let totalMinutes: Int
+        let completedSets: Int
+        let previousTrainingDays: Int
+    }
+
+    struct Year: Codable, Equatable, Sendable {
+        /// Completed training minutes keyed by local date. A missing date has no completed training.
+        let dailyMinutes: [String: Int]
+    }
+
     let updatedAt: Date
     let day: String
     let todayCompleted: Int
@@ -35,6 +123,26 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
     let weekCheckins: [Bool]
     let nextWorkout: Workout?
     let activeWorkout: Active?
+    let buddy: Buddy?
+    let nutrition: Nutrition?
+    let weekly: Weekly?
+    let year: Year?
+
+    init(updatedAt: Date, day: String, todayCompleted: Int, weekStart: String, weekCheckins: [Bool],
+         nextWorkout: Workout?, activeWorkout: Active?, buddy: Buddy? = nil, nutrition: Nutrition? = nil,
+         weekly: Weekly? = nil, year: Year? = nil) {
+        self.updatedAt = updatedAt
+        self.day = day
+        self.todayCompleted = todayCompleted
+        self.weekStart = weekStart
+        self.weekCheckins = weekCheckins
+        self.nextWorkout = nextWorkout
+        self.activeWorkout = activeWorkout
+        self.buddy = buddy
+        self.nutrition = nutrition
+        self.weekly = weekly
+        self.year = year
+    }
 
     var expiresAt: Date { updatedAt.addingTimeInterval(36 * 60 * 60) }
 
@@ -52,6 +160,34 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
         return dayKey(for: start, timeZone: timeZone)
     }
 
+    static func weekDays(startingAt day: String) -> [String] {
+        let calendar = calendar(in: .gmt)
+        guard let start = midnight(day, in: calendar), calendar.component(.weekday, from: start) == 2 else {
+            return []
+        }
+        return (0..<7).compactMap { offset in
+            calendar.date(byAdding: .day, value: offset, to: start).map { dayKey(for: $0, timeZone: .gmt) }
+        }
+    }
+
+    static func yearDays(endingAt date: Date, timeZone: TimeZone = .current) -> [String?] {
+        yearDays(endingOn: dayKey(for: date, timeZone: timeZone))
+    }
+
+    /// A trailing 365-day window, arranged in Monday-first columns.
+    /// Dates outside the window are represented by nil, including the rows after today.
+    static func yearDays(endingOn day: String) -> [String?] {
+        let calendar = calendar(in: .gmt)
+        guard let end = midnight(day, in: calendar),
+              let start = calendar.date(byAdding: .day, value: -364, to: end) else { return [] }
+        let leading = (calendar.component(.weekday, from: start) + 5) % 7
+        let trailing = (7 - ((leading + 365) % 7)) % 7
+        let dates = (0..<365).map { offset in
+            calendar.date(byAdding: .day, value: offset, to: start).map { dayKey(for: $0, timeZone: .gmt) }
+        }
+        return Array(repeating: nil, count: leading) + dates + Array(repeating: nil, count: trailing)
+    }
+
     private static func calendar(in timeZone: TimeZone) -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -59,8 +195,13 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
     }
 
     private static func widgetTitle(_ value: String, fallback: String) -> String {
+        optionalLabel(value, limit: 72) ?? fallback
+    }
+
+    private static func optionalLabel(_ value: String?, limit: Int) -> String? {
+        guard let value else { return nil }
         let compact = value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return compact.isEmpty ? fallback : String(compact.prefix(72))
+        return compact.isEmpty ? nil : String(compact.prefix(limit))
     }
 
     private static func midnight(_ key: String, in calendar: Calendar) -> Date? {
@@ -93,12 +234,46 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
                   (0...activeWorkout.totalSets).contains(activeWorkout.completedSets),
                   (1...72).contains(activeWorkout.title.count) else { return false }
         }
+        if let buddy {
+            guard (1...256).contains(buddy.id.utf8.count), (1...72).contains(buddy.name.count),
+                  buddy.ownDays.count == 7, buddy.buddyDays.count == 7,
+                  (buddy.todayTitle?.count ?? 0) <= 72, (buddy.todayTime?.count ?? 0) <= 24 else { return false }
+        }
+        if let nutrition {
+            let totals = [nutrition.calories, nutrition.protein, nutrition.carbs, nutrition.fat, nutrition.waterML]
+            guard totals.allSatisfy({ $0.isFinite && $0 >= 0 }) else { return false }
+            if let goals = nutrition.goals {
+                guard [goals.calories, goals.protein, goals.carbs, goals.fat].allSatisfy({ $0.isFinite && $0 >= 0 })
+                else { return false }
+            }
+            guard nutrition.frequentMeals.count <= 3,
+                  nutrition.frequentMeals.allSatisfy({
+                      (1...256).contains($0.id.utf8.count) && (1...72).contains($0.name.count)
+                  }),
+                  Set(nutrition.frequentMeals.map(\.id)).count == nutrition.frequentMeals.count else { return false }
+        }
+        if let weekly {
+            guard let start = Self.midnight(weekly.weekStart, in: calendar),
+                  calendar.component(.weekday, from: start) == 2, start <= firstDay,
+                  weekly.dailyMinutes.count == 7, weekly.dailyMinutes.allSatisfy({ $0 >= 0 }),
+                  (0...7).contains(weekly.trainingDays), (0...7).contains(weekly.previousTrainingDays),
+                  weekly.totalMinutes >= 0, weekly.completedSets >= 0 else { return false }
+        }
+        if let year {
+            guard year.dailyMinutes.count <= 365,
+                  let first = calendar.date(byAdding: .day, value: -364, to: currentDay),
+                  year.dailyMinutes.allSatisfy({ key, minutes in
+                      guard let date = Self.midnight(key, in: calendar) else { return false }
+                      return date >= first && date <= currentDay && minutes >= 0
+                  }) else { return false }
+        }
         return true
     }
 
     fileprivate func matchesVisibleContent(of other: Self) -> Bool {
         day == other.day && todayCompleted == other.todayCompleted && weekStart == other.weekStart &&
-            weekCheckins == other.weekCheckins && nextWorkout == other.nextWorkout && activeWorkout == other.activeWorkout
+            weekCheckins == other.weekCheckins && nextWorkout == other.nextWorkout && activeWorkout == other.activeWorkout &&
+            buddy == other.buddy && nutrition == other.nutrition && weekly == other.weekly && year == other.year
     }
 }
 
@@ -106,6 +281,11 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
 struct SpotterWidgetStore: Sendable {
     static let groupIdentifier = "group.app.spotter.health"
     static let widgetKind = "SpotterTrainingWidget"
+    static let buddyKind = "SpotterBuddyWidget"
+    static let nutritionKind = "SpotterNutritionWidget"
+    static let weeklyKind = "SpotterWeeklyWidget"
+    static let yearKind = "SpotterYearWidget"
+    static let widgetKinds = [buddyKind, nutritionKind, weeklyKind, yearKind]
     static let shared = Self(directoryURL: sharedDirectory)
 
     private static let filename = "spotter-training-widget-v1.json"

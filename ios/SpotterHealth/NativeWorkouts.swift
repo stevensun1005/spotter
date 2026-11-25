@@ -45,13 +45,10 @@ private struct NativeWorkoutSyncLabel: View {
 @MainActor
 final class NativeWorkoutStore: ObservableObject {
     @Published private(set) var widgetRevision = 0
-    private(set) var hasWidgetOverview = false
     @Published private(set) var entries: [NativeWorkoutEntry] = [] {
         didSet { rebuildEntries(); widgetRevision &+= 1 }
     }
-    @Published private(set) var active: NativeWorkoutEntry? {
-        didSet { widgetRevision &+= 1 }
-    }
+    @Published private(set) var active: NativeWorkoutEntry?
     @Published private(set) var pendingCheckins: [NativeWorkoutEntry] = [] {
         didSet { rebuildLogs(); widgetRevision &+= 1 }
     }
@@ -99,6 +96,15 @@ final class NativeWorkoutStore: ObservableObject {
     private(set) var plansByKey: [NativeWorkoutEntry.Key: NativeWorkoutEntry] = [:]
     private var savedDrafts: [NativeWorkoutEntry] = []
     private var savedLogs: [NativeWorkoutEntry] = []
+    private(set) var widgetOverviewDay: String?
+    private var widgetHistory: WidgetHistory?
+    private(set) var widgetNutrition: SpotterWidgetSnapshot.Nutrition?
+    private(set) var widgetNutritionDay: String?
+    private var widgetHistoryInFlight = false
+    private var reloadWidgetHistory = false
+    private var widgetNutritionInFlight = false
+    private var reloadWidgetNutrition = false
+    private var widgetNutritionUpdatedAt: Date?
     var drafts: [NativeWorkoutEntry] { savedDrafts.filter { $0.id != active?.id } }
     var undoableSet: NativeWorkoutSession.SetPosition? {
         guard let active, let lastSetCompletion, lastSetCompletion.workoutID == active.id,
@@ -184,9 +190,9 @@ final class NativeWorkoutStore: ObservableObject {
         }
         if let snapshotURL, let data = try? Data(contentsOf: snapshotURL), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
            snapshot.owner == owner, snapshot.origin == api.origin {
-            hasWidgetOverview = true
             completedPlanIds = Set(snapshot.completedPlanIds ?? [])
             recentHistoryStart = snapshot.historyFrom
+            widgetHistory = snapshot.widgetHistory
             entries = snapshot.entries.filter { $0.owner == owner }
             rebuildEntries()
         } else { rebuildLogs() }
@@ -201,6 +207,9 @@ final class NativeWorkoutStore: ObservableObject {
                 await syncLocalChanges()
                 if isLoading { reloadAfterPlanWrite = true }
                 else { await load() }
+                async let nutrition: Void = refreshWidgetNutrition(force: true)
+                await refreshWidgetHistory()
+                await nutrition
             }
         }
         reachability.start(queue: DispatchQueue(label: "app.spotter.health.workout-connectivity"))
@@ -233,6 +242,14 @@ final class NativeWorkoutStore: ObservableObject {
         let entries: [NativeWorkoutEntry]
         let completedPlanIds: [String]?
         let historyFrom: String?
+        let widgetHistory: WidgetHistory?
+    }
+
+    private struct WidgetHistory: Codable {
+        let from: String
+        let through: String
+        let fetchedAt: Date
+        let dailyMinutes: [String: Int]
     }
 
     nonisolated private static func writeLocal<Value: Encodable>(_ value: Value, to url: URL) throws {
@@ -261,7 +278,8 @@ final class NativeWorkoutStore: ObservableObject {
         let scheduled = own.filter { $0.kind == "plan" }
         let history = own.filter { $0.kind == "log" }.sorted { $0.updated > $1.updated }.prefix(120)
         let snapshot = Snapshot(origin: origin, owner: owner, entries: scheduled + history,
-                                completedPlanIds: completedPlanIds.sorted(), historyFrom: recentHistoryStart)
+                                completedPlanIds: completedPlanIds.sorted(), historyFrom: recentHistoryStart,
+                                widgetHistory: widgetHistory)
         Self.snapshotQueue.async { try? Self.writeLocal(snapshot, to: snapshotURL) }
     }
 
@@ -282,10 +300,6 @@ final class NativeWorkoutStore: ObservableObject {
             let value = try await api.spotterRead("/api/workout?scope=overview", as: NativeWorkoutState.self)
             guard revision == localRevision, edit == entryRevision else { return }
             guard value.me.id == owner else { entries = []; throw NativeWorkoutProblem.accountChanged }
-            if !hasWidgetOverview {
-                hasWidgetOverview = true
-                widgetRevision &+= 1
-            }
             let currentRoom = value.room ?? .null
             let cutoff = value.historyFrom ?? ""
             let incomingCompleted = Set(value.completedPlanIds ?? [])
@@ -304,7 +318,12 @@ final class NativeWorkoutStore: ObservableObject {
             let historyChanged = entries != updated
             if historyChanged { entries = updated }
             if historyChanged || snapshotNeedsRefresh { saveSnapshot() }
-            if room != currentRoom { room = currentRoom }
+            let overviewDay = SpotterWidgetSnapshot.dayKey(for: .now)
+            if widgetOverviewDay != overviewDay || room != currentRoom {
+                widgetOverviewDay = overviewDay
+                room = currentRoom
+                widgetRevision &+= 1
+            }
             if viewerName == loadedViewerName, let name = value.me.name { useConfirmedViewerName(name) }
             if let active, value.entries.contains(where: { $0.owner == owner && $0.kind == "log" && $0.id == active.id }) {
                 self.active = nil
@@ -321,6 +340,117 @@ final class NativeWorkoutStore: ObservableObject {
             if !hasPendingSync || networkAvailable != false { errorMessage = error.localizedDescription }
             if hasPendingSync { await flushLocalChanges() }
         }
+    }
+
+    func refreshWidgetHistory() async {
+        if widgetHistoryInFlight {
+            reloadWidgetHistory = true
+            return
+        }
+        let now = Date.now
+        let day = SpotterWidgetSnapshot.dayKey(for: now)
+        guard widgetOverviewDay == day,
+              let start = widgetDate(now, addingDays: -364), let cutoff = recentHistoryStart,
+              cutoff > start, let cutoffDate = nativePlanDate(cutoff),
+              let through = widgetDate(cutoffDate, addingDays: -1) else { return }
+        if let current = widgetHistory, current.from <= start, current.through >= through,
+           (0..<3 * 60 * 60).contains(now.timeIntervalSince(current.fetchedAt)) { return }
+        let revision = localRevision
+        let edit = entryRevision
+        widgetHistoryInFlight = true
+        defer {
+            widgetHistoryInFlight = false
+            if reloadWidgetHistory {
+                reloadWidgetHistory = false
+                Task { await refreshWidgetHistory() }
+            }
+        }
+        do {
+            let value = try await api.spotterRead("/api/workout?scope=history&from=\(start)&to=\(through)", as: NativeWorkoutState.self)
+            guard !Task.isCancelled, revision == localRevision, value.me.id == owner,
+                  recentHistoryStart == cutoff, widgetOverviewDay == day else { return }
+            guard edit == entryRevision else {
+                reloadWidgetHistory = true
+                return
+            }
+            let logs = value.entries.filter { $0.owner == owner && $0.kind == "log" && $0.day >= start && $0.day <= through }
+            widgetHistory = .init(from: start, through: through, fetchedAt: now, dailyMinutes: Self.widgetMinutes(for: logs))
+            widgetRevision &+= 1
+            saveSnapshot()
+        } catch {
+            // Keep the last confirmed summary available when the cloud cannot be reached.
+        }
+    }
+
+    func refreshWidgetNutrition(force: Bool = false) async {
+        if widgetNutritionInFlight {
+            reloadWidgetNutrition = reloadWidgetNutrition || force
+            return
+        }
+        let now = Date.now
+        let day = SpotterWidgetSnapshot.dayKey(for: now)
+        if !force, widgetNutritionDay == day, let updated = widgetNutritionUpdatedAt,
+           (0..<60).contains(now.timeIntervalSince(updated)) { return }
+        let revision = localRevision
+        widgetNutritionInFlight = true
+        defer {
+            widgetNutritionInFlight = false
+            if reloadWidgetNutrition {
+                reloadWidgetNutrition = false
+                Task { await refreshWidgetNutrition(force: true) }
+            }
+        }
+        do {
+            let result = try await readWidgetNutrition(on: day)
+            guard !Task.isCancelled, revision == localRevision,
+                  day == SpotterWidgetSnapshot.dayKey(for: .now) else { return }
+            if widgetNutrition != result || widgetNutritionDay != day {
+                widgetNutrition = result
+                widgetNutritionDay = day
+                widgetRevision &+= 1
+            }
+            widgetNutritionUpdatedAt = now
+        } catch {
+            // An unsuccessful fetch must not turn a partially loaded day into zero totals.
+        }
+    }
+
+    func widgetYear(endingAt now: Date) -> SpotterWidgetSnapshot.Year? {
+        let day = SpotterWidgetSnapshot.dayKey(for: now)
+        guard widgetOverviewDay == day, let from = widgetDate(now, addingDays: -364) else { return nil }
+        let cutoff = max(from, recentHistoryStart ?? from)
+        var minutes: [String: Int] = [:]
+        if from < cutoff {
+            guard let widgetHistory, let cutoffDate = nativePlanDate(cutoff),
+                  let through = widgetDate(cutoffDate, addingDays: -1),
+                  widgetHistory.from <= from, widgetHistory.through >= through else { return nil }
+            minutes = widgetHistory.dailyMinutes.filter { $0.key >= from && $0.key < cutoff }
+        }
+        let recent = logs.filter { $0.owner == owner && $0.day >= cutoff && $0.day <= day }
+        minutes.merge(Self.widgetMinutes(for: recent), uniquingKeysWith: { _, current in current })
+        return .init(dailyMinutes: minutes)
+    }
+
+    static func widgetMinutes(for logs: [NativeWorkoutEntry]) -> [String: Int] {
+        logs.reduce(into: [:]) { minutes, log in
+            let duration = max(0, min(1_440, log.data["minutes"].number))
+            minutes[log.day, default: 0] += Int(exactly: duration.rounded(.towardZero)) ?? 0
+        }
+    }
+
+    private func widgetDate(_ date: Date, addingDays count: Int) -> String? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar.date(byAdding: .day, value: count, to: date).map {
+            SpotterWidgetSnapshot.dayKey(for: $0, timeZone: calendar.timeZone)
+        }
+    }
+
+    private func invalidateWidgetHistory(for days: String...) {
+        guard let current = widgetHistory, days.contains(where: { $0 >= current.from && $0 <= current.through }) else { return }
+        widgetHistory = nil
+        saveSnapshot()
+        Task { await refreshWidgetHistory() }
     }
 
     func loadHistory(from: String, through: String) async {
@@ -361,8 +491,23 @@ final class NativeWorkoutStore: ObservableObject {
             }
             let updated = entries.filter { $0.kind != "log" || $0.day < from || $0.day > through } + records
             if entries != updated { entries = updated }
+            refreshCachedWidgetHistory(with: records, from: from, through: through)
             return true
         } catch { return false }
+    }
+
+    private func refreshCachedWidgetHistory(with records: [NativeWorkoutEntry], from: String, through: String) {
+        guard let archive = widgetHistory else { return }
+        let first = max(from, archive.from)
+        let last = min(through, archive.through)
+        guard first <= last else { return }
+        let known = records.filter { $0.owner == owner && $0.day >= first && $0.day <= last }
+        let remaining = archive.dailyMinutes.filter { $0.key < first || $0.key > last }
+        let days = remaining.merging(Self.widgetMinutes(for: known), uniquingKeysWith: { _, current in current })
+        guard days != archive.dailyMinutes else { return }
+        widgetHistory = .init(from: archive.from, through: archive.through, fetchedAt: archive.fetchedAt, dailyMinutes: days)
+        widgetRevision &+= 1
+        saveSnapshot()
     }
 
     func useConfirmedViewerName(_ name: String) {
@@ -371,9 +516,16 @@ final class NativeWorkoutStore: ObservableObject {
 
     func loadProteinPreferences() async {
         do {
-            let library = try await api.spotterRead("/api/library", as: NativeJSON.self)
+            let revision = localRevision
+            let data = try await api.request("/api/library", method: "GET", json: nil, for: owner)
+            guard revision == localRevision else { return }
+            let library = try JSONDecoder().decode(NativeJSON.self, from: data)
             let rows = library["rows"].array
-            if libraryRows != rows { libraryRows = rows }
+            if libraryRows != rows {
+                let schedule = libraryRows.first { $0["kind"].string == "schedule" }
+                libraryRows = rows
+                if schedule != rows.first(where: { $0["kind"].string == "schedule" }) { widgetRevision &+= 1 }
+            }
             let products = rows.first { $0["kind"].string == "protein-warehouse" }?["products"].array ?? []
             if proteinProducts != products { proteinProducts = products }
             let preference = rows.first { $0["kind"].string == "protein-preference" }
@@ -413,7 +565,13 @@ final class NativeWorkoutStore: ObservableObject {
 
     func clearLocalData() {
         localRevision &+= 1
-        hasWidgetOverview = false
+        widgetOverviewDay = nil
+        widgetHistory = nil
+        widgetNutrition = nil
+        widgetNutritionDay = nil
+        widgetNutritionUpdatedAt = nil
+        reloadWidgetNutrition = false
+        reloadWidgetHistory = false
         draftTask?.cancel()
         syncRetryTask?.cancel()
         syncRetryTask = nil
@@ -758,6 +916,8 @@ final class NativeWorkoutStore: ObservableObject {
                 if isLoading { reloadAfterPlanWrite = true }
                 entries = [record] + entries.filter { $0.id != pending.id || $0.owner != owner }
                 pendingCheckins.removeAll { $0.id == pending.id }
+                invalidateWidgetHistory(for: record.day)
+                NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
                 persist()
                 saveSnapshot()
                 errorMessage = nil
@@ -931,15 +1091,22 @@ final class NativeWorkoutStore: ObservableObject {
         saved.data = receipt.data
         entryRevision &+= 1
         entries = entries.map { $0.key == saved.key && $0.kind == "log" ? saved : $0 }
+        invalidateWidgetHistory(for: record.day, saved.day)
         return saved
     }
 
-    func cheer() async throws {
+    func cheer(expectedPartner: String? = nil) async throws {
+        if let expectedPartner {
+            await load()
+            guard partnerID == expectedPartner, !room["connectionId"].string.isEmpty else {
+                throw NativeAPIError.server(status: 409, message: "搭子关系已变化，请打开搭子列表刷新。")
+            }
+        }
         let connection = room["connectionId"].string
         guard !partnerID.isEmpty, !connection.isEmpty else { return }
         let body: NativeJSON = .object(["action": .string("cheer"), "partner": .string(partnerID),
                                        "connection": .string(connection), "timeZone": .string(TimeZone.current.identifier)])
-        _ = try await api.request("/api/workout", method: "POST", json: JSONEncoder().encode(body))
+        _ = try await api.request("/api/workout", method: "POST", json: JSONEncoder().encode(body), for: owner)
         await load()
     }
 
