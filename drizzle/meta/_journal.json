@@ -120,6 +120,13 @@
       "when": 1795569638157,
       "tag": "0016_account_handles",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1795571665794,
+      "tag": "0017_account_handle_tags",
+      "breakpoints": true
     }
   ]
 }

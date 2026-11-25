@@ -30,12 +30,11 @@ export async function readAccountProfile(db: D1Database, owner: string) {
   throw new HttpError(503, "暂时无法设置用户名，请稍后重试。");
 }
 
-export async function saveAccountUsername(db: D1Database, owner: string, username: string) {
-  const current = await readAccountProfile(db, owner);
-  if (current.username === username) return current;
-  const updated = await db.prepare("UPDATE OR IGNORE spotter_account_handles SET username = ? WHERE owner = ? " +
+export async function saveAccountUsername(db: D1Database, owner: string, username: string, tag?: string) {
+  await readAccountProfile(db, owner);
+  const updated = await db.prepare("UPDATE OR IGNORE spotter_account_handles SET username = ?, tag = COALESCE(?, tag) WHERE owner = ? " +
     "RETURNING username, tag, (SELECT discoverable FROM friend_profiles WHERE owner = ?) AS discoverable")
-    .bind(username, owner, owner).first<ProfileRow>();
-  if (!updated) throw new HttpError(409, "该用户名已被占用，请换一个。");
+    .bind(username, tag ?? null, owner, owner).first<ProfileRow>();
+  if (!updated) throw new HttpError(409, "这个用户名和编号的组合已被使用，请修改其中一项。");
   return profile(updated);
 }

@@ -263,9 +263,10 @@ export const spotterAccessAccounts = sqliteTable("spotter_access_accounts", {
 
 export const spotterAccountHandles = sqliteTable("spotter_account_handles", {
   owner: text().primaryKey().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
-  username: text().notNull().unique(),
+  username: text().notNull(),
   tag: text().notNull(),
 }, (table) => [
+  uniqueIndex("spotter_account_handles_username_tag_unique").on(table.username, table.tag),
   check("spotter_handle_username", sql`length(${table.username}) BETWEEN 3 AND 24
     AND ${table.username} NOT GLOB '*[^a-z0-9._]*'
     AND substr(${table.username}, 1, 1) GLOB '[a-z0-9]'

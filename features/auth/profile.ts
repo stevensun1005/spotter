@@ -15,6 +15,7 @@ export function parseHandleQuery(raw: string): { username: string; tag?: string 
 
 export const updateProfileInput = z.object({
   username: z.string().max(80).transform(normalizeUsername).refine((value) => usernamePattern.test(value)),
+  tag: z.string().max(16).transform(normalizeUsername).refine((value) => tagPattern.test(value)).optional(),
   expectedOwner: z.string().min(1).max(250),
 }).strict();
 

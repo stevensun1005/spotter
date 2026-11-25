@@ -20,8 +20,8 @@ export const GET = api(async (request) => {
 export const POST = api(async (request) => {
   const { id } = await requireAccount();
   const item = await readJson(request, libraryMutation, 48000);
+  if (item.expectedOwner && item.expectedOwner !== id) throw new HttpError(403, "登录账号已切换，请重新打开记录后再操作。");
   if (item.action === "save") {
-    if (item.expectedOwner && item.expectedOwner !== id) throw new HttpError(403, "登录账号已切换，请重新打开记录后再保存。");
     return json({ ok: true, updated: await saveLibrary(id, item.data, item.revision) });
   }
   await removeLibrary(id, item.kind, item.id, item.revision);
