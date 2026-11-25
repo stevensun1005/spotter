@@ -322,7 +322,7 @@ struct NativeBodyData: View {
                         PointMark(x: .value("日期", point.date), y: .value(metric.name, point.value))
                     }
                 }
-                .foregroundStyle(SpotterPalette.color(0x2c6b4a))
+                .foregroundStyle(SpotterPalette.adaptive(0x2c6b4a, 0x9cdab5))
                 .frame(height: 155)
                 .accessibilityLabel(metric.name + "变化曲线")
                 ForEach(Array(data.suffix(30).reversed())) { record in

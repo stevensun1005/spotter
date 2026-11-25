@@ -3,9 +3,9 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-private let secondaryLilac = Color(red: 0.92, green: 0.90, blue: 0.96)
-private let secondaryTeal = Color(red: 0.86, green: 0.94, blue: 0.92)
-private let secondarySlate = Color(red: 0.90, green: 0.93, blue: 0.94)
+private let secondaryLilac = SpotterPalette.adaptive(0xebe6f5, 0x373049)
+private let secondaryTeal = SpotterPalette.adaptive(0xdbf0eb, 0x24443d)
+private let secondarySlate = SpotterPalette.adaptive(0xe6edf0, 0x303d41)
 
 private extension View {
     func secondaryCard(radius: CGFloat = 15) -> some View {
@@ -27,6 +27,7 @@ private struct SecondarySegment<Option: Hashable>: View {
     @Binding var value: Option
     let title: (Option) -> String
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterAccent) private var accent
     @Namespace private var selection
 
     var body: some View {
@@ -37,11 +38,11 @@ private struct SecondarySegment<Option: Hashable>: View {
                         .font(.caption.weight(value == option ? .bold : .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
-                        .foregroundStyle(value == option ? SpotterPalette.deep : SpotterPalette.muted)
+                        .foregroundStyle(value == option ? SpotterPalette.ink : SpotterPalette.muted)
                         .frame(maxWidth: .infinity, minHeight: 35)
                         .background {
                             if value == option {
-                                RoundedRectangle(cornerRadius: 8).fill(SpotterPalette.wash)
+                                RoundedRectangle(cornerRadius: 8).fill(accent.selection)
                                     .matchedGeometryEffect(id: "selection", in: selection)
                             }
                         }
@@ -77,7 +78,7 @@ private struct SecondarySelectionMenu<Option: Hashable>: View {
             .fixedSize(horizontal: true, vertical: false)
             .frame(minHeight: 44)
             .contentShape(Rectangle())
-            .foregroundStyle(SpotterPalette.deep)
+            .foregroundStyle(SpotterPalette.ink)
         }
         .accessibilityLabel(label)
         .accessibilityValue(title(selection))
@@ -116,6 +117,7 @@ private struct SecondaryActionHeader<Actions: View>: View {
 }
 
 private struct SecondaryButtonStyle: ButtonStyle {
+    @Environment(\.spotterAccent) private var accent
     var primary = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -124,7 +126,7 @@ private struct SecondaryButtonStyle: ButtonStyle {
             .foregroundStyle(primary ? SpotterPalette.deep : SpotterPalette.ink)
             .padding(.horizontal, 12)
             .frame(minHeight: 42)
-            .background(primary ? SpotterPalette.lime : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 9))
+            .background(primary ? accent.fill : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(SpotterPalette.line, lineWidth: 1).allowsHitTesting(false))
             .spotterPressFeedback(configuration.isPressed)
     }
@@ -136,7 +138,7 @@ private struct SecondaryBadge: View {
 
     var body: some View {
         Text(text).font(.caption2.weight(.semibold))
-            .foregroundStyle(green ? SpotterPalette.deep : SpotterPalette.muted)
+            .foregroundStyle(green ? SpotterPalette.ink : SpotterPalette.muted)
             .padding(.horizontal, 7).padding(.vertical, 4)
             .background(green ? SpotterPalette.wash : SpotterPalette.background, in: Capsule())
     }
@@ -146,10 +148,11 @@ private struct SecondaryTile: View {
     let icon: String
     var color = SpotterPalette.wash
     var size: CGFloat = 34
+    var onBrightFill = false
 
     var body: some View {
         Image(systemName: icon).font(.system(size: min(18, size * 0.48), weight: .semibold))
-            .foregroundStyle(SpotterPalette.deep)
+            .foregroundStyle(onBrightFill ? SpotterPalette.deep : SpotterPalette.ink)
             .frame(width: size, height: size)
             .background(color, in: RoundedRectangle(cornerRadius: size * 0.27))
             .accessibilityHidden(true)
@@ -264,6 +267,7 @@ private enum SecondaryMetric: String, CaseIterable, Hashable {
 
 @MainActor
 struct NativeSpotterStats: View {
+    @Environment(\.spotterAccent) private var accent
     @ObservedObject var store: NativeWorkoutStore
     let api: NativeAPI
     let owner: String
@@ -422,7 +426,7 @@ struct NativeSpotterStats: View {
                     .disabled(spotterDay(range.lowerBound) < "1901-01-01" || rangeCount(range) > 3_660)
                 Spacer(minLength: 0)
                 VStack(spacing: 3) {
-                    Text(periodTitle).font(.subheadline.weight(.bold)).foregroundStyle(SpotterPalette.deep)
+                    Text(periodTitle).font(.subheadline.weight(.bold)).foregroundStyle(SpotterPalette.ink)
                     Text(label(range)).font(.caption2.monospacedDigit()).foregroundStyle(SpotterPalette.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -439,7 +443,7 @@ struct NativeSpotterStats: View {
             HStack {
                 Text(key == .sessions ? "训练次数 / 天数" : key.rawValue).font(.caption.weight(.semibold)).lineLimit(1)
                 Spacer(minLength: 2)
-                SecondaryTile(icon: key.icon, color: lead ? SpotterPalette.lime : SpotterPalette.wash, size: 25)
+                SecondaryTile(icon: key.icon, color: lead ? accent.fill : SpotterPalette.wash, size: 25, onBrightFill: lead)
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(statNumber(value)).font(.title2.weight(.heavy)).monospacedDigit().minimumScaleFactor(0.65).lineLimit(1)
@@ -476,7 +480,7 @@ struct NativeSpotterStats: View {
             HStack {
                 Text(title).font(.caption)
                 Spacer()
-                Text(empty ? "—" : statNumber(value)).font(.title3.weight(.heavy)).foregroundStyle(SpotterPalette.deep).monospacedDigit()
+                Text(empty ? "—" : statNumber(value)).font(.title3.weight(.heavy)).foregroundStyle(SpotterPalette.ink).monospacedDigit()
                 Text(metric.unit + (metric == .volume ? "/天" : "")).font(.caption2)
             }
             ProgressView(value: max(0, value), total: scale).tint(SpotterPalette.accent)
@@ -649,7 +653,7 @@ private struct SecondaryActivityCalendar: View {
         let level = amount > 0 ? 1 + thresholds.filter { amount >= $0 }.count : 0
         return Button { selected = key } label: {
             RoundedRectangle(cornerRadius: 2).fill(Self.colors[level])
-                .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(selected == key ? SpotterPalette.deep : SpotterPalette.line, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(selected == key ? SpotterPalette.ink : SpotterPalette.line, lineWidth: 1))
                 .frame(width: 14, height: 14)
         }.buttonStyle(.spotterPress).accessibilityLabel("\(key) · \(description(entries))")
     }
@@ -1629,6 +1633,7 @@ struct NativeSettings: View {
     var onDeleted: () -> Void
     var refreshPlans: @MainActor () async -> Void = {}
     var openTraining: (() -> Void)? = nil
+    var workoutStore: NativeWorkoutStore? = nil
 
     private enum Page: String, CaseIterable, Identifiable {
         case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", planImport = "粘贴已有内容", programs = "训练周期", reminders = "训练提醒"
@@ -1648,7 +1653,7 @@ struct NativeSettings: View {
             case .reminders: return "待训练计划、每日提醒时间"
             case .units: return "新动作的重量单位、动作名称、1RM 估算方式"
             case .equipment: return "健身房配置和可用器械"
-            case .appearance: return "文字大小和减少动画"
+            case .appearance: return "主题、强调色、文字大小和减少动画"
             case .modules: return "首页营养、训练计划、每周打卡和好友入口"
             case .data: return "导出训练资料、恢复 Spotter 备份"
             case .watches: return "Apple Watch 与 Apple 健康"
@@ -1741,7 +1746,7 @@ struct NativeSettings: View {
         return NavigationLink(value: Page.account) {
             HStack(spacing: 12) {
                 Text(name.first.map(String.init) ?? "我").font(.title3.weight(.heavy))
-                    .foregroundStyle(SpotterPalette.deep).frame(width: 44, height: 44)
+                    .foregroundStyle(SpotterPalette.ink).frame(width: 44, height: 44)
                     .background(SpotterPalette.wash, in: Circle()).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(name).font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.ink)
@@ -1772,7 +1777,7 @@ struct NativeSettings: View {
         case .protein: NativeProteinView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
         case .equipment: NativeEquipmentPreferences()
         case .planImport: NativePlanImportView(api: account.api, owner: owner, didImport: refreshPlans)
-        case .programs: NativeProgramsView(api: account.api, owner: owner, didSchedule: refreshPlans)
+        case .programs: NativeProgramsView(api: account.api, owner: owner, didSchedule: refreshPlans, store: workoutStore)
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -2277,11 +2282,55 @@ struct NativeGymEquipmentGrid: View {
 }
 
 private struct NativeAppearancePreferences: View {
+    @AppStorage(SpotterTheme.storageKey) private var theme: SpotterTheme = .light
+    @AppStorage(SpotterAccent.storageKey) private var accent: SpotterAccent = .lime
     @AppStorage(NativePreferenceKey.largerText) private var largerText = false
     @AppStorage(NativePreferenceKey.reduceMotion) private var reduceMotion = false
 
     var body: some View {
         SecondaryGroup {
+            HStack {
+                Text("主题").font(.subheadline.weight(.semibold)).accessibilityHidden(true)
+                Spacer()
+                Picker("主题", selection: $theme) {
+                    ForEach(SpotterTheme.allCases) { item in Text(item.title).tag(item) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("spotter-theme-picker")
+            }
+            .padding(13)
+            .frame(minHeight: 48)
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                Text("强调色").font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                    ForEach(SpotterAccent.allCases) { choice in
+                        Button { accent = choice } label: {
+                            VStack(spacing: 5) {
+                                ZStack {
+                                    Circle().fill(choice.fill)
+                                    if accent == choice {
+                                        Image(systemName: "checkmark").font(.caption.weight(.bold))
+                                            .foregroundStyle(SpotterPalette.deep)
+                                    }
+                                }
+                                .frame(width: 28, height: 28)
+                                .accessibilityHidden(true)
+                                Text(choice.title).font(.caption.weight(.semibold)).lineLimit(2).minimumScaleFactor(0.75)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 57)
+                            .foregroundStyle(SpotterPalette.ink)
+                            .background(accent == choice ? choice.selection : .clear, in: RoundedRectangle(cornerRadius: 10))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.spotterPress)
+                        .accessibilityAddTraits(accent == choice ? .isSelected : [])
+                        .accessibilityIdentifier("spotter-appearance-\(choice.rawValue)")
+                    }
+                }
+            }.padding(13)
+            Divider()
             NativeSettingToggle(title: "加大文字", detail: "增大使用系统动态字体的文字。", value: $largerText)
             Divider()
             NativeSettingToggle(title: "减少动画", detail: "减少应用内的界面过渡。", value: $reduceMotion)
@@ -2940,7 +2989,7 @@ struct NativeFriends: View {
 
 private func avatar(_ name: String, buddy: Bool = false) -> some View {
     Text(name.trimmingCharacters(in: .whitespacesAndNewlines).first.map(String.init) ?? "友")
-        .font(.subheadline.weight(.heavy)).foregroundStyle(SpotterPalette.deep)
+        .font(.subheadline.weight(.heavy)).foregroundStyle(SpotterPalette.ink)
         .frame(width: 35, height: 35)
         .background(buddy ? SpotterPalette.wash : secondaryLilac, in: RoundedRectangle(cornerRadius: 9))
         .accessibilityHidden(true)

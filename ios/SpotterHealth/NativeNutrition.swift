@@ -349,6 +349,7 @@ private enum NutritionDestination: Identifiable {
 
 @MainActor
 struct NativeNutritionDetail: View {
+    @Environment(\.spotterAccent) private var accent
     let api: NativeAPI
     let owner: String
     var logs: [NativeWorkoutEntry]? = nil
@@ -419,7 +420,7 @@ struct NativeNutritionDetail: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .foregroundStyle(SpotterPalette.ink)
-        .tint(SpotterPalette.accent)
+        .tint(accent.tint)
         .background(SpotterPalette.background.ignoresSafeArea())
         .task(id: day) { await load(day) }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in Task { await load(day) } }
@@ -730,6 +731,7 @@ struct NativeNutritionDetail: View {
 
 @MainActor
 private struct NativeNutritionEditor: View {
+    @Environment(\.spotterAccent) private var accent
     let api: NativeAPI
     let owner: String
     let date: String
@@ -811,7 +813,7 @@ private struct NativeNutritionEditor: View {
                         else { Text("保存").fontWeight(.semibold).frame(maxWidth: .infinity).frame(height: 44) }
                     }
                     .foregroundStyle(SpotterPalette.deep)
-                    .background(SpotterPalette.lime, in: RoundedRectangle(cornerRadius: 9))
+                    .background(accent.fill, in: RoundedRectangle(cornerRadius: 9))
                     .buttonStyle(.spotterPress)
                     .disabled(busy)
                 }

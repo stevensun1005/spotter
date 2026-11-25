@@ -1,69 +1,150 @@
 import Charts
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 struct NativeHeartView: View {
-    private struct StoredHeart: Decodable {
-        let source: String
-        let average: Int?
-        let minimum: Int?
-        let maximum: Int?
-        let sourceName: String?
-        let samples: [HeartPoint]
-        var minimumBPM: Int? { minimum ?? samples.map(\.bpm).min() }
-        var label: String {
-            sourceName ?? ["apple": "Apple 健康", "whoop": "WHOOP", "fit": "FIT", "tcx": "TCX", "csv": "CSV"][source] ?? source
-        }
+    private struct Cloud: Decodable { let data: NativeImportedHeart? }
+    private enum Confirmation: String, Identifiable {
+        case apple, replaceFile, remove
+        var id: Self { self }
+        var title: String { self == .remove ? "移除这次训练的心率？" : "替换这次训练已保存的心率？" }
+        var action: String { self == .remove ? "移除心率" : "确认替换" }
     }
-    private struct Cloud: Decodable { let data: StoredHeart? }
+
     let api: NativeAPI
     let owner: String
     let entry: NativeWorkoutEntry
-    @State private var stored: StoredHeart?
-    @State private var busy = false
+    @State private var stored: NativeImportedHeart?
+    @State private var preview: NativeImportedHeart?
+    @State private var loading = true
+    @State private var loadedCloud = false
+    @State private var operation: Task<Void, Never>?
     @State private var message: String?
-    @State private var confirmReplace = false
+    @State private var showingFiles = false
+    @State private var confirmation: Confirmation?
+
+    private var window: WorkoutWindow? {
+        guard entry.owner == owner, entry.kind == "log", let interval = entry.workoutWindow else { return nil }
+        let value = WorkoutWindow(id: entry.id, from: interval.from, to: interval.to)
+        return value.canRead ? value : nil
+    }
+
+    private static let fileTypes = [UTType(filenameExtension: "fit"), UTType(filenameExtension: "tcx"), .commaSeparatedText, .zip]
+        .map { $0 ?? .data }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("训练心率", systemImage: "heart.text.square").font(.headline)
-            if let stored {
-                HStack(spacing: 20) {
-                    heartMeasure("平均", value: stored.average)
-                    heartMeasure("最低", value: stored.minimumBPM)
-                    heartMeasure("最高", value: stored.maximum)
-                }
-                if !stored.samples.isEmpty {
-                    Chart(stored.samples, id: \.at) { point in
-                        LineMark(x: .value("时间", Date(timeIntervalSince1970: Double(point.at) / 1000)),
-                                 y: .value("心率", point.bpm))
-                            .foregroundStyle(.red)
-                    }
-                    .frame(height: 120)
-                    .accessibilityLabel("训练心率曲线")
-                }
-                Text(stored.label).font(.footnote).foregroundStyle(.secondary)
-            }
+            if preview != nil { Label("导入预览 · 仅你可见", systemImage: "lock").font(.footnote.weight(.semibold)) }
+            if let shown = preview ?? stored { summary(shown) }
+            if loading || operation != nil { ProgressView(loading ? "正在读取心率…" : "正在处理心率…").font(.footnote) }
             if let message { Text(message).font(.footnote).foregroundStyle(.secondary) }
-            if entry.workoutWindow != nil {
-                Button {
-                    if let stored, stored.source != "apple" { confirmReplace = true }
-                    else { Task { await loadHealth() } }
-                } label: {
-                    Label(busy ? "正在读取" : "从 Apple 健康同步", systemImage: "arrow.trianglehead.clockwise")
-                }
-                .buttonStyle(.bordered)
-                .disabled(busy)
-            }
+            if let window { controls(window).disabled(loading || operation != nil) }
+            else if stored == nil { Text("此训练没有可读取的起止时间。").font(.footnote).foregroundStyle(.secondary) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(spotterCardPadding)
         .spotterCard()
-        .task { await loadCloud() }
-        .confirmationDialog("替换当前来源的心率记录？", isPresented: $confirmReplace, titleVisibility: .visible) {
-            Button("同步 Apple 健康", role: .destructive) { Task { await loadHealth() } }
+        .task(id: entry.id) {
+            defer { loading = false }
+            do { try await loadCloud() }
+            catch is CancellationError { }
+            catch { message = "无法读取云端心率。重新打开这条记录可重试。" }
+        }
+        .onDisappear {
+            operation?.cancel()
+        }
+        .fileImporter(isPresented: $showingFiles, allowedContentTypes: Self.fileTypes) { result in
+            guard let window else { return }
+            switch result {
+            case .success(let url): perform { try await importFile(url, window: window) }
+            case .failure: message = "无法打开所选文件。"
+            }
+        }
+        .confirmationDialog(confirmation?.title ?? "", isPresented: Binding(
+            get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }
+        ), titleVisibility: .visible, presenting: confirmation) { action in
+            Button(action.action, role: .destructive) {
+                guard let window else { return }
+                switch action {
+                case .apple: perform { try await loadHealth(window) }
+                case .replaceFile: perform { try await savePreview() }
+                case .remove: perform { try await remove() }
+                }
+            }
             Button("取消", role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder private func controls(_ window: WorkoutWindow) -> some View {
+        if preview != nil {
+            let needsConfirmation = stored != nil || !loadedCloud
+            Button {
+                if needsConfirmation { confirmation = .replaceFile }
+                else { perform { try await savePreview() } }
+            } label: { Label(needsConfirmation ? "替换已保存心率" : "保存心率", systemImage: "checkmark") }
+            .buttonStyle(SpotterNativeButtonStyle(primary: true))
+            Button("取消预览") { preview = nil; message = nil }.buttonStyle(.spotterPress)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack { fileButton; appleButton(window) }
+                VStack(alignment: .leading, spacing: 8) { fileButton; appleButton(window) }
+            }
+            if stored != nil {
+                Button("移除心率") { confirmation = .remove }
+                    .font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.muted).buttonStyle(.spotterPress)
+            }
+            DisclosureGroup("支持的设备与文件") {
+                Text("Garmin 等设备可导入 FIT 或 TCX，WHOOP 可选择 workouts.csv 或原始 ZIP。含明确时间和 BPM 的 CSV 也可导入。")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted).padding(.top, 5)
+            }.font(.footnote)
+        }
+    }
+
+    private var fileButton: some View {
+        Button { showingFiles = true } label: {
+            Label("导入心率文件", systemImage: "doc.badge.plus").fixedSize(horizontal: true, vertical: false)
+        }.buttonStyle(.bordered)
+    }
+
+    private func appleButton(_ window: WorkoutWindow) -> some View {
+        Button {
+            if (stored != nil && stored?.source != "apple") || !loadedCloud { confirmation = .apple }
+            else { perform { try await loadHealth(window) } }
+        } label: {
+            Label("从 Apple 健康同步", systemImage: "arrow.trianglehead.clockwise").fixedSize(horizontal: true, vertical: false)
+        }.buttonStyle(.bordered)
+    }
+
+    private func summary(_ data: NativeImportedHeart) -> some View {
+        let start = Date(timeIntervalSince1970: Double(data.from) / 1_000)
+        let end = Date(timeIntervalSince1970: Double(data.to) / 1_000)
+        let dateStyle: Date.FormatStyle.DateStyle = Calendar.current.isDate(start, inSameDayAs: end) ? .omitted : .abbreviated
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Text(data.label).font(.footnote.weight(.semibold))
+                Text(start.formatted(date: dateStyle, time: .shortened) + " – " + end.formatted(date: dateStyle, time: .shortened))
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 20) {
+                heartMeasure("平均", value: data.average)
+                heartMeasure("最低", value: data.lowest)
+                heartMeasure("最高", value: data.maximum)
+            }
+            if !data.samples.isEmpty {
+                Chart(data.samples, id: \.at) { point in
+                    let time = Date(timeIntervalSince1970: Double(point.at) / 1_000)
+                    if data.samples.count == 1 {
+                        PointMark(x: .value("时间", time), y: .value("心率", point.bpm)).foregroundStyle(.red)
+                    } else {
+                        LineMark(x: .value("时间", time), y: .value("心率", point.bpm)).foregroundStyle(.red)
+                    }
+                }
+                .frame(height: 120)
+                .accessibilityLabel("训练心率曲线")
+            }
         }
     }
 
@@ -74,39 +155,74 @@ struct NativeHeartView: View {
         }
     }
 
-    private func loadCloud() async {
-        guard UUID(uuidString: entry.id) != nil else { return }
-        do {
-            stored = try await api.spotterRead("/api/health?id=" + entry.id, as: Cloud.self).data
-        } catch { message = error.localizedDescription }
+    private func perform(_ action: @escaping @MainActor () async throws -> Void) {
+        guard operation == nil, !loading else { return }
+        message = nil
+        operation = Task {
+            defer { operation = nil }
+            do { try await action() }
+            catch is CancellationError { }
+            catch { message = error.localizedDescription }
+        }
     }
 
-    private func loadHealth() async {
-        guard let interval = entry.workoutWindow, entry.owner == owner else { return }
-        let window = WorkoutWindow(id: entry.id, from: interval.from, to: interval.to)
-        guard window.canRead else { message = "这笔训练的开始和结束时间还无法同步。"; return }
-        busy = true
-        message = nil
-        defer { busy = false }
-        do {
-            let reader = HealthKitReader()
-            try await reader.authorize(.heartRate)
-            guard let payload = try await reader.read(window) else {
-                message = "这段时间没有可读取的心率。请检查健康权限和手表同步。"
-                return
-            }
-            try Task.checkCancellation()
-            struct HeartUpload: Encodable {
-                let action = "save"
-                let id: String
-                let expectedOwner: String
-                let data: HeartPayload
-            }
-            let body = try JSONEncoder().encode(HeartUpload(id: entry.id, expectedOwner: owner, data: payload))
-            _ = try await api.request("/api/health", method: "POST", json: body)
-            await loadCloud()
-            if message == nil { message = "这次训练的心率已同步。" }
-        } catch { message = error.localizedDescription }
+    private func loadCloud() async throws {
+        guard entry.owner == owner, entry.kind == "log", UUID(uuidString: entry.id) != nil else { return }
+        let result = try await api.spotterRead("/api/health?id=" + entry.id, as: Cloud.self)
+        try Task.checkCancellation()
+        stored = result.data
+        loadedCloud = true
+    }
+
+    private func importFile(_ url: URL, window: WorkoutWindow) async throws {
+        let parse = Task.detached(priority: .userInitiated) { try NativeHeartFileImport.read(url, window: window) }
+        let result = try await withTaskCancellationHandler { try await parse.value } onCancel: { parse.cancel() }
+        try Task.checkCancellation()
+        preview = result
+    }
+
+    private func savePreview() async throws {
+        guard window != nil, let preview else { return }
+        try await save(preview)
+        stored = preview
+        self.preview = nil
+        loadedCloud = true
+        message = "心率已保存到这次训练。"
+    }
+
+    private func loadHealth(_ window: WorkoutWindow) async throws {
+        let reader = HealthKitReader()
+        try await reader.authorize(.heartRate)
+        guard let payload = try await reader.read(window) else {
+            message = "这段时间没有可读取的心率。请检查健康权限和手表同步。"
+            return
+        }
+        try await save(payload)
+        try await loadCloud()
+        message = "这次训练的心率已同步。"
+    }
+
+    private struct HeartUpload<Payload: Encodable>: Encodable {
+        let action = "save"
+        let id: String
+        let expectedOwner: String
+        let data: Payload
+    }
+
+    private func save<T: Encodable>(_ data: T) async throws {
+        guard window != nil else { return }
+        try Task.checkCancellation()
+        let body = try JSONEncoder().encode(HeartUpload(id: entry.id, expectedOwner: owner, data: data))
+        _ = try await api.request("/api/health", method: "POST", json: body)
+    }
+
+    private func remove() async throws {
+        guard window != nil, stored != nil else { return }
+        let body = try JSONEncoder().encode(["action": "remove", "id": entry.id])
+        _ = try await api.request("/api/health", method: "POST", json: body, for: owner)
+        stored = nil
+        loadedCloud = true
+        message = "已移除这次训练的心率。"
     }
 }
 

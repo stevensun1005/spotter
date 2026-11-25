@@ -12,9 +12,12 @@ const checks = [
   ["health-binding", [...shared, "ios/Tests/HealthAccountGateSmoke.swift"]],
   ["account-session", [...shared, "ios/SpotterHealth/AppSession.swift", "ios/Tests/AppSessionSmoke.swift"]],
   ["native-workout", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/Tests/NativeWorkoutSmoke.swift"]],
+  ["native-program", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/SpotterHealth/NativeProgramModel.swift", "ios/Tests/NativeProgramSmoke.swift"]],
   ["native-catalogue", ["ios/SpotterHealth/AppConfiguration.swift", "ios/SpotterHealth/NativeWorkoutModels.swift",
     "ios/SpotterHealth/NativeCatalogueData.swift", "ios/Tests/NativeCatalogueSmoke.swift"]],
   ["native-protein", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/Tests/NativeProteinSmoke.swift"]],
+  ["native-heart-files", ["ios/SpotterHealth/HeartPayload.swift", "ios/SpotterHealth/NativeHeartFileImport.swift",
+    "ios/SpotterHealth/NativeHeartWorkoutFiles.swift", "ios/Tests/NativeHeartFileSmoke.swift"]],
 ];
 
 try {

@@ -38,6 +38,7 @@ private enum NativeCatalogueSheet: Identifiable {
 
 @MainActor
 struct NativeCatalogueBrowser: View {
+    @Environment(\.spotterAccent) private var accent
     @ObservedObject var store: NativeWorkoutStore
     let addToPlan: (NativeCatalogEntry) -> Void
 
@@ -164,11 +165,11 @@ struct NativeCatalogueBrowser: View {
                 .padding(.leading, 11)
                 .padding(.trailing, 6)
                 .frame(height: 43)
-                .spotterGlass(cornerRadius: 24, tint: .white.opacity(0.75), interactive: false)
+                .spotterGlass(cornerRadius: 24, tint: SpotterPalette.card.opacity(0.75), interactive: false)
                 catalogueIconButton(cards ? "list.bullet" : "square.grid.2x2",
                                     label: cards ? "切到列表" : "切到卡片",
                                     size: 43) { cards.toggle() }
-                catalogueIconButton("plus", label: "新建自定义动作", size: 43, tint: SpotterPalette.lime) {
+                catalogueIconButton("plus", label: "新建自定义动作", size: 43, tint: accent.fill) {
                     searchFocused = false
                     sheet = .create("")
                 }
@@ -195,7 +196,7 @@ struct NativeCatalogueBrowser: View {
             .padding(4)
             .animation(filterMotion, value: filters.area)
         }
-        .background(SpotterPalette.color(0xe9eee5), in: RoundedRectangle(cornerRadius: 12))
+        .background(SpotterPalette.adaptive(0xe9eee5, 0x26332a), in: RoundedRectangle(cornerRadius: 12))
         .accessibilityLabel("部位筛选")
     }
 
@@ -243,13 +244,13 @@ struct NativeCatalogueBrowser: View {
         return ScrollView(.horizontal, showsIndicators: false) {
             SpotterGlassGroup(spacing: 2) {
                 HStack(spacing: 5) {
-                    catalogueChip("置顶", symbol: "star", selected: filters.scope == .pinned) {
+                    catalogueChip("置顶", symbol: "star", selected: filters.scope == .pinned, accent: accent) {
                         filters.scope = filters.scope == .pinned ? .all : .pinned
                         filters.area = ""
                         filters.equipment = ""
                     }
                     ForEach(ordered, id: \.self) { gear in
-                        catalogueChip(index.label(gear), selected: filters.equipment == gear) {
+                        catalogueChip(index.label(gear), selected: filters.equipment == gear, accent: accent) {
                             filters.equipment = filters.equipment == gear ? "" : gear
                         }
                     }
@@ -400,7 +401,7 @@ struct NativeCatalogueBrowser: View {
             }
             .padding(.vertical, 4)
         }
-        .background(SpotterPalette.color(0xf7faf5), in: RoundedRectangle(cornerRadius: 10))
+        .background(SpotterPalette.adaptive(0xf7faf5, 0x242e27), in: RoundedRectangle(cornerRadius: 10))
         .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
         .frame(width: 29)
         .accessibilityLabel("器械分区导航")
@@ -657,16 +658,16 @@ private func catalogueIconButton(
     Button(action: action) {
         Image(systemName: symbol)
             .font(.system(size: size >= 40 ? 17 : 15, weight: .semibold))
-            .foregroundStyle(SpotterPalette.ink)
+            .foregroundStyle(tint == nil ? SpotterPalette.ink : SpotterPalette.deep)
             .frame(width: size, height: size)
             .contentShape(Rectangle())
-            .spotterGlass(cornerRadius: radius ?? size / 2, tint: tint ?? .white.opacity(0.86))
+            .spotterGlass(cornerRadius: radius ?? size / 2, tint: tint ?? SpotterPalette.card.opacity(0.86))
     }
     .buttonStyle(.spotterPress)
     .accessibilityLabel(label)
 }
 
-private func catalogueChip(_ title: String, symbol: String? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
+private func catalogueChip(_ title: String, symbol: String? = nil, selected: Bool, accent: SpotterAccent, action: @escaping () -> Void) -> some View {
     Button(action: action) {
         HStack(spacing: 4) {
             if let symbol { Image(systemName: symbol).font(.system(size: 11)) }
@@ -675,8 +676,8 @@ private func catalogueChip(_ title: String, symbol: String? = nil, selected: Boo
         .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 8)
         .frame(height: 34)
-        .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.muted)
-        .spotterGlass(cornerRadius: 8, tint: selected ? SpotterPalette.wash : .white.opacity(0.85))
+        .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
+        .spotterGlass(cornerRadius: 8, tint: selected ? accent.selection : SpotterPalette.card.opacity(0.85))
     }
     .buttonStyle(.spotterPress)
     .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -718,6 +719,7 @@ private struct NativeCatalogueCover: View {
 }
 
 private struct NativeCatalogueFiltersSheet: View {
+    @Environment(\.spotterAccent) private var accent
     @Environment(\.dismiss) private var dismiss
     let index: NativeCatalogIndex
     @Binding var filters: NativeCatalogueFilters
@@ -777,12 +779,12 @@ private struct NativeCatalogueFiltersSheet: View {
             chipGrid(index.groups.map(\.id)) { id in
                 let title = index.groups.first { $0.id == id }?.title ?? id
                 let term = "group:" + id
-                catalogueChip(title, selected: filters.muscles.contains(term)) { toggleMuscle(term) }
+                catalogueChip(title, selected: filters.muscles.contains(term), accent: accent) { toggleMuscle(term) }
             }
             ForEach(index.groups, id: \.id) { group in
                 Text(group.title).font(.subheadline.weight(.semibold))
                 chipGrid(group.muscles) { muscle in
-                    catalogueChip(index.muscleLabel(muscle), selected: filters.muscles.contains(muscle)) { toggleMuscle(muscle) }
+                    catalogueChip(index.muscleLabel(muscle), selected: filters.muscles.contains(muscle), accent: accent) { toggleMuscle(muscle) }
                 }
             }
             if !filters.muscles.isEmpty { Button("清除肌肉") { filters.muscles.removeAll() }.font(.footnote) }
@@ -799,7 +801,7 @@ private struct NativeCatalogueFiltersSheet: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(.headline)
             chipGrid(options) { option in
-                catalogueChip(option.isEmpty ? blank : index.label(option), selected: selection == option) { choose(option) }
+                catalogueChip(option.isEmpty ? blank : index.label(option), selected: selection == option, accent: accent) { choose(option) }
             }
         }
     }
@@ -938,6 +940,7 @@ private struct NativeCatalogueCustomEditor: View {
 }
 
 private struct NativeCatalogueExerciseDetail: View {
+    @Environment(\.spotterAccent) private var accent
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -1004,7 +1007,7 @@ private struct NativeCatalogueExerciseDetail: View {
     private var addButton: some View {
         let button = Button { add(entry) } label: { Label("加入训练计划", systemImage: "plus") }
         if #available(iOS 26.0, *) {
-            button.buttonStyle(.glass(.regular.tint(SpotterPalette.lime).interactive(!reduceMotion && !systemReduceMotion)))
+            button.buttonStyle(.glass(.regular.tint(accent.fill).interactive(!reduceMotion && !systemReduceMotion)))
                 .foregroundStyle(SpotterPalette.deep)
         } else {
             button.buttonStyle(SpotterNativeButtonStyle(primary: true))

@@ -76,7 +76,6 @@ struct NativeCoachSharingSettings: View {
 private enum CoachColors {
     static let canvas = Color(red: 0.08, green: 0.125, blue: 0.102)
     static let panel = Color(red: 0.125, green: 0.18, blue: 0.145)
-    static let accent = Color(red: 0.82, green: 0.96, blue: 0.48)
     static let dark = Color(red: 0.094, green: 0.145, blue: 0.114)
     static let text = Color(red: 0.94, green: 0.96, blue: 0.93)
     static let muted = Color(red: 0.69, green: 0.75, blue: 0.70)
@@ -84,12 +83,7 @@ private enum CoachColors {
     static let choice = Color(red: 0.17, green: 0.27, blue: 0.20)
     static let glow = Color(red: 0.18, green: 0.30, blue: 0.22)
     static let error = Color(red: 1, green: 0.72, blue: 0.70)
-    static let guideCanvas = Color(red: 0.95, green: 0.96, blue: 0.93)
-    static let guideText = Color(red: 0.106, green: 0.157, blue: 0.125)
-    static let guideMuted = Color(red: 0.35, green: 0.40, blue: 0.37)
-    static let guideBorder = Color(red: 0.88, green: 0.91, blue: 0.87)
-    static let guideSelected = Color(red: 0.92, green: 0.96, blue: 0.85)
-    static let guideAccent = Color(red: 0.32, green: 0.43, blue: 0.23)
+
 }
 
 private extension View {
@@ -98,10 +92,10 @@ private extension View {
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(CoachColors.border, lineWidth: 1))
     }
 
-    func guidePanel(selected: Bool = false) -> some View {
-        background(selected ? CoachColors.guideSelected : .white, in: RoundedRectangle(cornerRadius: 16))
+    func guidePanel(accent: SpotterAccent? = nil) -> some View {
+        background(accent?.selection ?? SpotterPalette.card, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(selected ? CoachColors.guideAccent : CoachColors.guideBorder, lineWidth: 1))
+                .strokeBorder(accent?.tint ?? SpotterPalette.line, lineWidth: 1))
     }
 }
 
@@ -141,6 +135,7 @@ struct NativeCoachView: View {
     var onStartWorkout: (() -> Void)? = nil
     let nutritionDate: String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Namespace private var modeSelection
@@ -204,7 +199,7 @@ struct NativeCoachView: View {
             .animation(reducesMotion ? nil : .easeInOut(duration: 0.2), value: mode)
         }
         .foregroundStyle(CoachColors.text)
-        .tint(CoachColors.accent)
+        .tint(accent.fill)
         .background {
             CoachColors.canvas.overlay(alignment: .topTrailing) {
                 RadialGradient(colors: [CoachColors.glow, .clear], center: .topTrailing, startRadius: 12, endRadius: 365)
@@ -249,7 +244,7 @@ struct NativeCoachView: View {
         .sheet(isPresented: $showOwnImport) {
             NavigationStack {
                 NativePlanImportView(api: api, owner: owner, didImport: {})
-            }.environment(\.colorScheme, .light).tint(SpotterPalette.accent).presentationDragIndicator(.visible)
+            }.tint(accent.tint).presentationDragIndicator(.visible)
         }
     }
 
@@ -299,7 +294,7 @@ struct NativeCoachView: View {
                 .background {
                     if mode == item {
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(CoachColors.accent)
+                            .fill(accent.fill)
                             .matchedGeometryEffect(id: "coach-mode", in: modeSelection)
                     }
                 }
@@ -326,7 +321,7 @@ struct NativeCoachView: View {
                         if let draft = mealDraft { mealPreview(draft) }
                         if let error { message(Line(role: "error", content: error)) }
                         if busy {
-                            ProgressView("教练正在回复").font(.footnote).tint(CoachColors.accent)
+                            ProgressView("教练正在回复").font(.footnote).tint(accent.fill)
                                 .padding(.vertical, 6).transition(.opacity)
                         }
                         Color.clear.frame(height: 1).id("latest")
@@ -407,9 +402,9 @@ struct NativeCoachView: View {
             .accessibilityLabel("你：\(line.content)")
         } else {
             let mark = line.role == "error" ? ("exclamationmark.circle", "暂未完成", CoachColors.error)
-                : line.role == "status" ? ("checkmark", "已保存", CoachColors.accent)
+                : line.role == "status" ? ("checkmark", "已保存", accent.fill)
                 : line.role == "meal" ? ("camera", "拍照记饮食", Color.orange)
-                : ("sparkles", "Spotter 教练", CoachColors.accent)
+                : ("sparkles", "Spotter 教练", accent.fill)
             VStack(alignment: .leading, spacing: 9) {
                 messageTitle(mark.0, mark.1, mark.2)
                 Text(line.content).font(.subheadline).lineSpacing(4).textSelection(.enabled)
@@ -418,10 +413,10 @@ struct NativeCoachView: View {
         }
     }
 
-    private func messageTitle(_ icon: String, _ title: String, _ tint: Color = CoachColors.accent) -> some View {
+    private func messageTitle(_ icon: String, _ title: String, _ tint: Color? = nil) -> some View {
         HStack(spacing: 7) {
             Image(systemName: icon).frame(width: 28, height: 28)
-                .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+                .background((tint ?? accent.fill).opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
                 .accessibilityHidden(true)
             Text(title).font(.footnote.weight(.bold))
         }
@@ -496,11 +491,11 @@ struct NativeCoachView: View {
                     let ready = picture != nil || !cleanText.isEmpty
                     if picture != nil {
                         Text("识别并记餐").font(.footnote.weight(.bold)).padding(.horizontal, 12).frame(minHeight: 36)
-                            .foregroundStyle(CoachColors.dark).background(CoachColors.accent, in: Capsule())
+                            .foregroundStyle(CoachColors.dark).background(accent.fill, in: Capsule())
                     } else {
                         Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 36, height: 36)
                             .foregroundStyle(ready ? CoachColors.dark : CoachColors.muted)
-                            .background(ready ? CoachColors.accent : .clear, in: Circle())
+                            .background(ready ? accent.fill : .clear, in: Circle())
                             .accessibilityLabel("发送消息")
                     }
                 }.buttonStyle(.spotterPress).disabled(busy || (picture == nil && cleanText.isEmpty))
@@ -662,7 +657,7 @@ struct NativeCoachView: View {
         Button(action: action) {
             Text(title).font(.footnote.weight(.bold)).foregroundStyle(CoachColors.dark)
                 .padding(.horizontal, 13).frame(minHeight: 38)
-                .background(CoachColors.accent, in: RoundedRectangle(cornerRadius: 10))
+                .background(accent.fill, in: RoundedRectangle(cornerRadius: 10))
         }.buttonStyle(.spotterPress).disabled(busy)
     }
 
@@ -892,6 +887,7 @@ private struct NativePlanQuestions: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @State private var goal = "hypertrophy"
@@ -990,7 +986,7 @@ private struct NativePlanQuestions: View {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 5) {
-                                Text("第 \(step + 1) 步 · \(labels[step])").font(.caption.weight(.semibold)).foregroundStyle(CoachColors.accent)
+                                Text("第 \(step + 1) 步 · \(labels[step])").font(.caption.weight(.semibold)).foregroundStyle(accent.fill)
                                 Text(titles[step]).font(.title2.bold()).accessibilityAddTraits(.isHeader)
                                 Text(details[step]).font(.subheadline).foregroundStyle(CoachColors.muted)
                             }
@@ -1018,8 +1014,8 @@ private struct NativePlanQuestions: View {
             }
             footer
         }
-        .foregroundStyle(CoachColors.guideText).background(CoachColors.guideCanvas.ignoresSafeArea())
-        .tint(CoachColors.guideAccent).environment(\.colorScheme, .light)
+        .foregroundStyle(SpotterPalette.ink).background(SpotterPalette.background.ignoresSafeArea())
+        .tint(accent.tint)
         .task { await loadCatalogue() }
         .sheet(isPresented: $choosingMove) { cataloguePicker.presentationDragIndicator(.visible) }
     }
@@ -1028,8 +1024,8 @@ private struct NativePlanQuestions: View {
         HStack(spacing: 5) {
             ForEach(labels.indices, id: \.self) { index in
                 VStack(spacing: 4) {
-                    Capsule().fill(step >= index ? CoachColors.guideAccent : CoachColors.guideBorder).frame(height: 4)
-                    Text(labels[index]).font(.caption2).foregroundStyle(step == index ? CoachColors.guideText : CoachColors.guideMuted)
+                    Capsule().fill(step >= index ? accent.tint : SpotterPalette.line).frame(height: 4)
+                    Text(labels[index]).font(.caption2).foregroundStyle(step == index ? SpotterPalette.ink : SpotterPalette.muted)
                 }.frame(maxWidth: .infinity)
             }
         }.accessibilityHidden(true).animation(stepMotion, value: step)
@@ -1064,12 +1060,12 @@ private struct NativePlanQuestions: View {
                 CoachArt(tile: item.tile, symbol: item.symbol, size: 48)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title).font(.headline)
-                    Text(item.detail).font(.caption).foregroundStyle(CoachColors.guideMuted)
+                    Text(item.detail).font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
                 Spacer(minLength: 4)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? CoachColors.guideAccent : CoachColors.guideMuted)
-            }.padding(10).guidePanel(selected: selected)
+                    .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
+            }.padding(10).guidePanel(accent: selected ? accent : nil)
         }
         .buttonStyle(.spotterPress).accessibilityAddTraits(selected ? .isSelected : [])
         .animation(stepMotion, value: selected)
@@ -1090,7 +1086,7 @@ private struct NativePlanQuestions: View {
                             selectedPreset = preset.id; work = candidates; warmup = warm
                         }
                         DisclosureGroup("查看动作") {
-                            Text((candidates + warm).map(\.name).joined(separator: " · ")).foregroundStyle(CoachColors.guideMuted)
+                            Text((candidates + warm).map(\.name).joined(separator: " · ")).foregroundStyle(SpotterPalette.muted)
                         }
                         .font(.caption).padding(.horizontal, 10).padding(.bottom, 4)
                     }
@@ -1124,7 +1120,7 @@ private struct NativePlanQuestions: View {
                     .accessibilityLabel("移除 \(move.name)")
                 }.padding(.horizontal, 9).padding(.vertical, 4).guidePanel()
             }
-            if work.isEmpty { Text("至少加入一个正式动作。").font(.caption).foregroundStyle(CoachColors.guideMuted) }
+            if work.isEmpty { Text("至少加入一个正式动作。").font(.caption).foregroundStyle(SpotterPalette.muted) }
         }
     }
 
@@ -1146,7 +1142,7 @@ private struct NativePlanQuestions: View {
                         if focus.contains(item.0) { focus.remove(item.0) } else { focus.insert(item.0) }
                     }
                     .buttonStyle(.bordered)
-                    .tint(focus.contains(item.0) ? CoachColors.guideAccent : CoachColors.guideMuted)
+                    .tint(focus.contains(item.0) ? accent.tint : SpotterPalette.muted)
                 }
             }
             if frequency * weeks > 12 {
@@ -1171,8 +1167,8 @@ private struct NativePlanQuestions: View {
                 }
             } label: {
                 Text(step == 4 ? "生成计划草稿" : "下一步").font(.subheadline.weight(.bold))
-                    .foregroundStyle(CoachColors.guideText).frame(maxWidth: .infinity, minHeight: 42)
-                    .background(CoachColors.accent.opacity(invalidStep ? 0.45 : 1), in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(SpotterPalette.deep).frame(maxWidth: .infinity, minHeight: 42)
+                    .background(accent.fill.opacity(invalidStep ? 0.45 : 1), in: RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.spotterPress).disabled(invalidStep)
         }

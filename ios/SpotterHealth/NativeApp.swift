@@ -1,21 +1,93 @@
 import SwiftUI
+import UIKit
+
+enum SpotterTheme: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    static let storageKey = "spotter.native.appearance.theme"
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
+enum SpotterAccent: String, CaseIterable, Identifiable {
+    case lime, mint, blue, violet
+
+    static let storageKey = "spotter.native.appearance.accent"
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .lime: return "青柠"
+        case .mint: return "薄荷"
+        case .blue: return "天空蓝"
+        case .violet: return "丁香紫"
+        }
+    }
+    var fill: Color {
+        switch self {
+        case .lime: return SpotterPalette.color(0xd0f67b)
+        case .mint: return SpotterPalette.color(0xaaf0c1)
+        case .blue: return SpotterPalette.color(0xa9ddff)
+        case .violet: return SpotterPalette.color(0xdac3ff)
+        }
+    }
+    var tint: Color {
+        switch self {
+        case .lime: return SpotterPalette.accent
+        case .mint: return SpotterPalette.adaptive(0x236547, 0xaaf0c1)
+        case .blue: return SpotterPalette.adaptive(0x225982, 0xa9ddff)
+        case .violet: return SpotterPalette.adaptive(0x65428f, 0xdac3ff)
+        }
+    }
+    var selection: Color {
+        switch self {
+        case .lime: return SpotterPalette.wash
+        case .mint: return SpotterPalette.adaptive(0xddf4e6, 0x254237)
+        case .blue: return SpotterPalette.adaptive(0xe1f1fc, 0x253d4d)
+        case .violet: return SpotterPalette.adaptive(0xefe5fc, 0x3e3151)
+        }
+    }
+}
+
+private struct SpotterAccentKey: EnvironmentKey {
+    static let defaultValue: SpotterAccent = .lime
+}
 
 enum SpotterPalette {
-    static let accent = color(0x466036)
-    static let lime = color(0xd0f67b)
-    static let background = color(0xf2f4ee)
-    static let card = Color.white
+    static let accent = adaptive(0x466036, 0xb6dc86)
+    static let background = adaptive(0xf2f4ee, 0x141a17)
+    static let card = adaptive(0xffffff, 0x1f2823)
     static let deep = color(0x18251d)
-    static let ink = color(0x1b2820)
-    static let muted = color(0x59675e)
-    static let line = color(0xe0e7dd)
-    static let wash = color(0xeaf3df)
-    static let lilac = color(0xeeeafb)
+    static let ink = adaptive(0x1b2820, 0xe7eee9)
+    static let muted = adaptive(0x59675e, 0xa6b4a9)
+    static let line = adaptive(0xe0e7dd, 0x39463d)
+    static let wash = adaptive(0xeaf3df, 0x26332a)
+    static let lilac = adaptive(0xeeeafb, 0x373049)
 
     static func color(_ hex: UInt32) -> Color {
         Color(red: Double((hex >> 16) & 255) / 255,
               green: Double((hex >> 8) & 255) / 255,
               blue: Double(hex & 255) / 255)
+    }
+
+    static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let hex = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255,
+                           blue: CGFloat(hex & 255) / 255, alpha: 1)
+        })
     }
 }
 
@@ -46,7 +118,7 @@ extension View {
         } else {
             background {
                 shape.fill(.ultraThinMaterial)
-                    .overlay { shape.fill(tint ?? .white.opacity(0.84)) }
+                    .overlay { shape.fill(tint ?? SpotterPalette.card.opacity(0.84)) }
             }
                 .overlay { shape.strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
         }
@@ -58,6 +130,11 @@ private struct SpotterReduceMotionKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var spotterAccent: SpotterAccent {
+        get { self[SpotterAccentKey.self] }
+        set { self[SpotterAccentKey.self] = newValue }
+    }
+
     var spotterReduceMotion: Bool {
         get { self[SpotterReduceMotionKey.self] }
         set { self[SpotterReduceMotionKey.self] = newValue }
@@ -118,6 +195,8 @@ func spotterDay(_ date: Date = .now) -> String {
 @MainActor
 struct NativeSpotterApp: View {
     @StateObject private var account = NativeAccount()
+    @AppStorage(SpotterTheme.storageKey) private var theme: SpotterTheme = .light
+    @AppStorage(SpotterAccent.storageKey) private var accent: SpotterAccent = .lime
 
     var body: some View {
         Group {
@@ -133,8 +212,9 @@ struct NativeSpotterApp: View {
             }
         }
         .foregroundStyle(SpotterPalette.ink)
-        .tint(SpotterPalette.accent)
-        .preferredColorScheme(.light)
+        .tint(accent.tint)
+        .environment(\.spotterAccent, accent)
+        .preferredColorScheme(theme.colorScheme)
         .task { await account.restore() }
     }
 }
@@ -142,6 +222,7 @@ struct NativeSpotterApp: View {
 @MainActor
 private struct NativeSignIn: View {
     @ObservedObject var account: NativeAccount
+    @Environment(\.spotterAccent) private var accent
     @State private var email = ""
     @State private var accessCode = ""
     @State private var allowAI = false
@@ -181,9 +262,10 @@ private struct NativeSignIn: View {
                     } label: {
                         Text("登录")
                             .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(SpotterPalette.deep)
                             .padding(.horizontal, 15)
                             .frame(minHeight: 42)
-                            .background(SpotterPalette.lime, in: RoundedRectangle(cornerRadius: 9))
+                            .background(accent.fill, in: RoundedRectangle(cornerRadius: 9))
                     }
                     .buttonStyle(.spotterPress)
                     .disabled(account.isBusy || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || accessCode.isEmpty)
@@ -289,6 +371,8 @@ private struct NativeSpotterTabs: View {
     @ObservedObject var account: NativeAccount
     @StateObject private var workouts: NativeWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.spotterAccent) private var accent
+    @AppStorage(SpotterTheme.storageKey) private var theme: SpotterTheme = .light
     @Namespace private var legacySelection
     @State private var selected: NativeSpotterSection = .today
     @State private var showCoach = false
@@ -347,8 +431,10 @@ private struct NativeSpotterTabs: View {
         .fullScreenCover(isPresented: $showSettings, onDismiss: { Task { await workouts.load() } }) {
             NavigationStack {
                 NativeSettings(account: account, owner: owner, onDeleted: workouts.clearLocalData,
-                               refreshPlans: { await workouts.load() }, openTraining: { selected = .training; showSettings = false })
+                               refreshPlans: { await workouts.load() }, openTraining: { selected = .training; showSettings = false },
+                               workoutStore: workouts)
             }
+            .preferredColorScheme(theme.colorScheme)
         }
         .sheet(isPresented: $showPlanImport) {
             NavigationStack {
@@ -357,7 +443,7 @@ private struct NativeSpotterTabs: View {
         }
         .sheet(isPresented: $showPrograms) {
             NavigationStack {
-                NativeProgramsView(api: account.api, owner: owner, didSchedule: { await workouts.load() })
+                NativeProgramsView(api: account.api, owner: owner, didSchedule: { await workouts.load() }, store: workouts)
             }.presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: $showNutrition) {
@@ -504,11 +590,11 @@ private struct NativeSpotterTabs: View {
                                 Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
                                 Text(section.rawValue).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                             }
-                            .foregroundStyle(selected == section ? SpotterPalette.deep : SpotterPalette.muted)
+                            .foregroundStyle(selected == section ? accent.tint : SpotterPalette.muted)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background {
                                 if selected == section {
-                                    RoundedRectangle(cornerRadius: 15).fill(SpotterPalette.wash.opacity(0.88))
+                                    RoundedRectangle(cornerRadius: 15).fill(accent.selection.opacity(0.88))
                                         .matchedGeometryEffect(id: "selection", in: legacySelection)
                                 }
                             }
@@ -527,12 +613,12 @@ private struct NativeSpotterTabs: View {
                 Button(action: openCoach) {
                     Image("DockCoach").renderingMode(.template).resizable()
                         .frame(width: 21, height: 21)
-                        .foregroundStyle(SpotterPalette.color(0x2d543e))
+                        .foregroundStyle(accent.tint)
                         .frame(width: 38, height: 38)
-                        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 14))
+                        .background(SpotterPalette.card.opacity(0.42), in: RoundedRectangle(cornerRadius: 14))
                         .frame(width: 60, height: 60)
                         .contentShape(RoundedRectangle(cornerRadius: 22))
-                        .spotterGlass(cornerRadius: 22, tint: SpotterPalette.color(0xdaeacb).opacity(0.89))
+                        .spotterGlass(cornerRadius: 22, tint: accent.selection.opacity(0.89))
                 }
                 .buttonStyle(.spotterPress)
                 .accessibilityLabel("打开 AI 教练")
