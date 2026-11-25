@@ -410,7 +410,6 @@ private struct NativeSpotterTabs: View {
     @StateObject private var workouts: NativeWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
-    @Namespace private var dockSelection
     @State private var selected: NativeSpotterSection = .today
     @State private var showCoach = false
     @State private var coachDetent: PresentationDetent = .medium
@@ -636,8 +635,9 @@ private struct NativeSpotterTabs: View {
 
     private var dock: some View {
         HStack(spacing: 8) {
-            SpotterGlassGroup(spacing: 4) {
-                HStack(spacing: 2) {
+            ZStack(alignment: .leading) {
+                dockIndicator
+                HStack(spacing: dockSpacing) {
                     ForEach(contentSections, id: \.self) { section in
                         if section == .stats { dockPlay }
                         dockTab(section)
@@ -666,6 +666,25 @@ private struct NativeSpotterTabs: View {
         .padding(.bottom, 4)
     }
 
+    private let dockSpacing: CGFloat = 2
+    private let dockPlayWidth: CGFloat = 53
+
+    private var dockIndicator: some View {
+        GeometryReader { geometry in
+            if let index = contentSections.firstIndex(of: selected),
+               let playIndex = contentSections.firstIndex(of: .stats) {
+                let gaps = CGFloat(contentSections.count) * dockSpacing
+                let width = max(0, (geometry.size.width - dockPlayWidth - gaps) / CGFloat(contentSections.count))
+                let previousPlay = index < playIndex ? 0 : dockPlayWidth + dockSpacing
+                Capsule().fill(accent.selection.opacity(0.68))
+                    .frame(width: width)
+                    .offset(x: CGFloat(index) * (width + dockSpacing) + previousPlay)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     private func dockTab(_ section: NativeSpotterSection) -> some View {
         Button { selected = section } label: {
             VStack(spacing: 3) {
@@ -674,12 +693,6 @@ private struct NativeSpotterTabs: View {
             }
             .foregroundStyle(selected == section ? accent.tint : SpotterPalette.muted)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                if selected == section {
-                    Capsule().fill(accent.selection.opacity(0.68))
-                        .matchedGeometryEffect(id: "selection", in: dockSelection)
-                }
-            }
             .contentShape(Capsule())
         }
         .buttonStyle(.spotterPress)
@@ -696,7 +709,7 @@ private struct NativeSpotterTabs: View {
                 .frame(width: 47, height: 47)
                 .contentShape(Circle())
                 .spotterGlass(in: Circle(), tint: SpotterAccent.lime.fill.opacity(0.94), interactive: allowsMotion)
-                .padding(.horizontal, 3)
+                .frame(width: dockPlayWidth)
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(workouts.active == nil ? "开始训练" : "继续训练")
