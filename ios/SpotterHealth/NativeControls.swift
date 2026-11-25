@@ -16,14 +16,20 @@ struct SpotterControlButtonStyle: ButtonStyle {
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(shape)
         Group {
-            if glass {
-                label.spotterGlass(in: shape, interactive: enabled && motion != nil)
+            if #available(iOS 26.0, *), glass, enabled, motion != nil {
+                label.spotterGlass(in: shape)
             } else {
-                label.background(primary ? accent.fill : SpotterPalette.background, in: shape)
-                    .overlay { shape.strokeBorder(primary ? .clear : SpotterPalette.line).allowsHitTesting(false) }
+                Group {
+                    if glass {
+                        label.spotterGlass(in: shape, interactive: false)
+                    } else {
+                        label.background(primary ? accent.fill : SpotterPalette.background, in: shape)
+                            .overlay { shape.strokeBorder(primary ? .clear : SpotterPalette.line).allowsHitTesting(false) }
+                    }
+                }
+                .spotterPressFeedback(configuration.isPressed)
             }
         }
-        .spotterPressFeedback(configuration.isPressed)
         .opacity(enabled ? 1 : 0.56)
     }
 }
@@ -99,11 +105,11 @@ struct SpotterGlassSegments<Option: Hashable>: View {
             ForEach(options, id: \.self) { option in
                 let selected = option == value
                 Button {
-                    if !selected { withAnimation(motion) { value = option } }
+                    if !selected { value = option }
                 } label: {
                     label(for: option, selected: selected)
                 }
-                .buttonStyle(.spotterPress)
+                .buttonStyle(glass && selected ? .spotterGlassPress : .spotterPress)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }

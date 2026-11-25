@@ -1238,7 +1238,7 @@ struct NativeWorkoutView: View {
                 Image(systemName: "gearshape").font(.body.weight(.semibold))
                     .frame(width: 44, height: 44).contentShape(Circle())
                     .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.5), interactive: motion != nil)
-            }.buttonStyle(.spotterPress).accessibilityLabel("设置")
+            }.buttonStyle(.spotterGlassPress).accessibilityLabel("设置")
         }
     }
 
@@ -1275,7 +1275,7 @@ struct NativeWorkoutView: View {
                                 .frame(width: 44, height: 44, alignment: .leading)
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.spotterPress)
+                        .buttonStyle(.spotterGlassPress)
                         .accessibilityLabel("展开饮食记录")
                         .accessibilityIdentifier("home-nutrition-expand")
                         .transition(.opacity)
@@ -1292,7 +1292,7 @@ struct NativeWorkoutView: View {
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.spotterPress)
+                        .buttonStyle(.spotterGlassPress)
                         .accessibilityLabel("收起饮食记录")
                         .accessibilityIdentifier("home-nutrition-collapse")
                         .transition(.opacity)
@@ -1888,8 +1888,12 @@ private func tile(_ symbol: String, size: CGFloat = 40, color: Color? = nil) -> 
 }
 
 private func nativeIconButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
-    Button(action: action) { Image(systemName: symbol).font(.system(size: 19)).frame(width: 44, height: 44).background(SpotterPalette.card, in: RoundedRectangle(cornerRadius: 12)) }
-        .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.ink).accessibilityLabel(label)
+    Button(action: action) {
+        Image(systemName: symbol).font(.system(size: 19)).frame(width: 44, height: 44)
+            .background(SpotterPalette.card, in: RoundedRectangle(cornerRadius: 12))
+            .contentShape(Rectangle())
+    }
+    .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.ink).accessibilityLabel(label)
 }
 
 private func shortDay(_ day: String) -> String {
@@ -1938,10 +1942,11 @@ struct NativeTrainingLaunch: View {
                     Text("开始训练").font(.title3.weight(.bold)).accessibilityAddTraits(.isHeader)
                     Spacer()
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark").font(.subheadline.weight(.semibold)).frame(width: 44, height: 44)
+                        Image(systemName: "xmark").font(.subheadline.weight(.semibold))
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
                             .spotterGlass(cornerRadius: 22, tint: .white.opacity(0.16))
                     }
-                    .buttonStyle(.spotterPress).accessibilityLabel("关闭开始训练")
+                    .buttonStyle(.spotterGlassPress).accessibilityLabel("关闭开始训练")
                 }
                 if let startPlan, !scheduled.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
@@ -2220,7 +2225,12 @@ struct NativeActiveWorkoutView: View {
                         Text(NativeWorkoutView.duration(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1000))))
                             .font(.system(size: 43, weight: .heavy)).tracking(-2).monospacedDigit()
                     }
-                    Button { store.toggleClock() } label: { Image(systemName: session.isRunning ? "pause.fill" : "play.fill").font(.system(size: 16)).frame(width: 43, height: 43).background(SpotterPalette.card, in: Circle()) }
+                    Button { store.toggleClock() } label: {
+                        Image(systemName: session.isRunning ? "pause.fill" : "play.fill").font(.system(size: 16))
+                            .frame(width: 44, height: 44)
+                            .background(SpotterPalette.card, in: Circle())
+                            .contentShape(Rectangle())
+                    }
                         .buttonStyle(.spotterPress)
                         .accessibilityLabel(session.isRunning ? "暂停计时" : "继续计时")
                 }

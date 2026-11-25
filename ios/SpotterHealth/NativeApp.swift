@@ -189,13 +189,14 @@ private struct SpotterPressFeedback: ViewModifier {
     @Environment(\.spotterReduceMotion) private var reduceMotion
     let pressed: Bool
 
-    func body(content: Content) -> some View {
-        let animate = !systemReduceMotion && !reduceMotion
-        content
-            .scaleEffect(pressed && animate ? 0.97 : 1)
-            .opacity(pressed ? 0.83 : 1)
-            .animation(animate ? (pressed ? .easeOut(duration: 0.09) : .spring(response: 0.23, dampingFraction: 0.82)) : nil,
-                       value: pressed)
+    @ViewBuilder func body(content: Content) -> some View {
+        if systemReduceMotion || reduceMotion {
+            content.opacity(pressed ? 0.86 : 1)
+        } else {
+            content
+                .scaleEffect(pressed ? 0.98 : 1)
+                .animation(pressed ? nil : .easeOut(duration: 0.11), value: pressed)
+        }
     }
 }
 
@@ -207,15 +208,22 @@ extension View {
 
 struct SpotterPressButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.spotterInteractionMotion) private var motion
+    var usesNativeGlass = false
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.spotterPressFeedback(configuration.isPressed)
-            .opacity(enabled ? 1 : 0.54)
+    @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+        let label = configuration.label.opacity(enabled ? 1 : 0.54)
+        if #available(iOS 26.0, *), usesNativeGlass, motion != nil {
+            label
+        } else {
+            label.spotterPressFeedback(configuration.isPressed)
+        }
     }
 }
 
 extension ButtonStyle where Self == SpotterPressButtonStyle {
     static var spotterPress: Self { .init() }
+    static var spotterGlassPress: Self { .init(usesNativeGlass: true) }
 }
 
 extension NativeAPI {
@@ -536,7 +544,7 @@ private struct NativeSpotterTabs: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
     @State private var selected: NativeSpotterSection = .today
-    @State private var dockTop: CGFloat?
+    @State private var dockPosition = NativeDockPosition()
     @State private var showCoach = false
     @State private var coachDetent: PresentationDetent = .medium
     @State private var showSettings = false
@@ -782,7 +790,9 @@ private struct NativeSpotterTabs: View {
     }
 
     private var reminderSchedule: NativeTrainingNotifications.Schedule {
-        let days = Set(workouts.plans.filter { $0.owner == owner && !workouts.hasCompletedPlan(id: $0.id) }.map(\.day))
+        let days = reminderEnabled
+            ? Set(workouts.plans.lazy.filter { $0.owner == owner && !workouts.hasCompletedPlan(id: $0.id) }.map(\.day))
+            : []
         return .init(enabled: reminderEnabled, time: reminderMinute, days: days, active: scenePhase == .active)
     }
 
@@ -1001,8 +1011,8 @@ private struct NativeSpotterTabs: View {
                 GeometryReader { geometry in
                     let top = geometry.frame(in: .global).minY
                     Color.clear
-                        .onAppear { dockTop = top }
-                        .onChange(of: top) { dockTop = $0 }
+                        .onAppear { dockPosition.update(top) }
+                        .onChange(of: top) { dockPosition.update($0) }
                         .accessibilityHidden(true)
                 }
             }
@@ -1024,8 +1034,8 @@ private struct NativeSpotterTabs: View {
             NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: { openCoach() },
                               openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
         case .stats:
-            NativeSpotterStats(store: workouts, api: account.api, owner: owner, dockTop: dockTop,
-                               widgetHistoryRequest: $widgetHistoryRequest)
+            NativeStatsTab(store: workouts, api: account.api, owner: owner, dockPosition: dockPosition,
+                           widgetHistoryRequest: $widgetHistoryRequest)
         case .friends:
             NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest,
                           openOwnLog: { openOwnFeedWorkout($0) },
@@ -1047,7 +1057,7 @@ private struct NativeSpotterTabs: View {
                     .contentShape(RoundedRectangle(cornerRadius: 23))
                     .spotterGlass(cornerRadius: 23, tint: accent.selection.opacity(0.85), interactive: allowsMotion)
             }
-            .buttonStyle(.spotterPress)
+            .buttonStyle(.spotterGlassPress)
             .accessibilityLabel("打开 AI 教练")
         }
         .spotterGlassCluster(spacing: 4)
@@ -1072,6 +1082,29 @@ private struct NativeSpotterTabs: View {
         .accessibilityLabel(workouts.active == nil ? "开始训练" : "继续训练")
         .accessibilityIdentifier("spotter-dock-play")
         .disabled(workouts.active == nil && workouts.isBusy)
+    }
+}
+
+@MainActor
+private final class NativeDockPosition: ObservableObject {
+    @Published private(set) var top: CGFloat?
+
+    func update(_ position: CGFloat) {
+        if top != position { top = position }
+    }
+}
+
+@MainActor
+private struct NativeStatsTab: View {
+    let store: NativeWorkoutStore
+    let api: NativeAPI
+    let owner: String
+    @ObservedObject var dockPosition: NativeDockPosition
+    let widgetHistoryRequest: Binding<Bool>
+
+    var body: some View {
+        NativeSpotterStats(store: store, api: api, owner: owner, dockTop: dockPosition.top,
+                           widgetHistoryRequest: widgetHistoryRequest)
     }
 }
 
@@ -1193,7 +1226,7 @@ private struct NativeWorkoutStatusStrip: View {
             .contentShape(.rect)
             .spotterGlass(cornerRadius: 20, tint: accent.fill.opacity(0.20), interactive: motion != nil)
         }
-        .buttonStyle(.spotterPress)
+        .buttonStyle(.spotterGlassPress)
         .accessibilityIdentifier("spotter-active-workout-strip")
         .accessibilityHint("返回进行中的训练")
         .frame(maxWidth: 530)

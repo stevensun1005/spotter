@@ -916,13 +916,15 @@ struct NativeCoachView: View {
             Button { sendComposer() } label: {
                 if session.picture != nil && session.photoMealHistory.isEmpty {
                     Text(looksLikeProteinPhoto(cleanText) || session.pendingProteinPhotoPrompt != nil ? "识别蛋白粉" : "识别并记餐")
-                        .font(.footnote.weight(.bold)).padding(.horizontal, 11).frame(minHeight: 36)
+                        .font(.footnote.weight(.bold)).padding(.horizontal, 11).frame(minHeight: 44)
                         .foregroundStyle(CoachColors.dark).background(accent.fill, in: Capsule())
+                        .contentShape(Rectangle())
                         .transition(.opacity)
                 } else {
-                    Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 40, height: 38)
+                    Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 44, height: 44)
                         .foregroundStyle(canSendInput ? CoachColors.dark : CoachColors.muted.opacity(0.7))
                         .background(canSendInput ? accent.fill : .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
+                        .contentShape(Rectangle())
                         .accessibilityLabel("发送消息")
                         .transition(.opacity)
                 }
@@ -2181,7 +2183,7 @@ private struct NativePlanQuestions: View {
                     Spacer()
                     Button {
                         if editingWarmup { warmup.removeAll { $0.id == move.id } } else { work.removeAll { $0.id == move.id } }
-                    } label: { Image(systemName: "trash").frame(width: 44, height: 44) }
+                    } label: { Image(systemName: "trash").frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .buttonStyle(.spotterPress)
                     .accessibilityLabel("移除 \(move.name)")
                 }.padding(.horizontal, 9).padding(.vertical, 4).guidePanel()
@@ -2284,7 +2286,9 @@ private struct NativePlanQuestions: View {
             .navigationTitle("动作库")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { choosingMove = false } label: { Image(systemName: "xmark").frame(width: 38, height: 44) }
+                    Button { choosingMove = false } label: {
+                        Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
                         .buttonStyle(.spotterPress).accessibilityLabel("关闭")
                 }
             }
