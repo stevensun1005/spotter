@@ -28,6 +28,14 @@ struct AppPolicySmoke {
         print("PASS app URL policy: HTTPS origins, same-origin routes, external videos, login redirects, forbidden schemes, export blobs")
 
         let trusted = try AppConfiguration(origin: AppConfiguration.defaultOrigin)
+        let beta = trusted.betaSocialAPI(for: "/api/friends", enabled: true)
+        expect(beta?.origin == "https://spotter-beta-api.couple-ledger-service.workers.dev", "Use the exact beta service for friendship requests")
+        expect(trusted.betaSocialAPI(for: "/api/auth/avatar", enabled: true) == beta, "Use the same authenticated service for avatars")
+        expect(trusted.betaSocialAPI(for: "/api/friends", enabled: false) == nil, "Stable builds use their original friends service")
+        expect(app.betaSocialAPI(for: "/api/friends", enabled: true) == nil, "Custom servers keep their own sessions")
+        for path in ["/api/ai-coach", "/api/auth/profile", "/api/auth/avatar/remove", "/api/%66riends", "/api/notifications"] {
+            expect(trusted.betaSocialAPI(for: path, enabled: true) == nil, "Do not send unrelated session traffic to the beta service")
+        }
         let link = URL(string: trusted.origin + "/api/auth/oauth/google/native?mode=link&expectedOwner=spotter-123")!
         let login = URL(string: trusted.origin + "/api/auth/oauth/apple/native?mode=login")!
         let linkIntent = NativeOAuthIntent(url: link, sourceURL: trusted.url, configuration: trusted, mainFrame: true, userActivated: true)

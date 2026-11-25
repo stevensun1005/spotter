@@ -123,6 +123,12 @@ struct AppConfiguration: Equatable, Sendable {
         origin = result
     }
 
+    func betaSocialAPI(for path: String, enabled: Bool) -> AppConfiguration? {
+        guard enabled, origin == Self.defaultOrigin,
+              path == "/api/friends" || path == "/api/auth/avatar" else { return nil }
+        return try? AppConfiguration(origin: "https://spotter-beta-api.couple-ledger-service.workers.dev")
+    }
+
     func contains(_ candidate: URL) -> Bool {
         guard let parts = URLComponents(url: candidate, resolvingAgainstBaseURL: false),
               parts.user == nil, parts.password == nil else { return false }

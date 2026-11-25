@@ -279,6 +279,8 @@ struct NativeCatalogIndex: Sendable {
         details = try Data(contentsOf: assetsURL.appendingPathComponent("details.bin"), options: .mappedIfSafe)
     }
 
+    func entry(withID id: String) -> NativeCatalogEntry? { rowsByID[id] }
+
     func label(_ value: String) -> String { metadata.labels[value] ?? value }
     func muscleLabel(_ value: String) -> String { metadata.muscleLabels[value] ?? label(value) }
 

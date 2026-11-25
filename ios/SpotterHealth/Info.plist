@@ -49,6 +49,8 @@
     <true/>
     <key>SpotterAPNsEnvironment</key>
     <string>$(SPOTTER_APNS_ENVIRONMENT)</string>
+    <key>SpotterBetaSocialAPIEnabled</key>
+    <string>$(SPOTTER_BETA_SOCIAL_API_ENABLED)</string>
     <key>SpotterInternalCoachWorkerVersion</key>
     <string>33527ad6-e19e-47d7-848c-ae4e2659e5b5</string>
     <key>SpotterInternalNotificationsWorkerVersion</key>

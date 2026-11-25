@@ -58,7 +58,7 @@ struct NativeProgramsView: View {
                         message = "编排偏好已保存。"
                     }
                 case .edit(let record):
-                    NativeTrainingProgramEditor(record: record, rules: rules.rules, store: store, templates: templates, service: service,
+                    NativeTrainingProgramEditor(draft: record.program, record: record, rules: rules.rules, store: store, templates: templates, service: service,
                                                 didSave: keep, didRemove: remove, didSchedule: didSchedule)
                 }
             }.presentationDragIndicator(.visible)
@@ -161,6 +161,27 @@ struct NativeProgramsView: View {
     }
 }
 
+@MainActor
+struct NativeOfficialProgramReview: View {
+    let draft: NativeTrainingProgram
+    @ObservedObject var store: NativeWorkoutStore
+    @State private var rules = NativeProgramRules()
+    @State private var templates: [NativeProgramTemplate] = []
+
+    private var service: NativeProgramService { .init(api: store.api, owner: store.owner) }
+
+    var body: some View {
+        NativeTrainingProgramEditor(draft: draft, rules: rules, store: store, templates: templates, service: service,
+                                    closeTitle: "返回模板", didSave: { _ in }, didRemove: { _ in },
+                                    didSchedule: { await store.load() })
+            .navigationBarBackButtonHidden()
+            .task {
+                if let collection = try? await service.load() { rules = collection.rules.rules }
+                if let personal = try? await service.loadTemplates() { templates = personal }
+            }
+    }
+}
+
 struct NativeProgramTemplate: Identifiable {
     let id: String
     let plan: NativeJSON
@@ -249,13 +270,14 @@ private struct NativeTrainingProgramEditor: View {
     let store: NativeWorkoutStore?
     let templates: [NativeProgramTemplate]
     let service: NativeProgramService
+    let closeTitle: String
     let didSave: (NativeProgramRecord) -> Void
     let didRemove: (NativeProgramRecord) -> Void
     let didSchedule: @MainActor () async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
-    @State private var record: NativeProgramRecord
+    @State private var record: NativeProgramRecord?
     @State private var draft: NativeTrainingProgram
     @State private var week = 1
     @State private var sheet: Sheet?
@@ -266,21 +288,23 @@ private struct NativeTrainingProgramEditor: View {
     @State private var document: NativeProgramDocument?
     @State private var exporting = false
 
-    init(record: NativeProgramRecord, rules: NativeProgramRules, store: NativeWorkoutStore?, templates: [NativeProgramTemplate],
-         service: NativeProgramService, didSave: @escaping (NativeProgramRecord) -> Void, didRemove: @escaping (NativeProgramRecord) -> Void,
+    init(draft: NativeTrainingProgram, record: NativeProgramRecord? = nil, rules: NativeProgramRules, store: NativeWorkoutStore?,
+         templates: [NativeProgramTemplate], service: NativeProgramService, closeTitle: String = "全部周期",
+         didSave: @escaping (NativeProgramRecord) -> Void, didRemove: @escaping (NativeProgramRecord) -> Void,
          didSchedule: @escaping @MainActor () async -> Void) {
         self.rules = rules
         self.store = store
         self.templates = templates
         self.service = service
+        self.closeTitle = closeTitle
         self.didSave = didSave
         self.didRemove = didRemove
         self.didSchedule = didSchedule
         _record = State(initialValue: record)
-        _draft = State(initialValue: record.program)
+        _draft = State(initialValue: draft)
     }
 
-    private var dirty: Bool { record.program != draft }
+    private var dirty: Bool { record?.program != draft }
     private var sessions: [NativeTrainingProgram.Session] { draft.sessions(in: week) }
     private var availableDays: [Int] { (1...7).filter { day in !sessions.contains { $0.day == day } } }
 
@@ -297,7 +321,7 @@ private struct NativeTrainingProgramEditor: View {
         .background(SpotterPalette.background.ignoresSafeArea()).foregroundStyle(SpotterPalette.ink)
         .navigationTitle("编辑训练周期").navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("全部周期", action: close).disabled(busy) }
+            ToolbarItem(placement: .cancellationAction) { Button(closeTitle, action: close).disabled(busy) }
             ToolbarItem(placement: .confirmationAction) { toolbarMenu }
         }
         .interactiveDismissDisabled(dirty || busy)
@@ -417,10 +441,12 @@ private struct NativeTrainingProgramEditor: View {
         SpotterMenu {
             Button("周期信息与阶段", systemImage: "calendar.badge.clock") { sheet = .metadata }
             Button("导出周期", systemImage: "square.and.arrow.up", action: exportDraft)
-            Button("重新读取云端版本", systemImage: "arrow.clockwise") {
-                if dirty { confirm = .reload } else { Task { await act { try await reload() } } }
+            if record != nil {
+                Button("重新读取云端版本", systemImage: "arrow.clockwise") {
+                    if dirty { confirm = .reload } else { Task { await act { try await reload() } } }
+                }
+                Button("移除此周期草稿", role: .destructive) { confirm = .remove }
             }
-            Button("移除此周期草稿", role: .destructive) { confirm = .remove }
         } label: { Label("编辑器操作", systemImage: "ellipsis.circle").labelStyle(.iconOnly) }
             .accessibilityLabel("编辑器操作").disabled(busy)
     }
@@ -450,13 +476,17 @@ private struct NativeTrainingProgramEditor: View {
             case .adjust:
                 NativeProgramAdjust(draft: draft, week: week, save: change)
             case .preview(let preview):
-                NativeProgramPreviewScreen(preview: preview, refresh: { try await service.preview(record) }, commit: { current in
-                    let receipt = try await service.commit(record, preview: current)
-                    record.scheduledAt = ISO8601DateFormatter().string(from: .now)
-                    didSave(record)
-                    message = "已更新日历。新增 \(receipt.added) 节，更新 \(receipt.updated) 节，保留或跳过 \(receipt.skipped) 节。"
-                    await didSchedule()
-                })
+                if let record {
+                    NativeProgramPreviewScreen(preview: preview, refresh: { try await service.preview(record) }, commit: { current in
+                        let receipt = try await service.commit(record, preview: current)
+                        var updated = record
+                        updated.scheduledAt = ISO8601DateFormatter().string(from: .now)
+                        self.record = updated
+                        didSave(updated)
+                        message = "已更新日历。新增 \(receipt.added) 节，更新 \(receipt.updated) 节，保留或跳过 \(receipt.skipped) 节。"
+                        await didSchedule()
+                    })
+                }
             }
         }
     }
@@ -469,7 +499,7 @@ private struct NativeTrainingProgramEditor: View {
     }
 
     private func saveDraft() async throws -> NativeProgramRecord {
-        let saved = try await service.save(draft, revision: record.revision)
+        let saved = try await service.save(draft, revision: record?.revision)
         record = saved
         draft = saved.program
         didSave(saved)
@@ -477,16 +507,19 @@ private struct NativeTrainingProgramEditor: View {
     }
 
     private func checkSchedule() async throws {
-        let current = dirty ? try await saveDraft() : record
+        let current: NativeProgramRecord
+        if let record, !dirty { current = record }
+        else { current = try await saveDraft() }
         sheet = .preview(try await service.preview(current))
     }
 
     private func reload() async throws {
+        guard let record else { return }
         let list = try await service.load()
         guard let newest = list.programs.first(where: { $0.id == record.id }) else {
             throw NativePlanImport.Problem("找不到这个周期，可能已在另一台设备移除。")
         }
-        record = newest
+        self.record = newest
         change(newest.program)
         didSave(newest)
         message = "已读取云端版本。"
@@ -512,6 +545,7 @@ private struct NativeTrainingProgramEditor: View {
         case .leave: dismiss()
         case .reload: Task { await act { try await reload() } }
         case .remove:
+            guard let record else { return }
             Task { await act { try await service.remove(record); didRemove(record); dismiss() } }
         case .session(let session):
             var next = draft

@@ -249,7 +249,6 @@ struct NativeSpotterApp: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(SpotterTheme.storageKey) private var theme: SpotterTheme = .light
     @AppStorage(SpotterAccent.storageKey) private var accent: SpotterAccent = .lime
-    @State private var sawSignIn = false
     @State private var friendInvite: String?
     @State private var widgetDestination: NativeWidgetDestination?
 
@@ -260,11 +259,11 @@ struct NativeSpotterApp: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(SpotterPalette.background)
             } else if let profile = account.profile {
-                NativeSpotterTabs(account: account, owner: profile.id, offerWelcome: sawSignIn,
+                NativeSpotterTabs(account: account, owner: profile.id,
                                   inboundInvite: $friendInvite, widgetDestination: $widgetDestination)
                     .id(profile.id)
             } else {
-                NativeSignIn(account: account).onAppear { sawSignIn = true }
+                NativeSignIn(account: account)
             }
         }
         .foregroundStyle(SpotterPalette.ink)
@@ -281,6 +280,9 @@ struct NativeSpotterApp: View {
             let notifications = NativeSocialNotifications.shared
             notifications.useAccount(account.api, owner: account.profile?.id)
             if scenePhase == .active { await notifications.runWhileActive() }
+        }
+        .task(id: activeAccountID) {
+            if let owner = activeAccountID { await account.ensureAccountHandle(for: owner) }
         }
         .onChange(of: account.isRestoring) { restoring in
             if !restoring {
@@ -304,6 +306,10 @@ struct NativeSpotterApp: View {
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { acceptInviteURL(url) }
         }
+    }
+
+    private var activeAccountID: String? {
+        scenePhase == .active ? account.profile?.id : nil
     }
 
     private var notificationTaskKey: String {
@@ -789,6 +795,11 @@ private struct NativeSpotterTabs: View {
     @State private var showWelcome = false
     @State private var replayWelcomeAfterSettings = false
     @State private var welcomeCoachGoal: String?
+    @State private var welcomeDestination: NativeWelcomeDestination?
+    @State private var officialTemplateRequest: UUID?
+    @StateObject private var permissionOnboarding: NativePermissionOnboarding
+    @AppStorage private var didFinishWelcome: Bool
+    @AppStorage(NativePreferenceKey.officialTemplates) private var showsOfficialTemplates = true
     @State private var inboundInviteConfirmation: String?
     @State private var inviteBusy = false
     @State private var inviteMessage: String?
@@ -811,7 +822,6 @@ private struct NativeSpotterTabs: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.dynamicTypeSize) private var systemTextSize
     let owner: String
-    let offerWelcome: Bool
     @Binding var inboundInvite: String?
     @Binding var widgetDestination: NativeWidgetDestination?
 
@@ -824,11 +834,14 @@ private struct NativeSpotterTabs: View {
 
     private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
 
-    init(account: NativeAccount, owner: String, offerWelcome: Bool, inboundInvite: Binding<String?>,
+    init(account: NativeAccount, owner: String, inboundInvite: Binding<String?>,
          widgetDestination: Binding<NativeWidgetDestination?>) {
         self.account = account
         self.owner = owner
-        self.offerWelcome = offerWelcome
+        let identity = SHA256.hash(data: Data((account.api.origin + "\n" + owner).utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        _didFinishWelcome = AppStorage(wrappedValue: false, "spotter.native.welcome.v2." + identity)
+        _permissionOnboarding = StateObject(wrappedValue: NativePermissionOnboarding(origin: account.api.origin, owner: owner))
         _inboundInvite = inboundInvite
         _widgetDestination = widgetDestination
         _workouts = StateObject(wrappedValue: NativeWorkoutStore(api: account.api, owner: owner))
@@ -844,7 +857,7 @@ private struct NativeSpotterTabs: View {
         .animation(allowsMotion ? .easeInOut(duration: 0.23) : nil, value: socialNotifications.banner?.id)
         .task { await refreshHome() }
         .onAppear {
-            if offerWelcome, !UserDefaults.standard.bool(forKey: welcomeKey) {
+            if !didFinishWelcome {
                 showWelcome = true
             } else {
                 stageInvite()
@@ -860,7 +873,11 @@ private struct NativeSpotterTabs: View {
         }
         .onChange(of: widgetDestination) { _ in stageWidgetDestination() }
         .onChange(of: isAvailableForWidget) { available in
-            if available { stageWidgetDestination(); stageSocialNotification() }
+            if available {
+                stageInvite()
+                stageWidgetDestination()
+                stageSocialNotification()
+            }
         }
         .onChange(of: socialNotifications.requestedItem) { _ in stageSocialNotification() }
         .onChange(of: inboundInvite) { _ in stageInvite() }
@@ -905,7 +922,8 @@ private struct NativeSpotterTabs: View {
         }) {
             NativeCoachView(api: account.api, owner: owner, compact: coachDetent != .large,
                             onExpand: { coachDetent = .large },
-                            onStartWorkout: { selected = .training; showCoach = false })
+                            onStartWorkout: { selected = .training; showCoach = false },
+                            workoutStore: workouts)
                 .presentationDetents([Self.compactCoachDetent, .large], selection: $coachDetent)
                 .presentationDragIndicator(.visible)
         }
@@ -924,6 +942,8 @@ private struct NativeSpotterTabs: View {
                                    NativeCoachView.removeSavedConversation(api: account.api, owner: owner)
                                    NativeNutritionDetail.clearFavoriteMeals(api: account.api, owner: owner)
                                    trainingPreferences.clear()
+                                   permissionOnboarding.clear()
+                                   didFinishWelcome = false
                                },
                                refreshPlans: { await refreshHome() }, openTraining: { selected = .training; showSettings = false },
                                workoutStore: workouts, trainingPreferences: trainingPreferences, restartWelcome: {
@@ -968,6 +988,7 @@ private struct NativeSpotterTabs: View {
         }
         .fullScreenCover(isPresented: $showActiveWorkout, onDismiss: {
             showWorkoutReceipt()
+            stageInvite()
             stageWidgetDestination()
             stageSocialNotification()
         }) {
@@ -977,25 +998,28 @@ private struct NativeSpotterTabs: View {
             NavigationStack { NativeWorkoutDetailView(store: workouts, entry: entry, showsClose: true) }
                 .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented: $showWelcome, onDismiss: {
-            welcomeCoachGoal = nil
-            stageInvite()
-            stageWidgetDestination()
-            Task { await workouts.load() }
-        }) {
+        .fullScreenCover(isPresented: $showWelcome, onDismiss: completeWelcomeNavigation) {
             if let goal = welcomeCoachGoal {
                 NativeCoachView(api: account.api, owner: owner, compact: false,
                                 onStartWorkout: { selected = .training; showWelcome = false },
-                                initialTrainingGoal: goal)
+                                initialTrainingGoal: goal, workoutStore: workouts)
             } else {
-                NativeWelcomeView { goal in
-                    UserDefaults.standard.set(true, forKey: welcomeKey)
-                    if let goal { welcomeCoachGoal = goal }
-                    else { showWelcome = false }
-                }
-                .interactiveDismissDisabled()
+                NativeWelcomeView(permissionOnboarding: permissionOnboarding,
+                                  showsOfficialTemplates: showsOfficialTemplates,
+                                  showsNutrition: showsNutrition, showsFriends: showsFriends,
+                                  startCoach: { goal in
+                                      didFinishWelcome = true
+                                      welcomeCoachGoal = goal
+                                  }, finish: { destination in
+                                      welcomeDestination = destination
+                                      didFinishWelcome = true
+                                      showWelcome = false
+                                  })
+                    .interactiveDismissDisabled()
             }
         }
+        .modifier(NativePermissionReminder(controller: permissionOnboarding,
+                                           canPresent: isAvailableForWidget && !showActiveWorkout && workouts.active == nil))
         .alert("接受好友邀请？", isPresented: Binding(
             get: { inboundInviteConfirmation != nil },
             set: { if !$0 { inboundInviteConfirmation = nil } }
@@ -1063,7 +1087,9 @@ private struct NativeSpotterTabs: View {
         if showsFriends { view.openFriends = openFriends }
         if showsNutrition {
             view.openNutrition = { showNutrition = true }
-            view.homeNutrition = AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs) { showNutrition = true })
+            view.homeNutrition = { collapse in
+                AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs, onCollapse: collapse) { showNutrition = true })
+            }
         }
         return view
     }
@@ -1085,7 +1111,27 @@ private struct NativeSpotterTabs: View {
         return .init(deadlineMilliseconds: deadline, playsSound: restSound)
     }
 
-    private var welcomeKey: String { "spotter.native.welcome.v1." + owner }
+    private func completeWelcomeNavigation() {
+        welcomeCoachGoal = nil
+        switch welcomeDestination ?? .home {
+        case .home: break
+        case .officialTemplates:
+            selected = .training
+            officialTemplateRequest = UUID()
+        case .nutrition:
+            selected = .today
+            showNutrition = true
+        case .friends:
+            selected = .friends
+        }
+        welcomeDestination = nil
+        if isAvailableForWidget {
+            stageInvite()
+            stageWidgetDestination()
+            stageSocialNotification()
+        }
+        Task { await workouts.load() }
+    }
 
     private func refreshHome() async {
         trainingPreferences.activate()
@@ -1173,6 +1219,7 @@ private struct NativeSpotterTabs: View {
     }
 
     private var isAvailableForWidget: Bool {
+        didFinishWelcome && welcomeDestination == nil &&
         !showWelcome && !showCoach && !showSettings && !showPlanImport && !showPrograms &&
         !showNutrition && !showRest && !showBody && !showTrainingLaunch &&
         workoutReceipt == nil && inboundInviteConfirmation == nil &&
@@ -1216,7 +1263,7 @@ private struct NativeSpotterTabs: View {
     }
 
     private func stageInvite() {
-        guard let code = inboundInvite, !showWelcome, !showCoach, !inviteBusy else { return }
+        guard let code = inboundInvite, isAvailableForWidget, !showActiveWorkout, !inviteBusy else { return }
         inboundInvite = nil
         inboundInviteConfirmation = code
     }
@@ -1337,7 +1384,9 @@ private struct NativeSpotterTabs: View {
         case .today: today
         case .training:
             NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: { openCoach() },
-                              openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
+                              openImport: { showPlanImport = true }, openPrograms: { showPrograms = true },
+                              officialTemplateRequest: officialTemplateRequest,
+                              didHandleOfficialTemplateRequest: { officialTemplateRequest = nil })
         case .stats:
             NativeStatsTab(store: workouts, api: account.api, owner: owner, dockPosition: dockPosition,
                            widgetStatsRequest: $widgetStatsRequest)

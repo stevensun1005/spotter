@@ -153,6 +153,7 @@ struct NativeCoachView: View {
         var receipt: MealReceipt? = nil
         var proteinReceipt: ProteinOperationReceipt? = nil
         var mealConversationReply: String? = nil
+        var recommendations: [NativeCoachRecommendation]? = nil
     }
     private struct MealReceipt: Codable, Equatable, Identifiable {
         let id: String
@@ -295,6 +296,7 @@ struct NativeCoachView: View {
         @Published var drinkOptions: [KnownProtein] = []
         var lastDrink: SavedDrink?
         @Published var pendingProteinPhotoPrompt: String?
+        var recommendationQuery: NativeCoachRecommendationQuery?
     }
 
     private static var activeConversations: [ConversationAccount: Conversation] = [:]
@@ -339,6 +341,7 @@ struct NativeCoachView: View {
     let nutritionDate: String?
     let initialTrainingGoal: String?
     private let isNutritionPhoto: Bool
+    private let workoutStore: NativeWorkoutStore?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
     @Environment(\.colorScheme) private var surroundingColorScheme
@@ -347,6 +350,7 @@ struct NativeCoachView: View {
     @Environment(\.spotterInteractionMotion) private var controlMotion
     @FocusState private var editingMessage: Bool
     @AppStorage private var sharingAllowed: Bool
+    @AppStorage(NativePreferenceKey.officialTemplates) private var showsOfficialTemplates = true
     @ObservedObject private var session: Conversation
     @State private var text = ""
     @State private var error: String?
@@ -376,18 +380,20 @@ struct NativeCoachView: View {
     @State private var editingReceipt: MealReceipt?
     @State private var editingPhotoDraft = false
     @State private var receiptDestination: ReceiptDestination?
+    @State private var recommendationRequest: NativeCoachRecommendationRequest?
 
     init(api: NativeAPI, owner: String, compact: Bool = true, onExpand: (() -> Void)? = nil,
          onStartWorkout: (() -> Void)? = nil, initialMeal: String? = nil, nutritionDate: String? = nil,
-         initialTrainingGoal: String? = nil) {
+         initialTrainingGoal: String? = nil, workoutStore: NativeWorkoutStore? = nil) {
         self.init(api: api, owner: owner, compact: compact, onExpand: onExpand, onStartWorkout: onStartWorkout,
                   initialMeal: initialMeal, nutritionDate: nutritionDate, initialTrainingGoal: initialTrainingGoal,
-                  session: Self.activeConversation(api: api, owner: owner), isNutritionPhoto: false)
+                  session: Self.activeConversation(api: api, owner: owner), isNutritionPhoto: false, workoutStore: workoutStore)
     }
 
     private init(api: NativeAPI, owner: String, compact: Bool, onExpand: (() -> Void)? = nil,
                  onStartWorkout: (() -> Void)? = nil, initialMeal: String?, nutritionDate: String?,
-                 initialTrainingGoal: String? = nil, session: Conversation, isNutritionPhoto: Bool) {
+                 initialTrainingGoal: String? = nil, session: Conversation, isNutritionPhoto: Bool,
+                 workoutStore: NativeWorkoutStore? = nil) {
         self.api = api
         self.owner = owner
         self.compact = compact
@@ -396,6 +402,7 @@ struct NativeCoachView: View {
         self.nutritionDate = nutritionDate
         self.initialTrainingGoal = initialTrainingGoal
         self.isNutritionPhoto = isNutritionPhoto
+        self.workoutStore = workoutStore
         _sharingAllowed = AppStorage(wrappedValue: false, NativeCoachConsent.key(owner))
         _session = ObservedObject(wrappedValue: session)
         _entryMeal = State(initialValue: initialMeal ?? "加餐")
@@ -518,6 +525,14 @@ struct NativeCoachView: View {
                     return nil
                 }
                 .environment(\.colorScheme, surroundingColorScheme)
+            }
+        }
+        .sheet(item: $recommendationRequest) { request in
+            if let workoutStore, workoutStore.owner == owner {
+                NativeCoachRecommendationSheet(request: request, store: workoutStore)
+                    .environment(\.colorScheme, surroundingColorScheme)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
             }
         }
         .sheet(item: $receiptDestination) { destination in
@@ -679,6 +694,7 @@ struct NativeCoachView: View {
 
     private func resetConversation() {
         session.lines = []; session.planDrafts = []; session.mealDraft = nil; session.mealEstimate = nil; error = nil; text = ""
+        session.recommendationQuery = nil
         session.textMealPendingDate = nil; session.textMealHistoryStart = 0; session.isTextMealDraft = false
         clearMealPhoto(); planMode = false; session.weightPrompt = false; session.pendingWeight = nil; guidedDraft = nil
         includePlans = false; showOptions = false; copiedReply = nil; editingMessage = false
@@ -837,6 +853,8 @@ struct NativeCoachView: View {
             proteinReceiptCard(receipt)
         } else if let receipt = line.receipt {
             savedMealCard(receipt, summary: line.content)
+        } else if let recommendations = line.recommendations {
+            recommendationCards(recommendations, summary: line.content)
         } else if line.role == "user" || line.role == "local-user" {
             HStack {
                 Spacer(minLength: 48)
@@ -872,6 +890,57 @@ struct NativeCoachView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func recommendationCards(_ recommendations: [NativeCoachRecommendation], summary: String) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(summary).font(.subheadline).foregroundStyle(CoachColors.text)
+            ForEach(recommendations) { reference in
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        editingMessage = false
+                        recommendationRequest = .init(reference: reference, startsWithAdd: false)
+                    } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: reference.kind.symbol)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(accent.fill)
+                                .frame(width: 29, height: 29)
+                                .background(accent.fill.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(reference.kind.label).font(.caption.weight(.semibold)).foregroundStyle(accent.fill)
+                                Text(reference.title).font(.subheadline.weight(.semibold)).foregroundStyle(CoachColors.text)
+                                Text(reference.detail).font(.footnote).foregroundStyle(CoachColors.muted)
+                            }
+                            .multilineTextAlignment(.leading)
+                            Spacer(minLength: 2)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                                .foregroundStyle(CoachColors.muted).accessibilityHidden(true)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.spotterPress)
+                    .accessibilityIdentifier("coach-catalogue-card-" + reference.key)
+                    .accessibilityHint(reference.kind == .official ? "查看每周安排及使用模板" : "查看详情")
+                    if reference.kind == .exercise {
+                        Button("加入计划", systemImage: "plus") {
+                            editingMessage = false
+                            recommendationRequest = .init(reference: reference, startsWithAdd: true)
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(accent.fill)
+                        .buttonStyle(.spotterPress)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("coach-catalogue-add-" + reference.key)
+                    }
+                }
+                .padding(10)
+                .coachPanel(CoachColors.choice, radius: 13)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func savedMealCard(_ receipt: MealReceipt, summary: String) -> some View {
@@ -1140,11 +1209,23 @@ struct NativeCoachView: View {
                         editingMessage = true
                     }
                     suggestion("重新定制计划", icon: "calendar") { openGuide() }
+                } else if session.lines.last?.recommendations != nil {
+                    suggestion("换几个", icon: "arrow.clockwise") { sendSuggestedReply("换几个") }
+                    if session.recommendationQuery?.subject == .official {
+                        suggestion("只看居家的", icon: "house") { sendSuggestedReply("只看居家的") }
+                    }
+                    suggestion("生成训练计划", icon: "calendar") { openGuide() }
                 } else if session.lines.last?.role == "assistant" {
                     suggestion("总结成训练要点") { sendSuggestedReply("请把刚才的回复总结成训练要点。") }
                     suggestion("给我一个简单做法") { sendSuggestedReply("根据刚才的讨论，给我一个简单、可执行的做法。") }
                     suggestion("生成训练计划", icon: "calendar") { openGuide() }
                 } else {
+                    if workoutStore != nil {
+                        if showsOfficialTemplates {
+                            suggestion("推荐训练计划", icon: "calendar.badge.plus") { sendSuggestedReply("推荐训练计划") }
+                        }
+                        suggestion("推荐训练动作", icon: "dumbbell") { sendSuggestedReply("推荐训练动作") }
+                    }
                     suggestion("生成训练计划", icon: "calendar") { openGuide() }
                     suggestion("看本周训练统计", icon: "chart.bar") { Task { await trainingStats() } }
                     suggestion("记体重", icon: "scalemass") { askWeight() }
@@ -1291,10 +1372,62 @@ struct NativeCoachView: View {
             text = ""; Task { await trainingStats() }
         } else if input == "拍照记饮食" || (!session.textMealLoggingEnabled && ["记饮食", "记录饮食"].contains(input)) {
             text = ""; showPhotoHelp()
+        } else if !planMode, session.mealDraft == nil, session.textMealPendingDate == nil,
+                  let workoutStore, workoutStore.owner == owner,
+                  let query = NativeCoachRecommendationQuery.parse(input,
+                      refining: session.lines.last?.recommendations == nil ? nil : session.recommendationQuery,
+                      shown: session.lines.last?.recommendations ?? []) {
+            startRecommendations(query, input: input, store: workoutStore)
         } else if !planMode && input.range(of: "^(?:(?:帮我|请|给我|我要|我想)\\s*)*(?:生成|制定|定制|起草)(?:一个|一份)?(?:训练|健身)?计划[。！!？? ]*$", options: .regularExpression) != nil {
             text = ""
             openGuide()
         } else { submit(planMode || !session.planDrafts.isEmpty && asksToRevisePlan(input) ? .plan : .chat) }
+    }
+
+    private func startRecommendations(_ query: NativeCoachRecommendationQuery, input: String, store: NativeWorkoutStore) {
+        text = ""
+        editingMessage = false
+        error = nil
+        session.busy = true
+        session.lines.append(Line(role: "local-user", content: input))
+        if query.subject == .official && !showsOfficialTemplates {
+            session.recommendationQuery = nil
+            session.lines.append(Line(role: "local", content: "官方模板已隐藏。可在「设置 → 功能模块」开启，再查看推荐的训练计划。"))
+            session.busy = false
+            return
+        }
+        Task {
+            defer { session.busy = false }
+            let results: [NativeCoachRecommendation]
+            switch query.subject {
+            case .official:
+                results = await Task.detached(priority: .userInitiated) { NativeCoachRecommendationSource.official(query) }.value
+            case .scheduled:
+                await store.load()
+                results = NativeCoachRecommendationSource.scheduled(query, owner: owner, entries: store.plans, day: spotterDay())
+            case .exercise:
+                if let index = try? await NativeCoachRecommendationSource.exerciseIndex.value {
+                    results = await Task.detached(priority: .userInitiated) { NativeCoachRecommendationSource.exercises(query, index: index) }.value
+                } else { results = [] }
+            }
+            if Task.isCancelled { return }
+            session.recommendationQuery = query
+            let summary: String
+            if results.isEmpty {
+                switch query.subject {
+                case .official: summary = "官方模板里暂时没有符合这些条件的安排。试试调整训练水平、器械或每周次数。"
+                case .scheduled: summary = "你的日历里还没有符合条件的训练计划。可以先浏览官方模板。"
+                case .exercise: summary = "动作库里暂时没有找到匹配的动作。试试换个动作名、部位或器械。"
+                }
+            } else {
+                switch query.subject {
+                case .official: summary = "从官方模板中找到了这些计划。点开可看每周安排并选开始日。"
+                case .scheduled: summary = "这些是你已排到日历里的训练计划。点开可查看和调整。"
+                case .exercise: summary = "这些动作来自训练搭子的动作库。可以看详情或加到计划。"
+                }
+            }
+            session.lines.append(Line(role: "local", content: summary, recommendations: results))
+        }
     }
 
     private func isDrinkCommand(_ input: String) -> Bool {

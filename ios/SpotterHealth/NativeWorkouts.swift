@@ -1167,11 +1167,14 @@ struct NativeWorkoutView: View {
     var openImport: (() -> Void)? = nil
     var openPrograms: (() -> Void)? = nil
     var openFriends: (() -> Void)? = nil
-    var homeNutrition: AnyView? = nil
+    var homeNutrition: ((@escaping () -> Void) -> AnyView)? = nil
+    var officialTemplateRequest: UUID? = nil
+    var didHandleOfficialTemplateRequest: (() -> Void)? = nil
     @Environment(\.spotterInteractionMotion) private var motion
     @AppStorage("spotter.native.home.nutritionCollapsed") private var nutritionCollapsed = false
     @AppStorage(NativePreferenceKey.weeklyCheckins) private var showCheckins = true
     @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
+    @AppStorage(NativePreferenceKey.officialTemplates) private var showOfficialTemplates = true
     @State private var selectedDate = Date()
     @State private var trainingTab = "我的计划"
     @State private var completedPlans = false
@@ -1231,6 +1234,8 @@ struct NativeWorkoutView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.bottom, 5)
+                    } else if showOfficialTemplates && trainingTab == "官方模板" {
+                        NativeOfficialTemplates(store: store)
                     } else {
                         workoutOverview(topPadding: 7)
                     }
@@ -1244,6 +1249,14 @@ struct NativeWorkoutView: View {
         .foregroundStyle(SpotterPalette.ink)
         .tint(accent.tint)
         .toolbar(.hidden, for: .navigationBar)
+        .task(id: officialTemplateRequest) {
+            guard showsAllPlans, officialTemplateRequest != nil else { return }
+            if showOfficialTemplates { trainingTab = "官方模板" }
+            didHandleOfficialTemplateRequest?()
+        }
+        .onChange(of: showOfficialTemplates) { enabled in
+            if !enabled && trainingTab == "官方模板" { trainingTab = "我的计划" }
+        }
         .sheet(item: $recordSheet) { screen in
             switch screen {
             case .record(let entry):
@@ -1450,31 +1463,20 @@ struct NativeWorkoutView: View {
                         Text("饮食记录").font(.headline).accessibilityAddTraits(.isHeader)
                     }
                     Spacer()
-                    if !nutritionCollapsed {
-                        Button { setNutritionCollapsed(true) } label: {
-                            Image(systemName: "xmark").font(.footnote.weight(.semibold))
-                                .foregroundStyle(SpotterPalette.muted)
-                                .frame(width: 34, height: 34)
-                                .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.34), interactive: motion != nil)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.spotterGlassPress)
-                        .accessibilityLabel("收起饮食记录")
-                        .accessibilityIdentifier("home-nutrition-collapse")
-                        .transition(.opacity)
-                    }
                     settingsButton
                 }
             }
             if !nutritionCollapsed {
                 Group {
-                    if let homeNutrition { homeNutrition }
+                    if let homeNutrition { homeNutrition { setNutritionCollapsed(true) } }
                     else {
-                        Button(action: open) {
-                            HStack { Label("查看今日饮食", systemImage: "fork.knife"); Spacer(); Image(systemName: "arrow.up.right") }
-                                .padding(16).spotterCard()
-                        }.buttonStyle(.spotterPress)
+                        HStack {
+                            Button(action: open) {
+                                HStack { Label("查看今日饮食", systemImage: "fork.knife"); Spacer(); Image(systemName: "arrow.up.right") }
+                                    .frame(minHeight: 44).contentShape(Rectangle())
+                            }.buttonStyle(.spotterPress)
+                            NativeHomeNutritionCollapseButton { setNutritionCollapsed(true) }
+                        }.padding(12).spotterCard()
                     }
                 }
                 .transition(.offset(y: -8).combined(with: .opacity))
@@ -1898,18 +1900,12 @@ struct NativeWorkoutView: View {
     }
 
     private var trainingTabs: some View {
-        SpotterGlassSegments(options: ["我的计划", "个人模板", "动作库"], value: $trainingTab) { $0 }
+        let tabs = showOfficialTemplates ? ["我的计划", "个人模板", "官方模板", "动作库"] : ["我的计划", "个人模板", "动作库"]
+        return SpotterGlassSegments(options: tabs, value: $trainingTab) { $0 }
     }
 
     private func editCataloguePlan(_ entry: NativeCatalogEntry, in plan: NativeWorkoutEntry?) {
-        var draft = plan.map(NativePlanDraft.init(entry:)) ?? NativePlanDraft(day: selectedDay)
-        if plan == nil { draft.plan["title"] = .string(entry.name) }
-        var raw = draft.plan.object
-        raw.removeValue(forKey: "templateId")
-        raw.removeValue(forKey: "ownExercises")
-        raw["exercises"] = .array(draft.plan["exercises"].array + [NativeCataloguePlanMove.planMove(entry)])
-        draft.plan = .object(raw)
-        queuedCatalogueDraft = draft
+        queuedCatalogueDraft = NativeCataloguePlanMove(entry: entry).draft(addingTo: plan, on: selectedDay)
         cataloguePlanMove = nil
     }
 
@@ -2162,6 +2158,17 @@ struct NativeCataloguePlanMove: Identifiable {
     let entry: NativeCatalogEntry
     var id: String { entry.id }
 
+    func draft(addingTo plan: NativeWorkoutEntry?, on day: String) -> NativePlanDraft {
+        var draft = plan.map(NativePlanDraft.init(entry:)) ?? NativePlanDraft(day: day)
+        if plan == nil { draft.plan["title"] = .string(entry.name) }
+        var fields = draft.plan.object
+        fields.removeValue(forKey: "templateId")
+        fields.removeValue(forKey: "ownExercises")
+        fields["exercises"] = .array(draft.plan["exercises"].array + [Self.planMove(entry)])
+        draft.plan = .object(fields)
+        return draft
+    }
+
     static func planMove(_ entry: NativeCatalogEntry) -> NativeJSON {
         let timed = entry.hold || entry.type == "isometric" || entry.type == "cardio"
         let repetitions = entry.distance ? 1.0 : Double(NativePreferenceKey.newMoveReps)
@@ -2178,7 +2185,7 @@ struct NativeCataloguePlanMove: Identifiable {
     }
 }
 
-private struct NativeCataloguePlanPicker: View {
+struct NativeCataloguePlanPicker: View {
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.dismiss) private var dismiss
     @State private var selected = ""

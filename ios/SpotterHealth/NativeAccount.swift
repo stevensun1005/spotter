@@ -296,9 +296,12 @@ actor NativeAPI {
               parts.percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false).dropFirst().allSatisfy({ segment in
                   guard let decoded = segment.removingPercentEncoding else { return false }
                   return !decoded.isEmpty && decoded != "." && decoded != ".." && !decoded.contains("/") && !decoded.contains("\\")
-              }), let url = parts.url, configuration.contains(url),
-              ["GET", "POST", "PUT", "PATCH", "DELETE"].contains(method) else { throw NativeAPIError.invalidRequest }
+              }), ["GET", "POST", "PUT", "PATCH", "DELETE"].contains(method) else { throw NativeAPIError.invalidRequest }
 
+        let betaSocialEnabled = Bundle.main.object(forInfoDictionaryKey: "SpotterBetaSocialAPIEnabled") as? String == "YES"
+        let destination = configuration.betaSocialAPI(for: parts.percentEncodedPath, enabled: betaSocialEnabled) ?? configuration
+        let route = parts.percentEncodedPath + (parts.percentEncodedQuery.map { "?" + $0 } ?? "")
+        guard let url = URL(string: destination.origin + route), destination.contains(url) else { throw NativeAPIError.invalidRequest }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 35)
         request.httpMethod = method
         request.httpShouldHandleCookies = false
@@ -320,7 +323,7 @@ actor NativeAPI {
             }
         }
         if let cookie { request.setValue("\(NativeSessionVault.cookieName)=\(cookie)", forHTTPHeaderField: "Cookie") }
-        if method != "GET" { request.setValue(origin, forHTTPHeaderField: "Origin") }
+        if method != "GET" { request.setValue(destination.origin, forHTTPHeaderField: "Origin") }
         if let json {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = json
@@ -328,7 +331,7 @@ actor NativeAPI {
         let revision = sessionRevision
         let (data, response) = try await session.data(for: request)
         guard revision == sessionRevision else { throw NativeAPIError.accountChanged }
-        guard let http = response as? HTTPURLResponse, let url = http.url, configuration.contains(url) else {
+        guard let http = response as? HTTPURLResponse, let url = http.url, destination.contains(url) else {
             throw NativeAPIError.invalidResponse
         }
         return (data, http)
@@ -344,6 +347,7 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
     @Published private(set) var isRestoring = true
     @Published private(set) var errorMessage: String?
 
+    private var provisionedHandleOwner: String?
     private var browser: ASWebAuthenticationSession?
     private var browserWindow: ASPresentationAnchor?
     private var browserFlow: (id: UUID, completion: CheckedContinuation<URL, Error>)?
@@ -409,8 +413,22 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
         if profile.name != name { self.profile = NativeProfile(id: owner, name: name) }
     }
 
+    func ensureAccountHandle(for owner: String) async {
+        guard profile?.id == owner, provisionedHandleOwner != owner else { return }
+        do {
+            // The existing API provisions the account's username if missing.
+            // It preserves any explicitly saved discovery setting.
+            _ = try await api.request("/api/auth/profile", method: "GET", json: nil, for: owner)
+            guard !Task.isCancelled, profile?.id == owner else { return }
+            provisionedHandleOwner = owner
+        } catch {
+            // Retry on the next foreground entry without blocking sign-in.
+        }
+    }
+
     private func clearProfile() {
         profile = nil
+        provisionedHandleOwner = nil
         providerStatus.clearLinks()
     }
 

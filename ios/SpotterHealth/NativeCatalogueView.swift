@@ -930,7 +930,7 @@ private struct NativeCatalogueCustomEditor: View {
     }
 }
 
-private struct NativeCatalogueExerciseDetail: View {
+struct NativeCatalogueExerciseDetail: View {
     @Environment(\.spotterAccent) private var accent
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.dismiss) private var dismiss

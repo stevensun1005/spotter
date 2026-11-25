@@ -14,6 +14,8 @@ const checks = [
   ["native-workout", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/Tests/NativeWorkoutSmoke.swift"]],
   ["training-widget", ["ios/SpotterWidgetShared/SpotterWidgetSnapshot.swift", "ios/Tests/SpotterWidgetSnapshotSmoke.swift"]],
   ["native-program", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/SpotterHealth/NativeProgramModel.swift", "ios/Tests/NativeProgramSmoke.swift"]],
+  ["official-templates", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/SpotterHealth/NativeProgramModel.swift",
+    "ios/SpotterHealth/NativeOfficialTemplateModel.swift", "ios/Tests/NativeOfficialTemplateSmoke.swift"]],
   ["native-catalogue", ["ios/SpotterHealth/AppConfiguration.swift", "ios/SpotterHealth/NativeWorkoutModels.swift",
     "ios/SpotterHealth/NativeCatalogueData.swift", "ios/Tests/NativeCatalogueSmoke.swift"]],
   ["native-protein", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/Tests/NativeProteinSmoke.swift"]],

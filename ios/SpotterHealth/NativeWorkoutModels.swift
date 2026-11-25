@@ -22,6 +22,7 @@ enum NativePreferenceKey {
     static let nutritionModule = "spotter.native.modules.nutrition"
     static let weeklyCheckins = "spotter.native.modules.weeklyCheckins"
     static let planShortcut = "spotter.native.modules.planShortcut"
+    static let officialTemplates = "spotter.native.modules.officialTemplates"
     static let reminderTitle = "到训练时间了，今天还有计划未完成。"
 
     static func reminderKey(_ owner: String, field: String) -> String {

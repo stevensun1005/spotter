@@ -249,6 +249,7 @@ private struct NativeNutritionSummary: View {
     let date: String
     var logs: [NativeWorkoutEntry]? = nil
     var onOpen: (() -> Void)? = nil
+    var reservesCollapseSpace = false
 
     private typealias Values = NutritionPayload.Values
     private let nutrients: [(String, String, UInt32, KeyPath<Values, Double>)] = [
@@ -279,7 +280,8 @@ private struct NativeNutritionSummary: View {
                     Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
             }
-            .frame(minHeight: showLink ? 37 : nil)
+            .padding(.trailing, reservesCollapseSpace ? 44 : 0)
+            .frame(minHeight: reservesCollapseSpace ? 44 : showLink ? 37 : nil)
 
             HStack(alignment: .top, spacing: 5) {
                 ForEach(nutrients, id: \.0) { name, unit, color, key in
@@ -407,10 +409,32 @@ private struct NutritionPhotoRequest: Identifiable {
 }
 
 @MainActor
+struct NativeHomeNutritionCollapseButton: View {
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark").font(.footnote.weight(.semibold))
+                .foregroundStyle(SpotterPalette.muted)
+                .frame(width: 34, height: 34)
+                .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.34), interactive: motion != nil)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.spotterGlassPress)
+        .accessibilityLabel("收起饮食记录")
+        .accessibilityIdentifier("home-nutrition-collapse")
+    }
+}
+
+@MainActor
 struct NativeHomeNutrition: View {
     let api: NativeAPI
     let owner: String
     var logs: [NativeWorkoutEntry]? = nil
+    var onCollapse: (() -> Void)? = nil
     let onOpen: () -> Void
 
     @Environment(\.scenePhase) private var phase
@@ -424,7 +448,11 @@ struct NativeHomeNutrition: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs, onOpen: onOpen)
+            NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs,
+                                   onOpen: onOpen, reservesCollapseSpace: onCollapse != nil)
+                .overlay(alignment: .topTrailing) {
+                    if let onCollapse { NativeHomeNutritionCollapseButton(action: onCollapse) }
+                }
             Divider().overlay(SpotterPalette.line)
             NutritionShortcuts(onMainMeal: { destination = .mainMeal },
                                onSelect: { destination = .entry($0, nil, nil, nil) },

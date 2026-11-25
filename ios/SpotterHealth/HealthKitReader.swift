@@ -178,6 +178,35 @@ final class HealthKitReader {
         }
     }
 
+    func hasReadableNativeSample() async -> Bool {
+        guard Self.nativeDataAvailable, !Task.isCancelled else { return false }
+        let metrics: [NativeHealthMetric] = [.steps, .heartRate, .bodyMass, .workouts, .activeEnergy, .sleep]
+        return await withTaskGroup(of: Bool.self) { group in
+            for type in metrics.compactMap(\.sampleType) {
+                group.addTask {
+                    await self.containsNativeSample(type)
+                }
+            }
+            while let found = await group.next() {
+                if found {
+                    group.cancelAll()
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
+    private func containsNativeSample(_ type: HKSampleType) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(sampleType: type, predicate: nil, limit: 1, sortDescriptors: nil) {
+                _, records, _ in continuation.resume(returning: records?.isEmpty == false)
+            }
+            store.execute(query)
+        }
+    }
+
     private func nativeReadTypes() throws -> Set<HKObjectType> {
         guard Self.nativeDataAvailable else { throw HealthError.unavailable }
         return Set(NativeHealthMetric.supportedMetrics.compactMap(\.sampleType))

@@ -2036,6 +2036,9 @@ struct NativeSettings: View {
     @State private var nicknameNotice: String?
     @State private var nicknameError = false
     @State private var showRestSchedule = false
+    @State private var showProfileEditor = false
+    @State private var avatarPhoto: NativeAccountAvatarPhoto?
+    @State private var avatarRevision = 0
     let owner: String
     var onDeleted: () -> Void
     var refreshPlans: @MainActor () async -> Void = {}
@@ -2053,7 +2056,7 @@ struct NativeSettings: View {
 
         var detail: String {
             switch self {
-            case .account: return "昵称、用户名、登录绑定、云端同步和隐私"
+            case .account: return "头像、昵称、用户名、登录绑定和隐私"
             case .workout: return "默认组数和次数、下一组、动作节奏"
             case .protein: return "常喝的蛋白粉、一勺粉量和杯量"
             case .timer: return "休息时间、提示声音和震动、保持屏幕常亮"
@@ -2065,7 +2068,7 @@ struct NativeSettings: View {
             case .units: return "新动作的重量单位、动作名称、1RM 估算方式"
             case .equipment: return "健身房配置和可用器械"
             case .appearance: return "主题、强调色、文字大小和减少动画"
-            case .modules: return "首页营养、训练计划、好友和教练入口"
+            case .modules: return "今日饮食、官方模板、好友和教练入口"
             case .data: return "导出训练资料、恢复 Spotter 备份"
             case .watches: return "Apple Watch 与 Apple 健康"
             case .integrations: return "健康数据、AI 工具"
@@ -2154,26 +2157,103 @@ struct NativeSettings: View {
             }
         }
         .task { await loadHandle() }
+        .task { await loadAvatar() }
         .sheet(isPresented: $showRestSchedule, onDismiss: { Task { await refreshPlans() } }) {
             NativeRestSchedule(api: account.api, owner: owner, addToday: false)
         }
     }
 
+    private var profileName: String { account.profile?.name ?? handle?.handle ?? "我的账号" }
+
     private var accountHeader: some View {
-        let name = account.profile?.name ?? handle?.handle ?? "我的账号"
-        return NavigationLink(value: Page.account) {
+        NavigationLink(value: Page.account) {
             HStack(spacing: 12) {
-                Text(name.first.map(String.init) ?? "我").font(.title3.weight(.heavy))
-                    .foregroundStyle(SpotterPalette.ink).frame(width: 44, height: 44)
-                    .background(SpotterPalette.wash, in: Circle()).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(name).font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.ink)
-                    Text(handle?.handle ?? "云端账号").font(.caption).foregroundStyle(SpotterPalette.muted)
+                profileIdentity(avatarSize: 54)
+                Spacer(minLength: 5)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+                    .foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
+            }
+            .padding(14)
+            .frame(minHeight: 80)
+            .secondaryCard(radius: 18)
+        }
+        .buttonStyle(.spotterPress)
+    }
+
+    private func profileIdentity(avatarSize: CGFloat) -> some View {
+        HStack(spacing: 12) {
+            NativeAccountAvatar(name: profileName, photo: avatarPhoto, size: avatarSize)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(profileName).font(avatarSize > 60 ? .title2.bold() : .headline)
+                    .foregroundStyle(SpotterPalette.ink)
+                if let handle {
+                    Text(handle.handle)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(SpotterPalette.muted)
                 }
-                Spacer()
-                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
-            }.padding(12).frame(minHeight: 69).secondaryCard()
-        }.buttonStyle(.spotterPress)
+            }
+            .padding(.vertical, 4)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var accountProfileCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            profileIdentity(avatarSize: 72)
+            Divider()
+            Button {
+                showProfileEditor = true
+            } label: {
+                HStack {
+                    Label("编辑资料", systemImage: "pencil")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).accessibilityHidden(true)
+                }
+                .font(.subheadline.weight(.semibold))
+                .frame(minHeight: 42)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityIdentifier("spotter-edit-account-profile")
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .secondaryCard(radius: 20)
+    }
+
+    private var profileEditor: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    NativeAccountAvatarEditor(api: account.api, owner: owner, name: profileName, current: Binding(
+                        get: { avatarPhoto },
+                        set: { avatarRevision &+= 1; avatarPhoto = $0 }
+                    ))
+                    nicknameContent
+                    usernameContent
+                }
+                .secondaryPage()
+            }
+            .background(SpotterPalette.background.ignoresSafeArea())
+            .navigationTitle("编辑资料")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showProfileEditor = false }
+                }
+            }
+        }
+    }
+
+    private func loadAvatar() async {
+        let revision = avatarRevision
+        do {
+            let photo = try await NativeAccountAvatarAPI.get(api: account.api, owner: owner)
+            guard !Task.isCancelled, account.profile?.id == owner, revision == avatarRevision else { return }
+            avatarPhoto = photo
+        } catch {
+            // Keep the initial when the network cannot yet load the account photo.
+        }
     }
 
     private func rows(_ pages: [Page], title: String? = nil) -> some View {
@@ -2253,7 +2333,8 @@ struct NativeSettings: View {
             NativeCoachMessageUsage(api: account.api)
             Divider()
             NavigationLink {
-                NativeCoachView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
+                NativeCoachView(api: account.api, owner: owner, workoutStore: workoutStore)
+                    .toolbar(.visible, for: .navigationBar)
             } label: { SecondaryRow(title: "打开 AI 教练", icon: "sparkles") }.buttonStyle(.spotterPress)
             Divider()
             NativeCoachSharingSettings(owner: owner, origin: account.api.origin).padding(13)
@@ -2262,8 +2343,7 @@ struct NativeSettings: View {
 
     private var accountContent: some View {
         VStack(alignment: .leading, spacing: 15) {
-            nicknameContent
-            usernameContent
+            accountProfileCard
             VStack(alignment: .leading, spacing: 10) {
                 Text("绑定登录方式").font(.headline).accessibilityAddTraits(.isHeader)
                 Text("绑定后，Apple 和 Google 都会打开这个训练搭子账号。")
@@ -2316,6 +2396,7 @@ struct NativeSettings: View {
             }
             if let note { SecondaryNotice(message: note, warning: true) }
         }
+        .sheet(isPresented: $showProfileEditor) { profileEditor }
         .confirmationDialog("永久删除训练搭子账号？", isPresented: $showDelete, titleVisibility: .visible) {
             Button("删除账号和数据", role: .destructive) { Task { await deleteAccount() } }
             Button("取消", role: .cancel) {}
@@ -2996,6 +3077,7 @@ private struct NativeModulePreferences: View {
     @AppStorage(NativePreferenceKey.nutritionModule) private var nutrition = true
     @AppStorage(NativePreferenceKey.weeklyCheckins) private var checkins = true
     @AppStorage(NativePreferenceKey.planShortcut) private var plans = true
+    @AppStorage(NativePreferenceKey.officialTemplates) private var official = true
 
     var body: some View {
         SecondaryGroup {
@@ -3008,6 +3090,8 @@ private struct NativeModulePreferences: View {
             NativeSettingToggle(title: "每周打卡", detail: "在今日页显示本周训练打卡。", value: $checkins)
             Divider()
             NativeSettingToggle(title: "计划快捷入口", detail: "在今日页显示添加计划快捷入口。", value: $plans)
+            Divider()
+            NativeSettingToggle(title: "官方模板", detail: "在训练页显示官方每周训练模板。", value: $official)
         }
     }
 }
@@ -3207,6 +3291,7 @@ private struct SecondarySocial: Decodable {
     let preferences: Preferences
     let incoming: [Request]
     let outgoing: [Request]
+    let betaSocialDefaults: Bool?
 }
 
 private struct SecondaryFriendFeed: Decodable {
@@ -3313,6 +3398,9 @@ struct NativeFriends: View {
     @State private var dialog: Dialog?
     @State private var inviteTab = InviteTab.search
     @State private var inviteKind = NativeConnectionKind.friend
+    @State private var sharesBuddyNutrition = true
+    @State private var pendingBuddyAcceptance: String?
+    @State private var sharesAcceptedBuddyNutrition = true
     @State private var handledBuddyRequest = 0
     @State private var code = ""
     @State private var search = ""
@@ -3370,6 +3458,7 @@ struct NativeFriends: View {
     private var feedPath: String { "/api/friends?feed=2" }
     private var engagementPath: String { "/api/friends/engagement" }
     private var buddy: SecondaryFriend? { data?.friends.first(where: \.buddy) }
+    private var betaSocialDefaults: Bool { social?.betaSocialDefaults == true }
     private var cleanedCode: String { code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
     var body: some View {
@@ -3926,10 +4015,14 @@ struct NativeFriends: View {
     private var invitation: some View {
         VStack(alignment: .leading, spacing: 11) {
             if inviteKind == .buddy {
-                SecondaryNotice(message: "对方接受申请后，双方成为训练搭子。分享范围遵循各自的隐私设置。")
+                SecondaryNotice(message: "对方接受申请后，你们会成为训练搭子。")
+                if betaSocialDefaults {
+                    buddyNutritionChoice($sharesBuddyNutrition)
+                }
                 searchPanel
             } else {
-                SecondaryNotice(message: "添加后默认互相分享训练打卡、详情和饮食记录状态，具体范围遵循双方的分享设置。")
+                SecondaryNotice(message: betaSocialDefaults ? "在这里完成添加后，默认可见训练打卡与详情。可在好友资料里开启饮食分享。" :
+                                    "添加后默认互相分享训练打卡、详情和饮食记录状态，具体范围遵循双方的分享设置。")
                 SpotterGlassSegments(options: InviteTab.allCases, value: $inviteTab, title: \.rawValue)
                 ZStack(alignment: .topLeading) {
                     if inviteTab == .search { searchPanel } else { codePanel }
@@ -3964,12 +4057,19 @@ struct NativeFriends: View {
                         Spacer()
                         Button(received ? "处理申请" : waiting ? "已申请" : "发送申请") {
                             if received { open(.requests) }
-                            else { Task { await mutateSocial(["action": "request", "id": result.id, "kind": inviteKind.rawValue], confirmation: inviteKind.requestTitle + "已发送。") } }
+                            else { sendConnectionRequest(to: result) }
                         }.buttonStyle(SecondaryButtonStyle()).disabled(busy || waiting)
                     }.padding(.vertical, 5)
                 }
             }
         }
+    }
+
+    private func sendConnectionRequest(to person: SearchPerson) {
+        let kind = inviteKind
+        var body: [String: Any] = ["action": "request", "id": person.id, "kind": kind.rawValue]
+        if betaSocialDefaults && kind == .buddy { body["shareNutrition"] = sharesBuddyNutrition }
+        Task { await mutateSocial(body, confirmation: kind.requestTitle + "已发送。") }
     }
 
     private var codePanel: some View {
@@ -4016,22 +4116,56 @@ struct NativeFriends: View {
     private func requestGroup(_ title: String, values: [SecondarySocial.Request], incoming: Bool) -> some View {
         SecondaryGroup(title: title) {
             ForEach(values) { request in
-                HStack(spacing: 7) {
-                    avatar(request.name)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(request.name).font(.subheadline.weight(.semibold))
-                        Text(request.connectionKind.requestTitle).font(.caption).foregroundStyle(SpotterPalette.muted)
+                let confirmsBuddy = incoming && pendingBuddyAcceptance == request.id
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 7) {
+                        avatar(request.name)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(request.name).font(.subheadline.weight(.semibold))
+                            Text(request.connectionKind.requestTitle).font(.caption).foregroundStyle(SpotterPalette.muted)
+                        }
+                        Spacer(minLength: 3)
+                        if !confirmsBuddy {
+                            HStack(spacing: 5) {
+                                if incoming { acceptRequestButton(request) }
+                                requestButton(incoming ? "拒绝" : "撤回", request: request, decision: incoming ? "decline" : "cancel",
+                                              confirmation: incoming ? "已拒绝申请。" : "申请已撤回。")
+                            }
+                        }
                     }
-                    Spacer(minLength: 3)
-                    HStack(spacing: 5) {
-                        if incoming { requestButton("接受", request: request, decision: "accept", confirmation: request.connectionKind == .buddy ? "已连接训练搭子。" : "好友已添加。") }
-                        requestButton(incoming ? "拒绝" : "撤回", request: request, decision: incoming ? "decline" : "cancel",
-                                      confirmation: incoming ? "已拒绝申请。" : "申请已撤回。")
+                    if confirmsBuddy {
+                        buddyNutritionChoice($sharesAcceptedBuddyNutrition)
+                        HStack {
+                            Button("返回") { withAnimation(motion) { pendingBuddyAcceptance = nil } }
+                                .buttonStyle(SecondaryButtonStyle()).disabled(busy)
+                            Button("确认成为搭子") {
+                                let requestBody: [String: Any] = ["action": "respond", "id": request.id, "decision": "accept",
+                                                                  "shareNutrition": sharesAcceptedBuddyNutrition]
+                                Task { await mutateSocial(requestBody, confirmation: "已连接训练搭子。") }
+                            }
+                            .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy)
+                        }
                     }
-
                 }.padding(11)
             }
         }
+    }
+
+    @ViewBuilder private func acceptRequestButton(_ request: SecondarySocial.Request) -> some View {
+        if betaSocialDefaults && request.connectionKind == .buddy {
+            Button("接受") {
+                sharesAcceptedBuddyNutrition = true
+                withAnimation(motion) { pendingBuddyAcceptance = request.id }
+            }.buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy)
+        } else {
+            requestButton("接受", request: request, decision: "accept",
+                          confirmation: request.connectionKind == .buddy ? "已连接训练搭子。" : "好友已添加。")
+        }
+    }
+
+    private func buddyNutritionChoice(_ value: Binding<Bool>) -> some View {
+        SecondaryToggle(title: "共享我的饮食记录和详情", detail: "搭子可以看见餐次、食物、克数和营养。日后可在搭子资料里关闭。", value: value)
+            .disabled(busy)
     }
 
     private func requestButton(_ title: String, request: SecondarySocial.Request, decision: String, confirmation: String) -> some View {
@@ -4042,9 +4176,11 @@ struct NativeFriends: View {
     private func open(_ item: Dialog, kind: NativeConnectionKind = .friend) {
         notice = nil
         error = false
+        pendingBuddyAcceptance = nil
         if item == .invite {
             inviteTab = .search
             inviteKind = kind
+            sharesBuddyNutrition = true
             search = ""
             results = nil
         }
@@ -4157,7 +4293,12 @@ struct NativeFriends: View {
             let response = try await api.spotterSend("/api/friends?includeBuddy=1", body: request)
             let updated = try JSONDecoder().decode(SecondarySocial.self, from: response)
             withAnimation(motion) { social = updated }
-            if body["decision"] as? String == "accept" { invalidateFeed(); await load(); await refreshPlans() }
+            if body["decision"] as? String == "accept" {
+                pendingBuddyAcceptance = nil
+                invalidateFeed()
+                await load()
+                await refreshPlans()
+            }
             if body["action"] as? String == "social-preferences" { invalidateFeed() }
             report(confirmation)
         } catch { report(error.localizedDescription, failure: true) }
