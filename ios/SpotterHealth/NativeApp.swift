@@ -62,6 +62,10 @@ extension EnvironmentValues {
         get { self[SpotterReduceMotionKey.self] }
         set { self[SpotterReduceMotionKey.self] = newValue }
     }
+
+    var spotterInteractionMotion: Animation? {
+        accessibilityReduceMotion || spotterReduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.84)
+    }
 }
 
 private struct SpotterPressFeedback: ViewModifier {
@@ -72,9 +76,10 @@ private struct SpotterPressFeedback: ViewModifier {
     func body(content: Content) -> some View {
         let animate = !systemReduceMotion && !reduceMotion
         content
-            .scaleEffect(pressed && animate ? 0.97 : 1)
-            .opacity(pressed ? 0.82 : 1)
-            .animation(animate ? .easeOut(duration: 0.14) : nil, value: pressed)
+            .scaleEffect(pressed && animate ? 0.94 : 1)
+            .opacity(pressed ? 0.84 : 1)
+            .animation(animate ? (pressed ? .easeOut(duration: 0.09) : .spring(response: 0.30, dampingFraction: 0.67)) : nil,
+                       value: pressed)
     }
 }
 
@@ -180,7 +185,7 @@ private struct NativeSignIn: View {
                             .frame(minHeight: 42)
                             .background(SpotterPalette.lime, in: RoundedRectangle(cornerRadius: 9))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.spotterPress)
                     .disabled(account.isBusy || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || accessCode.isEmpty)
                 }
                 NativeCoachSharingChoice(allowed: $allowAI, origin: account.api.origin)
@@ -228,7 +233,7 @@ private struct NativeSignIn: View {
             .spotterCard(radius: 9)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.spotterPress)
         .disabled(!enabled || account.isBusy)
         .opacity(enabled ? 1 : 0.56)
     }
@@ -261,11 +266,12 @@ struct NativeSupportLinks: View {
     }
 }
 
-private enum NativeSpotterSection: String, CaseIterable {
+private enum NativeSpotterSection: String {
     case today = "今日"
     case training = "训练"
     case stats = "统计"
     case friends = "好友"
+    case coach = "AI 教练"
 
     var icon: String {
         switch self {
@@ -273,6 +279,7 @@ private enum NativeSpotterSection: String, CaseIterable {
         case .training: return "DockTraining"
         case .stats: return "DockStats"
         case .friends: return "DockFriends"
+        case .coach: return "DockCoach"
         }
     }
 }
@@ -282,6 +289,7 @@ private struct NativeSpotterTabs: View {
     @ObservedObject var account: NativeAccount
     @StateObject private var workouts: NativeWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
+    @Namespace private var legacySelection
     @State private var selected: NativeSpotterSection = .today
     @State private var showCoach = false
     @State private var coachDetent: PresentationDetent = .medium
@@ -310,25 +318,8 @@ private struct NativeSpotterTabs: View {
     }
 
     var body: some View {
-        TabView(selection: $selected) {
-            section(.today) {
-                today
-            }
-            section(.training) {
-                NativeWorkoutView(store: workouts, showsAllPlans: true, openSettings: { showSettings = true },
-                                  openCoach: openCoach)
-            }
-            section(.stats) {
-                NativeSpotterStats(store: workouts, api: account.api, owner: owner)
-            }
-            if showsFriends {
-                section(.friends) {
-                    NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest) { await workouts.load() }
-                }
-            }
-        }
+        navigationTabs
         .background(SpotterPalette.background.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) { dock }
         .task { await workouts.load() }
         .onChange(of: showsFriends) { visible in if !visible && selected == .friends { selected = .today } }
         .onChange(of: scenePhase) { phase in
@@ -349,7 +340,7 @@ private struct NativeSpotterTabs: View {
                             onExpand: { coachDetent = .large },
                             onStartWorkout: { selected = .training; showCoach = false })
                 .presentationDetents([.medium, .large], selection: $coachDetent)
-                .presentationDragIndicator(.hidden)
+                .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: $showSettings, onDismiss: { Task { await workouts.load() } }) {
             NavigationStack {
@@ -362,6 +353,7 @@ private struct NativeSpotterTabs: View {
         }
         .sheet(isPresented: $showRest, onDismiss: { Task { await workouts.load() } }) {
             NativeRestSchedule(api: account.api, owner: owner)
+                .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: $showBody) {
             NavigationStack {
@@ -413,24 +405,84 @@ private struct NativeSpotterTabs: View {
     }
 
     private func openCoach() {
+        guard !showCoach else { return }
         coachDetent = .medium
         showCoach = true
     }
 
-    private func section<Content: View>(_ section: NativeSpotterSection, @ViewBuilder content: () -> Content) -> some View {
-        NavigationStack {
-            content()
-                .toolbar(.hidden, for: .navigationBar)
-                .toolbar(.hidden, for: .tabBar)
-        }
-        .tag(section)
+    private var contentSections: [NativeSpotterSection] {
+        showsFriends ? [.today, .training, .stats, .friends] : [.today, .training, .stats]
     }
 
-    private var dock: some View {
+    @ViewBuilder private var navigationTabs: some View {
+        if #available(iOS 26.0, *) {
+            systemTabs
+        } else {
+            TabView(selection: $selected) {
+                ForEach(contentSections, id: \.self) { section in
+                    tabScene(section, hidesTabBar: true).tag(section)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { legacyDock }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private var systemTabs: some View {
+        TabView(selection: Binding(get: { selected }, set: { next in
+            // The trailing item opens a sheet over the selected content tab.
+            if next == .coach { openCoach() }
+            else { selected = next }
+        })) {
+            ForEach(contentSections, id: \.self) { section in
+                Tab(value: section) {
+                    tabScene(section)
+                } label: {
+                    Label(section.rawValue, image: section.icon)
+                }
+            }
+            Tab("AI 教练", image: NativeSpotterSection.coach.icon, value: .coach, role: coachTabRole) {
+                SpotterPalette.background.accessibilityHidden(true)
+            }
+        }
+        .tabBarMinimizeBehavior(.never)
+    }
+
+    @available(iOS 26.0, *)
+    private var coachTabRole: TabRole {
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) { return .prominent }
+        #endif
+        return .search
+    }
+
+    private func tabScene(_ section: NativeSpotterSection, hidesTabBar: Bool = false) -> some View {
+        NavigationStack {
+            sectionContent(section)
+                .toolbar(.hidden, for: .navigationBar)
+                .toolbar(hidesTabBar ? .hidden : .automatic, for: .tabBar)
+        }
+    }
+
+    @ViewBuilder private func sectionContent(_ section: NativeSpotterSection) -> some View {
+        switch section {
+        case .today: today
+        case .training:
+            NativeWorkoutView(store: workouts, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: openCoach)
+        case .stats:
+            NativeSpotterStats(store: workouts, api: account.api, owner: owner)
+        case .friends:
+            NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest) { await workouts.load() }
+        case .coach:
+            EmptyView()
+        }
+    }
+
+    private var legacyDock: some View {
         SpotterGlassGroup(spacing: 4) {
             HStack(spacing: 8) {
                 HStack(spacing: 2) {
-                    ForEach(NativeSpotterSection.allCases.filter { showsFriends || $0 != .friends }, id: \.self) { section in
+                    ForEach(contentSections, id: \.self) { section in
                         Button {
                             selected = section
                         } label: {
@@ -440,8 +492,12 @@ private struct NativeSpotterTabs: View {
                             }
                             .foregroundStyle(selected == section ? SpotterPalette.deep : SpotterPalette.muted)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(selected == section ? SpotterPalette.wash.opacity(0.88) : .clear,
-                                        in: RoundedRectangle(cornerRadius: 15))
+                            .background {
+                                if selected == section {
+                                    RoundedRectangle(cornerRadius: 15).fill(SpotterPalette.wash.opacity(0.88))
+                                        .matchedGeometryEffect(id: "selection", in: legacySelection)
+                                }
+                            }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.spotterPress)
@@ -449,7 +505,8 @@ private struct NativeSpotterTabs: View {
                         .accessibilityAddTraits(selected == section ? .isSelected : [])
                     }
                 }
-                .animation(reduceMotion || systemReduceMotion ? nil : .easeOut(duration: 0.2), value: selected)
+                .animation(reduceMotion || systemReduceMotion ? nil : .spring(response: 0.33, dampingFraction: 0.78),
+                           value: selected)
                 .padding(4)
                 .frame(height: 60)
                 .spotterGlass(cornerRadius: 22, interactive: false)
