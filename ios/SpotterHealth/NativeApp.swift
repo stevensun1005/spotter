@@ -11,12 +11,45 @@ enum SpotterPalette {
     static let line = color(0xe0e7dd)
     static let wash = color(0xeaf3df)
     static let lilac = color(0xeeeafb)
-    static let shadow = deep.opacity(0.13)
 
     static func color(_ hex: UInt32) -> Color {
         Color(red: Double((hex >> 16) & 255) / 255,
               green: Double((hex >> 8) & 255) / 255,
               blue: Double(hex & 255) / 255)
+    }
+}
+
+struct SpotterGlassGroup<Content: View>: View {
+    let spacing: CGFloat
+    let content: Content
+
+    init(spacing: CGFloat = 8, @ViewBuilder content: () -> Content) {
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func spotterGlass(cornerRadius: CGFloat = 16, tint: Color? = nil, interactive: Bool = true) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if #available(iOS 26.0, *) {
+            glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
+        } else {
+            background {
+                shape.fill(.ultraThinMaterial)
+                    .overlay { shape.fill(tint ?? .white.opacity(0.84)) }
+            }
+                .overlay { shape.strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
+        }
     }
 }
 
@@ -291,47 +324,44 @@ private struct NativeSpotterTabs: View {
     }
 
     private var dock: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 2) {
-                ForEach(NativeSpotterSection.allCases, id: \.self) { section in
-                    Button {
-                        selected = section
-                    } label: {
-                        VStack(spacing: 3) {
-                            Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
-                            Text(section.rawValue).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+        SpotterGlassGroup(spacing: 4) {
+            HStack(spacing: 8) {
+                HStack(spacing: 2) {
+                    ForEach(NativeSpotterSection.allCases, id: \.self) { section in
+                        Button {
+                            selected = section
+                        } label: {
+                            VStack(spacing: 3) {
+                                Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
+                                Text(section.rawValue).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                            }
+                            .foregroundStyle(selected == section ? SpotterPalette.deep : SpotterPalette.muted)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(selected == section ? SpotterPalette.wash.opacity(0.88) : .clear,
+                                        in: RoundedRectangle(cornerRadius: 15))
+                            .contentShape(Rectangle())
                         }
-                        .foregroundStyle(selected == section ? SpotterPalette.deep : SpotterPalette.muted)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(selected == section ? SpotterPalette.wash : .clear,
-                                    in: RoundedRectangle(cornerRadius: 15))
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(section.rawValue)
+                        .accessibilityAddTraits(selected == section ? .isSelected : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(section.rawValue)
-                    .accessibilityAddTraits(selected == section ? .isSelected : [])
                 }
+                .padding(4)
+                .frame(height: 60)
+                .spotterGlass(cornerRadius: 22, interactive: false)
+                Button(action: openCoach) {
+                    Image("DockCoach").renderingMode(.template).resizable()
+                        .frame(width: 21, height: 21)
+                        .foregroundStyle(SpotterPalette.color(0x2d543e))
+                        .frame(width: 38, height: 38)
+                        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 14))
+                        .frame(width: 60, height: 60)
+                        .contentShape(RoundedRectangle(cornerRadius: 22))
+                        .spotterGlass(cornerRadius: 22, tint: SpotterPalette.color(0xdaeacb).opacity(0.89))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("打开 AI 教练")
             }
-            .padding(4)
-            .frame(height: 60)
-            .background {
-                RoundedRectangle(cornerRadius: 21).fill(.ultraThinMaterial)
-                    .overlay(RoundedRectangle(cornerRadius: 21).fill(.white.opacity(0.84)))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(SpotterPalette.line).allowsHitTesting(false))
-            .shadow(color: SpotterPalette.shadow, radius: 10, y: 6)
-            Button(action: openCoach) {
-                Image("DockCoach").renderingMode(.template).resizable()
-                    .frame(width: 21, height: 21)
-                    .foregroundStyle(SpotterPalette.color(0x2d543e))
-                    .frame(width: 38, height: 38)
-                    .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
-                    .frame(width: 60, height: 60)
-                    .background(SpotterPalette.color(0xdaeacb), in: RoundedRectangle(cornerRadius: 21))
-                    .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(SpotterPalette.color(0x9fbb91)).allowsHitTesting(false))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("打开 AI 教练")
         }
         .padding(.horizontal, 12)
         .padding(.top, 4)

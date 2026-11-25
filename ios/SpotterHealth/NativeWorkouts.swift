@@ -158,18 +158,6 @@ final class NativeWorkoutStore: ObservableObject {
         begin(session)
     }
 
-    func addCatalogueExercise(_ move: NativeJSON) {
-        if active == nil { startFreeWorkout() }
-        mutate { session in
-            session.addExercise(name: move["name"].string)
-            var exercises = session.plan.exercises
-            guard let last = exercises.indices.last else { return }
-            if !move["id"].string.isEmpty { exercises[last]["catalogueId"] = move["id"] }
-            if !move["en"].string.isEmpty { exercises[last]["sourceName"] = move["en"] }
-            session.raw["plan"]["exercises"] = .array(exercises)
-        }
-    }
-
     private func begin(_ session: NativeWorkoutSession) {
         active = NativeWorkoutEntry(id: UUID().uuidString.lowercased(), owner: owner, kind: "draft",
                                     updated: ISO8601DateFormatter().string(from: Date()), data: session.raw)
@@ -371,6 +359,25 @@ final class NativeWorkoutStore: ObservableObject {
                                   "data": .object(["kind": .string("template"), "id": .string(id), "plan": data])]), path: "/api/library")
     }
 
+    func saveExerciseProfile(_ item: NativeJSON) async -> String? {
+        guard !isBusy else { return "正在保存，请稍后重试。" }
+        isBusy = true
+        defer { isBusy = false }
+        let body: NativeJSON = .object(["action": .string("save"), "expectedOwner": .string(owner),
+                                       "data": .object(["kind": .string("exercise"), "item": item])])
+        do {
+            let response = try await api.request("/api/library", method: "POST", json: JSONEncoder().encode(body))
+            let updated = try JSONDecoder().decode(NativeJSON.self, from: response)["updated"]
+            let row: NativeJSON = .object(["kind": .string("exercise"), "item": item, "updated": updated])
+            if let previous = libraryRows.firstIndex(where: { $0["kind"].string == "exercise" && $0["item"]["name"] == item["name"] }) {
+                libraryRows[previous] = row
+            } else {
+                libraryRows.insert(row, at: 0)
+            }
+            return nil
+        } catch { return error.localizedDescription }
+    }
+
     private func savePlanItem(_ body: NativeJSON, path: String) async -> String? {
         guard !isBusy else { return "正在保存，请稍后重试。" }
         isBusy = true
@@ -405,6 +412,8 @@ struct NativeWorkoutView: View {
     @State private var completedPlans = false
     @State private var showsMoves = false
     @State private var planEditor: NativePlanDraft?
+    @State private var cataloguePlanMove: NativeCataloguePlanMove?
+    @State private var queuedCatalogueDraft: NativePlanDraft?
 
     private var selectedDay: String { NativeWorkoutSession.day(selectedDate) }
     private var completedPlanIDs: Set<String> { Set(store.logs.map { $0.data["planId"].string }.filter { !$0.isEmpty }) }
@@ -415,24 +424,41 @@ struct NativeWorkoutView: View {
     private var dayCompleted: [NativeWorkoutEntry] { store.plans.filter { $0.day == selectedDay && completedPlanIDs.contains($0.id) } }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if showsAllPlans { trainingLanding }
-                else { todayLanding }
-                if !store.pendingCheckins.isEmpty { pendingCard }
-                if let message = store.errorMessage {
-                    Button { Task { await store.load() } } label: {
-                        Label(message, systemImage: "arrow.clockwise").font(.footnote).foregroundStyle(SpotterPalette.muted)
-                    }.buttonStyle(.plain)
+        Group {
+            if showsAllPlans && trainingTab == "动作库" {
+                VStack(alignment: .leading, spacing: 9) {
+                    trainingTabs
+                    NativeCatalogueBrowser(store: store) { entry in
+                        cataloguePlanMove = NativeCataloguePlanMove(entry: entry)
+                    }
                 }
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 5)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if showsAllPlans {
+                            trainingTabs
+                            trainingLanding
+                        } else { todayLanding }
+                        if !store.pendingCheckins.isEmpty { pendingCard }
+                        if let message = store.errorMessage {
+                            Button { Task { await store.load() } } label: {
+                                Label(message, systemImage: "arrow.clockwise").font(.footnote).foregroundStyle(SpotterPalette.muted)
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 26)
+                }
+                .refreshable { await store.load() }
             }
-            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 26)
         }
         .background(SpotterPalette.background)
         .foregroundStyle(SpotterPalette.ink)
         .tint(SpotterPalette.accent)
         .toolbar(.hidden, for: .navigationBar)
-        .refreshable { await store.load() }
         .task { await store.load() }
         .onChange(of: phase) { if $0 == .active { Task { await store.load() } } }
         .fullScreenCover(isPresented: $opensWorkout) { NativeActiveWorkoutView(store: store) }
@@ -442,6 +468,11 @@ struct NativeWorkoutView: View {
                     trainingTab = "我的计划"; completedPlans = false
                     if let date = nativePlanDate(day) { selectedDate = date }
                 }
+            }
+        }
+        .sheet(item: $cataloguePlanMove, onDismiss: openQueuedCataloguePlan) { pending in
+            NativeCataloguePlanPicker(store: store, move: pending) { plan in
+                editCataloguePlan(pending.entry, in: plan)
             }
         }
         .fullScreenCover(isPresented: $showsLaunch, onDismiss: {
@@ -721,19 +752,46 @@ struct NativeWorkoutView: View {
         }.padding(14).spotterCard()
     }
 
-    @ViewBuilder private var trainingLanding: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 3) {
-                ForEach(["我的计划", "个人模板", "动作库"], id: \.self) { tab in
-                    Button { trainingTab = tab } label: {
-                        Text(tab).font(.system(size: 13, weight: .semibold)).padding(.vertical, 10).frame(maxWidth: .infinity)
-                            .foregroundStyle(trainingTab == tab ? SpotterPalette.deep : SpotterPalette.muted)
-                            .background(trainingTab == tab ? SpotterPalette.lime : .clear, in: RoundedRectangle(cornerRadius: 7))
-                    }.buttonStyle(.plain)
+    private var trainingTabs: some View {
+        HStack(spacing: 3) {
+            ForEach(["我的计划", "个人模板", "动作库"], id: \.self) { tab in
+                Button { trainingTab = tab } label: {
+                    Text(tab).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                        .padding(.vertical, 10).frame(maxWidth: .infinity)
+                        .foregroundStyle(trainingTab == tab ? SpotterPalette.deep : SpotterPalette.muted)
+                        .modifier(NativeSelectedTrainingTab(isSelected: trainingTab == tab))
+                        .contentShape(Rectangle())
                 }
-            }.padding(3).background(SpotterPalette.wash.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
-            Button { openFriends?() } label: { Label("好友", systemImage: "person.2").font(.system(size: 13, weight: .semibold)) }.buttonStyle(.plain)
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(trainingTab == tab ? [.isSelected] : [])
+            }
         }
+        .padding(3)
+        .background(SpotterPalette.wash.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func editCataloguePlan(_ entry: NativeCatalogEntry, in plan: NativeWorkoutEntry?) {
+        var draft = plan.map(NativePlanDraft.init(entry:)) ?? NativePlanDraft(day: selectedDay)
+        if plan == nil { draft.plan["title"] = .string(entry.name) }
+        var raw = draft.plan.object
+        raw.removeValue(forKey: "templateId")
+        raw.removeValue(forKey: "ownExercises")
+        raw["exercises"] = .array(draft.plan["exercises"].array + [NativeCataloguePlanMove.planMove(entry)])
+        draft.plan = .object(raw)
+        queuedCatalogueDraft = draft
+        cataloguePlanMove = nil
+    }
+
+    private func openQueuedCataloguePlan() {
+        if let draft = queuedCatalogueDraft {
+            queuedCatalogueDraft = nil
+            trainingTab = "我的计划"
+            completedPlans = false
+            planEditor = draft
+        }
+    }
+
+    @ViewBuilder private var trainingLanding: some View {
         if trainingTab == "我的计划" {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -776,7 +834,7 @@ struct NativeWorkoutView: View {
                     }.disabled(store.isBusy)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(14).spotterCard()
             }
-        } else { NativeCatalogueBrowser(store: store) { opensWorkout = true } }
+        }
     }
 
     private var pendingCard: some View {
@@ -806,8 +864,7 @@ struct SpotterNativeButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.padding(.horizontal, 13).padding(.vertical, 11)
             .foregroundStyle(primary ? SpotterPalette.deep : SpotterPalette.ink)
-            .background(primary ? SpotterPalette.lime : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(primary ? SpotterPalette.lime : SpotterPalette.line, lineWidth: 1))
+            .spotterGlass(cornerRadius: 11, tint: primary ? SpotterPalette.lime : .white.opacity(0.85))
             .opacity(configuration.isPressed ? 0.72 : 1)
     }
 }
@@ -870,81 +927,86 @@ private struct NativeTrainingLaunch: View {
     }
 }
 
-private struct NativeCatalogueBrowser: View {
-    @ObservedObject var store: NativeWorkoutStore
-    var begin: () -> Void
-    @State private var rows: [NativeJSON] = []
-    @State private var search = ""
-    @State private var part = "全部"
-    @State private var limit = 60
+private struct NativeSelectedTrainingTab: ViewModifier {
+    let isSelected: Bool
 
-    private var filtered: [NativeJSON] {
-        rows.filter { row in
-            let haystack = [row["name"].string, row["en"].string, row["part"].string, row["equipment"].string, row["target"].string].joined(separator: " ")
-            let area = part == "全部" || haystack.localizedCaseInsensitiveContains(["胸": "chest", "背": "back", "腿": "legs", "肩": "shoulder", "手臂": "arms", "核心": "waist"][part] ?? part)
-            return area && (search.isEmpty || haystack.localizedCaseInsensitiveContains(search))
-        }
-    }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack { Image(systemName: "magnifyingglass").foregroundStyle(SpotterPalette.muted); TextField("搜索动作、部位或器械", text: $search).font(.system(size: 14)) }
-                .padding(12).spotterCard()
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(["全部", "胸", "背", "腿", "肩", "手臂", "核心"], id: \.self) { value in
-                        Button(value) { part = value; limit = 60 }.font(.system(size: 13, weight: .semibold))
-                            .padding(.horizontal, 14).padding(.vertical, 9)
-                            .background(part == value ? SpotterPalette.lime : SpotterPalette.card, in: Capsule()).foregroundStyle(part == value ? SpotterPalette.deep : SpotterPalette.muted)
-                    }
-                }
-            }
-            Text("\(filtered.count) 个动作").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
-            LazyVStack(spacing: 9) {
-                ForEach(Array(filtered.prefix(limit).enumerated()), id: \.offset) { _, move in
-                    NavigationLink {
-                        NativeCatalogueDetail(move: move) { store.addCatalogueExercise(move); begin() }
-                    } label: {
-                        HStack(spacing: 12) {
-                            tile("figure.strengthtraining.traditional", size: 42)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(move["name"].string).font(.system(size: 15, weight: .bold))
-                                Text(move["en"].string).font(.system(size: 11)).foregroundStyle(SpotterPalette.muted).lineLimit(1)
-                                Text("\(move["part"].string) · \(move["equipment"].string)").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
-                            }
-                            Spacer(minLength: 0); Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
-                        }.padding(12).spotterCard()
-                    }.buttonStyle(.plain)
-                }
-                if filtered.count > limit { Button("显示更多动作") { limit += 60 }.buttonStyle(SpotterNativeButtonStyle(primary: false)) }
-                if rows.isEmpty { Text("暂时无法读取动作库。").font(.subheadline).foregroundStyle(SpotterPalette.muted) }
-            }
-        }
-        .task {
-            guard rows.isEmpty, let url = Bundle.main.url(forResource: "index", withExtension: "json"), let data = try? Data(contentsOf: url),
-                  let catalogue = try? JSONDecoder().decode(NativeJSON.self, from: data) else { return }
-            rows = catalogue["rows"].array
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isSelected {
+            content.spotterGlass(cornerRadius: 10, tint: SpotterPalette.lime)
+        } else {
+            content
         }
     }
 }
 
-private struct NativeCatalogueDetail: View {
-    let move: NativeJSON
-    var add: () -> Void
-    private var isBench: Bool { ["杠铃卧推", "杠铃平板卧推"].contains(move["name"].string) || move["en"].string.lowercased() == "barbell bench press" }
+private struct NativeCataloguePlanMove: Identifiable {
+    let entry: NativeCatalogEntry
+    var id: String { entry.id }
+
+    static func planMove(_ entry: NativeCatalogEntry) -> NativeJSON {
+        let timed = entry.hold || entry.type == "isometric" || entry.type == "cardio"
+        let repetitions = entry.distance ? 1.0 : 10.0
+        var move: NativeJSON = .object([
+            "name": .string(String(entry.name.prefix(100))),
+            "sets": .number(3),
+            "reps": .number(timed ? 0 : repetitions),
+            "weight": .number(0),
+            "unit": .string("kg"),
+            "seconds": .number(timed ? 30 : 0),
+        ])
+        if !entry.isPersonal { move["catalogueId"] = .string(entry.id) }
+        return move
+    }
+}
+
+private struct NativeCataloguePlanPicker: View {
+    @ObservedObject var store: NativeWorkoutStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected = ""
+    @State private var warning: String?
+    let move: NativeCataloguePlanMove
+    var selectPlan: (NativeWorkoutEntry?) -> Void
+
+    private var plans: [NativeWorkoutEntry] {
+        store.plans.filter { $0.owner == store.owner && $0.data["exercises"].array.count < 30 }
+            .sorted { $0.day < $1.day }
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 17) {
-                if isBench { Image("SpotterBench").resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 17)) }
-                Text(move["name"].string).font(.system(size: 25, weight: .bold))
-                Text(move["en"].string).font(.system(size: 14)).foregroundStyle(SpotterPalette.muted)
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("部位 · \(move["part"].string)", systemImage: "figure.stand")
-                    Label("器械 · \(move["equipment"].string)", systemImage: "dumbbell")
-                    Label("目标 · \(move["target"].string)", systemImage: "scope")
-                }.font(.system(size: 15)).padding(16).frame(maxWidth: .infinity, alignment: .leading).spotterCard()
-                Button(action: add) { Label("添加到本次训练", systemImage: "plus").frame(maxWidth: .infinity) }.buttonStyle(SpotterNativeButtonStyle(primary: true))
-            }.padding(16)
-        }.background(SpotterPalette.background).foregroundStyle(SpotterPalette.ink).navigationTitle("动作详情").navigationBarTitleDisplayMode(.inline)
+        NavigationStack {
+            Form {
+                Section {
+                    Text(move.entry.name).font(.headline)
+                    Picker("选择训练计划", selection: $selected) {
+                        Text("新建训练计划").tag("")
+                        ForEach(plans) { plan in
+                            Text("\(plan.day) · \(plan.title)").tag(plan.id)
+                        }
+                    }
+                }
+                if let plan = plans.first(where: { $0.id == selected }), !plan.data["templateId"].string.isEmpty {
+                    Text("保存这次的动作改动后，这一节会成为独立计划。")
+                        .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                }
+                if let warning { Text(warning).font(.footnote).foregroundStyle(.red) }
+                Button {
+                    let plan = plans.first { $0.id == selected }
+                    guard selected.isEmpty || plan != nil else {
+                        warning = "这个计划已更新，请重新选择。"
+                        return
+                    }
+                    selectPlan(plan)
+                } label: {
+                    Label("加入并编辑", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SpotterNativeButtonStyle(primary: true))
+            }
+            .navigationTitle("加入训练计划")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+        }
     }
 }
 

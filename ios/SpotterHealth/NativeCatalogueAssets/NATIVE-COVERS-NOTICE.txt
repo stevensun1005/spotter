@@ -1,0 +1,1 @@
+Spotter iPhone catalogue thumbnails are proportionally resized and rasterized JPEGs of the existing web covers. See the included notice and attribution files for each upstream source and license. Regenerate the bundle from the repository with node tools/build-ios-catalogue.mjs.
