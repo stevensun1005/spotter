@@ -160,10 +160,12 @@ struct NativeCatalogueBrowser: View {
                         }
                         .buttonStyle(.spotterPress)
                         .accessibilityLabel("清除搜索")
+                        .transition(.opacity)
                     }
                 }
                 .padding(.leading, 11)
                 .padding(.trailing, 6)
+                .animation(filterMotion, value: filters.query.isEmpty)
                 .frame(height: 43)
                 .spotterGlass(cornerRadius: 24, tint: SpotterPalette.card.opacity(0.75), interactive: false)
                 catalogueIconButton(cards ? "list.bullet" : "square.grid.2x2",
@@ -720,6 +722,7 @@ private struct NativeCatalogueCover: View {
 
 private struct NativeCatalogueFiltersSheet: View {
     @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dismiss) private var dismiss
     let index: NativeCatalogIndex
     @Binding var filters: NativeCatalogueFilters
@@ -735,10 +738,11 @@ private struct NativeCatalogueFiltersSheet: View {
                     Toggle("按肌肉筛选", isOn: $filters.usesMuscles)
                     if filters.usesMuscles {
                         muscleFilters
+                            .transition(.opacity)
                     }
                     filterChips("动作类型", options: [""] + index.types, selection: filters.type, blank: "全部类型") { filters.type = $0 }
                     filterChips("器械", options: [""] + index.equipmentOptions, selection: filters.equipment, blank: "全部器械") { filters.equipment = $0 }
-                    DisclosureGroup("我的器械 · \(preferences.gym.name)") {
+                    SpotterDisclosure("我的器械 · \(preferences.gym.name)") {
                         Toggle("只显示我的器械", isOn: $filters.usesGear).padding(.vertical, 8)
                         NativeGymEquipmentGrid(preferences: preferences, toggle: { key in updateGear { $0.toggle(key) } },
                                                toggleAll: { updateGear { $0.toggleAll() } })
@@ -755,6 +759,7 @@ private struct NativeCatalogueFiltersSheet: View {
                     .buttonStyle(SpotterNativeButtonStyle(primary: false))
                 }
                 .padding(16)
+                .animation(motion, value: filters.usesMuscles)
             }
             .background(SpotterPalette.background)
             .navigationTitle("筛选")
@@ -893,20 +898,11 @@ private struct NativeCatalogueCustomEditor: View {
             Form {
                 Section {
                     TextField("动作名称", text: $name)
-                    Picker("部位", selection: $area) {
-                        Text("待分类").tag("")
-                        ForEach(areaOptions, id: \.id) { item in
-                            Text(item.title).tag(item.id)
-                        }
-                    }
-                    Picker("器械", selection: $equipment) {
-                        Text("未指定").tag("")
-                        ForEach(index.equipmentOptions, id: \.self) { Text(index.label($0)).tag($0) }
-                    }
-                    Picker("动作类型", selection: $type) {
-                        Text("未指定").tag("")
-                        ForEach(index.types, id: \.self) { Text(index.label($0)).tag($0) }
-                    }
+                    SpotterMenuPicker("部位", selection: $area, options: [("", "待分类")] + areaOptions.map { ($0.id, $0.title) })
+                    SpotterMenuPicker("器械", selection: $equipment,
+                                      options: [("", "未指定")] + index.equipmentOptions.map { ($0, index.label($0)) })
+                    SpotterMenuPicker("动作类型", selection: $type,
+                                      options: [("", "未指定")] + index.types.map { ($0, index.label($0)) })
                 }
                 if duplicate { Text("已存在同名动作。").foregroundStyle(.red) }
                 if let error { Text(error).foregroundStyle(.red) }
@@ -980,11 +976,9 @@ private struct NativeCatalogueExerciseDetail: View {
                             .buttonStyle(SpotterNativeButtonStyle(primary: false))
                     }
                     if let family = index.family(for: entry), family.variants.count > 1 {
-                        Picker("动作变式", selection: Binding(get: { entry.id }, set: { id in
+                        SpotterMenuPicker("动作变式", selection: Binding(get: { entry.id }, set: { id in
                             if let selection = family.variants.first(where: { $0.id == id }) { entry = selection }
-                        })) {
-                            ForEach(family.variants) { Text($0.name).tag($0.id) }
-                        }
+                        }), options: family.variants.map { ($0.id, $0.name) })
                     }
                     guidance
                 }

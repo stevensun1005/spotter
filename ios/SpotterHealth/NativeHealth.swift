@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct NativeHeartView: View {
+    @Environment(\.spotterInteractionMotion) private var motion
+
     private struct Cloud: Decodable { let data: NativeImportedHeart? }
     private enum Confirmation: String, Identifiable {
         case apple, replaceFile, remove
@@ -47,6 +49,7 @@ struct NativeHeartView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(spotterCardPadding)
         .spotterCard()
+        .animation(motion, value: preview != nil)
         .task(id: entry.id) {
             defer { loading = false }
             do { try await loadCloud() }
@@ -96,7 +99,7 @@ struct NativeHeartView: View {
                 Button("移除心率") { confirmation = .remove }
                     .font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.muted).buttonStyle(.spotterPress)
             }
-            DisclosureGroup("支持的设备与文件") {
+            SpotterDisclosure("支持的设备与文件") {
                 Text("Garmin 等设备可导入 FIT 或 TCX，WHOOP 可选择 workouts.csv 或原始 ZIP。含明确时间和 BPM 的 CSV 也可导入。")
                     .font(.footnote).foregroundStyle(SpotterPalette.muted).padding(.top, 5)
             }.font(.footnote)
@@ -106,7 +109,7 @@ struct NativeHeartView: View {
     private var fileButton: some View {
         Button { showingFiles = true } label: {
             Label("导入心率文件", systemImage: "doc.badge.plus").fixedSize(horizontal: true, vertical: false)
-        }.buttonStyle(.bordered)
+        }.buttonStyle(.spotterControl)
     }
 
     private func appleButton(_ window: WorkoutWindow) -> some View {
@@ -115,7 +118,7 @@ struct NativeHeartView: View {
             else { perform { try await loadHealth(window) } }
         } label: {
             Label("从 Apple 健康同步", systemImage: "arrow.trianglehead.clockwise").fixedSize(horizontal: true, vertical: false)
-        }.buttonStyle(.bordered)
+        }.buttonStyle(.spotterControl)
     }
 
     private func summary(_ data: NativeImportedHeart) -> some View {
@@ -228,6 +231,7 @@ struct NativeHeartView: View {
 
 @MainActor
 struct NativeHealthSummary: View {
+    @Environment(\.spotterInteractionMotion) private var motion
     private struct Snapshot {
         let data: NativeHealthReadings
         let calendar: Calendar
@@ -262,13 +266,8 @@ struct NativeHealthSummary: View {
             Label("Apple 健康", systemImage: "heart.text.square").font(.headline)
             Text("查看所选范围的健康数据。需要开启的项目由 Apple 健康逐项授权。")
                 .font(.footnote).foregroundStyle(SpotterPalette.muted)
-            Picker("日期范围", selection: $days) {
-                Text("今天").tag(1)
-                Text("近 7 天").tag(7)
-                Text("近 30 天").tag(30)
-                Text("近 90 天").tag(90)
-                Text("近一年").tag(365)
-            }
+            SpotterMenuPicker("日期范围", selection: $days,
+                              options: [(1, "今天"), (7, "近 7 天"), (30, "近 30 天"), (90, "近 90 天"), (365, "近一年")])
             .disabled(operation != nil)
             selectionView.disabled(operation != nil)
             Button {
@@ -293,6 +292,7 @@ struct NativeHealthSummary: View {
         }
         .onChange(of: selected) { _ in clearResults() }
         .onChange(of: days) { _ in clearResults() }
+        .animation(motion, value: snapshot != nil)
         .onDisappear {
             operation?.cancel()
             clearResults()
@@ -303,14 +303,14 @@ struct NativeHealthSummary: View {
     }
 
     private var selectionView: some View {
-        DisclosureGroup {
+        SpotterDisclosure {
             VStack(alignment: .leading, spacing: 8) {
                 Button(selected == metrics ? "清空" : "选择全部") {
                     selected = selected == metrics ? [] : metrics
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.spotterControl)
                 ForEach(groups) { group in
-                    DisclosureGroup(group.title) {
+                    SpotterDisclosure(group.title) {
                         ForEach(group.metrics) { metric in
                             Toggle(metric.title, isOn: enabled(metric, in: $selected))
                                 .padding(.top, 4)
@@ -358,7 +358,7 @@ struct NativeHealthSummary: View {
             case let .body(samples):
                 if let latest = samples.last { measurementDate(latest.date) }
             case let .workouts(workouts):
-                DisclosureGroup("最近 \(min(10, workouts.count)) 次运动") {
+                SpotterDisclosure("最近 \(min(10, workouts.count)) 次运动") {
                     ForEach(Array(workouts.suffix(10).reversed()), id: \.id) { session in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(session.activity + " · " + minutes(session.durationSeconds))
@@ -417,7 +417,7 @@ struct NativeHealthSummary: View {
                 Button("同步 \(chosen.count) 条记录") {
                     operation = Task { await upload(chosen, calendar: snapshot.calendar, api: api, owner: owner) }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.spotterControl)
                 .disabled(chosen.isEmpty)
             }
             .disabled(operation != nil)

@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct NativePlanImportView: View {
+    @Environment(\.spotterInteractionMotion) private var motion
     let api: NativeAPI
     let owner: String
     let didImport: @MainActor () async -> Void
@@ -21,10 +22,11 @@ struct NativePlanImportView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("粘贴已有内容").font(.largeTitle.weight(.heavy)).accessibilityAddTraits(.isHeader)
                 sourceCard
-                if !previews.isEmpty { previewCard }
+                if !previews.isEmpty { previewCard.transition(.opacity) }
                 if let error { Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(.red) }
                 if let receipt { Label(receipt, systemImage: "checkmark.circle").font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.accent) }
             }.padding(14)
+                .animation(motion, value: previews.isEmpty)
         }
         .background(SpotterPalette.background.ignoresSafeArea())
         .foregroundStyle(SpotterPalette.ink)

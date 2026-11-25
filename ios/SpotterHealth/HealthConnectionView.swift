@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 struct HealthConnectionView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterInteractionMotion) private var motion
     @ObservedObject var coordinator: HealthSyncCoordinator
     @ObservedObject private var session: AppSession
 
@@ -42,14 +43,9 @@ struct HealthConnectionView: View {
                         Text("每类数据单独请求读取权限，不写入 Apple 健康。系统不会告诉 App 你是否拒绝读取；没有样本时请核对权限和范围。")
                     }
                     Section {
-                        Picker("日期", selection: $coordinator.rangeDays) {
-                            Text("今天").tag(1)
-                            Text("最近 14 天").tag(14)
-                            Text("最近 30 天").tag(30)
-                            Text("最近 90 天").tag(90)
-                            Text("最近 365 天").tag(365)
-                            Text("自定义").tag(0)
-                        }.disabled(coordinator.busy)
+                        SpotterMenuPicker("日期", selection: $coordinator.rangeDays,
+                                          options: [(1, "今天"), (14, "最近 14 天"), (30, "最近 30 天"), (90, "最近 90 天"), (365, "最近 365 天"), (0, "自定义")])
+                            .disabled(coordinator.busy)
                         if coordinator.rangeDays == 0 {
                             DatePicker("开始日期", selection: Binding(get: { Date(timeIntervalSince1970: coordinator.customStartEpoch) }, set: { coordinator.customStartEpoch = $0.timeIntervalSince1970 }), in: ...Date(), displayedComponents: .date).disabled(coordinator.busy)
                             DatePicker("结束日期", selection: Binding(get: { Date(timeIntervalSince1970: coordinator.customEndEpoch) }, set: { coordinator.customEndEpoch = $0.timeIntervalSince1970 }), in: ...Date(), displayedComponents: .date).disabled(coordinator.busy)
@@ -62,7 +58,9 @@ struct HealthConnectionView: View {
                         Text("日期按 iPhone 当前时区，最多 365 天。手动同步可补回历史和延迟到达的样本；重复同步不会重复记。打开 App 或回到前台也会同步当前范围。")
                     }
                     Section {
-                        Button("重新配对或更换账号") { coordinator.showPairing.toggle() }.disabled(coordinator.busy)
+                        Button("重新配对或更换账号") {
+                            withAnimation(motion) { coordinator.showPairing.toggle() }
+                        }.disabled(coordinator.busy)
                         Button("断开连接", role: .destructive) { coordinator.showDisconnect = true }.disabled(coordinator.busy)
                     }
                 }
@@ -72,6 +70,7 @@ struct HealthConnectionView: View {
                     Text(coordinator.message).font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            .buttonStyle(.spotterPress)
             .navigationTitle("训练搭子 · 健康")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }

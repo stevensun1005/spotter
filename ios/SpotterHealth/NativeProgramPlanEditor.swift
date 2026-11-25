@@ -8,6 +8,7 @@ struct NativeProgramPlanEditor: View {
     let save: (NativeJSON) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterInteractionMotion) private var motion
     @State private var plan: NativeJSON
     @State private var moves: [NativeJSON]
     @State private var templateID = ""
@@ -28,19 +29,17 @@ struct NativeProgramPlanEditor: View {
             Section {
                 LabeledContent("训练日期", value: date)
                 if !templates.isEmpty {
-                    Picker("个人模板", selection: $templateID) {
-                        Text("自定义训练").tag("")
-                        ForEach(templates) { item in Text(item.title).tag(item.id) }
-                    }.onChange(of: templateID) { id in
+                    SpotterMenuPicker("个人模板", selection: $templateID,
+                                      options: [("", "自定义训练")] + templates.map { ($0.id, $0.title) })
+                    .onChange(of: templateID) { id in
                         let source = templates.first { $0.id == id }?.plan ?? NativePlanDraft(day: date).plan
                         plan = NativeTrainingProgram.privatePlan(source, date: date)
                         moves = plan["exercises"].array
                     }
                 }
                 TextField("训练名称", text: planText("title", limit: 100))
-                Picker("训练类型", selection: planText("category", limit: 20)) {
-                    ForEach(NativePlanImport.categories, id: \.self) { Text($0).tag($0) }
-                }
+                SpotterMenuPicker("训练类型", selection: planText("category", limit: 20),
+                                  options: NativePlanImport.categories.map { ($0, $0) })
                 LabeledContent("预计时长（分钟）") {
                     TextField("分钟", value: planNumber("minutes"), format: .number)
                         .keyboardType(.numberPad).multilineTextAlignment(.trailing)
@@ -89,7 +88,7 @@ struct NativeProgramPlanEditor: View {
     private func exerciseSection(warmup: Bool) -> some View {
         Section(warmup ? "热身动作" : "正式动作") {
             ForEach(moves.indices.filter { NativeExerciseLabel(moves[$0]).warmup == warmup }, id: \.self) { index in
-                DisclosureGroup {
+                SpotterDisclosure {
                     exerciseFields(index, warmup: warmup)
                 } label: {
                     let move = moves[index]
@@ -120,32 +119,31 @@ struct NativeProgramPlanEditor: View {
         optionalNumberField("次数上限", moveOptionalNumber(index, "repsMax"))
         numberField("计时（秒）", moveNumber(index, "seconds"))
         optionalNumberField("组间／轮间休息（秒）", moveOptionalNumber(index, "restSeconds"))
-        Picker("重量单位", selection: moveText(index, "unit", limit: 2)) {
-            Text("kg").tag("kg")
-            Text("lb").tag("lb")
-        }
-        DisclosureGroup("负荷方式与目标 RPE") {
-            Toggle("使用手填 1RM 百分比", isOn: Binding(get: { move(index)["loadPercent"] != .null }, set: { value in
-                let load: NativeJSON? = value ? .object(["reference": .number(0), "percent": .number(0), "unit": move(index)["unit"]]) : nil
-                setMove(index, "loadPercent", load)
-                if value { setMove(index, "fixedLoad", nil) }
-            }))
-            if move(index)["loadPercent"] != .null {
-                numberField("1RM 百分比 %", loadNumber(index, "percent"), decimals: true)
-                numberField("已确认的 1RM 参考重量", loadNumber(index, "reference"), decimals: true)
-                Picker("参考重量单位", selection: Binding(get: { move(index)["loadPercent"]["unit"].string }, set: { setLoad(index, "unit", .string($0)) })) {
-                    Text("kg").tag("kg")
-                    Text("lb").tag("lb")
+        SpotterMenuPicker("重量单位", selection: moveText(index, "unit", limit: 2), options: [("kg", "kg"), ("lb", "lb")])
+        SpotterDisclosure("负荷方式与目标 RPE") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("使用手填 1RM 百分比", isOn: Binding(get: { move(index)["loadPercent"] != .null }, set: { value in
+                    withAnimation(motion) {
+                        let load: NativeJSON? = value ? .object(["reference": .number(0), "percent": .number(0), "unit": move(index)["unit"]]) : nil
+                        setMove(index, "loadPercent", load)
+                        if value { setMove(index, "fixedLoad", nil) }
+                    }
+                }))
+                if move(index)["loadPercent"] != .null {
+                    numberField("1RM 百分比 %", loadNumber(index, "percent"), decimals: true)
+                    numberField("已确认的 1RM 参考重量", loadNumber(index, "reference"), decimals: true)
+                    SpotterMenuPicker("参考重量单位", selection: Binding(get: { move(index)["loadPercent"]["unit"].string }, set: { setLoad(index, "unit", .string($0)) }),
+                                      options: [("kg", "kg"), ("lb", "lb")])
+                    if let weight = try? NativeTrainingProgram.prescribedWeight(move(index)["loadPercent"], unit: move(index)["unit"].string) {
+                        LabeledContent("处方重量", value: "\(weight.formatted()) \(move(index)["unit"].string)")
+                    }
+                } else {
+                    numberField("训练重量", moveNumber(index, "weight"), decimals: true)
                 }
-                if let weight = try? NativeTrainingProgram.prescribedWeight(move(index)["loadPercent"], unit: move(index)["unit"].string) {
-                    LabeledContent("处方重量", value: "\(weight.formatted()) \(move(index)["unit"].string)")
-                }
-            } else {
-                numberField("训练重量", moveNumber(index, "weight"), decimals: true)
+                optionalNumberField("目标 RPE", moveOptionalNumber(index, "targetRpe"), decimals: true)
             }
-            optionalNumberField("目标 RPE", moveOptionalNumber(index, "targetRpe"), decimals: true)
         }
-        Menu("动作操作", systemImage: "ellipsis.circle") {
+        SpotterMenu {
             if store != nil { Button("从动作库替换", systemImage: "arrow.triangle.2.circlepath") { catalogueSelection = .replace(index) } }
             Button(warmup ? "转为正式动作" : "设为热身", systemImage: "arrow.up.arrow.down") {
                 let source = move(index)
@@ -156,7 +154,7 @@ struct NativeProgramPlanEditor: View {
             Button("移除动作", systemImage: "trash", role: .destructive) {
                 if moves.indices.contains(index) { moves.remove(at: index) }
             }
-        }
+        } label: { Label("动作操作", systemImage: "ellipsis.circle") }
     }
 
     private func numberField(_ title: String, _ binding: Binding<Double>, decimals: Bool = false) -> some View {

@@ -64,6 +64,7 @@ struct NativePlanMoveSheet: View {
     let didMove: (NativePlanMoveReceipt) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterInteractionMotion) private var motion
     @State private var target: Date
     @State private var shift = false
     @State private var review: Review?
@@ -102,8 +103,8 @@ struct NativePlanMoveSheet: View {
                     }.padding(14).spotterCard()
 
                     if let plan = activePlan, canMove {
-                        if let review { reviewPanel(review) }
-                        else { selectionPanel(plan) }
+                        if let review { reviewPanel(review).transition(.opacity) }
+                        else { selectionPanel(plan).transition(.opacity) }
                     } else {
                         Text(activePlan == nil ? "计划已删除或不可用。" : "已开始或已完成的训练保留原日期。")
                             .font(.subheadline).foregroundStyle(SpotterPalette.muted)
@@ -113,6 +114,7 @@ struct NativePlanMoveSheet: View {
                             .font(.footnote).foregroundStyle(.red)
                     }
                 }.padding(14)
+                    .animation(motion, value: review != nil)
             }
             .background(SpotterPalette.background.ignoresSafeArea())
             .navigationTitle("移动训练")
@@ -154,6 +156,7 @@ struct NativePlanMoveSheet: View {
                 .disabled(isRestDay || targetDay == plan.day || (extendsCycle && targetDay < plan.day))
         }
         .padding(14).spotterCard()
+        .animation(motion, value: extendsCycle)
         .disabled(busy || store.isBusy)
         .onChange(of: targetDay) { _ in problem = nil }
         .onChange(of: shift) { _ in problem = nil }
@@ -232,7 +235,7 @@ struct NativePlanDeleteSheet: View {
                     }
                     Button(role: .destructive) { Task { await delete() } } label: {
                         Label(busy ? "正在删除…" : "确认删除", systemImage: "trash")
-                    }.buttonStyle(.borderedProminent).tint(.red)
+                    }.buttonStyle(.spotterControl)
                         .disabled(busy || store.isBusy || needsReview)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(14).spotterCard().padding(14)
             }

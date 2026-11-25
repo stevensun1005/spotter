@@ -572,6 +572,7 @@ final class NativeWorkoutStore: ObservableObject {
 
 struct NativeWorkoutView: View {
     @ObservedObject var store: NativeWorkoutStore
+    var openWorkout: () -> Void
     @Environment(\.spotterAccent) private var accent
     var showsAllPlans = false
     var openSettings: (() -> Void)? = nil
@@ -582,8 +583,6 @@ struct NativeWorkoutView: View {
     var openImport: (() -> Void)? = nil
     var openPrograms: (() -> Void)? = nil
     var openFriends: (() -> Void)? = nil
-    var openRest: (() -> Void)? = nil
-    var openBody: (() -> Void)? = nil
     var homeNutrition: AnyView? = nil
     @Environment(\.spotterInteractionMotion) private var motion
     @Namespace private var trainingSelection
@@ -591,10 +590,6 @@ struct NativeWorkoutView: View {
     @AppStorage(NativePreferenceKey.weeklyCheckins) private var showCheckins = true
     @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
     @State private var selectedDate = Date()
-    @State private var opensWorkout = false
-    @State private var showsLaunch = false
-    @State private var pendingLaunchKind: String?
-    @State private var pendingLaunchAction: (() -> Void)?
     @State private var trainingTab = "我的计划"
     @State private var completedPlans = false
     @State private var showsMoves = false
@@ -604,7 +599,6 @@ struct NativeWorkoutView: View {
     @State private var cataloguePlanMove: NativeCataloguePlanMove?
     @State private var queuedCatalogueDraft: NativePlanDraft?
     @State private var recordSheet: RecordSheet?
-    @State private var finishedWorkout: NativeWorkoutEntry?
     @State private var cheering = false
     @State private var cheerError: String?
 
@@ -663,11 +657,6 @@ struct NativeWorkoutView: View {
         .foregroundStyle(SpotterPalette.ink)
         .tint(accent.tint)
         .toolbar(.hidden, for: .navigationBar)
-        .fullScreenCover(isPresented: $opensWorkout, onDismiss: {
-            if let finishedWorkout { recordSheet = .record(finishedWorkout); self.finishedWorkout = nil }
-        }) {
-            NativeActiveWorkoutView(store: store) { finishedWorkout = $0 }
-        }
         .sheet(item: $recordSheet) { screen in
             switch screen {
             case .record(let entry):
@@ -720,21 +709,6 @@ struct NativeWorkoutView: View {
                 editCataloguePlan(pending.entry, in: plan)
             }
         }
-        .sheet(isPresented: $showsLaunch, onDismiss: {
-            if let action = pendingLaunchAction { pendingLaunchAction = nil; action(); return }
-            guard let kind = pendingLaunchKind else { return }
-            pendingLaunchKind = nil
-            if store.active == nil { store.startFreeWorkout(kind: kind) }
-            opensWorkout = true
-        }) {
-            NativeTrainingLaunch(start: { kind in
-                pendingLaunchKind = kind
-                showsLaunch = false
-            }, rest: openRest.map { action in { pendingLaunchAction = action; showsLaunch = false } },
-               bodyAction: openBody.map { action in { pendingLaunchAction = action; showsLaunch = false } })
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
     }
 
     private func workoutOverview(topPadding: CGFloat) -> some View {
@@ -744,6 +718,7 @@ struct NativeWorkoutView: View {
                     Label(planNotice, systemImage: "checkmark.circle")
                         .font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
                         .accessibilityAddTraits(.updatesFrequently)
+                        .transition(.opacity)
                 }
                 if showsAllPlans { trainingLanding } else { todayLanding }
                 if !store.pendingCheckins.isEmpty { pendingCard }
@@ -755,6 +730,7 @@ struct NativeWorkoutView: View {
             }
             .padding(.horizontal, 14).padding(.top, topPadding).padding(.bottom, 26)
         }
+        .animation(motion, value: planNotice != nil)
         .refreshable { await store.load() }
     }
 
@@ -770,39 +746,17 @@ struct NativeWorkoutView: View {
         let dayRecords = (store.logs.filter { $0.day == selectedDay } + store.partnerLogs.filter {
             $0.day == selectedDay && $0.planKey.flatMap { store.plansByKey[$0] } != nil
         } + scheduledCompletions).sorted(by: newestRecord)
-        HStack(spacing: 8) {
-            if nutritionCollapsed && openNutrition != nil {
-                nativeIconButton("fork.knife", label: "展开饮食记录") { nutritionCollapsed = false }
-            }
-            Button { showsLaunch = true } label: { Label("训练", systemImage: "play.fill").font(.system(size: 15, weight: .bold)) }
-                .buttonStyle(SpotterNativeButtonStyle(primary: true))
-            Spacer()
-            nativeIconButton("gearshape", label: "设置") { openSettings?() }
-        }
-        if !nutritionCollapsed && openNutrition != nil {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("饮食记录").font(.system(size: 18, weight: .bold))
-                    Spacer()
-                    Button { nutritionCollapsed = true } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                        .foregroundStyle(SpotterPalette.muted).accessibilityLabel("收起饮食记录")
-                }
-                if let homeNutrition { homeNutrition }
-                else {
-                    Button { openNutrition?() } label: {
-                        HStack { Label("查看今日饮食", systemImage: "fork.knife"); Spacer(); Image(systemName: "arrow.up.right") }
-                            .padding(16).spotterCard()
-                    }.buttonStyle(.spotterPress)
-                }
-            }
-        }
-        if openFriends != nil { partnerCard }
+        todayHeader
         weekStrip
         HStack {
             Text(selectedDay == NativeWorkoutSession.day() ? "今日训练" : "\(shortDay(selectedDay))的训练")
                 .font(.system(size: 18, weight: .bold))
             Spacer()
-            Button { openAllPlans?() } label: { HStack(spacing: 2) { Text("全部计划"); Image(systemName: "chevron.right") }.font(.system(size: 13, weight: .semibold)) }
+            Button { openAllPlans?() } label: {
+                Label("全部计划", systemImage: "chevron.right")
+                    .labelStyle(.titleAndIcon).font(.subheadline.weight(.semibold))
+                    .frame(minHeight: 44)
+            }.buttonStyle(.spotterPress).foregroundStyle(accent.tint)
         }.padding(.top, 4)
         if selectedDay == NativeWorkoutSession.day() {
             if let active = store.active { draftRow(active, current: true) }
@@ -814,11 +768,14 @@ struct NativeWorkoutView: View {
             if !first.data["exercises"].array.isEmpty { movementCard(first) }
             if let url = URL(string: first.data["video"].string), !first.data["video"].string.isEmpty {
                 Link(destination: url) { Label("打开跟练视频", systemImage: "play.circle").frame(maxWidth: .infinity).padding(14).spotterCard() }
+                    .buttonStyle(.spotterPress)
             }
         } else if dayRecords.isEmpty {
             emptyCard("这天还没有安排", symbol: "dumbbell")
         }
         if !dayRecords.isEmpty { completedRows(dayRecords) }
+        if let openNutrition { nutritionPanel(openNutrition) }
+        if openFriends != nil { partnerCard }
         if showCheckins { weeklyCheckins }
         if showPlanShortcut {
             Button { openCoach?() } label: {
@@ -829,6 +786,67 @@ struct NativeWorkoutView: View {
                 }.padding(15).spotterCard()
             }.buttonStyle(.spotterPress)
         }
+    }
+
+    private var todayHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(Date.now.formatted(.dateTime.month(.defaultDigits).day().weekday(.wide).locale(Locale(identifier: "zh_CN"))))
+                    .font(.subheadline.weight(.medium)).foregroundStyle(SpotterPalette.muted)
+                Text("今日").font(.largeTitle.weight(.heavy)).accessibilityAddTraits(.isHeader)
+            }
+            Spacer(minLength: 0)
+            Button { openSettings?() } label: {
+                Image(systemName: "gearshape").font(.body.weight(.semibold))
+                    .frame(width: 46, height: 46).contentShape(Circle())
+                    .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.5), interactive: motion != nil)
+            }.buttonStyle(.spotterPress).accessibilityLabel("设置")
+        }
+    }
+
+    private func nutritionPanel(_ open: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                if nutritionCollapsed {
+                    Button { setNutritionCollapsed(false) } label: {
+                        HStack(spacing: 9) {
+                            tile("fork.knife", size: 33)
+                            Text("饮食记录").font(.headline)
+                            Spacer()
+                            Image(systemName: "chevron.down").font(.footnote.weight(.semibold))
+                                .foregroundStyle(SpotterPalette.muted)
+                        }.padding(.horizontal, 12).frame(minHeight: 53).contentShape(Rectangle())
+                    }.buttonStyle(.spotterPress).spotterCard(radius: 15)
+                        .accessibilityLabel("展开饮食记录")
+                        .transition(.opacity)
+                } else {
+                    Text("饮食记录").font(.headline).accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    Button { setNutritionCollapsed(true) } label: {
+                        Image(systemName: "xmark").font(.footnote.weight(.semibold))
+                            .frame(width: 44, height: 44).contentShape(Circle())
+                            .foregroundStyle(SpotterPalette.muted)
+                    }.buttonStyle(.spotterPress).accessibilityLabel("收起饮食记录")
+                        .transition(.opacity)
+                }
+            }
+            if !nutritionCollapsed {
+                Group {
+                    if let homeNutrition { homeNutrition }
+                    else {
+                        Button(action: open) {
+                            HStack { Label("查看今日饮食", systemImage: "fork.knife"); Spacer(); Image(systemName: "arrow.up.right") }
+                                .padding(16).spotterCard()
+                        }.buttonStyle(.spotterPress)
+                    }
+                }
+                .transition(.offset(y: -8).combined(with: .opacity))
+            }
+        }
+    }
+
+    private func setNutritionCollapsed(_ collapsed: Bool) {
+        withAnimation(motion) { nutritionCollapsed = collapsed }
     }
 
     private var partnerCard: some View {
@@ -991,7 +1009,7 @@ struct NativeWorkoutView: View {
                     if !entry.data["exercises"].array.isEmpty { Label("\(entry.data["exercises"].array.count) 个动作", systemImage: "dumbbell") }
                     if !entry.data["video"].string.isEmpty { Label("跟练视频", systemImage: "play") }
                 }.font(.system(size: 13)).foregroundStyle(.white.opacity(0.88))
-                Button { store.start(plan: NativePlan(raw: entry.data), id: entry.id); opensWorkout = true } label: {
+                Button { store.start(plan: NativePlan(raw: entry.data), id: entry.id); openWorkout() } label: {
                     Label("开始计划训练", systemImage: "play.fill").font(.system(size: 15, weight: .bold))
                 }.buttonStyle(SpotterNativeButtonStyle(primary: true)).padding(.top, 6).disabled(store.active != nil || store.isBusy)
             }
@@ -1010,9 +1028,8 @@ struct NativeWorkoutView: View {
         }.clipShape(RoundedRectangle(cornerRadius: 19))
             .overlay(alignment: .topTrailing) {
                 if entry.owner == store.owner {
-                    Menu { planActions(entry) } label: {
-                        Image(systemName: "ellipsis").font(.system(size: 18, weight: .bold)).frame(width: 40, height: 40)
-                            .foregroundStyle(.white).background(SpotterPalette.deep.opacity(0.8), in: RoundedRectangle(cornerRadius: 10))
+                    SpotterMenu { planActions(entry) } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 16, weight: .bold))
                     }.accessibilityLabel("训练操作 " + entry.displayTitle).padding(12)
                 }
             }
@@ -1028,20 +1045,23 @@ struct NativeWorkoutView: View {
                     Image(systemName: "chevron.down").rotationEffect(.degrees(showsMoves ? 180 : 0))
                 }.padding(14)
             }.buttonStyle(.spotterPress)
+                .accessibilityValue(showsMoves ? "已展开" : "已收起")
             if showsMoves {
-                ForEach(Array(entry.data["exercises"].array.enumerated()), id: \.offset) { index, move in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text(move["sourceSlot"].string.isEmpty ? "\(index + 1)" : move["sourceSlot"].string)
-                            .font(.system(size: 13, weight: .bold)).frame(width: 34, height: 30).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 8))
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(move["name"].string).font(.system(size: 15, weight: .bold))
-                            Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
-                            if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
-                        }
-                        Spacer(minLength: 0)
-                    }.padding(.horizontal, 14).padding(.vertical, 10)
-                    if index < entry.data["exercises"].array.count - 1 { Divider().overlay(SpotterPalette.line).padding(.horizontal, 14) }
-                }
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(entry.data["exercises"].array.enumerated()), id: \.offset) { index, move in
+                        HStack(alignment: .top, spacing: 10) {
+                            Text(move["sourceSlot"].string.isEmpty ? "\(index + 1)" : move["sourceSlot"].string)
+                                .font(.system(size: 13, weight: .bold)).frame(width: 34, height: 30).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 8))
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(move["name"].string).font(.system(size: 15, weight: .bold))
+                                Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
+                                if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
+                            }
+                            Spacer(minLength: 0)
+                        }.padding(.horizontal, 14).padding(.vertical, 10)
+                        if index < entry.data["exercises"].array.count - 1 { Divider().overlay(SpotterPalette.line).padding(.horizontal, 14) }
+                    }
+                }.transition(.offset(y: -6).combined(with: .opacity))
             }
         }.spotterCard()
     }
@@ -1054,7 +1074,7 @@ struct NativeWorkoutView: View {
                 Text("\(entry.session?.completedSets ?? 0) 组完成 · \(current ? store.status : "训练草稿")").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
             }
             Spacer(minLength: 0)
-            Button("继续") { if !current { store.resume(entry) }; opensWorkout = true }
+            Button("继续") { if !current { store.resume(entry) }; openWorkout() }
                 .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(!current && store.active != nil)
         }.padding(12).spotterCard()
     }
@@ -1072,10 +1092,10 @@ struct NativeWorkoutView: View {
                             .font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
                     }
                     Spacer(minLength: 0)
-                    Button("开始") { store.start(plan: plan, id: entry.id); opensWorkout = true }
+                    Button("开始") { store.start(plan: plan, id: entry.id); openWorkout() }
                         .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(store.active != nil || store.isBusy)
                     if entry.owner == store.owner {
-                        Menu { planActions(entry) } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                        SpotterMenu { planActions(entry) } label: { Image(systemName: "ellipsis") }
                             .accessibilityLabel("训练操作 " + entry.displayTitle)
                     }
                 }.padding(.vertical, 10)
@@ -1114,14 +1134,11 @@ struct NativeWorkoutView: View {
                     .layoutPriority(1)
                     Spacer(minLength: 0)
                     if entry.owner == store.owner {
-                        Menu {
+                        SpotterMenu {
                             if let linkedPlan { planActions(linkedPlan) }
                             Button("分享训练", systemImage: "square.and.arrow.up") { recordSheet = .share(entry) }
                         } label: {
                             Image(systemName: "ellipsis").font(.subheadline.bold())
-                                .frame(width: 42, height: 40)
-                                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 10))
-                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(SpotterPalette.line))
                         }
                         .accessibilityLabel("更多训练选项")
                     }
@@ -1278,7 +1295,7 @@ struct NativeWorkoutView: View {
                 HStack {
                     Text("全部计划").font(.system(size: 18, weight: .bold))
                     Spacer()
-                    Menu {
+                    SpotterMenu {
                         if let openCoach { Button("AI 教练起草", systemImage: "sparkles", action: openCoach) }
                         if let openImport { Button("粘贴已有内容", systemImage: "list.bullet.clipboard", action: openImport) }
                         if let openPrograms { Button("训练周期", systemImage: "calendar.badge.plus", action: openPrograms) }
@@ -1288,7 +1305,7 @@ struct NativeWorkoutView: View {
                 }
                 HStack(spacing: 4) {
                     ForEach([false, true], id: \.self) { completed in
-                        Button { completedPlans = completed } label: {
+                        Button { withAnimation(motion) { completedPlans = completed } } label: {
                             Text(completed ? "已完成" : "待训练").font(.system(size: 13, weight: .semibold)).padding(.vertical, 9).frame(maxWidth: .infinity)
                                 .foregroundStyle(completedPlans == completed ? SpotterPalette.deep : SpotterPalette.muted)
                                 .background(completedPlans == completed ? accent.fill : .clear, in: RoundedRectangle(cornerRadius: 7))
@@ -1353,12 +1370,16 @@ struct NativeWorkoutView: View {
 
 struct SpotterNativeButtonStyle: ButtonStyle {
     @Environment(\.spotterAccent) private var accent
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.spotterInteractionMotion) private var motion
     var primary: Bool
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.padding(.horizontal, 13).padding(.vertical, 11)
             .foregroundStyle(primary ? SpotterPalette.deep : SpotterPalette.ink)
-            .spotterGlass(cornerRadius: 11, tint: primary ? accent.fill : SpotterPalette.card.opacity(0.85))
+            .spotterGlass(cornerRadius: 11, tint: primary ? accent.fill : SpotterPalette.card.opacity(0.85),
+                          interactive: enabled && motion != nil)
             .spotterPressFeedback(configuration.isPressed)
+            .opacity(enabled ? 1 : 0.54)
     }
 }
 
@@ -1399,7 +1420,7 @@ private func prescription(_ move: NativeJSON) -> String {
     return "\(Int(move["sets"].number)) 组 × \(repetitions)" + (move["weight"].number > 0 ? " · \(move["weight"].number.formatted()) \(move["unit"].string)" : "")
 }
 
-private struct NativeTrainingLaunch: View {
+struct NativeTrainingLaunch: View {
     let start: (String) -> Void
     var rest: (() -> Void)?
     var bodyAction: (() -> Void)?
@@ -1486,12 +1507,8 @@ private struct NativeCataloguePlanPicker: View {
             Form {
                 Section {
                     Text(move.entry.name).font(.headline)
-                    Picker("选择训练计划", selection: $selected) {
-                        Text("新建训练计划").tag("")
-                        ForEach(plans) { plan in
-                            Text("\(plan.day) · \(plan.title)").tag(plan.id)
-                        }
-                    }
+                    SpotterMenuPicker("选择训练计划", selection: $selected,
+                                      options: [("", "新建训练计划")] + plans.map { ($0.id, "\($0.day) · \($0.title)") })
                 }
                 if let plan = plans.first(where: { $0.id == selected }), !plan.data["templateId"].string.isEmpty {
                     Text("保存这次的动作改动后，这一节会成为独立计划。")
@@ -1527,7 +1544,7 @@ private struct NativeSetTarget: Equatable {
 
 private enum NativeEditorPanel: String, Identifiable { case settings, note, add, finish; var id: String { rawValue } }
 
-private struct NativeActiveWorkoutView: View {
+struct NativeActiveWorkoutView: View {
     @Environment(\.spotterAccent) private var accent
     @ObservedObject var store: NativeWorkoutStore
     let completed: (NativeWorkoutEntry) -> Void
@@ -1694,13 +1711,16 @@ private struct NativeActiveWorkoutView: View {
                         .rotationEffect(.degrees(openedMove == index ? 180 : 0))
                 }
             }.buttonStyle(.spotterPress)
+                .accessibilityValue(openedMove == index ? "已展开" : "已收起")
             if openedMove == index {
-                if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
-                Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
-                if showTempo && !move["tempo"].string.isEmpty { Text("节奏 \(move["tempo"].string)").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
-                ForEach(Array((session.rows.indices.contains(index) ? session.rows[index] : []).enumerated()), id: \.offset) { row, line in setRow(index, row: row, move: move, line: line) }
-                Button { withAnimation(motion) { store.mutate { $0.addSet(move: index) } } } label: { Label("增加一组", systemImage: "plus").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity) }
-                    .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled((session.rows.indices.contains(index) ? session.rows[index].count : 30) >= 30)
+                VStack(alignment: .leading, spacing: 11) {
+                    if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
+                    Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
+                    if showTempo && !move["tempo"].string.isEmpty { Text("节奏 \(move["tempo"].string)").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
+                    ForEach(Array((session.rows.indices.contains(index) ? session.rows[index] : []).enumerated()), id: \.offset) { row, line in setRow(index, row: row, move: move, line: line) }
+                    Button { withAnimation(motion) { store.mutate { $0.addSet(move: index) } } } label: { Label("增加一组", systemImage: "plus").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity) }
+                        .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled((session.rows.indices.contains(index) ? session.rows[index].count : 30) >= 30)
+                }.transition(.offset(y: -5).combined(with: .opacity))
             }
         }.padding(12).spotterCard()
     }
@@ -2012,7 +2032,7 @@ struct NativeWorkoutDetailView: View {
                             NativeHeartView(api: store.api, owner: store.owner, entry: current)
                         }
                         if session.completedSets > 0 {
-                            DisclosureGroup("肌群分布") {
+                            SpotterDisclosure("肌群分布") {
                                 SecondaryMusclePanel(entries: [current]).padding(.top, 8)
                             }.font(.subheadline.weight(.semibold)).padding(14).spotterCard()
                         }
@@ -2139,14 +2159,14 @@ struct NativeWorkoutDetailView: View {
                     Label("已喝蛋白粉", systemImage: checked ? "checkmark.circle.fill" : "mug").font(.subheadline.weight(.semibold))
                     Spacer()
                     if !pending && store.tracksWorkoutProtein {
-                        Menu("修改") {
+                        SpotterMenu {
                             ForEach(Array(products.enumerated()), id: \.offset) { _, choice in
                                 Button(choice["name"].string) { setProtein(choice, on: current) }
                             }
                             if checked {
                                 Button("取消本次蛋白粉记录", role: .destructive) { setProtein(nil, on: current) }
                             }
-                        }.disabled(savingProtein)
+                        } label: { Label("修改", systemImage: "chevron.down") }.disabled(savingProtein)
                     }
                 }
                 if checked && !product["name"].string.isEmpty {
@@ -2238,6 +2258,7 @@ struct NativeWorkoutDetailView: View {
 
 @MainActor
 private struct NativeWorkoutLogEditor: View {
+    @Environment(\.spotterInteractionMotion) private var motion
     let entry: NativeWorkoutEntry
     let store: NativeWorkoutStore
     @Environment(\.dismiss) private var dismiss
@@ -2269,7 +2290,7 @@ private struct NativeWorkoutLogEditor: View {
             ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in
                 if session.rows.indices.contains(index) {
                     Section {
-                        DisclosureGroup(move["name"].string) { exerciseFields(at: index, move: move) }
+                        SpotterDisclosure(move["name"].string) { exerciseFields(at: index, move: move) }
                     }
                 }
             }
@@ -2325,9 +2346,9 @@ private struct NativeWorkoutLogEditor: View {
                         session.setLine(move: index, row: position, key: "done", value: .bool($0))
                     }))
                     Button(role: .destructive) {
-                        removeSet(move: index, row: position)
+                        withAnimation(motion) { removeSet(move: index, row: position) }
                     } label: { Image(systemName: "trash").padding(6) }
-                        .buttonStyle(.borderless).accessibilityLabel("移除第 \(position + 1) 组")
+                        .buttonStyle(.spotterPress).foregroundStyle(.red).accessibilityLabel("移除第 \(position + 1) 组")
                 }
                 let isSplit = row["right"] != .null
                 let mass = move["unit"].string
@@ -2343,10 +2364,12 @@ private struct NativeWorkoutLogEditor: View {
                 }
             }
             Button {
-                session.addSet(move: index)
-                session.setLine(move: index, row: rows.count, key: "done", value: .bool(true))
+                withAnimation(motion) {
+                    session.addSet(move: index)
+                    session.setLine(move: index, row: rows.count, key: "done", value: .bool(true))
+                }
             } label: { Label("加一组", systemImage: "plus.circle") }
-                .buttonStyle(.borderless).disabled(rows.count >= 30).padding(.top, 5)
+                .buttonStyle(.spotterControl).disabled(rows.count >= 30).padding(.top, 5)
         }.padding(.vertical, 7)
     }
 
@@ -2481,9 +2504,8 @@ struct NativePlanEditorPanel: View {
                     DatePicker("训练日期", selection: Binding(get: { nativePlanDate(draft.plan["date"].string) ?? Date() }, set: { draft.plan["date"] = .string(NativeWorkoutSession.day($0)) }), displayedComponents: .date)
                 }
                 if !linked {
-                    Picker("训练类型", selection: text("category", maximum: 20)) {
-                        ForEach(NativePlanImport.categories, id: \.self) { Text($0).tag($0) }
-                    }
+                    SpotterMenuPicker("训练类型", selection: text("category", maximum: 20),
+                                      options: NativePlanImport.categories.map { ($0, $0) })
                     HStack { Text("预计分钟"); Spacer(); TextField("分钟", value: number("minutes", maximum: 720), format: .number).keyboardType(.numberPad).multilineTextAlignment(.trailing).frame(width: 65) }
                 }
                 Toggle("与搭子共享计划", isOn: Binding(get: { draft.plan["shared"].bool }, set: { draft.plan["shared"] = .bool($0) }))
@@ -2502,9 +2524,8 @@ struct NativePlanEditorPanel: View {
                         }
                         if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.caption).foregroundStyle(SpotterPalette.muted) }
                         if reviewed != nil {
-                            Picker("重量单位", selection: Binding(get: { move["unit"].string }, set: { setMove(index, key: "unit", value: .string($0)) })) {
-                                Text("kg").tag("kg"); Text("lb").tag("lb")
-                            }
+                            SpotterMenuPicker("重量单位", selection: Binding(get: { move["unit"].string }, set: { setMove(index, key: "unit", value: .string($0)) }),
+                                              options: [("kg", "kg"), ("lb", "lb")])
                         }
                     }.padding(.vertical, 6)
                 }

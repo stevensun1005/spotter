@@ -111,25 +111,18 @@ struct NativeWorkoutShareView: View {
                 }
                 .buttonStyle(ShareControlStyle(theme: theme))
                 .disabled(dayLogs.count < 2)
-                Menu {
-                    Picker("海报样式", selection: $theme) {
-                        ForEach(ShareTheme.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                } label: {
+                SpotterMenuPicker("海报样式", selection: $theme, options: ShareTheme.allCases.map { ($0, $0.rawValue) }) {
                     HStack(spacing: 5) {
                         Text(theme.rawValue).fontWeight(.semibold)
                         Image(systemName: "chevron.down").font(.caption2)
                     }
                     .lineLimit(1).minimumScaleFactor(0.8)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(theme.tile, in: RoundedRectangle(cornerRadius: 11))
-                    .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(theme.line).allowsHitTesting(false))
+                    .frame(maxWidth: .infinity)
                 }
-                .accessibilityLabel("海报样式").accessibilityValue(theme.rawValue)
             }
             HStack(spacing: 12) {
                 Button {
-                    includeHeart.toggle()
+                    withAnimation(motion) { includeHeart.toggle() }
                     message = nil
                 } label: {
                     Label("附带心率", systemImage: includeHeart ? "checkmark.square.fill" : "square")
@@ -140,14 +133,9 @@ struct NativeWorkoutShareView: View {
                 .disabled(api == nil)
                 Spacer(minLength: 5)
                 if artwork?.isEmpty == false {
-                    Menu {
-                        Picker("肌群图体型", selection: $figure) {
-                            ForEach(SecondaryAnatomy.Figure.allCases, id: \.self) { Text($0.title).tag($0) }
-                        }
-                    } label: {
-                        Label(figure.title, systemImage: "figure.stand").frame(minHeight: 32)
+                    SpotterMenuPicker("肌群图体型", selection: $figure, options: SecondaryAnatomy.Figure.allCases.map { ($0, $0.title) }) {
+                        Label(figure.title, systemImage: "figure.stand")
                     }
-                    .accessibilityLabel("肌群图体型").accessibilityValue(figure.title)
                 }
             }
             .font(.subheadline.weight(.semibold)).foregroundStyle(theme.quiet)

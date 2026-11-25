@@ -142,9 +142,12 @@ struct SpotterGlassGroup<Content: View>: View {
 }
 
 extension View {
-    @ViewBuilder
     func spotterGlass(cornerRadius: CGFloat = 16, tint: Color? = nil, interactive: Bool = true) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        spotterGlass(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), tint: tint, interactive: interactive)
+    }
+
+    @ViewBuilder
+    func spotterGlass<Shape: InsettableShape>(in shape: Shape, tint: Color? = nil, interactive: Bool = true) -> some View {
         if #available(iOS 26.0, *) {
             glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
         } else {
@@ -185,9 +188,10 @@ private struct SpotterPressFeedback: ViewModifier {
     func body(content: Content) -> some View {
         let animate = !systemReduceMotion && !reduceMotion
         content
-            .scaleEffect(pressed && animate ? 0.94 : 1)
-            .opacity(pressed ? 0.84 : 1)
-            .animation(animate ? (pressed ? .easeOut(duration: 0.09) : .spring(response: 0.30, dampingFraction: 0.67)) : nil,
+            .scaleEffect(pressed && animate ? 0.945 : 1)
+            .brightness(pressed && animate ? 0.035 : 0)
+            .opacity(pressed ? 0.86 : 1)
+            .animation(animate ? (pressed ? .easeOut(duration: 0.11) : .spring(response: 0.30, dampingFraction: 0.72)) : nil,
                        value: pressed)
     }
 }
@@ -199,8 +203,11 @@ extension View {
 }
 
 struct SpotterPressButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.spotterPressFeedback(configuration.isPressed)
+            .opacity(enabled ? 1 : 0.54)
     }
 }
 
@@ -245,6 +252,7 @@ struct NativeSpotterApp: View {
         }
         .foregroundStyle(SpotterPalette.ink)
         .tint(accent.tint)
+        .buttonStyle(.spotterPress)
         .environment(\.spotterAccent, accent)
         .background { SpotterWindowAppearance(theme: theme).accessibilityHidden(true) }
         .task { await account.restore() }
@@ -385,7 +393,6 @@ private enum NativeSpotterSection: String {
     case training = "训练"
     case stats = "统计"
     case friends = "好友"
-    case coach = "AI 教练"
 
     var icon: String {
         switch self {
@@ -393,7 +400,6 @@ private enum NativeSpotterSection: String {
         case .training: return "DockTraining"
         case .stats: return "DockStats"
         case .friends: return "DockFriends"
-        case .coach: return "DockCoach"
         }
     }
 }
@@ -404,7 +410,7 @@ private struct NativeSpotterTabs: View {
     @StateObject private var workouts: NativeWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
-    @Namespace private var legacySelection
+    @Namespace private var dockSelection
     @State private var selected: NativeSpotterSection = .today
     @State private var showCoach = false
     @State private var coachDetent: PresentationDetent = .medium
@@ -414,6 +420,11 @@ private struct NativeSpotterTabs: View {
     @State private var showNutrition = false
     @State private var showRest = false
     @State private var showBody = false
+    @State private var showTrainingLaunch = false
+    @State private var showActiveWorkout = false
+    @State private var nextLaunch: TrainingLaunch?
+    @State private var finishedWorkout: NativeWorkoutEntry?
+    @State private var workoutReceipt: NativeWorkoutEntry?
     @State private var buddySearchRequest = 0
     @State private var showTrainingReminder = false
     @AppStorage private var reminderEnabled: Bool
@@ -425,6 +436,14 @@ private struct NativeSpotterTabs: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.dynamicTypeSize) private var systemTextSize
     let owner: String
+
+    private enum TrainingLaunch {
+        case workout(String)
+        case rest
+        case body
+    }
+
+    private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
 
     init(account: NativeAccount, owner: String) {
         self.account = account
@@ -488,6 +507,19 @@ private struct NativeSpotterTabs: View {
                 NativeBodyData(api: account.api, owner: owner, showsClose: true)
             }
         }
+        .sheet(isPresented: $showTrainingLaunch, onDismiss: finishTrainingLaunch) {
+            NativeTrainingLaunch(start: { queueTrainingLaunch(.workout($0)) },
+                                 rest: { queueTrainingLaunch(.rest) }, bodyAction: { queueTrainingLaunch(.body) })
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .fullScreenCover(isPresented: $showActiveWorkout, onDismiss: showWorkoutReceipt) {
+            NativeActiveWorkoutView(store: workouts) { finishedWorkout = $0 }
+        }
+        .sheet(item: $workoutReceipt) { entry in
+            NavigationStack { NativeWorkoutDetailView(store: workouts, entry: entry, showsClose: true) }
+                .presentationDragIndicator(.visible)
+        }
         .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
         .environment(\.spotterReduceMotion, reduceMotion)
         .transaction {
@@ -499,13 +531,11 @@ private struct NativeSpotterTabs: View {
     }
 
     private var today: some View {
-        var view = NativeWorkoutView(store: workouts)
+        var view = NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout)
         view.openSettings = { showSettings = true }
         view.openAllPlans = { selected = .training }
         view.openStats = { selected = .stats }
         view.openCoach = openCoach
-        view.openRest = { showRest = true }
-        view.openBody = { showBody = true }
         if showsFriends { view.openFriends = openFriends }
         if showsNutrition {
             view.openNutrition = { showNutrition = true }
@@ -539,57 +569,55 @@ private struct NativeSpotterTabs: View {
         showCoach = true
     }
 
+    private func openTrainingLaunch() {
+        if workouts.active == nil { showTrainingLaunch = true }
+        else { openActiveWorkout() }
+    }
+
+    private func queueTrainingLaunch(_ action: TrainingLaunch) {
+        nextLaunch = action
+        showTrainingLaunch = false
+    }
+
+    private func finishTrainingLaunch() {
+        let action = nextLaunch
+        nextLaunch = nil
+        switch action {
+        case .workout(let kind):
+            workouts.startFreeWorkout(kind: kind)
+            openActiveWorkout()
+        case .rest: showRest = true
+        case .body: showBody = true
+        case nil: break
+        }
+    }
+
+    private func openActiveWorkout() {
+        guard workouts.active != nil else { return }
+        showActiveWorkout = true
+    }
+
+    private func showWorkoutReceipt() {
+        workoutReceipt = finishedWorkout
+        finishedWorkout = nil
+    }
+
     private var contentSections: [NativeSpotterSection] {
         showsFriends ? [.today, .training, .stats, .friends] : [.today, .training, .stats]
     }
 
-    @ViewBuilder private var navigationTabs: some View {
-        if #available(iOS 26.0, *) {
-            systemTabs
-        } else {
-            TabView(selection: $selected) {
-                ForEach(contentSections, id: \.self) { section in
-                    tabScene(section, hidesTabBar: true).tag(section)
-                }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) { legacyDock }
+    private var navigationTabs: some View {
+        TabView(selection: $selected) {
+            ForEach(contentSections, id: \.self) { section in tabScene(section).tag(section) }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { dock }
     }
 
-    @available(iOS 26.0, *)
-    private var systemTabs: some View {
-        TabView(selection: Binding(get: { selected }, set: { next in
-            // The trailing item opens a sheet over the selected content tab.
-            if next == .coach { openCoach() }
-            else { selected = next }
-        })) {
-            ForEach(contentSections, id: \.self) { section in
-                Tab(value: section) {
-                    tabScene(section)
-                } label: {
-                    Label(section.rawValue, image: section.icon)
-                }
-            }
-            Tab("AI 教练", image: NativeSpotterSection.coach.icon, value: .coach, role: coachTabRole) {
-                SpotterPalette.background.accessibilityHidden(true)
-            }
-        }
-        .tabBarMinimizeBehavior(.never)
-    }
-
-    @available(iOS 26.0, *)
-    private var coachTabRole: TabRole {
-        #if compiler(>=6.4)
-        if #available(iOS 27.0, *) { return .prominent }
-        #endif
-        return .search
-    }
-
-    private func tabScene(_ section: NativeSpotterSection, hidesTabBar: Bool = false) -> some View {
+    private func tabScene(_ section: NativeSpotterSection) -> some View {
         NavigationStack {
             sectionContent(section)
                 .toolbar(.hidden, for: .navigationBar)
-                .toolbar(hidesTabBar ? .hidden : .automatic, for: .tabBar)
+                .toolbar(.hidden, for: .tabBar)
         }
     }
 
@@ -597,65 +625,82 @@ private struct NativeSpotterTabs: View {
         switch section {
         case .today: today
         case .training:
-            NativeWorkoutView(store: workouts, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: openCoach,
+            NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: openCoach,
                               openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
         case .stats:
             NativeSpotterStats(store: workouts, api: account.api, owner: owner)
         case .friends:
             NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest) { await workouts.load() }
-        case .coach:
-            EmptyView()
         }
     }
 
-    private var legacyDock: some View {
-        SpotterGlassGroup(spacing: 4) {
-            HStack(spacing: 8) {
+    private var dock: some View {
+        HStack(spacing: 8) {
+            SpotterGlassGroup(spacing: 4) {
                 HStack(spacing: 2) {
                     ForEach(contentSections, id: \.self) { section in
-                        Button {
-                            selected = section
-                        } label: {
-                            VStack(spacing: 3) {
-                                Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
-                                Text(section.rawValue).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                            }
-                            .foregroundStyle(selected == section ? accent.tint : SpotterPalette.muted)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background {
-                                if selected == section {
-                                    RoundedRectangle(cornerRadius: 15).fill(accent.selection.opacity(0.88))
-                                        .matchedGeometryEffect(id: "selection", in: legacySelection)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.spotterPress)
-                        .accessibilityLabel(section.rawValue)
-                        .accessibilityAddTraits(selected == section ? .isSelected : [])
+                        if section == .stats { dockPlay }
+                        dockTab(section)
                     }
                 }
-                .animation(reduceMotion || systemReduceMotion ? nil : .spring(response: 0.33, dampingFraction: 0.78),
-                           value: selected)
-                .padding(4)
-                .frame(height: 60)
-                .spotterGlass(cornerRadius: 22, interactive: false)
-                Button(action: openCoach) {
-                    Image("DockCoach").renderingMode(.template).resizable()
-                        .frame(width: 21, height: 21)
-                        .foregroundStyle(accent.tint)
-                        .frame(width: 38, height: 38)
-                        .background(SpotterPalette.card.opacity(0.42), in: RoundedRectangle(cornerRadius: 14))
-                        .frame(width: 60, height: 60)
-                        .contentShape(RoundedRectangle(cornerRadius: 22))
-                        .spotterGlass(cornerRadius: 22, tint: accent.selection.opacity(0.89))
-                }
-                .buttonStyle(.spotterPress)
-                .accessibilityLabel("打开 AI 教练")
             }
+            .animation(allowsMotion ? .spring(response: 0.34, dampingFraction: 0.78) : nil, value: selected)
+            .padding(4)
+            .frame(height: 59)
+            .spotterGlass(cornerRadius: 30, interactive: false)
+
+            Button(action: openCoach) {
+                Image("DockCoach").renderingMode(.template).resizable()
+                    .frame(width: 23, height: 23)
+                    .foregroundStyle(accent.tint)
+                    .frame(width: 51, height: 55)
+                    .contentShape(RoundedRectangle(cornerRadius: 23))
+                    .spotterGlass(cornerRadius: 23, tint: accent.selection.opacity(0.85), interactive: allowsMotion)
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityLabel("打开 AI 教练")
         }
-        .padding(.horizontal, 12)
+        .frame(maxWidth: 530)
+        .padding(.horizontal, 10)
         .padding(.top, 4)
-        .padding(.bottom, 8)
+        .padding(.bottom, 4)
+    }
+
+    private func dockTab(_ section: NativeSpotterSection) -> some View {
+        Button { selected = section } label: {
+            VStack(spacing: 3) {
+                Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
+                Text(section.rawValue).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(selected == section ? accent.tint : SpotterPalette.muted)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                if selected == section {
+                    Capsule().fill(accent.selection.opacity(0.68))
+                        .matchedGeometryEffect(id: "selection", in: dockSelection)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel(section.rawValue)
+        .accessibilityAddTraits(selected == section ? .isSelected : [])
+    }
+
+    private var dockPlay: some View {
+        Button(action: openTrainingLaunch) {
+            Image(systemName: "play.fill")
+                .font(.system(size: 19, weight: .semibold))
+                .offset(x: 1)
+                .foregroundStyle(SpotterPalette.deep)
+                .frame(width: 47, height: 47)
+                .contentShape(Circle())
+                .spotterGlass(in: Circle(), tint: SpotterAccent.lime.fill.opacity(0.94), interactive: allowsMotion)
+                .padding(.horizontal, 3)
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel(workouts.active == nil ? "开始训练" : "继续训练")
+        .accessibilityIdentifier("spotter-dock-play")
+        .disabled(workouts.active == nil && workouts.isBusy)
     }
 }

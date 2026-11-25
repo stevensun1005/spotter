@@ -47,7 +47,7 @@ struct NativeRestSchedule: View {
                         DatePicker("临时休息日期", selection: $chosenDay, displayedComponents: .date).labelsHidden()
                         Spacer()
                         Button { withAnimation(motion) { _ = dates.insert(spotterDay(chosenDay)) } } label: { Label("加入", systemImage: "plus") }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.spotterControl)
                             .disabled(!ready || busy || dates.count >= 180 || dates.contains(spotterDay(chosenDay)))
                     }
                     ForEach(dates.sorted(), id: \.self) { day in
@@ -271,11 +271,8 @@ struct NativeBodyData: View {
                 field("身高（cm）", $height)
                 field("年龄（岁）", $age, type: .numberPad)
             }
-            Picker("性别（用于营养估算和肌群图）", selection: $sex) {
-                Text("未填写").tag("")
-                Text("男").tag("male")
-                Text("女").tag("female")
-            }
+            SpotterMenuPicker("性别（用于营养估算和肌群图）", selection: $sex,
+                              options: [("", "未填写"), ("male", "男"), ("female", "女")])
             Button("保存身体档案") { Task { await saveProfile() } }
                 .buttonStyle(SpotterNativeButtonStyle(primary: true))
                 .disabled(busy || !ready)
@@ -286,16 +283,14 @@ struct NativeBodyData: View {
     private var measurementCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("记录身体测量").font(.headline)
-            Picker("测量项目", selection: $selected) {
-                ForEach(Self.metrics) { Text($0.name).tag($0.id) }
-            }
+            SpotterMenuPicker("测量项目", selection: $selected, options: Self.metrics.map { ($0.id, $0.name) })
             .onChange(of: selected) { _ in clearReading() }
             DatePicker("测量日期", selection: $date, in: ...max(date, .now), displayedComponents: .date)
             field(metric.unit.isEmpty ? metric.name : "\(metric.name)（\(metric.unit)）", $reading)
             HStack {
                 if editing != nil {
                     Button("取消编辑", action: clearReading)
-                        .buttonStyle(.bordered).transition(.opacity)
+                        .buttonStyle(.spotterControl).transition(.opacity)
                 }
                 Button(editing == nil ? "保存测量" : "更新记录") { Task { await saveReading() } }
                     .buttonStyle(SpotterNativeButtonStyle(primary: true))
@@ -336,7 +331,7 @@ struct NativeBodyData: View {
                             date = record.date
                             editing = record.id
                             reading = format(record.value, "")
-                        }.buttonStyle(.bordered).disabled(busy)
+                        }.buttonStyle(.spotterControl).disabled(busy)
                     }
                 }
             }

@@ -87,6 +87,8 @@ private final class NativeProteinStore: ObservableObject {
 }
 
 struct NativeProteinView: View {
+    @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterAccent) private var accent
     @StateObject private var store: NativeProteinStore
     @State private var editor: NativeProteinRecipeEditor?
 
@@ -97,14 +99,30 @@ struct NativeProteinView: View {
             Section {
                 Text("每款产品分别保存一勺粉量、冲泡液体和杯量。训练勾选已喝后，使用这份配方同步一杯加餐。")
                     .font(.subheadline).foregroundStyle(.secondary)
-                Button { editor = NativeProteinRecipeEditor() } label: { Label("添加蛋白粉", systemImage: "plus.circle.fill") }
+                Button { editor = NativeProteinRecipeEditor() } label: {
+                    Label("添加蛋白粉", systemImage: "plus.circle.fill")
+                        .fontWeight(.semibold).foregroundStyle(SpotterPalette.accent)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }
                     .disabled(!store.loaded || store.busy || store.products.count >= 20)
             }
             Section("我的配方") {
                 if store.products.isEmpty { Text(store.loaded ? "仓库还没有配方，可从包装照片识别后核对添加。" : "正在读取仓库…").foregroundStyle(.secondary) }
                 ForEach(Array(store.products.enumerated()), id: \.offset) { _, product in
+                    let id = product["id"].string
+                    let isDefault = id == store.defaultID
                     VStack(alignment: .leading, spacing: 9) {
-                        HStack { Text(product["name"].string).font(.headline); Spacer(); if product["id"].string == store.defaultID { Text("训练默认").font(.caption).foregroundStyle(.green) } }
+                        HStack {
+                            Text(product["name"].string).font(.headline)
+                            Spacer()
+                            if isDefault {
+                                Label("训练默认", systemImage: "checkmark")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.accent)
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(SpotterPalette.wash, in: Capsule())
+                                    .transition(.opacity.combined(with: .offset(x: 5)))
+                            }
+                        }
                         Text("一勺 \(product["scoopGrams"].number.formatted()) g · \(product["mixer"]["name"].string.isEmpty ? "水" : product["mixer"]["name"].string) \(product["cupMl"].number.formatted()) mL")
                             .font(.subheadline).foregroundStyle(.secondary)
                         if case .object = product["powder"] {
@@ -112,17 +130,24 @@ struct NativeProteinView: View {
                         } else { Text("待补充包装营养").font(.caption).foregroundStyle(.orange) }
                         if product["powderEstimated"].bool || product["scoopEstimated"].bool { Text("份量或营养含估算").font(.caption).foregroundStyle(.secondary) }
                         HStack {
-                            Button("编辑配方") { editor = NativeProteinRecipeEditor(product: product, makeDefault: product["id"].string == store.defaultID) }
+                            recipeAction("编辑配方", icon: "pencil") { editor = NativeProteinRecipeEditor(product: product, makeDefault: isDefault) }
                             Spacer()
-                            if product["id"].string != store.defaultID, case .object = product["powder"] {
-                                Button("设为训练默认") { Task { await store.chooseDefault(product["id"].string) } }
+                            if !isDefault, case .object = product["powder"] {
+                                recipeAction("设为训练默认", icon: "checkmark.circle") { Task { await store.chooseDefault(id) } }
+                                    .transition(.opacity)
                             }
-                        }.buttonStyle(.bordered).disabled(store.busy || !store.loaded)
-                    }.padding(.vertical, 5)
+                        }.disabled(store.busy || !store.loaded)
+                    }
+                    .padding(.vertical, 5)
+                    .animation(motion, value: isDefault)
                 }
             }
             if let message = store.message { Section { Text(message).font(.footnote).foregroundStyle(.secondary) } }
         }
+        .buttonStyle(.spotterPress)
+        .scrollContentBackground(.hidden)
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .tint(accent.tint)
         .navigationTitle("蛋白粉仓库")
         .refreshable { await store.load() }
         .task { await store.load() }
@@ -130,6 +155,16 @@ struct NativeProteinView: View {
             NavigationStack { NativeProteinEditor(initial: item) { product, makeDefault in await store.save(product, makeDefault: makeDefault) } }
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    private func recipeAction(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.accent)
+                .padding(.horizontal, 10).frame(minHeight: 44)
+                .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 11))
+        }
+        .buttonStyle(.spotterPress)
     }
 
     private static func servingText(_ product: NativeJSON) -> String {
@@ -142,6 +177,8 @@ struct NativeProteinView: View {
 
 private struct NativeProteinEditor: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterAccent) private var accent
     @State private var value: NativeProteinRecipeEditor
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showCamera = false
@@ -154,39 +191,71 @@ private struct NativeProteinEditor: View {
     var body: some View {
         Form {
             Section("包装标签") {
-                PhotosPicker(selection: $selectedPhoto, matching: .images) { Label("选择标签照片", systemImage: "photo") }.disabled(busy)
-                Button { showCamera = true } label: { Label("拍摄标签", systemImage: "camera") }
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    Label("选择标签照片", systemImage: "photo").foregroundStyle(SpotterPalette.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
+                .disabled(busy)
+                Button { showCamera = true } label: {
+                    Label("拍摄标签", systemImage: "camera").foregroundStyle(SpotterPalette.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
                     .disabled(busy || !UIImagePickerController.isSourceTypeAvailable(.camera))
                 Text("识别在设备上进行。照片不会上传；识别结果只是草稿，请核对计量口径和数值后再加入仓库。")
                     .font(.footnote).foregroundStyle(.secondary)
-                if !value.recognized.isEmpty { DisclosureGroup("查看识别文字") { Text(value.recognized).font(.caption).textSelection(.enabled) } }
+                if !value.recognized.isEmpty {
+                    SpotterDisclosure("查看识别文字") { Text(value.recognized).font(.caption).textSelection(.enabled) }
+                        .transition(.opacity)
+                }
             }
             Section("这一款的配方") {
                 TextField("产品名称", text: $value.name)
                 number("每勺粉量 g", text: $value.scoop)
                 number("液体量 mL", text: $value.cup)
                 Toggle("冲泡使用奶或其他液体", isOn: $value.usesMixer)
-                if value.usesMixer { TextField("液体名称", text: $value.mixerName) }
+                if value.usesMixer { TextField("液体名称", text: $value.mixerName).transition(.opacity) }
                 Toggle("一勺粉量含估算", isOn: $value.scoopEstimated)
             }
             Section("粉的包装营养") {
-                Picker("标签口径", selection: $value.perServing) { Text("每 100 克").tag(false); Text("每份").tag(true) }
-                if value.perServing { number("这一份的克数 g", text: $value.servingGrams) }
+                SpotterMenuPicker("标签口径", selection: $value.perServing, options: [(false, "每 100 克"), (true, "每份")])
+                if value.perServing { number("这一份的克数 g", text: $value.servingGrams).transition(.opacity) }
                 nutritionFields(values: $value.powder)
                 Toggle("营养含估算", isOn: $value.estimated)
             }
             if value.usesMixer {
-                Section("冲泡液体每 100 mL 营养") { nutritionFields(values: $value.liquid) }
+                Section("冲泡液体每 100 mL 营养") { nutritionFields(values: $value.liquid) }.transition(.opacity)
             }
             Section {
                 Toggle("训练打卡默认选这款", isOn: $value.makeDefault)
-                if let message { Text(message).font(.footnote).foregroundStyle(.red) }
-                if busy { ProgressView() }
-                Button("核对无误，保存到仓库") { Task { await commit() } }.disabled(busy)
+                if let message { Text(message).font(.footnote).foregroundStyle(.red).transition(.opacity) }
+                Button { Task { await commit() } } label: {
+                    ZStack {
+                        if busy { ProgressView().transition(.opacity) }
+                        else { Text("核对无误，保存到仓库").fontWeight(.semibold).transition(.opacity) }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                    .foregroundStyle(SpotterPalette.deep)
+                    .background(accent.fill, in: RoundedRectangle(cornerRadius: 11))
+                }
+                .disabled(busy)
             }
         }
+        .buttonStyle(.spotterPress)
+        .tint(accent.tint)
+        .scrollContentBackground(.hidden)
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .animation(motion, value: value.usesMixer)
+        .animation(motion, value: value.perServing)
+        .animation(motion, value: value.recognized.isEmpty)
+        .animation(motion, value: message != nil)
+        .animation(motion, value: busy)
         .navigationTitle("蛋白粉配方").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 38, height: 44) }
+                    .buttonStyle(.spotterPress).accessibilityLabel("取消").disabled(busy)
+            }
+        }
         .onChange(of: selectedPhoto) { photo in
             Task { if let data = try? await photo?.loadTransferable(type: Data.self) { await recognize(data) } }
         }

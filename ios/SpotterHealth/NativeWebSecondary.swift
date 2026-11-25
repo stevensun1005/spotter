@@ -64,24 +64,16 @@ private struct SecondarySelectionMenu<Option: Hashable>: View {
     let title: (Option) -> String
 
     var body: some View {
-        Menu {
-            Picker(label, selection: $selection) {
-                ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
-            }
-        } label: {
+        SpotterMenuPicker(label, selection: $selection, options: options.map { ($0, title($0)) }) {
             HStack(spacing: 5) {
-                Text(title(selection)).font(.subheadline).lineLimit(1)
+                Text(title(selection)).font(.subheadline.weight(.semibold)).lineLimit(1)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption.weight(.semibold))
                     .accessibilityHidden(true)
             }
             .fixedSize(horizontal: true, vertical: false)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
             .foregroundStyle(SpotterPalette.ink)
         }
-        .accessibilityLabel(label)
-        .accessibilityValue(title(selection))
     }
 }
 
@@ -118,6 +110,7 @@ private struct SecondaryActionHeader<Actions: View>: View {
 
 private struct SecondaryButtonStyle: ButtonStyle {
     @Environment(\.spotterAccent) private var accent
+    @Environment(\.isEnabled) private var enabled
     var primary = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -129,6 +122,7 @@ private struct SecondaryButtonStyle: ButtonStyle {
             .background(primary ? accent.fill : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(SpotterPalette.line, lineWidth: 1).allowsHitTesting(false))
             .spotterPressFeedback(configuration.isPressed)
+            .opacity(enabled ? 1 : 0.54)
     }
 }
 
@@ -267,6 +261,7 @@ private enum SecondaryMetric: String, CaseIterable, Hashable {
 
 @MainActor
 struct NativeSpotterStats: View {
+    @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterAccent) private var accent
     @ObservedObject var store: NativeWorkoutStore
     let api: NativeAPI
@@ -357,12 +352,13 @@ struct NativeSpotterStats: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 9) {
                     SecondarySegment(options: Page.allCases, value: $page, title: \.rawValue)
-                    if page == .overview {
-                        overview
-                    } else {
-                        SecondaryHistory(store: store, availableHeight: viewport.size.height - 84)
+                    Group {
+                        if page == .overview { overview }
+                        else { SecondaryHistory(store: store, availableHeight: viewport.size.height - 84) }
                     }
+                    .transition(.opacity)
                 }.foregroundStyle(SpotterPalette.ink).secondaryPage()
+                    .animation(motion, value: page)
             }
             .refreshable { await store.load(); await loadPartner() }
         }
@@ -410,13 +406,16 @@ struct NativeSpotterStats: View {
             SecondarySegment(options: Period.allCases, value: $period, title: \.rawValue)
                 .onChange(of: period) { _ in step = 0 }
             if period == .recent {
-                Picker("最近天数", selection: $recent) { ForEach([7, 30, 90, 365], id: \.self) { Text("\($0) 天").tag($0) } }
+                SpotterMenuPicker("最近天数", selection: $recent, options: [7, 30, 90, 365].map { ($0, "\($0) 天") })
                     .onChange(of: recent) { _ in step = 0 }
+                    .transition(.opacity)
             }
             if period == .custom {
-                DatePicker("开始日期", selection: $customStart, in: (SecondaryDate.parse("1900-01-01") ?? customStart)...SecondaryDate.today, displayedComponents: .date)
-                    .onChange(of: customStart) { customEnd = max(customEnd, $0) }
-                DatePicker("结束日期", selection: $customEnd, in: customStart...SecondaryDate.today, displayedComponents: .date)
+                VStack(spacing: 8) {
+                    DatePicker("开始日期", selection: $customStart, in: (SecondaryDate.parse("1900-01-01") ?? customStart)...SecondaryDate.today, displayedComponents: .date)
+                        .onChange(of: customStart) { customEnd = max(customEnd, $0) }
+                    DatePicker("结束日期", selection: $customEnd, in: customStart...SecondaryDate.today, displayedComponents: .date)
+                }.transition(.opacity)
             }
             HStack {
                 stepButton("上一周期", symbol: "chevron.left") { shiftPeriod(-1) }
@@ -429,7 +428,7 @@ struct NativeSpotterStats: View {
                 Spacer(minLength: 0)
                 stepButton("下一周期", symbol: "chevron.right") { shiftPeriod(1) }.disabled(!canStepForward)
             }.background(SpotterPalette.wash.opacity(0.58), in: RoundedRectangle(cornerRadius: 9))
-        }.padding(9).secondaryCard()
+        }.padding(9).secondaryCard().animation(motion, value: period)
     }
 
     private func tile(_ key: SecondaryMetric, current: [NativeWorkoutEntry], former: [NativeWorkoutEntry]?) -> some View {
@@ -1414,28 +1413,21 @@ private struct SecondaryHistory: View {
             .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
             if partnerID != nil {
-                Menu {
-                    Picker("记录筛选", selection: $scope) {
-                        ForEach(Scope.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                } label: {
-                    headerIcon("line.3.horizontal.decrease", selected: scope != .all)
+                SpotterMenuPicker("记录筛选", selection: $scope, options: Scope.allCases.map { ($0, $0.rawValue) }) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .foregroundStyle(scope != .all ? SpotterPalette.accent : SpotterPalette.ink)
                 }
-                .tint(SpotterPalette.ink)
-                .accessibilityLabel("记录筛选")
-                .accessibilityValue(scope.rawValue)
             }
             monthStep("上个月", symbol: "chevron.left", direction: -1)
             monthStep("下个月", symbol: "chevron.right", direction: 1)
         }
     }
 
-    private func headerIcon(_ symbol: String, selected: Bool = false) -> some View {
+    private func headerIcon(_ symbol: String) -> some View {
         Image(systemName: symbol).font(.subheadline.weight(.semibold))
             .foregroundStyle(SpotterPalette.ink)
             .frame(width: navigationButtonSize, height: navigationButtonSize)
-            .background(selected ? SpotterPalette.wash : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? SpotterPalette.accent : SpotterPalette.line))
+            .secondaryCard(radius: 10)
     }
 
     private func monthStep(_ label: String, symbol: String, direction: Int) -> some View {
@@ -2189,21 +2181,11 @@ private struct NativeUnitsPreferences: View {
 
     var body: some View {
         SecondaryGroup {
-            Picker("新动作的重量单位", selection: $unit) {
-                Text("千克（kg）").tag("kg")
-                Text("磅（lb）").tag("lb")
-            }.padding(13)
+            SpotterMenuPicker("新动作的重量单位", selection: $unit, options: [("kg", "千克（kg）"), ("lb", "磅（lb）")]).padding(9)
             Divider()
-            Picker("动作库名称", selection: $language) {
-                Text("中文").tag("zh")
-                Text("English").tag("en")
-                Text("中英文").tag("both")
-            }.padding(13)
+            SpotterMenuPicker("动作库名称", selection: $language, options: [("zh", "中文"), ("en", "English"), ("both", "中英文")]).padding(9)
             Divider()
-            Picker("1RM 估算方式", selection: $oneRepMax) {
-                Text("Epley").tag("epley")
-                Text("Brzycki").tag("brzycki")
-            }.padding(13)
+            SpotterMenuPicker("1RM 估算方式", selection: $oneRepMax, options: [("epley", "Epley"), ("brzycki", "Brzycki")]).padding(9)
         }
         SecondaryNotice(message: "切换单位只影响新添加的动作。训练容量和统计会统一换算为 kg。")
     }
@@ -2237,26 +2219,9 @@ private struct NativeEquipmentPreferences: View {
 
     private var gymPicker: some View {
         SecondaryGroup(title: "健身房") {
-            HStack(spacing: 10) {
-                Text("当前器械配置").font(.subheadline.weight(.bold))
-                Spacer(minLength: 4)
-                Menu {
-                    Picker("当前器械配置", selection: Binding(get: { preferences.gym.id }, set: { id in
-                        update { $0.select(id) }
-                    })) {
-                        ForEach(preferences.profiles) { Text($0.name).tag($0.id) }
-                    }
-                } label: {
-                    HStack(spacing: 7) {
-                        Text(preferences.gym.name).lineLimit(1)
-                        Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
-                    }
-                    .foregroundStyle(SpotterPalette.ink)
-                    .padding(.horizontal, 10).frame(minHeight: 38).secondaryCard(radius: 11)
-                }
-                .accessibilityLabel("当前器械配置")
-                .accessibilityValue(preferences.gym.name)
-            }.padding(13)
+            SpotterMenuPicker("当前器械配置", selection: Binding(get: { preferences.gym.id }, set: { id in
+                update { $0.select(id) }
+            }), options: preferences.profiles.map { ($0.id, $0.name) }).padding(9)
             Divider()
             VStack(alignment: .leading, spacing: 6) {
                 Text("添加健身房").font(.subheadline.weight(.bold))
@@ -2340,18 +2305,9 @@ private struct NativeAppearancePreferences: View {
 
     var body: some View {
         SecondaryGroup {
-            HStack {
-                Text("主题").font(.subheadline.weight(.semibold)).accessibilityHidden(true)
-                Spacer()
-                Picker("主题", selection: $theme) {
-                    ForEach(SpotterTheme.allCases) { item in Text(item.title).tag(item) }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
+            SpotterMenuPicker("主题", selection: $theme, options: SpotterTheme.allCases.map { ($0, $0.title) })
                 .accessibilityIdentifier("spotter-theme-picker")
-            }
-            .padding(13)
-            .frame(minHeight: 48)
+                .padding(9)
             Divider()
             VStack(alignment: .leading, spacing: 10) {
                 Text("强调色").font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
@@ -2467,13 +2423,10 @@ private struct NativeBackupSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SecondaryGroup(title: "导出备份") {
-                Picker("数据范围", selection: $scope) {
-                    ForEach(Scope.allCases, id: \.self) { Text($0.name).tag($0) }
-                }.padding(13)
+                SpotterMenuPicker("数据范围", selection: $scope, options: Scope.allCases.map { ($0, $0.name) }).padding(9)
                 Divider()
-                Picker("文件格式", selection: $format) {
-                    ForEach(Format.allCases.filter { $0 == .json || scope.supportsCSV }, id: \.self) { Text($0.rawValue.uppercased()).tag($0) }
-                }.padding(13)
+                SpotterMenuPicker("文件格式", selection: $format,
+                                  options: Format.allCases.filter { $0 == .json || scope.supportsCSV }.map { ($0, $0.rawValue.uppercased()) }).padding(9)
                 Divider()
                 Button { Task { await export() } } label: { SecondaryRow(title: "保存备份文件", icon: "square.and.arrow.up") }
                     .buttonStyle(.spotterPress).disabled(busy)
@@ -2614,7 +2567,23 @@ private struct SecondarySocial: Decodable {
 private struct SecondaryFriendFeed: Decodable {
     struct Day: Decodable, Identifiable {
         struct Item: Decodable, Identifiable {
-            struct Workout: Decodable, Identifiable { let id: String; let title: String; let minutes: Int; let sets: Int }
+            struct Workout: Decodable, Identifiable {
+                let id: String
+                let title: String
+                let category: String?
+                let minutes: Int
+                let sets: Int
+
+                var icon: String {
+                    switch category {
+                    case "有氧训练": return "figure.run"
+                    case "拉伸恢复": return "figure.cooldown"
+                    case "跟练视频": return "play.rectangle"
+                    case "其他": return "figure.walk"
+                    default: return "dumbbell"
+                    }
+                }
+            }
             let friend: SecondaryFriend
             let workouts: [Workout]?
             var id: String { friend.id }
@@ -2642,11 +2611,15 @@ struct NativeFriends: View {
     let buddySearchRequest: Int
     let refreshPlans: @MainActor () async -> Void
     @AppStorage(NativePreferenceKey.coachingEntry) private var showsCoaching = false
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
 
     @State private var page: NativeFriendsPage
     @State private var data: SecondaryFriendList?
     @State private var social: SecondarySocial?
     @State private var feed: SecondaryFriendFeed?
+    @State private var feedError: String?
+    @State private var feedRevision = 0
     @State private var dialog: Dialog?
     @State private var inviteTab = InviteTab.search
     @State private var inviteKind = NativeConnectionKind.friend
@@ -2683,12 +2656,16 @@ struct NativeFriends: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 SecondarySegment(options: NativeFriendsPage.allCases, value: $page, title: \.rawValue)
-                if dialog == nil, let notice { SecondaryNotice(message: notice, warning: error) }
-                switch page {
-                case .contacts: contacts
-                case .feed: feedContent
-                case .privacy: privacy
+                if dialog == nil, let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
+                ZStack(alignment: .topLeading) {
+                    switch page {
+                    case .contacts: contacts
+                    case .feed: feedContent
+                    case .privacy: privacy
+                    }
                 }
+                .transition(.opacity)
+                .animation(motion, value: page)
             }.secondaryPage()
         }
         .foregroundStyle(SpotterPalette.ink).background(SpotterPalette.background)
@@ -2706,12 +2683,12 @@ struct NativeFriends: View {
                     VStack(alignment: .leading, spacing: 13) {
                         if item == .invite { invitation }
                         else { requests }
-                        if let notice { SecondaryNotice(message: notice, warning: error) }
+                        if let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
                     }.secondaryPage()
                 }.background(SpotterPalette.background)
                     .navigationTitle(item == .invite ? inviteKind.invitationTitle : item.rawValue).navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .confirmationAction) { Button("完成") { closeDialog() }.disabled(busy) }
+                        ToolbarItem(placement: .confirmationAction) { Button("完成") { closeDialog() }.buttonStyle(.spotterPress).disabled(busy) }
                     }
             }
             .presentationDetents(item == .invite ? [.medium, .large] : [.large])
@@ -2744,7 +2721,7 @@ struct NativeFriends: View {
                 if data.friends.isEmpty { SecondaryNotice(message: "添加好友后，可从联系人查看对方分享的每日记录。") }
             } else if !error { ProgressView("正在读取好友…") }
             else { Button("重新读取") { Task { await load() } }.buttonStyle(SecondaryButtonStyle()) }
-        }
+        }.animation(motion, value: data?.friends.map(\.id))
     }
 
     @ViewBuilder private var contactActions: some View {
@@ -2774,50 +2751,155 @@ struct NativeFriends: View {
         }.secondaryCard()
     }
 
-    private func friendLink(_ friend: SecondaryFriend, day: String? = nil, summary: [SecondaryFriendFeed.Day.Item.Workout] = []) -> some View {
-        NavigationLink {
-            SecondaryFriendDetail(api: api, friend: data?.friends.first(where: { $0.id == friend.id }) ?? friend,
-                                  initialDay: day, listPath: listPath) { await load(); await refreshPlans() }
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
+    private func friendDetail(_ friend: SecondaryFriend, day: String? = nil) -> some View {
+        SecondaryFriendDetail(api: api, friend: data?.friends.first(where: { $0.id == friend.id }) ?? friend,
+                              initialDay: day, listPath: listPath) {
+            invalidateFeed()
+            if page == .feed { await loadFeed() }
+            await load()
+            await refreshPlans()
+        }
+    }
+
+    private func friendLink(_ friend: SecondaryFriend) -> some View {
+        NavigationLink { friendDetail(friend) } label: {
+            HStack(spacing: 10) {
                 avatar(friend.name, buddy: friend.buddy)
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 5) {
-                        Text(friend.name).font(.subheadline.weight(.semibold))
-                        if friend.buddy { SecondaryBadge(text: "训练搭子", green: true) }
-                        if friend.checkedIn == true { SecondaryBadge(text: "已打卡", green: true) }
-                    }
-                    if day == nil { Text("查看每日记录").font(.caption).foregroundStyle(SpotterPalette.muted) }
-                    else if summary.isEmpty { Text("已打卡").font(.caption).foregroundStyle(SpotterPalette.muted) }
-                    ForEach(summary) { workout in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(workout.title).font(.subheadline.weight(.semibold))
-                            Text("\(workout.minutes) 分钟 · \(workout.sets) 组").font(.caption).foregroundStyle(SpotterPalette.muted)
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
-                            .background(SpotterPalette.wash.opacity(0.62), in: RoundedRectangle(cornerRadius: 9))
-                    }
+                    Text(friend.name).font(.subheadline.weight(.semibold))
+                    Text(friend.buddy ? "训练搭子" : "查看每日记录").font(.caption).foregroundStyle(SpotterPalette.muted)
                 }.frame(maxWidth: .infinity, alignment: .leading)
+                if friend.checkedIn == true { SecondaryBadge(text: "已打卡", green: true) }
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
-                    .padding(.top, 7)
             }.padding(12).frame(minHeight: 58).contentShape(Rectangle())
         }.buttonStyle(.spotterPress)
     }
 
     private var feedContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        LazyVStack(alignment: .leading, spacing: 18) {
             if let feed {
-                if feed.days.isEmpty { SecondaryNotice(message: "朋友圈暂时没有新的训练打卡。") }
-                ForEach(feed.days) { day in
-                    SecondaryGroup(title: day.date == spotterDay() ? "今天" : day.date) {
-                        ForEach(day.items) { item in
-                            if item.id != day.items.first?.id { Divider().padding(.horizontal, 12) }
-                            friendLink(item.friend, day: day.date, summary: item.workouts ?? [])
-                        }
+                let activeDays = feed.days.filter { !$0.items.isEmpty }
+                if let feedError { SecondaryNotice(message: feedError, warning: true) }
+                if activeDays.isEmpty { emptyFeed }
+                ForEach(activeDays) { day in
+                    feedDayHeading(day.date)
+                    ForEach(day.items) { item in
+                        feedCard(item, day: day.date)
                     }
                 }
-            } else if !error { ProgressView("正在读取朋友圈…") }
-            else { Button("重新读取") { Task { await loadFeed() } }.buttonStyle(SecondaryButtonStyle()) }
+            } else if let feedError {
+                VStack(alignment: .leading, spacing: 10) {
+                    SecondaryNotice(message: feedError, warning: true)
+                    Button("重新读取") { Task { await loadFeed() } }.buttonStyle(SecondaryButtonStyle())
+                }.padding(14).secondaryCard()
+            } else {
+                ProgressView("正在读取朋友圈…")
+                    .font(.subheadline).padding(24).frame(maxWidth: .infinity)
+                    .secondaryCard(radius: 18)
+            }
         }
+        .animation(motion, value: feed?.days.map { $0.items.count })
+        .animation(motion, value: feedError)
+    }
+
+    private var emptyFeed: some View {
+        let hasNoFriends = data?.friends.isEmpty == true
+        return VStack(alignment: .center, spacing: 11) {
+            Image(systemName: "person.2.wave.2").font(.title2.weight(.semibold))
+                .foregroundStyle(accent.tint).frame(width: 58, height: 58)
+                .background(accent.selection, in: Circle()).accessibilityHidden(true)
+            Text("还没有新打卡").font(.headline).accessibilityAddTraits(.isHeader)
+            Text(hasNoFriends ? "添加好友后，就能在这里查看对方分享的训练打卡。" : "这里会显示好友分享的近 3 天训练打卡。")
+                .font(.subheadline).foregroundStyle(SpotterPalette.muted).multilineTextAlignment(.center)
+            if hasNoFriends {
+                Button { open(.invite) } label: { Label("添加好友", systemImage: "person.badge.plus") }
+                    .buttonStyle(SecondaryButtonStyle(primary: true))
+            }
+        }
+        .padding(24).frame(maxWidth: .infinity).secondaryCard(radius: 20)
+    }
+
+    private func feedDayHeading(_ day: String) -> some View {
+        let date = SecondaryDate.parse(day)
+        let shortDate = date.map {
+            let parts = SecondaryDate.calendar.dateComponents([.month, .day], from: $0)
+            return "\(parts.month ?? 0)月\(parts.day ?? 0)日"
+        } ?? day
+        let relative: String?
+        switch day {
+        case spotterDay(): relative = "今天"
+        case spotterDay(SecondaryDate.shift(SecondaryDate.today, -1)): relative = "昨天"
+        default: relative = nil
+        }
+        return HStack(spacing: 8) {
+            Circle().fill(accent.tint).frame(width: 7, height: 7).accessibilityHidden(true)
+            if let relative {
+                Text(relative).font(.headline)
+                Text(shortDate).font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+            } else {
+                Text(shortDate).font(.headline)
+            }
+            Rectangle().fill(SpotterPalette.line).frame(height: 1).accessibilityHidden(true)
+        }.padding(.horizontal, 3).accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+    }
+
+    private func feedCard(_ item: SecondaryFriendFeed.Day.Item, day: String) -> some View {
+        NavigationLink { friendDetail(item.friend, day: day) } label: {
+            VStack(alignment: .leading, spacing: 13) {
+                HStack(spacing: 11) {
+                    avatar(item.friend.name, buddy: item.friend.buddy, size: 44, circular: true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.friend.name).font(.headline)
+                        if item.friend.buddy {
+                            Text("训练搭子").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    Label("已打卡", systemImage: "checkmark.circle.fill")
+                        .font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.accent)
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(SpotterPalette.wash, in: Capsule())
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        .foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
+                }
+                if let workouts = item.workouts {
+                    ForEach(workouts) { workout in
+                        feedWorkout(workout)
+                    }
+                } else {
+                    Label("训练详情未共享", systemImage: "lock").font(.caption)
+                        .foregroundStyle(SpotterPalette.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(11).background(SpotterPalette.background.opacity(0.64), in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .padding(13)
+            .background {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(LinearGradient(colors: [accent.selection.opacity(item.friend.buddy ? 0.76 : 0.31), SpotterPalette.card],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+            }
+            .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
+            .contentShape(RoundedRectangle(cornerRadius: 20))
+        }.buttonStyle(.spotterPress).accessibilityHint("查看这一天的好友记录")
+    }
+
+    private func feedWorkout(_ workout: SecondaryFriendFeed.Day.Item.Workout) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            SecondaryTile(icon: workout.icon, color: accent.selection, size: 36)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(workout.title).font(.subheadline.weight(.semibold))
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 9) { feedWorkoutMetrics(workout) }.fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 5) { feedWorkoutMetrics(workout) }
+                }.font(.caption).foregroundStyle(SpotterPalette.muted)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(10)
+            .background(SpotterPalette.background.opacity(0.72), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder private func feedWorkoutMetrics(_ workout: SecondaryFriendFeed.Day.Item.Workout) -> some View {
+        Label("\(workout.minutes) 分钟", systemImage: "clock")
+        if workout.sets > 0 { Label("\(workout.sets) 组", systemImage: "checklist") }
     }
 
     private var privacy: some View {
@@ -2858,7 +2940,9 @@ struct NativeFriends: View {
             } else {
                 SecondaryNotice(message: "添加后默认互相分享训练打卡、详情和饮食记录状态，具体范围遵循双方的分享设置。")
                 SecondarySegment(options: InviteTab.allCases, value: $inviteTab, title: \.rawValue)
-                if inviteTab == .search { searchPanel } else { codePanel }
+                ZStack(alignment: .topLeading) {
+                    if inviteTab == .search { searchPanel } else { codePanel }
+                }.transition(.opacity).animation(motion, value: inviteTab)
             }
         }
     }
@@ -2980,20 +3064,39 @@ struct NativeFriends: View {
     }
 
     private func closeDialog() { dialog = nil; notice = nil; error = false }
-    private func report(_ text: String, failure: Bool = false) { notice = text; error = failure }
+    private func report(_ text: String, failure: Bool = false) {
+        withAnimation(motion) {
+            notice = text
+            error = failure
+        }
+    }
 
     private func load() async {
         async let contacts = api.spotterRead(listPath, as: SecondaryFriendList.self)
         async let preferences = api.spotterRead(socialPath, as: SecondarySocial.self)
         do { data = try await contacts; social = try await preferences }
-        catch { report(error.localizedDescription, failure: true) }
-    }
-
-    private func loadFeed() async {
-        do { feed = try await api.spotterRead("/api/friends?feed=1", as: SecondaryFriendFeed.self) }
         catch is CancellationError { }
         catch let reason as URLError where reason.code == .cancelled { }
         catch { report(error.localizedDescription, failure: true) }
+    }
+
+    private func invalidateFeed() {
+        feedRevision += 1
+        feed = nil
+        feedError = nil
+    }
+
+    private func loadFeed() async {
+        feedRevision += 1
+        let revision = feedRevision
+        feedError = nil
+        do {
+            let value = try await api.spotterRead("/api/friends?feed=1", as: SecondaryFriendFeed.self)
+            if !Task.isCancelled, revision == feedRevision { feed = value }
+        }
+        catch is CancellationError { }
+        catch let reason as URLError where reason.code == .cancelled { }
+        catch { if !Task.isCancelled, revision == feedRevision { feedError = error.localizedDescription } }
     }
 
     private func findFriends() async {
@@ -3007,7 +3110,7 @@ struct NativeFriends: View {
         do {
             let result = try await api.spotterRead(friendPath([URLQueryItem(name: "search", value: value), URLQueryItem(name: "mode", value: kind.rawValue)]), as: SearchResponse.self)
             guard dialog == .invite, inviteKind == kind, search.trimmingCharacters(in: .whitespacesAndNewlines) == value else { return }
-            results = result.results
+            withAnimation(motion) { results = result.results }
         } catch { report(error.localizedDescription, failure: true) }
     }
 
@@ -3017,8 +3120,9 @@ struct NativeFriends: View {
         defer { busy = false }
         do {
             let response = try await api.spotterSend(listPath, body: body)
-            data = try JSONDecoder().decode(SecondaryFriendList.self, from: response)
-            if body["action"] as? String == "join" { code = ""; closeDialog(); await refreshPlans() }
+            let updated = try JSONDecoder().decode(SecondaryFriendList.self, from: response)
+            withAnimation(motion) { data = updated }
+            if body["action"] as? String == "join" { invalidateFeed(); code = ""; closeDialog(); await refreshPlans() }
             report(confirmation)
         } catch { report(error.localizedDescription, failure: true) }
     }
@@ -3031,9 +3135,10 @@ struct NativeFriends: View {
             var request = body
             request["expectedOwner"] = owner
             let response = try await api.spotterSend("/api/friends?includeBuddy=1", body: request)
-            social = try JSONDecoder().decode(SecondarySocial.self, from: response)
-            if body["decision"] as? String == "accept" { await load(); await refreshPlans() }
-            if body["action"] as? String == "social-preferences" { feed = nil }
+            let updated = try JSONDecoder().decode(SecondarySocial.self, from: response)
+            withAnimation(motion) { social = updated }
+            if body["decision"] as? String == "accept" { invalidateFeed(); await load(); await refreshPlans() }
+            if body["action"] as? String == "social-preferences" { invalidateFeed() }
             report(confirmation)
         } catch { report(error.localizedDescription, failure: true) }
     }
@@ -3045,11 +3150,11 @@ struct NativeFriends: View {
     }
 }
 
-private func avatar(_ name: String, buddy: Bool = false) -> some View {
+private func avatar(_ name: String, buddy: Bool = false, size: CGFloat = 35, circular: Bool = false) -> some View {
     Text(name.trimmingCharacters(in: .whitespacesAndNewlines).first.map(String.init) ?? "友")
         .font(.subheadline.weight(.heavy)).foregroundStyle(SpotterPalette.ink)
-        .frame(width: 35, height: 35)
-        .background(buddy ? SpotterPalette.wash : secondaryLilac, in: RoundedRectangle(cornerRadius: 9))
+        .frame(width: size, height: size)
+        .background(buddy ? SpotterPalette.wash : secondaryLilac, in: RoundedRectangle(cornerRadius: circular ? size / 2 : 9))
         .accessibilityHidden(true)
 }
 
@@ -3079,6 +3184,7 @@ private struct SecondaryFriendDetail: View {
     let changed: @MainActor () async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterInteractionMotion) private var motion
     @State private var date: Date
     @State private var record: Record?
     @State private var sharing: SecondaryFriend.Sharing?
@@ -3126,11 +3232,13 @@ private struct SecondaryFriendDetail: View {
                         stepButton("后一天", symbol: "chevron.right") { date = SecondaryDate.shift(date, 1) }.disabled(date >= SecondaryDate.today)
                     }.background(SpotterPalette.wash.opacity(0.58), in: RoundedRectangle(cornerRadius: 9))
                 }.padding(12).secondaryCard()
-                if let record {
-                    if record.restricted == true { SecondaryNotice(message: "这一天的记录未开放查看。") }
-                    else { dailyRecords(record) }
-                } else if error == nil { ProgressView("正在读取当天记录…") }
-                else { Button("重新读取") { loadRevision += 1 }.buttonStyle(SecondaryButtonStyle()) }
+                ZStack(alignment: .topLeading) {
+                    if let record {
+                        if record.restricted == true { SecondaryNotice(message: "这一天的记录未开放查看。") }
+                        else { dailyRecords(record) }
+                    } else if error == nil { ProgressView("正在读取当天记录…") }
+                    else { Button("重新读取") { loadRevision += 1 }.buttonStyle(SecondaryButtonStyle()) }
+                }.transition(.opacity).animation(motion, value: record != nil)
                 if let sharing { sharingCard(sharing) }
                 if let error { SecondaryNotice(message: error, warning: true) }
                 if !friend.buddy {
@@ -3158,7 +3266,7 @@ private struct SecondaryFriendDetail: View {
                     ForEach(Array(training.enumerated()), id: \.offset) { _, workout in
                         if workout["exercises"].array.isEmpty { workoutHeader(workout).padding(10).secondaryCard(radius: 9) }
                         else {
-                            DisclosureGroup {
+                            SpotterDisclosure {
                                 ForEach(Array(workout["exercises"].array.enumerated()), id: \.offset) { _, exercise in
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(exercise["name"].string).font(.subheadline.weight(.semibold))

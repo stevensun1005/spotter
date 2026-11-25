@@ -55,7 +55,7 @@ struct NativeCoachSharingChoice: View {
             Text("你选择发送的对话、照片和训练计划会交由外部 AI 服务处理。可随时在设置中撤销。")
                 .font(.footnote).foregroundStyle(.secondary)
             if let policy = URL(string: origin + "/privacy#external-ai") {
-                Link("查看数据处理说明", destination: policy).font(.footnote)
+                Link("查看数据处理说明", destination: policy).font(.footnote).buttonStyle(.spotterPress)
             }
         }
     }
@@ -140,6 +140,7 @@ struct NativeCoachView: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Environment(\.spotterInteractionMotion) private var controlMotion
     @FocusState private var editingMessage: Bool
     @AppStorage private var sharingAllowed: Bool
     @State private var lines: [Line] = []
@@ -186,12 +187,14 @@ struct NativeCoachView: View {
 
     private var cleanText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var reducesMotion: Bool { reduceMotion || systemReduceMotion }
-    private var controlMotion: Animation? {
-        reducesMotion ? nil : .spring(response: 0.28, dampingFraction: 0.84)
-    }
     private var panelTransition: AnyTransition { reducesMotion ? .identity : .opacity.combined(with: .offset(y: 6)) }
     private var showsOptions: Bool { showOptions && picture == nil && !weightPrompt }
+    private var showsSuggestions: Bool {
+        !showsOptions && picture == nil && !weightPrompt && mealDraft == nil && !editingMessage && cleanText.isEmpty
+    }
+    private var showsContextChip: Bool { includePlans && !showsOptions && !weightPrompt && picture == nil }
     private var canUseCamera: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+    private let mealOptions = ["早餐", "午餐", "晚餐", "加餐"].map { ($0, $0) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -298,7 +301,7 @@ struct NativeCoachView: View {
     }
 
     private var headerMenu: some View {
-        Menu {
+        SpotterMenu {
             if mode == .coach {
                 if !lines.isEmpty || mealDraft != nil || picture != nil {
                     Button("新对话", systemImage: "plus.message", action: resetConversation).disabled(busy)
@@ -314,7 +317,7 @@ struct NativeCoachView: View {
             }
         } label: {
             Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold)).foregroundStyle(CoachColors.text)
-                .frame(width: 42, height: 44).contentShape(Rectangle())
+                .frame(width: 20, height: 44)
         }.accessibilityLabel("教练菜单")
     }
 
@@ -328,17 +331,17 @@ struct NativeCoachView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
-                        if lines.isEmpty && mealDraft == nil { welcome }
+                        if lines.isEmpty && mealDraft == nil { welcome.transition(panelTransition) }
                         if !sharingAllowed {
                             NativeCoachSharingChoice(allowed: $sharingAllowed, origin: api.origin)
-                                .padding(12).coachPanel()
+                                .padding(12).coachPanel().transition(panelTransition)
                         }
                         ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                             message(line, index: index).transition(panelTransition)
                         }
-                        if !planDrafts.isEmpty { planPreview }
-                        if let draft = mealDraft { mealPreview(draft) }
-                        if let error { message(Line(role: "error", content: error)) }
+                        if !planDrafts.isEmpty { planPreview.transition(panelTransition) }
+                        if let draft = mealDraft { mealPreview(draft).transition(panelTransition) }
+                        if let error { message(Line(role: "error", content: error)).transition(panelTransition) }
                         if busy {
                             ProgressView("教练正在回复").font(.footnote).tint(accent.fill)
                                 .padding(.vertical, 6).transition(.opacity)
@@ -348,6 +351,10 @@ struct NativeCoachView: View {
                     .padding(.horizontal, 20).padding(.top, compact ? 14 : 24).padding(.bottom, 14)
                     .animation(controlMotion, value: lines.count)
                     .animation(controlMotion, value: busy)
+                    .animation(controlMotion, value: sharingAllowed)
+                    .animation(controlMotion, value: planDrafts.isEmpty)
+                    .animation(controlMotion, value: mealDraft == nil)
+                    .animation(controlMotion, value: error != nil)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: lines.count) { _ in scrollToLatest(proxy) }
@@ -409,8 +416,11 @@ struct NativeCoachView: View {
                     } label: {
                         Image(systemName: copiedReply == index ? "checkmark" : "document.on.document")
                             .font(.subheadline.weight(.medium)).foregroundStyle(copiedReply == index ? accent.fill : CoachColors.muted)
-                            .frame(width: 44, height: 42, alignment: .leading).contentShape(Rectangle())
-                    }.buttonStyle(.spotterPress).accessibilityLabel(copiedReply == index ? "已复制回复" : "复制回复")
+                            .contentTransition(.opacity)
+                            .frame(width: 44, height: 44, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.spotterPress).accessibilityLabel(copiedReply == index ? "已复制回复" : "复制回复")
+                    .animation(controlMotion, value: copiedReply == index)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -434,34 +444,37 @@ struct NativeCoachView: View {
                     if includePlans {
                         VStack {
                             DatePicker("计划日期", selection: $contextDate, displayedComponents: .date)
-                            Picker("安排范围", selection: $contextRange) {
-                                Text("所选日期").tag("day")
-                                Text("所在周").tag("week")
-                            }
+                            SpotterMenuPicker("安排范围", selection: $contextRange, options: [("day", "所选日期"), ("week", "所在周")])
                         }
                         .transition(panelTransition)
                     }
                     Button("问答定制训练计划") { openGuide() }
-                        .buttonStyle(.spotterPress).frame(maxWidth: .infinity, alignment: .leading)
+                        .buttonStyle(.spotterPress).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
                 .font(.footnote).padding(11).coachPanel()
                 .animation(controlMotion, value: includePlans)
                 .transition(panelTransition)
             }
-            if !showsOptions && picture == nil && !weightPrompt && mealDraft == nil && !editingMessage && cleanText.isEmpty {
-                suggestedReplies
+            if showsSuggestions {
+                suggestedReplies.transition(panelTransition)
             }
             if let picture, let image = UIImage(data: picture) {
                 HStack(spacing: 9) {
                     Image(uiImage: image).resizable().scaledToFill().frame(width: 48, height: 48)
                         .clipShape(RoundedRectangle(cornerRadius: 9)).accessibilityLabel("待发送的餐食照片")
-                    Picker("记入餐次", selection: $meal) {
-                        ForEach(["早餐", "午餐", "晚餐", "加餐"], id: \.self, content: Text.init)
+                    SpotterMenuPicker("记入餐次", selection: $meal, options: mealOptions) {
+                        HStack(spacing: 5) {
+                            Text(meal).lineLimit(1)
+                            Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                        }
+                        .frame(minHeight: 44)
                     }
                     Spacer()
                     Button { self.picture = nil; photoChoice = nil } label: {
-                        Image(systemName: "xmark").frame(width: 36, height: 36).accessibilityLabel("移除照片")
-                    }.buttonStyle(.spotterPress).disabled(busy)
+                        Image(systemName: "xmark").fontWeight(.semibold).frame(width: 38, height: 38)
+                            .spotterGlass(cornerRadius: 19, interactive: !reducesMotion)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }.buttonStyle(.spotterPress).disabled(busy).accessibilityLabel("移除照片")
                 }.font(.footnote).padding(8).coachPanel().transition(panelTransition)
             } else if planMode || weightPrompt {
                 HStack {
@@ -472,14 +485,15 @@ struct NativeCoachView: View {
                 }.font(.footnote).foregroundStyle(CoachColors.muted).padding(.horizontal, 4)
                     .transition(panelTransition)
             }
-            if includePlans && !showsOptions && !weightPrompt && picture == nil {
+            if showsContextChip {
                 Button {
                     showOptions = true
                     editingMessage = false
                 } label: {
                     Label("已附上训练安排", systemImage: "paperclip").font(.caption.weight(.medium))
                         .padding(.horizontal, 5).frame(minHeight: 28)
-                }.buttonStyle(.spotterPress).disabled(busy)
+                }
+                .buttonStyle(.spotterPress).disabled(busy).transition(panelTransition)
             }
             HStack(alignment: .bottom, spacing: 9) {
                 attachmentMenu
@@ -488,12 +502,14 @@ struct NativeCoachView: View {
         }
         .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 8)
         .animation(controlMotion, value: showsOptions)
+        .animation(controlMotion, value: showsSuggestions)
+        .animation(controlMotion, value: showsContextChip)
         .animation(controlMotion, value: picture != nil)
         .animation(controlMotion, value: planMode || weightPrompt)
     }
 
     private var attachmentMenu: some View {
-        Menu {
+        SpotterMenu {
             Button("拍照", systemImage: "camera") {
                 editingMessage = false
                 camera = true
@@ -504,8 +520,7 @@ struct NativeCoachView: View {
             }
         } label: {
             Image(systemName: "plus").font(.title3.weight(.medium)).foregroundStyle(CoachColors.text)
-                .frame(width: 48, height: 48)
-                .coachPanel(CoachColors.choice, radius: 15).contentShape(Rectangle())
+                .frame(width: 26, height: 48)
         }.accessibilityLabel("添加餐食照片").accessibilityIdentifier("coach-attachments").disabled(busy)
     }
 
@@ -526,11 +541,13 @@ struct NativeCoachView: View {
                 if picture != nil {
                     Text("识别并记餐").font(.footnote.weight(.bold)).padding(.horizontal, 11).frame(minHeight: 36)
                         .foregroundStyle(CoachColors.dark).background(accent.fill, in: Capsule())
+                        .transition(.opacity)
                 } else {
                     Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 40, height: 38)
                         .foregroundStyle(ready ? CoachColors.dark : CoachColors.muted.opacity(0.7))
                         .background(ready ? accent.fill : .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
                         .accessibilityLabel("发送消息")
+                        .transition(.opacity)
                 }
             }.buttonStyle(.spotterPress).accessibilityIdentifier("coach-send")
                 .disabled(busy || (picture == nil && cleanText.isEmpty))
@@ -541,6 +558,8 @@ struct NativeCoachView: View {
         .overlay(shape.strokeBorder(LinearGradient(colors: [CoachColors.pearl.opacity(editingMessage ? 0.53 : 0.30),
                                                            accent.fill.opacity(editingMessage ? 0.40 : 0.12), CoachColors.border],
                                                    startPoint: .topLeading, endPoint: .bottomTrailing)).allowsHitTesting(false))
+        .animation(controlMotion, value: editingMessage)
+        .animation(controlMotion, value: cleanText.isEmpty)
     }
 
     private var suggestedReplies: some View {
@@ -688,7 +707,7 @@ struct NativeCoachView: View {
                 planMode = true
                 editingMessage = true
             }
-            .font(.footnote.weight(.semibold)).disabled(busy)
+            .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).frame(minHeight: 44).disabled(busy)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14).coachPanel()
@@ -707,7 +726,7 @@ struct NativeCoachView: View {
     private func coachPrimary(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title).font(.footnote.weight(.bold)).foregroundStyle(CoachColors.dark)
-                .padding(.horizontal, 13).frame(minHeight: 38)
+                .padding(.horizontal, 13).frame(minHeight: 44)
                 .background(accent.fill, in: RoundedRectangle(cornerRadius: 10))
         }.buttonStyle(.spotterPress).disabled(busy)
     }
@@ -719,9 +738,8 @@ struct NativeCoachView: View {
                 .font(.footnote).foregroundStyle(CoachColors.muted)
             Text("碳水 \(Int(draft.carbs.rounded())) 克 · 脂肪 \(Int(draft.fat.rounded())) 克")
                 .font(.footnote).foregroundStyle(CoachColors.muted)
-            Picker("餐次", selection: $meal) {
-                ForEach(["早餐", "午餐", "晚餐", "加餐"], id: \.self, content: Text.init)
-            }
+            SpotterMenuPicker("餐次", selection: $meal, options: mealOptions)
+                .disabled(busy)
             coachPrimary("添加到\(meal)") { Task { await retryMeal(draft) } }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -745,15 +763,16 @@ struct NativeCoachView: View {
                             ownNotice = "已复制。"
                         }
                         Button(ownPromptVisible ? "收起提示词" : "查看提示词") { ownPromptVisible.toggle() }
-                            .buttonStyle(.spotterPress).font(.footnote.weight(.semibold))
+                            .buttonStyle(.spotterPress).font(.footnote.weight(.semibold)).frame(minHeight: 44)
                     }
                     if ownPromptVisible {
                         Text(externalPrompt).font(.footnote.monospaced()).textSelection(.enabled)
                             .transition(panelTransition)
                     }
-                    if let ownNotice { Text(ownNotice).font(.footnote).foregroundStyle(CoachColors.muted) }
+                    if let ownNotice { Text(ownNotice).font(.footnote).foregroundStyle(CoachColors.muted).transition(panelTransition) }
                 }.padding(14).coachPanel()
                     .animation(controlMotion, value: ownPromptVisible)
+                    .animation(controlMotion, value: ownNotice != nil)
                 VStack(alignment: .leading, spacing: 10) {
                     messageTitle("list.bullet.clipboard", "粘贴已有内容")
                     coachPrimary("导入并核对计划") { showOwnImport = true }
@@ -1029,7 +1048,7 @@ private struct NativePlanQuestions: View {
                 Text("问答定制训练计划").font(.headline)
                 Spacer()
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark").frame(width: 36, height: 38)
+                    Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
                 }.buttonStyle(.spotterPress).accessibilityLabel("关闭问答")
             }.padding(.horizontal, 16)
             ScrollViewReader { scroll in
@@ -1125,7 +1144,11 @@ private struct NativePlanQuestions: View {
     private var presetCards: some View {
         VStack(alignment: .leading, spacing: 9) {
             if loadingCatalogue { ProgressView("正在读取动作库…") }
-            if catalogueError { Button("重新读取动作库") { Task { await loadCatalogue() } } }
+            if catalogueError {
+                Button("重新读取动作库") { Task { await loadCatalogue() } }
+                    .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.accent)
+                    .transition(.opacity)
+            }
             ForEach(presets) { preset in
                 let candidates = moves(preset.work)
                 let warm = moves(preset.warmup)
@@ -1136,7 +1159,7 @@ private struct NativePlanQuestions: View {
                                           symbol: "dumbbell", tile: 4), selected: selectedPreset == preset.id) {
                             selectedPreset = preset.id; work = candidates; warmup = warm
                         }
-                        DisclosureGroup("查看动作") {
+                        SpotterDisclosure("查看动作") {
                             Text((candidates + warm).map(\.name).joined(separator: " · ")).foregroundStyle(SpotterPalette.muted)
                         }
                         .font(.caption).padding(.horizontal, 10).padding(.bottom, 4)
@@ -1148,6 +1171,8 @@ private struct NativePlanQuestions: View {
                 resetPreset(); selectedPreset = "own"
             }
         }
+        .animation(stepMotion, value: loadingCatalogue)
+        .animation(stepMotion, value: catalogueError)
     }
 
     private var movements: some View {
@@ -1157,56 +1182,74 @@ private struct NativePlanQuestions: View {
                 Text("热身动作（\(warmup.count)）").tag(true)
             }.pickerStyle(.segmented)
             Button { search = ""; choosingMove = true } label: {
-                Label("从动作库添加", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading)
+                Label("从动作库添加", systemImage: "plus").font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, 11)
+                    .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 11))
             }
-            .buttonStyle(.bordered).disabled((editingWarmup ? warmup : work).count >= 24)
+            .buttonStyle(.spotterPress).disabled((editingWarmup ? warmup : work).count >= 24)
             ForEach(editingWarmup ? warmup : work) { move in
                 HStack {
                     Label(move.name, systemImage: "dumbbell")
                     Spacer()
                     Button {
                         if editingWarmup { warmup.removeAll { $0.id == move.id } } else { work.removeAll { $0.id == move.id } }
-                    } label: { Image(systemName: "trash").frame(width: 34, height: 34) }
+                    } label: { Image(systemName: "trash").frame(width: 44, height: 44) }
                     .buttonStyle(.spotterPress)
                     .accessibilityLabel("移除 \(move.name)")
                 }.padding(.horizontal, 9).padding(.vertical, 4).guidePanel()
+                    .transition(.opacity.combined(with: .offset(y: 5)))
             }
             if work.isEmpty { Text("至少加入一个正式动作。").font(.caption).foregroundStyle(SpotterPalette.muted) }
         }
+        .animation(stepMotion, value: editingWarmup)
+        .animation(stepMotion, value: (editingWarmup ? warmup : work).map(\.id))
     }
 
     private var preferences: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("训练目标", selection: $goal) {
-                ForEach(goals, id: \.0) { Text($0.1).tag($0.0) }
+            SpotterMenuPicker("训练目标", selection: $goal, options: goals)
+            Stepper(value: $frequency, in: 1...7) {
+                Text("每周训练 \(frequency) 天").contentTransition(.numericText()).animation(stepMotion, value: frequency)
             }
-            Stepper("每周训练 \(frequency) 天", value: $frequency, in: 1...7)
-            Stepper("每次最多 \(minutes) 分钟", value: $minutes, in: 15...120, step: 5)
-            Picker("训练周数", selection: $weeks) {
-                ForEach([1, 2, 4], id: \.self) { Text("\($0) 周").tag($0) }
+            Stepper(value: $minutes, in: 15...120, step: 5) {
+                Text("每次最多 \(minutes) 分钟").contentTransition(.numericText()).animation(stepMotion, value: minutes)
             }
+            SpotterMenuPicker("训练周数", selection: $weeks, options: [1, 2, 4].map { ($0, "\($0) 周") })
             DatePicker("开始日期", selection: $start, displayedComponents: .date)
             Text("重点部位").font(.subheadline.weight(.semibold))
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 65))], spacing: 7) {
                 ForEach(focusChoices, id: \.0) { item in
-                    Button(item.1) {
-                        if focus.contains(item.0) { focus.remove(item.0) } else { focus.insert(item.0) }
+                    let selected = focus.contains(item.0)
+                    Button {
+                        if selected { focus.remove(item.0) } else { focus.insert(item.0) }
+                    } label: {
+                        Text(item.1).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+                            .background(selected ? accent.fill : SpotterPalette.wash, in: Capsule())
+                            .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.ink)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(focus.contains(item.0) ? accent.tint : SpotterPalette.muted)
+                    .buttonStyle(.spotterPress)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .animation(stepMotion, value: selected)
                 }
             }
             if frequency * weeks > 12 {
-                Text("每份草稿最多 12 堂，请减少周数或每周次数。").font(.caption).foregroundStyle(.red)
+                Text("每份草稿最多 12 堂，请减少周数或每周次数。").font(.caption).foregroundStyle(.red).transition(.opacity)
             }
         }.padding(12).guidePanel()
+            .animation(stepMotion, value: frequency * weeks > 12)
     }
 
     private var footer: some View {
         HStack(spacing: 8) {
             if step > 0 {
-                Button("上一步") { step -= 1 }
-                    .buttonStyle(.bordered).frame(minHeight: 42)
+                Button { step -= 1 } label: {
+                    Label("上一步", systemImage: "chevron.left").font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 11).frame(minHeight: 44)
+                        .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.spotterPress)
+                .transition(.opacity.combined(with: .offset(x: 4)))
             }
             Button {
                 if step < 4 { step += 1 }
@@ -1218,31 +1261,46 @@ private struct NativePlanQuestions: View {
                 }
             } label: {
                 Text(step == 4 ? "生成计划草稿" : "下一步").font(.subheadline.weight(.bold))
-                    .foregroundStyle(SpotterPalette.deep).frame(maxWidth: .infinity, minHeight: 42)
+                    .foregroundStyle(SpotterPalette.deep).frame(maxWidth: .infinity, minHeight: 44)
                     .background(accent.fill.opacity(invalidStep ? 0.45 : 1), in: RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.spotterPress).disabled(invalidStep)
         }
         .padding(.horizontal, 16).padding(.bottom, 10)
+        .animation(stepMotion, value: step > 0)
     }
 
     private var cataloguePicker: some View {
         NavigationStack {
             List {
-                if catalogueError { Button("重新读取动作库") { Task { await loadCatalogue() } } }
+                if catalogueError {
+                    Button("重新读取动作库") { Task { await loadCatalogue() } }.foregroundStyle(SpotterPalette.accent)
+                }
                 ForEach(catalogue.filter { move in
                     !excluded.contains(move.id) && !(editingWarmup ? warmup : work).contains { $0.id == move.id }
                         && (search.isEmpty || move.name.localizedCaseInsensitiveContains(search) || move.en.localizedCaseInsensitiveContains(search))
                 }.prefix(80)) { move in
-                    Button(move.name) {
+                    Button {
                         if editingWarmup { warmup.append(move) } else { work.append(move) }
                         choosingMove = false
+                    } label: {
+                        HStack {
+                            Text(move.name)
+                            Spacer(minLength: 7)
+                            Image(systemName: "plus.circle").foregroundStyle(SpotterPalette.accent)
+                        }.contentShape(Rectangle())
                     }
                 }
             }
+            .buttonStyle(.spotterPress)
             .searchable(text: $search, prompt: "搜索动作")
             .navigationTitle("动作库")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { choosingMove = false } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { choosingMove = false } label: { Image(systemName: "xmark").frame(width: 38, height: 44) }
+                        .buttonStyle(.spotterPress).accessibilityLabel("关闭")
+                }
+            }
         }
     }
 

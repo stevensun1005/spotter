@@ -69,13 +69,13 @@ struct NativeProgramsView: View {
         HStack(spacing: 8) {
             Button { start(.create) } label: { Label("新建周期", systemImage: "plus") }
                 .buttonStyle(SpotterNativeButtonStyle(primary: true)).disabled(busy || !hasLoaded)
-            Menu {
+            SpotterMenu {
                 Button("导入周期", systemImage: "square.and.arrow.down") { start(.importDraft) }.disabled(busy || !hasLoaded)
                 Button("编排偏好", systemImage: "slider.horizontal.3") { start(.rules) }.disabled(busy || !hasLoaded)
                 Button("刷新", systemImage: "arrow.clockwise") { Task { await load() } }.disabled(busy)
             } label: {
                 Label("周期操作", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
-                    .font(.title3).frame(width: 44, height: 44)
+                    .font(.title3)
             }.accessibilityLabel("周期操作")
         }
     }
@@ -243,6 +243,7 @@ private struct NativeProgramService {
 
 @MainActor
 private struct NativeTrainingProgramEditor: View {
+    @Environment(\.spotterInteractionMotion) private var motion
     let rules: NativeProgramRules
     let store: NativeWorkoutStore?
     let templates: [NativeProgramTemplate]
@@ -341,7 +342,7 @@ private struct NativeTrainingProgramEditor: View {
 
     private func weekButton(_ number: Int) -> some View {
         let selected = week == number
-        return Button { week = number } label: {
+        return Button { withAnimation(motion) { week = number } } label: {
             Text("第 \(number) 周").font(.footnote.weight(.semibold)).lineLimit(1)
                 .padding(.horizontal, 12).frame(minHeight: 38)
                 .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.ink)
@@ -368,7 +369,7 @@ private struct NativeTrainingProgramEditor: View {
             }.font(.footnote.weight(.semibold)).foregroundStyle(accent.tint)
             if sessions.isEmpty { Text("这一周还没有训练。").font(.subheadline).foregroundStyle(SpotterPalette.muted) }
             ForEach(sessions) { sessionCard($0) }
-            Menu {
+            SpotterMenu {
                 ForEach(availableDays, id: \.self) { day in
                     Button("第 \(day) 天 · \(draft.weekday(day))") {
                         sheet = .newSession(day)
@@ -390,10 +391,10 @@ private struct NativeTrainingProgramEditor: View {
                         .font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
                 Spacer()
-                Menu {
+                SpotterMenu {
                     Button("编辑这一节", systemImage: "pencil") { sheet = .session(session) }
                     Button("从草稿移除", role: .destructive) { confirm = .session(session) }
-                } label: { Image(systemName: "ellipsis.circle").frame(width: 44, height: 44) }
+                } label: { Image(systemName: "ellipsis.circle") }
                     .accessibilityLabel("\(plan.title) 操作")
             }
             ForEach(Array(plan.exercises.enumerated()), id: \.offset) { _, move in
@@ -410,7 +411,7 @@ private struct NativeTrainingProgramEditor: View {
     }
 
     private var toolbarMenu: some View {
-        Menu {
+        SpotterMenu {
             Button("周期信息与阶段", systemImage: "calendar.badge.clock") { sheet = .metadata }
             Button("导出周期", systemImage: "square.and.arrow.up", action: exportDraft)
             Button("重新读取云端版本", systemImage: "arrow.clockwise") {
@@ -615,13 +616,12 @@ private struct NativeProgramMetadataFields: View {
         }
         Section {
             ForEach($draft.phases) { $phase in
-                DisclosureGroup {
+                SpotterDisclosure {
                     TextField("阶段名称", text: $phase.name)
                     Stepper("起始周  \(phase.fromWeek)", value: $phase.fromWeek, in: 1...52)
                     Stepper("结束周  \(phase.toWeek)", value: $phase.toWeek, in: 1...52)
-                    Picker("阶段颜色", selection: $phase.color) {
-                        ForEach(NativeTrainingProgram.Phase.Hue.allCases) { color in Text(color.title).tag(color) }
-                    }
+                    SpotterMenuPicker("阶段颜色", selection: $phase.color,
+                                      options: NativeTrainingProgram.Phase.Hue.allCases.map { ($0, $0.title) })
                     Button("移除阶段", role: .destructive) {
                         let id = phase.id
                         draft.phases.removeAll { $0.id == id }
@@ -676,6 +676,7 @@ private struct NativeProgramMetadataEditor: View {
 
 @MainActor
 private struct NativeCreateProgram: View {
+    @Environment(\.spotterInteractionMotion) private var motion
     let templates: [NativeProgramTemplate]
     let templateIssue: String?
     let store: NativeWorkoutStore?
@@ -740,7 +741,7 @@ private struct NativeCreateProgram: View {
             HStack(spacing: 3) {
                 ForEach(1...7, id: \.self) { day in
                     let selected = days.contains { $0.day == day }
-                    Button { toggle(day) } label: {
+                    Button { withAnimation(motion) { toggle(day) } } label: {
                         Text(draft.weekday(day)).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
                             .frame(maxWidth: .infinity, minHeight: 38)
                             .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.ink)
@@ -754,21 +755,18 @@ private struct NativeCreateProgram: View {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("第 \(day.day) 天 · \(draft.weekday(day.day))").font(.subheadline.weight(.semibold))
                     if !templates.isEmpty {
-                        Picker("个人模板", selection: Binding(get: { days.first { $0.day == day.day }?.templateID ?? "" }, set: { id in
+                        SpotterMenuPicker("个人模板", selection: Binding(get: { days.first { $0.day == day.day }?.templateID ?? "" }, set: { id in
                             let plan = templates.first { $0.id == id }?.plan ?? NativePlanDraft(day: draft.date(week: 1, day: day.day)).plan
                             updateDay(day.day, templateID: id.isEmpty ? nil : id, plan: plan)
-                        })) {
-                            Text("自定义训练").tag("")
-                            ForEach(templates) { template in Text(template.title).tag(template.id) }
-                        }
+                        }), options: [("", "自定义训练")] + templates.map { ($0.id, $0.title) })
                     }
                     if !day.plan["title"].string.isEmpty { Text(day.plan["title"].string).font(.footnote).foregroundStyle(SpotterPalette.muted) }
-                    Button("编辑训练", systemImage: "pencil") { editedDay = DayEditor(day: day.day) }.buttonStyle(.borderless)
+                    Button("编辑训练", systemImage: "pencil") { editedDay = DayEditor(day: day.day) }.buttonStyle(.spotterPress)
                     if index > 0 {
                         Button("复制上一节内容", systemImage: "document.on.document") {
                             guard let current = days.firstIndex(where: { $0.day == day.day }), current > 0 else { return }
                             updateDay(day.day, templateID: nil, plan: days[current - 1].plan)
-                        }.buttonStyle(.borderless)
+                        }.buttonStyle(.spotterPress)
                     }
                 }
             }
@@ -890,9 +888,9 @@ private struct NativeProgramAdjust: View {
                 Stepper("结束周  \(through)", value: $through, in: from...draft.weeks)
             }
             Section {
-                Picker("重量调整方式", selection: $mode) {
-                    ForEach(NativeTrainingProgram.WeightMode.allCases) { mode in Text(mode.title).tag(mode) }
-                }.onChange(of: mode) { weight = $0 == .delta ? "0" : "80" }
+                SpotterMenuPicker("重量调整方式", selection: $mode,
+                                  options: NativeTrainingProgram.WeightMode.allCases.map { ($0, $0.title) })
+                    .onChange(of: mode) { weight = $0 == .delta ? "0" : "80" }
                 LabeledContent(mode == .delta ? "重量变化（原单位）" : "保留比例 %") { TextField("0", text: $weight).programNumberInput() }
                 LabeledContent("次数变化") { TextField("0", text: $reps).programNumberInput() }
             } header: { Text("训练调整") } footer: { Text("未知重量保持为 0。计时动作的次数保持原样。改动重量时会清除原百分比负荷。") }
@@ -966,6 +964,7 @@ private struct NativeProgramRulesEditor: View {
 
 @MainActor
 private struct NativeProgramPreviewScreen: View {
+    @Environment(\.spotterInteractionMotion) private var motion
     let refresh: () async throws -> NativeProgramPreview
     let commit: (NativeProgramPreview) async throws -> Void
     @Environment(\.dismiss) private var dismiss
@@ -990,6 +989,15 @@ private struct NativeProgramPreviewScreen: View {
                 LabeledContent("无需写入或跳过", value: preview.skipped.formatted())
             }
             Section("核对排期 · \(preview.items.count) 节") {
+                if preview.items.count > 12 {
+                    Button {
+                        withAnimation(motion) { expanded.toggle() }
+                    } label: {
+                        Label(expanded ? "收起其余训练" : "查看全部 \(preview.items.count) 节训练",
+                              systemImage: expanded ? "chevron.up" : "chevron.down")
+                    }
+                    .buttonStyle(.spotterPress)
+                }
                 ForEach(expanded ? preview.items : Array(preview.items.prefix(12))) { item in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack { Text(item.title).font(.subheadline.weight(.semibold)); Spacer(); Text(item.status.title).font(.caption) }
@@ -997,7 +1005,6 @@ private struct NativeProgramPreviewScreen: View {
                         Text(item.reason).font(.caption).foregroundStyle(SpotterPalette.muted)
                     }
                 }
-                if !expanded && preview.items.count > 12 { Button("查看全部 \(preview.items.count) 节训练") { expanded = true } }
             }
             if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
             Section {

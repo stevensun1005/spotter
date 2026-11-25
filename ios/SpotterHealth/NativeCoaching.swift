@@ -81,6 +81,7 @@ private struct CoachingAssignmentPreview: Decodable, Identifiable {
 
 @MainActor
 struct NativeCoachingView: View {
+    @Environment(\.spotterInteractionMotion) private var motion
     let api: NativeAPI
     let owner: String
     @State private var home: CoachingHomeData?
@@ -130,6 +131,8 @@ struct NativeCoachingView: View {
             }
         }
         .navigationTitle("教练与学员")
+        .animation(motion, value: inviteReview != nil)
+        .animation(motion, value: inviteCode != nil)
         .task(id: owner) { await reload() }
         .refreshable { await reload() }
         .sheet(item: $assignmentPreview) { review in
@@ -240,14 +243,10 @@ struct NativeCoachingView: View {
             if sources.isEmpty {
                 Text("先在训练中保存一份计划。").foregroundStyle(.secondary)
             } else {
-                Picker("学员", selection: $student) {
-                    Text("选择学员").tag("")
-                    ForEach(students) { Text($0.studentName).tag($0.id) }
-                }
-                Picker("已有计划", selection: $sourceKey) {
-                    Text("选择计划").tag("")
-                    ForEach(sources, id: \.key) { Text("\($0.title) · \($0.sessionCount) 堂").tag($0.key) }
-                }
+                SpotterMenuPicker("学员", selection: $student,
+                                  options: [("", "选择学员")] + students.map { ($0.id, $0.studentName) })
+                SpotterMenuPicker("已有计划", selection: $sourceKey,
+                                  options: [("", "选择计划")] + sources.map { ($0.key, "\($0.title) · \($0.sessionCount) 堂") })
                 DatePicker("开始日期", selection: $start, displayedComponents: .date)
                 Button("发给学员") {
                     guard let source = sources.first(where: { $0.key == sourceKey }),
@@ -294,7 +293,7 @@ struct NativeCoachingView: View {
                                     assignmentPreview = try JSONDecoder().decode(CoachingAssignmentPreview.self, from: data)
                                 }, refresh: false)
                             }
-                        }.buttonStyle(.bordered).disabled(isBusy)
+                        }.buttonStyle(.spotterControl).disabled(isBusy)
                     }
                 }
             }
