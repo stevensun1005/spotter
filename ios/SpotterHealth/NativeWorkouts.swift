@@ -1762,7 +1762,7 @@ struct NativeWorkoutView: View {
                     Text("全部计划").font(.system(size: 18, weight: .bold))
                     Spacer()
                     HStack(spacing: 4) {
-                        SpotterMenu(glass: true) {
+                        SpotterMenu {
                             if let openCoach { Button("AI 教练起草", systemImage: "sparkles", action: openCoach) }
                             if let openImport { Button("粘贴已有内容", systemImage: "list.bullet.clipboard", action: openImport) }
                             if let openPrograms { Button("训练周期", systemImage: "calendar.badge.plus", action: openPrograms) }
@@ -1774,7 +1774,6 @@ struct NativeWorkoutView: View {
                         }
                         .buttonStyle(.spotterPrimaryControl)
                     }
-                    .spotterGlassCluster()
                 }
                 SpotterGlassSegments(options: [false, true], value: $completedPlans, glass: false) { $0 ? "已完成" : "待训练" }
             }.padding(12).spotterCard()

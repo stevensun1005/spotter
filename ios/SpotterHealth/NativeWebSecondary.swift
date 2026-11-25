@@ -1062,7 +1062,7 @@ struct SecondaryAnatomy: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            SpotterGlassSegments(options: Figure.allCases, value: $figure, title: \.title)
+            SpotterGlassSegments(options: Figure.allCases, value: $figure, glass: false, title: \.title)
                 .accessibilityLabel("肌群图体型")
             if loaded, !artwork.isEmpty {
                 HStack(spacing: 9) {
@@ -1320,7 +1320,7 @@ struct SecondaryMusclePanel: View {
         VStack(alignment: .leading, spacing: 9) {
             Text("肌群训练分布").font(.headline)
             Text("按完成的正式组计数，不含热身。每组可能训练多个肌群。").font(.caption).foregroundStyle(SpotterPalette.muted)
-            SpotterGlassSegments(options: Layer.allCases, value: $layer, title: \.rawValue)
+            SpotterGlassSegments(options: Layer.allCases, value: $layer, glass: false, title: \.rawValue)
             if let catalogue {
                 let (totals, counts) = distribution(catalogue)
                 let highest = max(1, totals.max() ?? 0)
