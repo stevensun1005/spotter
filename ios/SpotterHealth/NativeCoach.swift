@@ -41,7 +41,36 @@ enum NativeCoachConsent {
         UserDefaults.standard.removeObject(forKey: key(owner))
     }
 
-    private static func key(_ owner: String) -> String { "spotter.native.coach.consent." + owner }
+    static func key(_ owner: String) -> String { "spotter.native.coach.consent." + owner }
+}
+
+struct NativeCoachSharingChoice: View {
+    @Binding var allowed: Bool
+    let origin: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("允许 AI 教练处理我发送的内容", isOn: $allowed)
+                .font(.subheadline.weight(.semibold))
+            Text("你选择发送的对话、照片和训练计划会交由外部 AI 服务处理。可随时在设置中撤销。")
+                .font(.footnote).foregroundStyle(.secondary)
+            if let policy = URL(string: origin + "/privacy#external-ai") {
+                Link("查看数据处理说明", destination: policy).font(.footnote)
+            }
+        }
+    }
+}
+
+struct NativeCoachSharingSettings: View {
+    @AppStorage private var allowed: Bool
+    let origin: String
+
+    init(owner: String, origin: String) {
+        _allowed = AppStorage(wrappedValue: false, NativeCoachConsent.key(owner))
+        self.origin = origin
+    }
+
+    var body: some View { NativeCoachSharingChoice(allowed: $allowed, origin: origin) }
 }
 
 private enum CoachColors {
@@ -110,9 +139,12 @@ struct NativeCoachView: View {
     var compact = true
     var onExpand: (() -> Void)? = nil
     var onStartWorkout: (() -> Void)? = nil
+    let nutritionDate: String?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
     @FocusState private var editingMessage: Bool
+    @AppStorage private var sharingAllowed: Bool
     @State private var lines: [Line] = []
     @State private var text = ""
     @State private var error: String?
@@ -125,9 +157,7 @@ struct NativeCoachView: View {
     @State private var photoChoice: PhotosPickerItem?
     @State private var camera = false
     @State private var showGuide = false
-    @State private var consentNeeded = false
     @State private var planMode = false
-    @State private var pendingRequest: RequestKind?
     @State private var meal = "加餐"
     @State private var mode: Mode = .coach
     @State private var showOptions = false
@@ -143,6 +173,18 @@ struct NativeCoachView: View {
     @State private var ownInput = ""
     @State private var ownNotice: String?
     @State private var ownDrafts: [PlanDraft] = []
+
+    init(api: NativeAPI, owner: String, compact: Bool = true, onExpand: (() -> Void)? = nil,
+         onStartWorkout: (() -> Void)? = nil, initialMeal: String? = nil, nutritionDate: String? = nil) {
+        self.api = api
+        self.owner = owner
+        self.compact = compact
+        self.onExpand = onExpand
+        self.onStartWorkout = onStartWorkout
+        self.nutritionDate = nutritionDate
+        _sharingAllowed = AppStorage(wrappedValue: false, NativeCoachConsent.key(owner))
+        _meal = State(initialValue: initialMeal ?? "加餐")
+    }
 
     private var cleanText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -161,6 +203,9 @@ struct NativeCoachView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .environment(\.colorScheme, .dark)
+        .onChange(of: sharingAllowed) { allowed in
+            if allowed && error == Self.sharingDisabledMessage { error = nil }
+        }
         .onChange(of: photoChoice) { choice in
             guard let choice else { return }
             Task {
@@ -192,20 +237,6 @@ struct NativeCoachView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        .confirmationDialog("允许 AI 教练处理内容？", isPresented: $consentNeeded, titleVisibility: .visible) {
-            Button("允许并继续") {
-                NativeCoachConsent.allow(owner: owner)
-                if let kind = pendingRequest { Task { await send(kind) } }
-                pendingRequest = nil
-            }
-            Button("查看隐私说明") {
-                pendingRequest = nil
-                if let url = URL(string: AppConfiguration.defaultOrigin + "/privacy#external-ai") { openURL(url) }
-            }
-            Button("取消", role: .cancel) { pendingRequest = nil }
-        } message: {
-            Text("你发送的对话、选中的照片和训练资料会交由外部 AI 服务处理。授权可在设置中撤销。")
-        }
     }
 
     private var header: some View {
@@ -213,7 +244,7 @@ struct NativeCoachView: View {
             Button { onExpand?() } label: {
                 Capsule().fill(CoachColors.muted).frame(width: 25, height: 5).frame(width: 34, height: 36)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.spotterPress)
             .disabled(onExpand == nil)
             .accessibilityLabel("展开 AI 教练")
             .simultaneousGesture(DragGesture(minimumDistance: 16).onEnded { drag in
@@ -227,7 +258,7 @@ struct NativeCoachView: View {
             Button { dismiss() } label: {
                 Image(systemName: "xmark").font(.system(size: 17, weight: .medium)).frame(width: 36, height: 40)
             }
-            .buttonStyle(.plain).foregroundStyle(CoachColors.muted).accessibilityLabel("关闭 AI 教练")
+            .buttonStyle(.spotterPress).foregroundStyle(CoachColors.muted).accessibilityLabel("关闭 AI 教练")
         }
         .padding(.horizontal, 14).padding(.vertical, 6)
         .overlay(alignment: .bottom) { Rectangle().fill(CoachColors.border).frame(height: 1) }
@@ -242,7 +273,7 @@ struct NativeCoachView: View {
                 .foregroundStyle(mode == item ? CoachColors.dark : CoachColors.muted)
                 .background(mode == item ? CoachColors.accent : .clear, in: RoundedRectangle(cornerRadius: 10))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.spotterPress)
         .accessibilityAddTraits(mode == item ? .isSelected : [])
     }
 
@@ -253,6 +284,10 @@ struct NativeCoachView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         if lines.isEmpty && mealDraft == nil { welcome }
                         else { newConversation }
+                        if !sharingAllowed {
+                            NativeCoachSharingChoice(allowed: $sharingAllowed, origin: api.origin)
+                                .padding(12).coachPanel()
+                        }
                         ForEach(Array(lines.enumerated()), id: \.offset) { _, line in message(line) }
                         if !planDrafts.isEmpty { planPreview }
                         if let draft = mealDraft { mealPreview(draft) }
@@ -271,7 +306,9 @@ struct NativeCoachView: View {
     }
 
     private func scrollToLatest(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo("latest", anchor: .bottom) }
+        withAnimation(reduceMotion || systemReduceMotion ? nil : .easeOut(duration: 0.18)) {
+            proxy.scrollTo("latest", anchor: .bottom)
+        }
     }
 
     private var welcome: some View {
@@ -307,7 +344,7 @@ struct NativeCoachView: View {
                 Text(title).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(9).frame(minHeight: 51).coachPanel()
-        }.buttonStyle(.plain).disabled(busy)
+        }.buttonStyle(.spotterPress).disabled(busy)
     }
 
     private var newConversation: some View {
@@ -318,7 +355,7 @@ struct NativeCoachView: View {
         } label: {
             quickLabel("新对话", "plus.message")
         }
-        .buttonStyle(.plain).disabled(busy).frame(maxWidth: .infinity, alignment: .trailing)
+        .buttonStyle(.spotterPress).disabled(busy).frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     @ViewBuilder
@@ -366,7 +403,7 @@ struct NativeCoachView: View {
                         quickLabel(includePlans ? "已附上训练安排" : "对话选项", "slider.horizontal.3")
                     }.disabled(busy)
                 }
-            }.buttonStyle(.plain)
+            }.buttonStyle(.spotterPress)
             if showOptions && picture == nil && !weightPrompt {
                 VStack {
                     Toggle("附上个人训练安排", isOn: $includePlans)
@@ -420,7 +457,7 @@ struct NativeCoachView: View {
                             .background(ready ? CoachColors.accent : .clear, in: Circle())
                             .accessibilityLabel("发送消息")
                     }
-                }.buttonStyle(.plain).disabled(busy || (picture == nil && cleanText.isEmpty))
+                }.buttonStyle(.spotterPress).disabled(busy || (picture == nil && cleanText.isEmpty))
             }
             .padding(4).coachPanel(radius: 24)
         }
@@ -444,7 +481,7 @@ struct NativeCoachView: View {
             Text(title).font(.caption.weight(.bold)).foregroundStyle(CoachColors.dark)
                 .padding(.horizontal, 11).frame(minHeight: 34)
                 .background(Color(red: 0.85, green: 0.91, blue: 0.82), in: Capsule())
-        }.buttonStyle(.plain).disabled(busy)
+        }.buttonStyle(.spotterPress).disabled(busy)
     }
 
     nonisolated private func quickLabel(_ title: String, _ icon: String) -> some View {
@@ -577,7 +614,7 @@ struct NativeCoachView: View {
             Text(title).font(.footnote.weight(.bold)).foregroundStyle(CoachColors.dark)
                 .padding(.horizontal, 13).frame(minHeight: 38)
                 .background(CoachColors.accent, in: RoundedRectangle(cornerRadius: 10))
-        }.buttonStyle(.plain).disabled(busy)
+        }.buttonStyle(.spotterPress).disabled(busy)
     }
 
     private func mealPreview(_ draft: NativeMealDraft) -> some View {
@@ -671,11 +708,16 @@ struct NativeCoachView: View {
         ownNotice = "已载入 \(rows.count) 堂，确认后保存。"
     }
 
+    private static let sharingDisabledMessage = "可在对话上方或「设置 → AI 教练」开启 AI 数据授权。"
+
     private func submit(_ kind: RequestKind) {
         guard !busy, !cleanText.isEmpty || kind == .photo || kind == .guided else { return }
         editingMessage = false
-        if NativeCoachConsent.isAllowed(owner: owner) { Task { await send(kind) } }
-        else { pendingRequest = kind; consentNeeded = true }
+        guard NativeCoachConsent.isAllowed(owner: owner) else {
+            error = Self.sharingDisabledMessage
+            return
+        }
+        Task { await send(kind) }
     }
 
     private func send(_ kind: RequestKind) async {
@@ -728,7 +770,7 @@ struct NativeCoachView: View {
             if let draft = answer.draft {
                 mealDraft = draft
                 mealID = UUID().uuidString.lowercased()
-                mealDate = spotterDay()
+                mealDate = nutritionDate ?? spotterDay()
                 lines.append(Line(role: "local-user", content: cleanText.isEmpty ? "照片 · 拍照记饮食" : "照片 · \(cleanText)"))
                 self.picture = nil
                 photoChoice = nil
@@ -998,7 +1040,7 @@ private struct NativePlanQuestions: View {
                     .foregroundStyle(selected ? CoachColors.guideAccent : CoachColors.guideMuted)
             }.padding(10).guidePanel(selected: selected)
         }
-        .buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+        .buttonStyle(.spotterPress).accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var presetCards: some View {
@@ -1099,7 +1141,7 @@ private struct NativePlanQuestions: View {
                     .foregroundStyle(CoachColors.guideText).frame(maxWidth: .infinity, minHeight: 42)
                     .background(CoachColors.accent.opacity(invalidStep ? 0.45 : 1), in: RoundedRectangle(cornerRadius: 10))
             }
-            .buttonStyle(.plain).disabled(invalidStep)
+            .buttonStyle(.spotterPress).disabled(invalidStep)
         }
         .padding(.horizontal, 16).padding(.bottom, 10)
     }

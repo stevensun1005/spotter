@@ -6,9 +6,18 @@ import UIKit
 
 @MainActor
 final class NativeWorkoutStore: ObservableObject {
-    @Published private(set) var entries: [NativeWorkoutEntry] = []
+    @Published private(set) var entries: [NativeWorkoutEntry] = [] {
+        didSet {
+            plans = entries.filter { $0.kind == "plan" }
+            savedDrafts = entries.filter { $0.kind == "draft" && $0.owner == owner }
+            savedLogs = entries.filter { $0.kind == "log" && $0.owner == owner }
+            rebuildLogs()
+        }
+    }
     @Published private(set) var active: NativeWorkoutEntry?
-    @Published private(set) var pendingCheckins: [NativeWorkoutEntry] = []
+    @Published private(set) var pendingCheckins: [NativeWorkoutEntry] = [] {
+        didSet { rebuildLogs() }
+    }
     @Published private(set) var isBusy = false
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
@@ -28,16 +37,22 @@ final class NativeWorkoutStore: ObservableObject {
     private var uploading = false
     private var localRevision = 0
 
-    var plans: [NativeWorkoutEntry] { entries.filter { $0.kind == "plan" } }
-    var logs: [NativeWorkoutEntry] {
+    private(set) var plans: [NativeWorkoutEntry] = []
+    private(set) var logs: [NativeWorkoutEntry] = []
+    private var savedDrafts: [NativeWorkoutEntry] = []
+    private var savedLogs: [NativeWorkoutEntry] = []
+    var drafts: [NativeWorkoutEntry] { savedDrafts.filter { $0.id != active?.id } }
+
+    private func rebuildLogs() {
         let pendingIds = Set(pendingCheckins.map(\.id))
-        return (pendingCheckins + entries.filter { $0.kind == "log" && $0.owner == owner && !pendingIds.contains($0.id) })
-            .sorted { ($0.workoutWindow?.from ?? 0) > ($1.workoutWindow?.from ?? 0) }
+        logs = (pendingCheckins + savedLogs.filter { !pendingIds.contains($0.id) })
+            .map { record in
+                let start = record.data["started"].number.rounded(.towardZero)
+                return (record: record, started: max(0, Int(exactly: start) ?? 0))
+            }
+            .sorted { $0.started > $1.started }
+            .map(\.record)
     }
-    var drafts: [NativeWorkoutEntry] { entries.filter { $0.kind == "draft" && $0.owner == owner && $0.id != active?.id } }
-    var completedCount: Int { logs.count }
-    var totalMinutes: Int { logs.reduce(0) { $0 + $1.durationMinutes } }
-    var totalVolumeKg: Double { logs.reduce(0) { $0 + ($1.session?.volumeKg ?? 0) } }
 
     init(api: NativeAPI, owner: String) {
         self.api = api
@@ -51,6 +66,7 @@ final class NativeWorkoutStore: ObservableObject {
            saved.owner == owner, saved.origin == api.origin {
             active = saved.active?.owner == owner && saved.active?.kind == "draft" ? saved.active : nil
             pendingCheckins = saved.pending.filter { $0.owner == owner && $0.kind == "log" }
+            rebuildLogs()
             status = active != nil || !pendingCheckins.isEmpty ? "本机记录已恢复，等待同步" : "正在连接"
         }
     }
@@ -77,19 +93,20 @@ final class NativeWorkoutStore: ObservableObject {
         defer { isLoading = false }
         do {
             let revision = localRevision
-            let payload = try await api.request("/api/workout")
+            let value = try await api.spotterRead("/api/workout", as: NativeWorkoutState.self)
             guard revision == localRevision else { return }
-            let value = try JSONDecoder().decode(NativeWorkoutState.self, from: payload)
             guard value.me.id == owner else { entries = []; throw NativeWorkoutProblem.accountChanged }
-            entries = value.entries
-            room = value.room ?? .null
-            viewerName = value.me.name ?? "我"
+            if entries != value.entries { entries = value.entries }
+            let currentRoom = value.room ?? .null
+            if room != currentRoom { room = currentRoom }
+            let name = value.me.name ?? "我"
+            if viewerName != name { viewerName = name }
             if let active, value.entries.contains(where: { $0.owner == owner && $0.kind == "log" && $0.id == active.id }) {
                 self.active = nil
                 persist()
             }
-            status = "云端已连接"
-            errorMessage = nil
+            if status != "云端已连接" { status = "云端已连接" }
+            if errorMessage != nil { errorMessage = nil }
             await loadProteinPreferences()
             await retryPending()
         } catch {
@@ -100,12 +117,13 @@ final class NativeWorkoutStore: ObservableObject {
 
     func loadProteinPreferences() async {
         do {
-            let data = try await api.request("/api/library")
-            let library = try JSONDecoder().decode(NativeJSON.self, from: data)
+            let library = try await api.spotterRead("/api/library", as: NativeJSON.self)
             let rows = library["rows"].array
-            libraryRows = rows
-            proteinProducts = rows.first { $0["kind"].string == "protein-warehouse" }?["products"].array ?? []
-            defaultProteinProductID = rows.first { $0["kind"].string == "protein-preference" }?["defaultProductId"].string
+            if libraryRows != rows { libraryRows = rows }
+            let products = rows.first { $0["kind"].string == "protein-warehouse" }?["products"].array ?? []
+            if proteinProducts != products { proteinProducts = products }
+            let productID = rows.first { $0["kind"].string == "protein-preference" }?["defaultProductId"].string
+            if defaultProteinProductID != productID { defaultProteinProductID = productID }
         } catch { /* Training can continue; no guessed or stale recipe is selected after an unreadable warehouse. */
             proteinProducts = []
             defaultProteinProductID = nil
@@ -323,7 +341,7 @@ final class NativeWorkoutStore: ObservableObject {
     }
 
     func retryPending() async {
-        guard !uploading else { return }
+        guard !uploading, !pendingCheckins.isEmpty else { return }
         uploading = true
         isBusy = true
         defer { uploading = false; isBusy = false }
@@ -336,8 +354,7 @@ final class NativeWorkoutStore: ObservableObject {
                 guard revision == localRevision else { return }
                 let receipt = try JSONDecoder().decode(Receipt.self, from: payload)
                 let record = NativeWorkoutEntry(id: pending.id, owner: owner, kind: "log", updated: receipt.updated, data: receipt.data)
-                entries.removeAll { $0.id == pending.id && $0.owner == owner }
-                entries.insert(record, at: 0)
+                entries = [record] + entries.filter { $0.id != pending.id || $0.owner != owner }
                 pendingCheckins.removeAll { $0.id == pending.id }
                 persist()
                 errorMessage = nil
@@ -403,7 +420,6 @@ struct NativeWorkoutView: View {
     var openRest: (() -> Void)? = nil
     var openBody: (() -> Void)? = nil
     var homeNutrition: AnyView? = nil
-    @Environment(\.scenePhase) private var phase
     @AppStorage("spotter.native.home.nutritionCollapsed") private var nutritionCollapsed = false
     @AppStorage(NativePreferenceKey.weeklyCheckins) private var showCheckins = true
     @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
@@ -451,7 +467,7 @@ struct NativeWorkoutView: View {
                         if let message = store.errorMessage {
                             Button { Task { await store.load() } } label: {
                                 Label(message, systemImage: "arrow.clockwise").font(.footnote).foregroundStyle(SpotterPalette.muted)
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.spotterPress)
                         }
                     }
                     .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 26)
@@ -463,8 +479,6 @@ struct NativeWorkoutView: View {
         .foregroundStyle(SpotterPalette.ink)
         .tint(SpotterPalette.accent)
         .toolbar(.hidden, for: .navigationBar)
-        .task { await store.load() }
-        .onChange(of: phase) { if $0 == .active { Task { await store.load() } } }
         .fullScreenCover(isPresented: $opensWorkout) { NativeActiveWorkoutView(store: store) }
         .sheet(item: $planEditor) { draft in
             NavigationStack {
@@ -517,7 +531,7 @@ struct NativeWorkoutView: View {
                     Button { openNutrition?() } label: {
                         HStack { Label("查看今日饮食", systemImage: "fork.knife"); Spacer(); Image(systemName: "arrow.up.right") }
                             .padding(16).spotterCard()
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.spotterPress)
                 }
             }
         }
@@ -552,7 +566,7 @@ struct NativeWorkoutView: View {
                     VStack(alignment: .leading, spacing: 4) { Text("添加计划").font(.system(size: 16, weight: .bold)); Text("用 AI 起草训练计划").font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
                     Spacer(); Image(systemName: "chevron.right").foregroundStyle(SpotterPalette.muted)
                 }.padding(15).spotterCard()
-            }.buttonStyle(.plain)
+            }.buttonStyle(.spotterPress)
         }
     }
 
@@ -623,7 +637,7 @@ struct NativeWorkoutView: View {
                         }.frame(maxWidth: .infinity).padding(.vertical, 7)
                             .foregroundStyle(day == selectedDay ? SpotterPalette.deep : SpotterPalette.muted)
                             .background(day == selectedDay ? SpotterPalette.lime : SpotterPalette.wash.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
-                    }.buttonStyle(.plain).accessibilityLabel(day)
+                    }.buttonStyle(.spotterPress).accessibilityLabel(day)
                 }
             }
         }.padding(14).spotterCard()
@@ -684,7 +698,7 @@ struct NativeWorkoutView: View {
             Button { withAnimation(.easeInOut(duration: 0.2)) { showsMoves.toggle() } } label: {
                 HStack { Text("动作清单").font(.system(size: 17, weight: .bold)); Spacer(); Text("\(entry.data["exercises"].array.count) 个动作").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted); Image(systemName: showsMoves ? "chevron.up" : "chevron.down") }
                     .padding(14)
-            }.buttonStyle(.plain)
+            }.buttonStyle(.spotterPress)
             if showsMoves {
                 ForEach(Array(entry.data["exercises"].array.enumerated()), id: \.offset) { index, move in
                     HStack(alignment: .top, spacing: 10) {
@@ -768,7 +782,7 @@ struct NativeWorkoutView: View {
                         .modifier(NativeSelectedTrainingTab(isSelected: trainingTab == tab))
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.spotterPress)
                 .accessibilityAddTraits(trainingTab == tab ? [.isSelected] : [])
             }
         }
@@ -813,7 +827,7 @@ struct NativeWorkoutView: View {
                             Text(completed ? "已完成" : "待训练").font(.system(size: 13, weight: .semibold)).padding(.vertical, 9).frame(maxWidth: .infinity)
                                 .foregroundStyle(completedPlans == completed ? SpotterPalette.deep : SpotterPalette.muted)
                                 .background(completedPlans == completed ? SpotterPalette.lime : .clear, in: RoundedRectangle(cornerRadius: 7))
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(.spotterPress)
                     }
                 }.padding(3).background(SpotterPalette.wash.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
             }.padding(12).spotterCard()
@@ -871,7 +885,7 @@ struct SpotterNativeButtonStyle: ButtonStyle {
         configuration.label.padding(.horizontal, 13).padding(.vertical, 11)
             .foregroundStyle(primary ? SpotterPalette.deep : SpotterPalette.ink)
             .spotterGlass(cornerRadius: 11, tint: primary ? SpotterPalette.lime : .white.opacity(0.85))
-            .opacity(configuration.isPressed ? 0.72 : 1)
+            .spotterPressFeedback(configuration.isPressed)
     }
 }
 
@@ -882,7 +896,7 @@ private func tile(_ symbol: String, size: CGFloat = 40, color: Color? = nil) -> 
 
 private func nativeIconButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
     Button(action: action) { Image(systemName: symbol).font(.system(size: 19)).frame(width: 44, height: 44).background(SpotterPalette.card, in: RoundedRectangle(cornerRadius: 12)) }
-        .buttonStyle(.plain).foregroundStyle(SpotterPalette.ink).accessibilityLabel(label)
+        .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.ink).accessibilityLabel(label)
 }
 
 private func shortDay(_ day: String) -> String {
@@ -929,7 +943,7 @@ private struct NativeTrainingLaunch: View {
                     .background(color, in: RoundedRectangle(cornerRadius: 17)).foregroundStyle(SpotterPalette.deep)
                 Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
             }
-        }.buttonStyle(.plain)
+        }.buttonStyle(.spotterPress)
     }
 }
 
@@ -1168,7 +1182,7 @@ private struct NativeActiveWorkoutView: View {
                     Text("\(session.rows.indices.contains(index) ? session.rows[index].filter { $0["done"].bool }.count : 0)/\(Int(move["sets"].number)) 组").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
                     Image(systemName: openedMove == index ? "chevron.up" : "chevron.down").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
                 }
-            }.buttonStyle(.plain)
+            }.buttonStyle(.spotterPress)
             if openedMove == index {
                 if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
                 Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
@@ -1203,7 +1217,7 @@ private struct NativeActiveWorkoutView: View {
             Button { toggleDone(move: moveIndex, row: row) } label: {
                 Image(systemName: line["done"].bool ? "checkmark.circle.fill" : "circle").font(.system(size: 24, weight: .medium)).frame(width: 38, height: 50)
                     .foregroundStyle(line["done"].bool ? SpotterPalette.accent : SpotterPalette.muted.opacity(0.55))
-            }.buttonStyle(.plain).accessibilityLabel("标记第\(row + 1)组\(line["done"].bool ? "未完成" : "完成")")
+            }.buttonStyle(.spotterPress).accessibilityLabel("标记第\(row + 1)组\(line["done"].bool ? "未完成" : "完成")")
         }.padding(7).background(line["done"].bool ? SpotterPalette.wash : SpotterPalette.background, in: RoundedRectangle(cornerRadius: 11))
     }
 
@@ -1234,7 +1248,7 @@ private struct NativeActiveWorkoutView: View {
                 .frame(maxWidth: .infinity, minHeight: 50)
                 .background(edit == target ? SpotterPalette.lime.opacity(0.3) : done ? SpotterPalette.wash.opacity(0.4) : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(edit == target ? SpotterPalette.accent : SpotterPalette.line, lineWidth: edit == target ? 2 : 1))
-        }.buttonStyle(.plain).accessibilityLabel("第\(target.row + 1)组\(label) \(value.formatted())")
+        }.buttonStyle(.spotterPress).accessibilityLabel("第\(target.row + 1)组\(label) \(value.formatted())")
     }
 
     private func actionBar(_ session: NativeWorkoutSession) -> some View {
@@ -1243,7 +1257,7 @@ private struct NativeActiveWorkoutView: View {
             footerAction("更多", symbol: "ellipsis") { panel = .settings }
             Button { panel = .add } label: {
                 VStack(spacing: 5) { Image(systemName: "plus").font(.system(size: 23, weight: .semibold)).frame(width: 42, height: 36).background(SpotterPalette.lime, in: RoundedRectangle(cornerRadius: 13)); Text("加动作").font(.system(size: 11, weight: .bold)) }.frame(maxWidth: .infinity)
-            }.buttonStyle(.plain).disabled(session.plan.exercises.count >= 30)
+            }.buttonStyle(.spotterPress).disabled(session.plan.exercises.count >= 30)
             footerAction("写心得", symbol: "square.and.pencil") { panel = .note }
             footerAction("数字键盘", symbol: "keyboard") {
                 if let next = nextSet(session) { let timed = session.plan.exercises[next.move]["seconds"].number > 0; let key = timed ? "seconds" : "weight"; activate(NativeSetTarget(move: next.move, row: next.row, key: key), value: session.rows[next.move][next.row][key].number) }
@@ -1252,7 +1266,7 @@ private struct NativeActiveWorkoutView: View {
     }
 
     private func footerAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { VStack(spacing: 6) { Image(systemName: symbol).font(.system(size: 21)); Text(title).font(.system(size: 11, weight: .semibold)) }.frame(maxWidth: .infinity, minHeight: 52) }.buttonStyle(.plain).foregroundStyle(SpotterPalette.muted)
+        Button(action: action) { VStack(spacing: 6) { Image(systemName: symbol).font(.system(size: 21)); Text(title).font(.system(size: 11, weight: .semibold)) }.frame(maxWidth: .infinity, minHeight: 52) }.buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.muted)
     }
     private func activate(_ target: NativeSetTarget, value: Double) { edit = target; editText = value.formatted(.number.grouping(.never).precision(.fractionLength(0...2))); pristine = true; openedMove = target.move }
     private func nextSet(_ session: NativeWorkoutSession) -> NativeSetTarget? {
@@ -1277,7 +1291,7 @@ private struct NativeActiveWorkoutView: View {
                     padAction(["用 \(session.plan.exercises[target.move]["unit"].string == "kg" ? "lb" : "kg")", "热身组", "递减组", "记录左右"][row]) { leftAction(row, target: target) }
                     ForEach(0..<3) { column in
                         let value = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], [".", "0", "⌫"]][row][column]
-                        Button { press(value, target: target) } label: { Text(value).font(.system(size: 23, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 44).background(SpotterPalette.card, in: RoundedRectangle(cornerRadius: 9)) }.buttonStyle(.plain)
+                        Button { press(value, target: target) } label: { Text(value).font(.system(size: 23, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 44).background(SpotterPalette.card, in: RoundedRectangle(cornerRadius: 9)) }.buttonStyle(.spotterPress)
                     }
                     padAction(["加一组", "向上填", "向下填", "RPE"][row]) { rightAction(row, target: target) }
                 }
@@ -1285,7 +1299,7 @@ private struct NativeActiveWorkoutView: View {
         }.padding(10).background(SpotterPalette.wash).overlay(alignment: .top) { Rectangle().fill(SpotterPalette.line).frame(height: 1) }
     }
     private func padAction(_ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(label).font(.system(size: 11, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 44).background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 9)) }.buttonStyle(.plain)
+        Button(action: action) { Text(label).font(.system(size: 11, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 44).background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 9)) }.buttonStyle(.spotterPress)
     }
     private func press(_ digit: String, target: NativeSetTarget) {
         var text = pristine ? "" : editText
@@ -1399,7 +1413,7 @@ private struct NativeWorkoutFinishPanel: View {
                 ForEach(Array(store.proteinProducts.enumerated()), id: \.offset) { _, product in
                     Button { store.setProteinConsumed(true, productID: product["id"].string) } label: {
                         HStack { Image(systemName: store.active?.data["proteinProduct"]["id"].string == product["id"].string ? "largecircle.fill.circle" : "circle"); Text(product["name"].string) }
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.spotterPress)
                 }
             }
             if let error = store.errorMessage { Text(error).font(.system(size: 13)).foregroundStyle(.red) }
@@ -1452,7 +1466,7 @@ struct NativeWorkoutHistoryView: View {
                             VStack(alignment: .leading, spacing: 5) { Text(entry.title).font(.system(size: 15, weight: .bold)); Text("\(shortDay(entry.day)) · 我 · \(entry.durationMinutes) 分钟").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
                             Spacer(minLength: 0); Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
                         }.padding(14).spotterCard()
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.spotterPress)
                 }
             }.padding(14)
         }.background(SpotterPalette.background).foregroundStyle(SpotterPalette.ink).navigationTitle("打卡历史").navigationBarTitleDisplayMode(.inline)

@@ -53,6 +53,47 @@ extension View {
     }
 }
 
+private struct SpotterReduceMotionKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var spotterReduceMotion: Bool {
+        get { self[SpotterReduceMotionKey.self] }
+        set { self[SpotterReduceMotionKey.self] = newValue }
+    }
+}
+
+private struct SpotterPressFeedback: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
+    let pressed: Bool
+
+    func body(content: Content) -> some View {
+        let animate = !systemReduceMotion && !reduceMotion
+        content
+            .scaleEffect(pressed && animate ? 0.97 : 1)
+            .opacity(pressed ? 0.82 : 1)
+            .animation(animate ? .easeOut(duration: 0.14) : nil, value: pressed)
+    }
+}
+
+extension View {
+    func spotterPressFeedback(_ pressed: Bool) -> some View {
+        modifier(SpotterPressFeedback(pressed: pressed))
+    }
+}
+
+struct SpotterPressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.spotterPressFeedback(configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == SpotterPressButtonStyle {
+    static var spotterPress: Self { .init() }
+}
+
 extension NativeAPI {
     func spotterRead<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
         let data = try await request(path)
@@ -66,8 +107,7 @@ extension NativeAPI {
 }
 
 func spotterDay(_ date: Date = .now) -> String {
-    let parts = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date)
-    return String(format: "%04d-%02d-%02d", parts.year ?? 2000, parts.month ?? 1, parts.day ?? 1)
+    NativeWorkoutSession.day(date)
 }
 
 @MainActor
@@ -99,6 +139,7 @@ private struct NativeSignIn: View {
     @ObservedObject var account: NativeAccount
     @State private var email = ""
     @State private var accessCode = ""
+    @State private var allowAI = false
 
     var body: some View {
         ScrollView {
@@ -107,8 +148,8 @@ private struct NativeSignIn: View {
                     .font(.largeTitle.weight(.bold))
                     .accessibilityAddTraits(.isHeader)
                 VStack(spacing: 8) {
-                    providerButton("使用 Apple 登录", symbol: "apple.logo", enabled: account.providerStatus.apple.enabled) { await account.signInApple() }
-                    providerButton("使用 Google 登录", enabled: account.providerStatus.google.enabled) { await account.signInGoogle() }
+                    providerButton("使用 Apple 登录", symbol: "apple.logo", enabled: account.providerStatus.apple.enabled) { await account.signInApple(allowAI: allowAI) }
+                    providerButton("使用 Google 登录", enabled: account.providerStatus.google.enabled) { await account.signInGoogle(allowAI: allowAI) }
                 }
                 Text("已有访问码？先用原账号登录，再到设置绑定登录方式。")
                     .font(.subheadline)
@@ -131,7 +172,7 @@ private struct NativeSignIn: View {
                         Text(error).font(.footnote).foregroundStyle(.red)
                     }
                     Button {
-                        Task { await account.signIn(email: email, accessCode: accessCode) }
+                        Task { await account.signIn(email: email, accessCode: accessCode, allowAI: allowAI) }
                     } label: {
                         Text("登录")
                             .font(.subheadline.weight(.semibold))
@@ -142,6 +183,8 @@ private struct NativeSignIn: View {
                     .buttonStyle(.plain)
                     .disabled(account.isBusy || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || accessCode.isEmpty)
                 }
+                NativeCoachSharingChoice(allowed: $allowAI, origin: account.api.origin)
+                    .disabled(account.isBusy)
                 NativeSupportLinks()
                 if account.isBusy { ProgressView().accessibilityLabel("正在登录") }
             }
@@ -320,11 +363,19 @@ private struct NativeSpotterTabs: View {
         .sheet(isPresented: $showRest, onDismiss: { Task { await workouts.load() } }) {
             NativeRestSchedule(api: account.api, owner: owner)
         }
-        .fullScreenCover(isPresented: $showBody, onDismiss: { Task { await workouts.load() } }) {
-            NativeBodyData(api: account.api, owner: owner)
+        .fullScreenCover(isPresented: $showBody) {
+            NavigationStack {
+                NativeBodyData(api: account.api, owner: owner, showsClose: true)
+            }
         }
         .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
-        .transaction { if reduceMotion || systemReduceMotion { $0.animation = nil } }
+        .environment(\.spotterReduceMotion, reduceMotion)
+        .transaction {
+            if reduceMotion || systemReduceMotion {
+                $0.animation = nil
+                $0.disablesAnimations = true
+            }
+        }
     }
 
     private var today: some View {
@@ -393,11 +444,12 @@ private struct NativeSpotterTabs: View {
                                         in: RoundedRectangle(cornerRadius: 15))
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.spotterPress)
                         .accessibilityLabel(section.rawValue)
                         .accessibilityAddTraits(selected == section ? .isSelected : [])
                     }
                 }
+                .animation(reduceMotion || systemReduceMotion ? nil : .easeOut(duration: 0.2), value: selected)
                 .padding(4)
                 .frame(height: 60)
                 .spotterGlass(cornerRadius: 22, interactive: false)
@@ -411,7 +463,7 @@ private struct NativeSpotterTabs: View {
                         .contentShape(RoundedRectangle(cornerRadius: 22))
                         .spotterGlass(cornerRadius: 22, tint: SpotterPalette.color(0xdaeacb).opacity(0.89))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.spotterPress)
                 .accessibilityLabel("打开 AI 教练")
             }
         }

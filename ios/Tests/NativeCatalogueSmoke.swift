@@ -27,6 +27,32 @@ struct NativeCatalogueSmoke {
         precondition(index.family(for: cable.sections[0].rows[0])?.id == "cable-triceps")
         let guide = try index.details(for: barbell.rows[0])
         precondition(guide?.steps.isEmpty == false)
+        try verifyGymEquipment(index)
         print("native catalogue smoke: 5,272 grouped entries, correct 447 barbell sequence, 61 personal entries, exact covers")
+    }
+
+    private static func verifyGymEquipment(_ index: NativeCatalogIndex) throws {
+        var preferences = NativeGymPreferences.read(Data(), legacy: "barbell\nresistance band")
+        precondition(preferences.gym.name == "GoodLife")
+        precondition(preferences.gym.gear == ["barbell", "band"])
+        precondition(preferences.catalogueGear == ["barbell", "olympic barbell", "band", "resistance band"])
+        let restricted = index.results(gear: preferences.catalogueGear).sections.flatMap(\.rows)
+        precondition(restricted.contains { $0.equipment == "body weight" })
+        precondition(restricted.contains { $0.equipment == "barbell" })
+        precondition(!restricted.contains { $0.equipment == "dumbbell" })
+        precondition(preferences.add("  家庭  "))
+        precondition(preferences.gym.name == "家庭" && preferences.catalogueGear.isEmpty)
+        precondition(!preferences.add(" goodlife "))
+        preferences.toggleAll()
+        precondition(preferences.allSelected)
+        precondition(preferences.gym.gear.count == NativeGymPreferences.equipment.count)
+        precondition(preferences.gym.gear.contains("v-bar attachment"))
+        let stored = try JSONEncoder().encode(preferences)
+        var restored = NativeGymPreferences.read(stored, legacy: "")
+        precondition(restored.gym.name == "家庭" && restored.allSelected)
+        restored.toggleAll()
+        precondition(restored.catalogueGear.isEmpty)
+        restored.select("goodlife")
+        precondition(restored.gym.gear == ["barbell", "band"])
     }
 }

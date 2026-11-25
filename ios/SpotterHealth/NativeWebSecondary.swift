@@ -118,7 +118,7 @@ private struct SecondaryButtonStyle: ButtonStyle {
             .frame(minHeight: 42)
             .background(primary ? SpotterPalette.lime : SpotterPalette.card, in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(SpotterPalette.line, lineWidth: 1).allowsHitTesting(false))
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            .spotterPressFeedback(configuration.isPressed)
     }
 }
 
@@ -1247,12 +1247,11 @@ struct NativeSettings: View {
     @State private var revokeInSettings = false
     @State private var handle: NativeHandleProfile?
     @State private var username = ""
+    @State private var usernameTag = ""
     @State private var handleBusy = false
     @State private var handleNotice: String?
     @State private var handleError = false
     @State private var showRestSchedule = false
-    @State private var showCoachConsent = false
-    @State private var coachConsentRevoked = false
     let owner: String
     var onDeleted: () -> Void
     var refreshPlans: @MainActor () async -> Void = {}
@@ -1260,7 +1259,7 @@ struct NativeSettings: View {
 
     private enum Page: String, CaseIterable, Identifiable {
         case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", reminders = "训练提醒"
-        case units = "单位与统计", equipment = "器械偏好", appearance = "外观与辅助功能", modules = "功能模块", data = "数据导入与导出"
+        case units = "单位与统计", equipment = "器械", appearance = "外观与辅助功能", modules = "功能模块", data = "数据导入与导出"
         case watches = "手表与健康", integrations = "集成", coach = "AI 教练", about = "关于与更新"
         var id: Self { self }
 
@@ -1273,7 +1272,7 @@ struct NativeSettings: View {
             case .schedule: return "训练计划、固定休息日和临时休息"
             case .reminders: return "待训练计划、每日提醒时间"
             case .units: return "新动作的重量单位、动作名称、1RM 估算方式"
-            case .equipment: return "动作库可用的训练器械"
+            case .equipment: return "健身房配置和可用器械"
             case .appearance: return "文字大小和减少动画"
             case .modules: return "首页营养、训练计划、每周打卡和好友入口"
             case .data: return "导出训练资料、恢复 Spotter 备份"
@@ -1326,14 +1325,14 @@ struct NativeSettings: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 17) {
                 Button { dismiss() } label: { Label("今日", systemImage: "arrow.left").font(.subheadline.weight(.semibold)) }
-                    .buttonStyle(.plain).foregroundStyle(SpotterPalette.muted).frame(minHeight: 36)
+                    .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.muted).frame(minHeight: 36)
                 Text("设置").font(.system(.largeTitle, weight: .heavy)).foregroundStyle(SpotterPalette.ink).accessibilityAddTraits(.isHeader)
                 HStack(spacing: 9) {
                     Image(systemName: "magnifyingglass").foregroundStyle(SpotterPalette.muted)
                     TextField("搜索设置", text: $search).textInputAutocapitalization(.never).autocorrectionDisabled()
                     if !search.isEmpty {
                         Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(SpotterPalette.muted) }
-                            .buttonStyle(.plain).accessibilityLabel("清除设置搜索")
+                            .buttonStyle(.spotterPress).accessibilityLabel("清除设置搜索")
                     }
                 }.padding(.horizontal, 13).frame(minHeight: 45).secondaryCard(radius: 13)
 
@@ -1374,7 +1373,7 @@ struct NativeSettings: View {
                 Spacer()
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
             }.padding(12).frame(minHeight: 69).secondaryCard()
-        }.buttonStyle(.plain)
+        }.buttonStyle(.spotterPress)
     }
 
     private func rows(_ pages: [Page], title: String? = nil) -> some View {
@@ -1388,12 +1387,13 @@ struct NativeSettings: View {
 
     private func link(_ page: Page) -> some View {
         NavigationLink(value: page) { SecondaryRow(title: page.rawValue, detail: page.detail, icon: page.icon, color: page.color) }
-            .buttonStyle(.plain)
+            .buttonStyle(.spotterPress)
     }
 
     @ViewBuilder private func destination(_ page: Page) -> some View {
         switch page {
         case .protein: NativeProteinView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
+        case .equipment: NativeEquipmentPreferences()
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -1405,7 +1405,7 @@ struct NativeSettings: View {
                     case .schedule: scheduleContent
                     case .reminders: NativeTrainingReminderSettings(owner: owner)
                     case .units: NativeUnitsPreferences()
-                    case .equipment: NativeEquipmentPreferences()
+                    case .equipment: EmptyView()
                     case .appearance: NativeAppearancePreferences()
                     case .modules: NativeModulePreferences()
                     case .data: NativeBackupSettings(api: account.api, owner: owner, didImport: refreshPlans)
@@ -1441,23 +1441,12 @@ struct NativeSettings: View {
     }
 
     private var coachContent: some View {
-        let consent = !coachConsentRevoked && NativeCoachConsent.isAllowed(owner: owner)
-        return SecondaryGroup {
+        SecondaryGroup {
             NavigationLink {
                 NativeCoachView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
-                    .onDisappear { coachConsentRevoked = false }
             } label: { SecondaryRow(title: "打开 AI 教练", icon: "sparkles") }.buttonStyle(.plain)
             Divider()
-            Button { showCoachConsent = true } label: {
-                SecondaryRow(title: "AI 数据授权", detail: consent ? "已授权，点此撤回" : "尚未授权", icon: "hand.raised",
-                             accessory: consent ? "chevron.right" : nil)
-            }.buttonStyle(.plain).disabled(!consent)
-        }.confirmationDialog("撤回 AI 数据授权？", isPresented: $showCoachConsent, titleVisibility: .visible) {
-            Button("撤回授权", role: .destructive) {
-                NativeCoachConsent.revoke(owner: owner)
-                coachConsentRevoked = true
-            }
-            Button("取消", role: .cancel) {}
+            NativeCoachSharingSettings(owner: owner, origin: account.api.origin).padding(13)
         }
     }
 
@@ -1476,7 +1465,7 @@ struct NativeSettings: View {
             SecondaryGroup(title: "账户与同步") {
                 NavigationLink { NativeBodyData(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar) } label: {
                     SecondaryRow(title: "身体档案", detail: "查看体重、身体数据与性别", icon: "person.text.rectangle")
-                }.buttonStyle(.plain)
+                }.buttonStyle(.spotterPress)
                 Divider()
                 Button {
                     Task { await refreshPlans(); await loadHandle() }
@@ -1548,11 +1537,18 @@ struct NativeSettings: View {
                         .textFieldStyle(.roundedBorder).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .submitLabel(.done).onSubmit { Task { await saveHandle() } }
                         .accessibilityLabel("新的用户名")
-                    Text("#" + handle.tag).font(.system(.subheadline, design: .monospaced)).foregroundStyle(SpotterPalette.muted)
+                    Text("#").font(.subheadline.monospaced()).foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
+                    TextField("0000", text: $usernameTag).textFieldStyle(.roundedBorder)
+                        .font(.subheadline.monospaced()).keyboardType(.numberPad).frame(width: 66)
+                        .accessibilityLabel("四位数字标签")
+                        .onChange(of: usernameTag) { value in
+                            let digits = String(value.precomposedStringWithCompatibilityMapping.filter { ("0"..."9").contains($0) }.prefix(4))
+                            if digits != value { usernameTag = digits }
+                        }
                     Button("保存") { Task { await saveHandle() } }
                         .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(!canSaveHandle)
                 }
-                Text("用户名不可重复，使用 3–24 位英文字母、数字、点或下划线。首尾需为字母或数字，# 后的编号由系统保留。")
+                Text("名字用 3–24 个英文字母、数字、点或下划线，两端须为字母或数字。标签为四位数字。完整组合需唯一。")
                     .font(.caption).foregroundStyle(SpotterPalette.muted)
             } else if handleBusy {
                 ProgressView("正在读取用户名…")
@@ -1568,7 +1564,9 @@ struct NativeSettings: View {
     }
 
     private var canSaveHandle: Bool {
-        guard let handle, !handleBusy, !account.isBusy, proposedUsername != handle.username else { return false }
+        guard let handle, !handleBusy, !account.isBusy,
+              proposedUsername != handle.username || usernameTag != handle.tag,
+              usernameTag.count == 4, usernameTag.allSatisfy({ ("0"..."9").contains($0) }) else { return false }
         return proposedUsername.range(of: "^[a-z0-9][a-z0-9._]{1,22}[a-z0-9]$", options: .regularExpression) != nil
     }
 
@@ -1580,6 +1578,7 @@ struct NativeSettings: View {
             let result = try await account.api.spotterRead("/api/auth/profile", as: NativeHandleResponse.self)
             handle = result.profile
             username = result.profile.username
+            usernameTag = result.profile.tag
             handleNotice = nil
         } catch is CancellationError { }
         catch { handleNotice = error.localizedDescription; handleError = true }
@@ -1590,10 +1589,13 @@ struct NativeSettings: View {
         handleBusy = true
         defer { handleBusy = false }
         do {
-            let result = try await account.api.spotterSend("/api/auth/profile", body: ["username": proposedUsername, "expectedOwner": owner])
+            let result = try await account.api.spotterSend("/api/auth/profile", body: [
+                "username": proposedUsername, "tag": usernameTag, "expectedOwner": owner
+            ])
             let updated = try JSONDecoder().decode(NativeHandleResponse.self, from: result).profile
             handle = updated
             username = updated.username
+            usernameTag = updated.tag
             handleNotice = "已更新用户名。"; handleError = false
         } catch { handleNotice = error.localizedDescription; handleError = true }
     }
@@ -1767,31 +1769,125 @@ private struct NativeUnitsPreferences: View {
 }
 
 private struct NativeEquipmentPreferences: View {
-    @AppStorage(NativePreferenceKey.equipment) private var gear = ""
-    @State private var index: NativeCatalogIndex?
-    @State private var problem: String?
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage(NativeGymPreferences.storageKey) private var saved = Data()
+    @AppStorage(NativePreferenceKey.equipment) private var legacy = ""
+    @State private var name = ""
 
-    private var selected: Set<String> { Set(gear.split(separator: "\n").map(String.init)) }
+    private var preferences: NativeGymPreferences { .read(saved, legacy: legacy) }
 
     var body: some View {
-        SecondaryNotice(message: "在动作库开启「只看可用器械」时，仍可看到自重动作。")
-        if let index {
-            SecondaryGroup(title: "可用器械") {
-                ForEach(index.equipmentOptions.filter { $0 != "body weight" }, id: \.self) { option in
-                    Toggle(index.label(option), isOn: Binding(get: { selected.contains(option) }, set: { enabled in
-                        var next = selected
-                        if enabled { next.insert(option) } else { next.remove(option) }
-                        gear = next.sorted().joined(separator: "\n")
-                    })).tint(SpotterPalette.accent).padding(.horizontal, 13).padding(.vertical, 8)
-                }
-            }
-        } else if let problem { SecondaryNotice(message: problem, warning: true) }
-        else { ProgressView("正在读取器械…").task { await load() } }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 17) {
+                Button { dismiss() } label: { Label("设置", systemImage: "arrow.left").font(.subheadline.weight(.semibold)) }
+                    .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.muted).frame(minHeight: 44)
+                Text("器械").font(.system(.largeTitle, weight: .heavy)).foregroundStyle(SpotterPalette.ink)
+                    .accessibilityAddTraits(.isHeader)
+                gymPicker
+                NativeGymEquipmentGrid(preferences: preferences, toggle: { key in update { $0.toggle(key) } },
+                                       toggleAll: { update { $0.toggleAll() } })
+                Text("动作库可按当前配置筛选器械。配置留空时显示所有器械。")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted).padding(.horizontal, 12)
+            }.secondaryPage()
+        }
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
     }
 
-    private func load() async {
-        do { index = try await Task.detached(priority: .userInitiated) { try NativeCatalogIndex.load() }.value }
-        catch { problem = "无法读取动作库器械。" }
+    private var gymPicker: some View {
+        SecondaryGroup(title: "健身房") {
+            HStack(spacing: 10) {
+                Text("当前器械配置").font(.subheadline.weight(.bold))
+                Spacer(minLength: 4)
+                Menu {
+                    Picker("当前器械配置", selection: Binding(get: { preferences.gym.id }, set: { id in
+                        update { $0.select(id) }
+                    })) {
+                        ForEach(preferences.profiles) { Text($0.name).tag($0.id) }
+                    }
+                } label: {
+                    HStack(spacing: 7) {
+                        Text(preferences.gym.name).lineLimit(1)
+                        Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
+                    }
+                    .foregroundStyle(SpotterPalette.ink)
+                    .padding(.horizontal, 10).frame(minHeight: 38).secondaryCard(radius: 11)
+                }
+                .accessibilityLabel("当前器械配置")
+                .accessibilityValue(preferences.gym.name)
+            }.padding(13)
+            Divider()
+            VStack(alignment: .leading, spacing: 6) {
+                Text("添加健身房").font(.subheadline.weight(.bold))
+                HStack(spacing: 9) {
+                    TextField("名称", text: $name)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 37)
+                        .secondaryCard(radius: 10)
+                        .submitLabel(.done)
+                        .onSubmit(add)
+                        .accessibilityLabel("健身房名称")
+                    Button("添加", action: add)
+                        .buttonStyle(SecondaryButtonStyle())
+                        .disabled(!preferences.canAdd(name))
+                        .opacity(preferences.canAdd(name) ? 1 : 0.5)
+                }
+            }.padding(13)
+        }
+    }
+
+    private func add() {
+        var next = preferences
+        guard next.add(name), let data = try? JSONEncoder().encode(next) else { return }
+        saved = data
+        name = ""
+    }
+
+    private func update(_ change: (inout NativeGymPreferences) -> Void) {
+        var next = preferences
+        change(&next)
+        if let data = try? JSONEncoder().encode(next) { saved = data }
+    }
+}
+
+struct NativeGymEquipmentGrid: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    let preferences: NativeGymPreferences
+    var toggle: (String) -> Void
+    var toggleAll: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("可用器械").font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Button(preferences.allSelected ? "清空" : "全选", action: toggleAll)
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.accent)
+                    .buttonStyle(.spotterPress)
+                    .accessibilityLabel(preferences.allSelected ? "清空器械" : "全选器械")
+            }.padding(.horizontal, 12)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading),
+                                     count: typeSize.isAccessibilitySize ? 1 : 2), spacing: 0) {
+                ForEach(NativeGymPreferences.equipment) { option in
+                    let selected = preferences.gym.gear.contains(option.id)
+                    Button { toggle(option.id) } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: selected ? "checkmark.square.fill" : "square")
+                                .font(.system(size: 20))
+                                .foregroundStyle(selected ? SpotterPalette.accent : SpotterPalette.muted)
+                                .accessibilityHidden(true)
+                            Text(option.label).font(.subheadline).foregroundStyle(SpotterPalette.ink)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.spotterPress)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 13).padding(.vertical, 6).secondaryCard()
+        }
     }
 }
 

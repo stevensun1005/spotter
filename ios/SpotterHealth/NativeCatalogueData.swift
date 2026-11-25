@@ -1,5 +1,97 @@
 import Foundation
 
+struct NativeGymPreferences: Codable {
+    struct Equipment: Identifiable {
+        let id: String
+        let label: String
+
+        init(_ id: String, _ label: String) {
+            self.id = id
+            self.label = label
+        }
+    }
+
+    struct Gym: Identifiable, Codable {
+        let id: String
+        let name: String
+        var gear: Set<String>
+    }
+
+    static let storageKey = "spotter.native.catalogue.gymProfiles"
+    static let equipment: [Equipment] = [
+        .init("body weight", "自重"), .init("dumbbell", "哑铃"),
+        .init("barbell", "杠铃"), .init("rack", "深蹲架"),
+        .init("bench", "训练凳"), .init("incline bench", "上斜凳"),
+        .init("decline bench", "下斜凳"), .init("cable", "绳索"),
+        .init("band", "弹力带"), .init("kettlebell", "壶铃"),
+        .init("high bar", "单杠"), .init("smith machine", "史密斯机"),
+        .init("leverage machine", "固定力量器械"), .init("sled machine", "雪橇／滑轨"),
+        .init("rope attachment", "绳把"), .init("straight bar attachment", "绳索直杆"),
+        .init("v-bar attachment", "V 形把手"), .init("curl bar attachment", "绳索曲杆"),
+        .init("single handle", "单手把手"), .init("ankle cuff", "踝带"),
+        .init("arm blaster", "手臂支撑板"), .init("safety pins", "安全销"),
+        .init("lifting chain", "负重链条"), .init("press board", "卧推木板"),
+        .init("weight plate", "杠铃片"), .init("suspended weight", "悬挂负重"),
+    ]
+    private static let allGear = Set(equipment.map(\.id))
+
+    private(set) var active: String
+    private(set) var profiles: [Gym]
+
+    var gym: Gym { profiles.first { $0.id == active } ?? profiles[0] }
+    var allSelected: Bool { Self.allGear.isSubset(of: gym.gear) }
+
+    var catalogueGear: Set<String> {
+        let selected = gym.gear
+        guard !selected.isEmpty else { return [] }
+        var gear = selected
+        if selected.contains("band") { gear.insert("resistance band") }
+        if selected.contains("barbell") { gear.insert("olympic barbell") }
+        return gear
+    }
+
+    static func read(_ data: Data, legacy: String) -> Self {
+        if let state = try? JSONDecoder().decode(Self.self, from: data), !state.profiles.isEmpty { return state }
+        let aliases = ["resistance band": "band", "olympic barbell": "barbell", "pull-up bar": "high bar"]
+        let prior = Set(legacy.split(separator: "\n").map { key in
+            let value = String(key)
+            return aliases[value] ?? value
+        })
+        return Self(active: "goodlife", profiles: [Gym(id: "goodlife", name: "GoodLife", gear: prior)])
+    }
+
+    func canAdd(_ name: String) -> Bool {
+        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (1...40).contains(label.count) && profiles.count < 12 &&
+            !profiles.contains { $0.name.caseInsensitiveCompare(label) == .orderedSame }
+    }
+
+    @discardableResult
+    mutating func add(_ name: String) -> Bool {
+        guard canAdd(name) else { return false }
+        let profile = Gym(id: UUID().uuidString, name: name.trimmingCharacters(in: .whitespacesAndNewlines), gear: [])
+        profiles.append(profile)
+        active = profile.id
+        return true
+    }
+
+    mutating func select(_ id: String) {
+        guard profiles.contains(where: { $0.id == id }) else { return }
+        active = id
+    }
+
+    mutating func toggle(_ key: String) {
+        guard Self.allGear.contains(key), let index = profiles.firstIndex(where: { $0.id == gym.id }) else { return }
+        if !profiles[index].gear.insert(key).inserted { profiles[index].gear.remove(key) }
+    }
+
+    mutating func toggleAll() {
+        guard let index = profiles.firstIndex(where: { $0.id == gym.id }) else { return }
+        if allSelected { profiles[index].gear.removeAll() }
+        else { profiles[index].gear.formUnion(Self.allGear) }
+    }
+}
+
 struct NativeCatalogEntry: Identifiable, Sendable {
     let id: String
     let name: String

@@ -300,17 +300,19 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
         }
     }
 
-    func signIn(email: String, accessCode: String) async {
+    func signIn(email: String, accessCode: String, allowAI: Bool = false) async {
         await perform {
             let entry = AccessCodeSignIn(email: email.trimmingCharacters(in: .whitespacesAndNewlines),
                                          accessCode: accessCode.trimmingCharacters(in: .whitespacesAndNewlines))
-            profile = try await api.finishLogin("/api/auth/sign-in", body: JSONEncoder().encode(entry), requireOAuthStatus: false)
+            let signedIn = try await api.finishLogin("/api/auth/sign-in", body: JSONEncoder().encode(entry), requireOAuthStatus: false)
+            if allowAI { NativeCoachConsent.allow(owner: signedIn.id) }
+            profile = signedIn
             try await refreshProviderStatus()
         }
     }
 
-    func signInApple() async { await oauth(.apple, mode: .login) }
-    func signInGoogle() async { await oauth(.google, mode: .login) }
+    func signInApple(allowAI: Bool = false) async { await oauth(.apple, mode: .login, allowAI: allowAI) }
+    func signInGoogle(allowAI: Bool = false) async { await oauth(.google, mode: .login, allowAI: allowAI) }
     func linkApple() async { await oauth(.apple, mode: .link) }
     func linkGoogle() async { await oauth(.google, mode: .link) }
 
@@ -353,7 +355,7 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
     private struct GoogleChallenge: Decodable { let authorizationUrl: URL }
     private struct FlowCompletion: Encodable { let code: String; let verifier: String; let state: String? }
 
-    private func oauth(_ provider: NativeOAuthProvider, mode: NativeOAuthMode) async {
+    private func oauth(_ provider: NativeOAuthProvider, mode: NativeOAuthMode, allowAI: Bool = false) async {
         await perform {
             let owner = profile?.id
             guard (mode == .link) == (owner != nil) else { throw NativeAPIError.accountChanged }
@@ -389,7 +391,10 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
             guard profile?.id == owner else { throw NativeAPIError.accountChanged }
             let result = try JSONEncoder().encode(completion)
             switch mode {
-            case .login: profile = try await api.finishLogin(endpoint, body: result, requireOAuthStatus: true)
+            case .login:
+                let signedIn = try await api.finishLogin(endpoint, body: result, requireOAuthStatus: true)
+                if allowAI { NativeCoachConsent.allow(owner: signedIn.id) }
+                profile = signedIn
             case .link: try await api.finishLink(endpoint, body: result)
             }
             try await refreshProviderStatus()

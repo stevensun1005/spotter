@@ -1,3 +1,6 @@
+import AVFoundation
+import Charts
+import Speech
 import SwiftUI
 
 private enum NutritionShortcut: String, CaseIterable, Identifiable {
@@ -54,6 +57,8 @@ private struct NutritionPayload: Decodable {
             let fat: Double?
             let ml: Double?
             let kg: Double?
+            let grams: Double?
+            let foodId: String?
         }
         let id: String?
         let kind: String
@@ -63,6 +68,11 @@ private struct NutritionPayload: Decodable {
         let cut: [Stage]?
         let carbCycle: CarbCycle?
         let workouts: [WorkoutEnergy]?
+        let sourceWorkoutId: String?
+        let preference: NativeJSON?
+        let targetWeightKg: Double?
+        let name: String?
+        let per100g: NativeNutritionFood.Facts?
     }
 
     let rows: [Row]
@@ -120,6 +130,7 @@ private struct NativeNutritionSummary: View {
     let date: String
     var logs: [NativeWorkoutEntry]? = nil
     var onOpen: (() -> Void)? = nil
+    var topActions: AnyView? = nil
 
     private typealias Values = NutritionPayload.Values
     private let nutrients: [(String, String, UInt32, KeyPath<Values, Double>)] = [
@@ -145,11 +156,15 @@ private struct NativeNutritionSummary: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 energy(totals.calories, goal: targets.calories)
+                if let topActions {
+                    Spacer(minLength: 0)
+                    topActions
+                }
                 if showLink {
                     Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
             }
-            .frame(minHeight: showLink ? 37 : nil)
+            .frame(minHeight: showLink || topActions != nil ? 37 : nil)
 
             HStack(alignment: .top, spacing: 5) {
                 ForEach(nutrients, id: \.0) { name, unit, color, key in
@@ -166,6 +181,9 @@ private struct NativeNutritionSummary: View {
                 .font(.system(size: 13))
                 .foregroundStyle(SpotterPalette.muted)
         }
+        .lineLimit(1)
+        .minimumScaleFactor(0.70)
+        .accessibilityElement(children: .combine)
     }
 
     private func dial(_ title: String, unit: String, color: Color, value: Double, goal: Double) -> some View {
@@ -208,7 +226,7 @@ private struct NativeNutritionSummary: View {
 }
 
 private func nutritionNumber(_ value: Double) -> String {
-    value.formatted(.number.grouping(.never).precision(.fractionLength(0...1)))
+    value.formatted(.number.precision(.fractionLength(0...1)))
 }
 
 private struct NutritionShortcuts: View {
@@ -229,7 +247,7 @@ private struct NutritionShortcuts: View {
                     .frame(maxWidth: .infinity, minHeight: 51)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.spotterPress)
             }
         }
     }
@@ -282,6 +300,27 @@ struct NativeHomeNutrition: View {
     }
 }
 
+private enum NutritionDestination: Identifiable {
+    case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
+    case settings, goals, cycle, recipes, recommendations, protein, stats, photo, voice, energy
+
+    var id: String {
+        switch self {
+        case .entry(let shortcut, let row, let food, _): return row?.id ?? food?.id ?? shortcut.rawValue
+        case .settings: return "settings"
+        case .goals: return "goals"
+        case .cycle: return "cycle"
+        case .recipes: return "recipes"
+        case .recommendations: return "recommendations"
+        case .protein: return "protein"
+        case .stats: return "stats"
+        case .photo: return "photo"
+        case .voice: return "voice"
+        case .energy: return "energy"
+        }
+    }
+}
+
 @MainActor
 struct NativeNutritionDetail: View {
     let api: NativeAPI
@@ -289,110 +328,346 @@ struct NativeNutritionDetail: View {
     var logs: [NativeWorkoutEntry]? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @AppStorage(NativePreferenceKey.reduceMotion) private var appReduceMotion = false
     @State private var date = Date.now
     @State private var payload = NutritionPayload(rows: [])
     @State private var loadedDate = ""
-    @State private var error: String?
-    @State private var shortcut: NutritionShortcut?
+    @State private var loadError: String?
+    @State private var mutationError: String?
+    @State private var destination: NutritionDestination?
+    @State private var queuedDestination: NutritionDestination?
     @State private var showDate = false
+    @State private var expandTools = true
+    @State private var deleting = false
+    @State private var deleteCandidate: NutritionPayload.Row?
+
+    private var day: String { spotterDay(date) }
+    private var ready: Bool { loadedDate == day && loadError == nil }
+    private var rows: [NutritionPayload.Row] { payload.entries(on: day).filter { $0.entry?.type != "measurement" } }
+    private var mealNow: NutritionShortcut {
+        let hour = Calendar.current.component(.hour, from: .now)
+        if hour < 10 { return .breakfast }
+        if hour < 14 { return .lunch }
+        return hour < 17 ? .snack : .dinner
+    }
+    private var motion: Animation? { appReduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.22) }
+    private var dateBounds: ClosedRange<Date> {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let start = calendar.date(from: DateComponents(year: 1900, month: 1, day: 1)) ?? .distantPast
+        let end = calendar.date(from: DateComponents(year: 2100, month: 12, day: 31, hour: 23, minute: 59)) ?? .distantFuture
+        return start...end
+    }
 
     var body: some View {
-        let day = spotterDay(date)
         VStack(spacing: 14) {
-            HStack(spacing: 5) {
-                iconButton("arrow.left", "返回") { dismiss() }
-                Spacer(minLength: 1)
-                iconButton("chevron.left", "前一天") { move(-1) }
-                Button {
-                    showDate = true
-                } label: {
-                    Label(day, systemImage: "calendar").font(.subheadline.weight(.semibold)).lineLimit(1)
-                }
-                .buttonStyle(.plain)
-                iconButton("chevron.right", "后一天") { move(1) }
-                Spacer(minLength: 1)
-                iconButton("arrow.counterclockwise", "回到今天") { date = .now }
-            }
+            header
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    NativeNutritionSummary(payload: payload, date: day, logs: logs)
-                        .padding(14).spotterCard()
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("饮食记录").font(.headline)
-                        let rows = payload.entries(on: day).compactMap { row in row.id.map { ($0, row) } }
-                        if let error {
-                            Text(error).font(.footnote).foregroundStyle(SpotterPalette.muted)
-                            Button("重试") { Task { await load(day) } }
-                        } else if day != loadedDate {
-                            ProgressView().frame(maxWidth: .infinity, minHeight: 140)
-                        } else if rows.isEmpty {
-                            VStack(spacing: 8) {
-                                Image("NutritionLunch").renderingMode(.template)
-                                Text("这天还没有饮食记录").font(.subheadline)
-                            }
-                            .foregroundStyle(SpotterPalette.muted)
-                            .frame(maxWidth: .infinity, minHeight: 140)
-                        } else {
-                            ForEach(rows, id: \.0) { _, row in
-                                if let entry = row.entry {
-                                    switch entry.type {
-                                    case "meal":
-                                        LabeledContent(entry.name ?? "餐食", value: nutritionNumber(entry.calories ?? 0) + " 千卡")
-                                    case "weight":
-                                        LabeledContent("体重", value: nutritionNumber(entry.kg ?? 0) + " kg")
-                                    case "water":
-                                        LabeledContent("饮水", value: nutritionNumber(entry.ml ?? 0) + " ml")
-                                    default: EmptyView()
-                                    }
-                                }
-                            }
-                        }
+                VStack(alignment: .leading, spacing: 14) {
+                    NativeNutritionSummary(payload: payload, date: day, logs: logs, topActions: AnyView(summaryActions))
+                        .padding(14).spotterCard(radius: 18)
+                    planningActions
+                    if let loadError {
+                        Button { Task { await load(day) } } label: {
+                            Label(loadError, systemImage: "arrow.clockwise")
+                                .font(.footnote).multilineTextAlignment(.leading)
+                        }.buttonStyle(.spotterPress)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14).spotterCard()
+                    if let mutationError { Text(mutationError).font(.footnote).foregroundStyle(.red) }
+                    if ready { records }
+                    else if loadError == nil { ProgressView().frame(maxWidth: .infinity, minHeight: 140) }
+                    if ready { exerciseCard }
                 }
+                .padding(.bottom, 4)
             }
-            NutritionShortcuts { shortcut = $0 }
-                .padding(.horizontal, 6).spotterCard(radius: 13)
+            .safeAreaInset(edge: .bottom, spacing: 6) { toolbar }
+            .refreshable { await load(day) }
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
+        .foregroundStyle(SpotterPalette.ink)
+        .tint(SpotterPalette.accent)
         .background(SpotterPalette.background.ignoresSafeArea())
         .task(id: day) { await load(day) }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in Task { await load(day) } }
-        .sheet(item: $shortcut) { NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: $0) }
+        .sheet(item: $destination, onDismiss: openQueuedDestination) { item in destinationView(item) }
         .sheet(isPresented: $showDate) {
-            DatePicker("选择日期", selection: $date, displayedComponents: .date)
+            DatePicker("选择日期", selection: $date, in: dateBounds, displayedComponents: .date)
                 .datePickerStyle(.graphical)
                 .padding(20)
                 .presentationDetents([.medium, .large])
         }
+        .onChange(of: day) { _ in
+            showDate = false
+            mutationError = nil
+            deleteCandidate = nil
+        }
+        .confirmationDialog("删除这条记录？", isPresented: Binding(get: { deleteCandidate != nil }, set: { visible in
+            if !visible { deleteCandidate = nil }
+        }), presenting: deleteCandidate) { row in
+            Button("删除", role: .destructive) { Task { await remove(row) } }
+        }
     }
 
-    private func iconButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: 15, weight: .semibold))
-                .frame(width: 40, height: 42).spotterCard(radius: 9)
+    private var header: some View {
+        HStack(spacing: 7) {
+            iconButton("arrow.left", "返回", size: 43) { dismiss() }
+            Spacer(minLength: 0)
+            iconButton("chevron.left", "前一天", size: 43) { move(-1) }.disabled(date <= dateBounds.lowerBound)
+            Button { showDate = true } label: {
+                Text(day == spotterDay() ? "今天" : day)
+                    .font(.subheadline.weight(.semibold)).monospacedDigit().lineLimit(1)
+                    .padding(.horizontal, 10).frame(minWidth: 58, minHeight: 43).spotterCard(radius: 9)
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityLabel("选择饮食日期，\(day)")
+            iconButton("chevron.right", "后一天", size: 43) { move(1) }.disabled(date >= dateBounds.upperBound)
+            Spacer(minLength: 0)
+            iconButton("slider.horizontal.3", "饮食设置", size: 43) { destination = .settings }
         }
-        .buttonStyle(.plain)
+    }
+
+    private var summaryActions: some View {
+        HStack(spacing: 6) {
+            Button("营养目标") { destination = .goals }
+                .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                .padding(.horizontal, 9).frame(minHeight: 37)
+                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 10))
+                .buttonStyle(.spotterPress).disabled(!ready)
+            ShareLink(item: shareText) {
+                Label("分享", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    .padding(.horizontal, 9).frame(minHeight: 37).spotterCard(radius: 10)
+            }
+            .buttonStyle(.spotterPress).disabled(!ready || rows.isEmpty)
+        }
+    }
+
+    private var shareText: String {
+        let totals = payload.totals(on: day)
+        let heading = ["\(day) · 饮食记录", "热量 \(nutritionNumber(totals.calories)) 千卡",
+                       "蛋白质 \(nutritionNumber(totals.protein)) g · 碳水 \(nutritionNumber(totals.carbs)) g · 脂肪 \(nutritionNumber(totals.fat)) g",
+                       "饮水 \(nutritionNumber(totals.water)) ml"]
+        let meals = NutritionShortcut.allCases.filter(\.isMeal).compactMap { meal -> String? in
+            let names = rows.filter { $0.entry?.meal == meal.rawValue }.compactMap { $0.entry?.name }
+            return names.isEmpty ? nil : meal.rawValue + " · " + names.joined(separator: "、")
+        }
+        return (heading + meals).joined(separator: "\n")
+    }
+
+    private var planningActions: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                shortcutButton("碳循环设置") { destination = .cycle }.disabled(!ready)
+                shortcutButton("智能食谱") { destination = .recipes }.disabled(!ready)
+                shortcutButton("食物推荐") { destination = .recommendations }.disabled(!ready)
+            }
+            shortcutButton("记蛋白粉", icon: "cup.and.saucer") { destination = .protein }
+        }
+    }
+
+    private var records: some View {
+        LazyVStack(alignment: .leading, spacing: 16) {
+            if rows.isEmpty {
+                VStack(spacing: 8) {
+                    Image("NutritionLunch").renderingMode(.template)
+                    Text("这一天还没有记录").font(.subheadline)
+                }
+                .foregroundStyle(SpotterPalette.muted)
+                .frame(maxWidth: .infinity, minHeight: 120)
+            } else {
+                ForEach(NutritionShortcut.allCases.filter(\.isMeal)) { meal in
+                    let items = rows.filter { $0.entry?.type == "meal" && $0.entry?.meal == meal.rawValue }
+                    if !items.isEmpty {
+                        HStack {
+                            Text(meal.rawValue).font(.headline).accessibilityAddTraits(.isHeader)
+                            Spacer()
+                            Button { destination = .entry(meal, nil, nil, nil) } label: {
+                                Label("加食物", systemImage: "plus").font(.subheadline.weight(.semibold))
+                            }
+                            .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.accent)
+                        }
+                        ForEach(items, id: \.id) { record($0, meal: meal) }
+                        Divider()
+                    }
+                }
+                ForEach(rows.filter { $0.entry?.type == "water" || $0.entry?.type == "weight" }, id: \.id) { row in
+                    record(row, meal: row.entry?.type == "water" ? .water : .weight)
+                }
+            }
+        }
+        .padding(14).spotterCard(radius: 18)
+    }
+
+    @ViewBuilder private func record(_ row: NutritionPayload.Row, meal: NutritionShortcut) -> some View {
+        if let entry = row.entry {
+            let name = meal.isMeal ? entry.name ?? "餐食" : (meal == .water ? "饮水" : "体重")
+            HStack(spacing: 10) {
+                Image(meal.isMeal ? "NutritionSnack" : meal.icon).renderingMode(.template).resizable()
+                    .frame(width: 19, height: 19).frame(width: 40, height: 40)
+                    .foregroundStyle(SpotterPalette.accent)
+                    .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(name).font(.subheadline.weight(.bold)).fixedSize(horizontal: false, vertical: true)
+                    Text(recordDetail(entry)).font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if row.sourceWorkoutId != nil {
+                        Text("训练打卡同步").font(.caption).foregroundStyle(SpotterPalette.muted)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if row.sourceWorkoutId == nil {
+                    if meal.isMeal {
+                        iconButton("pencil", "编辑 \(name)", size: 42) { destination = .entry(meal, row, nil, nil) }
+                    }
+                    iconButton("trash", "删除 \(name)", size: 42) { deleteCandidate = row }.disabled(deleting)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func recordDetail(_ entry: NutritionPayload.Row.Entry) -> String {
+        if entry.type == "water" { return nutritionNumber(entry.ml ?? 0) + " ml" }
+        if entry.type == "weight" { return nutritionNumber(entry.kg ?? 0) + " kg" }
+        let values = ["\(nutritionNumber(entry.calories ?? 0)) 千卡", "蛋白质 \(nutritionNumber(entry.protein ?? 0)) g",
+                      "碳水 \(nutritionNumber(entry.carbs ?? 0)) g", "脂肪 \(nutritionNumber(entry.fat ?? 0)) g"]
+        return ((entry.grams.map { [nutritionNumber($0) + " g"] } ?? []) + values).joined(separator: " · ")
+    }
+
+    private var exerciseCard: some View {
+        HStack(alignment: .center, spacing: 9) {
+            Image(systemName: "flame").foregroundStyle(SpotterPalette.accent).frame(width: 32, height: 38)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("计入运动消耗").font(.subheadline.weight(.semibold))
+                Text("选中的运动消耗会加到当天目标").font(.caption).foregroundStyle(SpotterPalette.muted)
+            }
+            Spacer(minLength: 0)
+            Button("选择训练") { destination = .energy }
+                .font(.footnote.weight(.semibold)).padding(8).spotterCard(radius: 9).buttonStyle(.spotterPress)
+        }
+        .padding(12).spotterCard(radius: 14)
+    }
+
+    private var toolbar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 2) {
+                if expandTools {
+                    toolButton("统计", icon: "chart.bar.xaxis") { destination = .stats }
+                    toolButton("AI 识别", icon: "wand.and.stars") { destination = .photo }
+                    toolButton("语音", icon: "mic") { destination = .voice }
+                } else { Spacer() }
+                Button { withAnimation(motion) { expandTools.toggle() } } label: {
+                    Image(systemName: expandTools ? "chevron.down" : "chevron.up")
+                        .font(.footnote.weight(.semibold)).frame(width: 42, height: 44)
+                }
+                .accessibilityLabel(expandTools ? "收起快捷工具栏" : "展开快捷工具栏")
+                .buttonStyle(.spotterPress)
+            }
+            Divider()
+            NutritionShortcuts { destination = .entry($0, nil, nil, nil) }
+        }
+        .padding(.horizontal, 4).spotterCard(radius: 13)
+    }
+
+    private func toolButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.spotterPress)
+    }
+
+    private func shortcutButton(_ title: String, icon: String? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if let icon { Label(title, systemImage: icon) }
+                else { Text(title) }
+            }.font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity, minHeight: 37).spotterCard(radius: 9)
+        }.buttonStyle(.spotterPress)
+    }
+
+    private func iconButton(_ icon: String, _ label: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 16, weight: .medium)).frame(width: size, height: size).spotterCard(radius: 9)
+        }
+        .buttonStyle(.spotterPress)
         .accessibilityLabel(label)
     }
 
+    @ViewBuilder private func destinationView(_ item: NutritionDestination) -> some View {
+        switch item {
+        case .entry(let shortcut, let row, let food, let grams):
+            NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: shortcut, existing: row, food: food, grams: grams)
+        case .settings:
+            NativeNutritionSheet(title: "饮食设置") {
+                Section {
+                    settingsLink("营养目标", icon: "target", destination: .goals)
+                    settingsLink("碳循环设置", icon: "calendar", destination: .cycle)
+                    settingsLink("计入运动消耗", icon: "flame", destination: .energy)
+                    settingsLink("记体重", icon: "scalemass", destination: .entry(.weight, nil, nil, nil))
+                    settingsLink("统计", icon: "chart.bar.xaxis", destination: .stats)
+                }
+            }
+        case .goals, .cycle, .energy:
+            NativeNutritionPlanning(api: api, owner: owner, day: day, payload: payload, logs: logs ?? [], destination: item)
+        case .recipes, .recommendations, .voice:
+            NativeNutritionIdeas(api: api, owner: owner, day: day, mealNow: mealNow,
+                                 payload: payload, logs: logs ?? [], destination: item) { food, meal, grams in
+                openAfterDismiss(.entry(meal, nil, food, grams))
+            }
+        case .protein:
+            NativeNutritionProtein(api: api, owner: owner, day: day)
+        case .stats:
+            NativeNutritionStats(api: api, day: date)
+        case .photo:
+            NativeCoachView(api: api, owner: owner, compact: false, initialMeal: mealNow.rawValue, nutritionDate: day)
+                .presentationDetents([.large])
+        }
+    }
+
+    private func settingsLink(_ title: String, icon: String, destination: NutritionDestination) -> some View {
+        Button { openAfterDismiss(destination) } label: { Label(title, systemImage: icon) }
+    }
+
+    private func openAfterDismiss(_ next: NutritionDestination) {
+        queuedDestination = next
+        destination = nil
+    }
+
+    private func openQueuedDestination() {
+        guard let next = queuedDestination else { return }
+        queuedDestination = nil
+        destination = next
+    }
+
     private func move(_ days: Int) {
-        if let next = Calendar.current.date(byAdding: .day, value: days, to: date) { date = next }
+        if let next = Calendar.current.date(byAdding: .day, value: days, to: date), dateBounds.contains(next) { date = next }
     }
 
     private func load(_ day: String) async {
         do {
             let next = try await api.spotterRead("/api/library?date=" + day, as: NutritionPayload.self)
-            guard day == spotterDay(date), !Task.isCancelled else { return }
+            guard day == self.day, !Task.isCancelled else { return }
             payload = next
             loadedDate = day
-            error = nil
+            loadError = nil
         } catch is CancellationError {
         } catch {
-            if day == spotterDay(date) { self.error = error.localizedDescription }
+            if day == self.day, !Task.isCancelled { loadError = error.localizedDescription }
         }
+    }
+
+    private func remove(_ row: NutritionPayload.Row) async {
+        guard let id = row.id, row.sourceWorkoutId == nil, !deleting else { return }
+        deleting = true
+        mutationError = nil
+        defer { deleting = false }
+        do {
+            try await api.spotterSend("/api/library", body: ["action": "remove", "kind": "nutrition", "id": id, "expectedOwner": owner])
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+        } catch { mutationError = error.localizedDescription }
     }
 }
 
@@ -402,6 +677,8 @@ private struct NativeNutritionEditor: View {
     let owner: String
     let date: String
     let shortcut: NutritionShortcut
+    private let isEditing: Bool
+    private let foodId: String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var id = UUID().uuidString.lowercased()
@@ -414,6 +691,34 @@ private struct NativeNutritionEditor: View {
     @State private var imperialWeight = false
     @State private var busy = false
     @State private var error: String?
+
+    init(api: NativeAPI, owner: String, date: String, shortcut: NutritionShortcut,
+         existing: NutritionPayload.Row? = nil, food: NativeNutritionFood? = nil, grams: Double? = nil) {
+        self.api = api
+        self.owner = owner
+        self.date = date
+        self.shortcut = shortcut
+        isEditing = existing != nil
+        foodId = existing?.entry?.foodId ?? food?.id
+        if let entry = existing?.entry, let existingID = existing?.id {
+            _id = State(initialValue: existingID)
+            _name = State(initialValue: entry.name ?? "")
+            _calories = State(initialValue: nutritionInput(entry.calories ?? 0))
+            _protein = State(initialValue: nutritionInput(entry.protein ?? 0))
+            _carbs = State(initialValue: nutritionInput(entry.carbs ?? 0))
+            _fat = State(initialValue: nutritionInput(entry.fat ?? 0))
+            _quantity = State(initialValue: entry.grams.map(nutritionInput) ?? "")
+        } else if let food {
+            let grams = grams ?? 100
+            let facts = food.facts.scaled(grams)
+            _name = State(initialValue: food.name)
+            _calories = State(initialValue: nutritionInput(facts.calories))
+            _protein = State(initialValue: nutritionInput(facts.protein))
+            _carbs = State(initialValue: nutritionInput(facts.carbs))
+            _fat = State(initialValue: nutritionInput(facts.fat))
+            _quantity = State(initialValue: nutritionInput(grams))
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -429,7 +734,7 @@ private struct NativeNutritionEditor: View {
                     } else if shortcut == .water {
                         field("饮水量（ml）", value: $quantity)
                         HStack(spacing: 8) {
-                            ForEach([250, 500, 750], id: \.self) { amount in
+                            ForEach([150, 250, 500, 750], id: \.self) { amount in
                                 Button("\(amount) ml") { quantity = String(amount) }.buttonStyle(.bordered)
                             }
                         }
@@ -450,7 +755,7 @@ private struct NativeNutritionEditor: View {
                     }
                     .foregroundStyle(SpotterPalette.deep)
                     .background(SpotterPalette.lime, in: RoundedRectangle(cornerRadius: 9))
-                    .buttonStyle(.plain)
+                    .buttonStyle(.spotterPress)
                     .disabled(busy)
                 }
                 .padding(16)
@@ -459,7 +764,7 @@ private struct NativeNutritionEditor: View {
             }
             .background(SpotterPalette.background.ignoresSafeArea())
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle(shortcut.isMeal ? "记\(shortcut.rawValue)" : shortcut.rawValue)
+            .navigationTitle(isEditing ? "编辑食物" : (shortcut.isMeal ? "记\(shortcut.rawValue)" : shortcut.rawValue))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
         }
@@ -480,9 +785,7 @@ private struct NativeNutritionEditor: View {
     }
 
     private func number(_ value: String) -> Double? {
-        guard let result = Double(value.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")),
-              result.isFinite else { return nil }
-        return result
+        nutritionValue(value)
     }
 
     private func save() async {
@@ -495,7 +798,7 @@ private struct NativeNutritionEditor: View {
                 "action": "save", "expectedOwner": owner,
                 "data": ["kind": "nutrition", "id": id, "date": date, "entry": entry]
             ]
-            if shortcut.isMeal { payload["revision"] = NSNull() }
+            if shortcut.isMeal && !isEditing { payload["revision"] = NSNull() }
             try await api.spotterSend("/api/library", body: payload)
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             dismiss()
@@ -514,6 +817,7 @@ private struct NativeNutritionEditor: View {
                 guard let grams = number(quantity), (0.1...3_000).contains(grams) else { return nil }
                 entry["grams"] = grams
             }
+            if let foodId { entry["foodId"] = foodId }
             return entry
         }
         guard let amount = number(quantity) else { return nil }
@@ -521,4 +825,748 @@ private struct NativeNutritionEditor: View {
         let kg = imperialWeight ? amount * 0.45359237 : amount
         return (10...700).contains(kg) ? ["type": "weight", "kg": kg] : nil
     }
+}
+
+private func nutritionInput(_ value: Double) -> String {
+    value.formatted(.number.grouping(.never).precision(.fractionLength(0...6)))
+}
+
+private func nutritionValue(_ text: String) -> Double? {
+    guard let value = Double(text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")),
+          value.isFinite else { return nil }
+    return value
+}
+
+@MainActor
+private struct NativeNutritionSheet<Content: View>: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    var busy = false
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        NavigationStack {
+            Form(content: content)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) }
+                }
+        }
+        .interactiveDismissDisabled(busy)
+    }
+}
+
+private enum NutritionMetric: String, CaseIterable, Identifiable {
+    case calories, protein, carbs, fat, water
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .calories: return "热量"
+        case .protein: return "蛋白质"
+        case .carbs: return "碳水"
+        case .fat: return "脂肪"
+        case .water: return "饮水"
+        }
+    }
+    var unit: String { self == .calories ? "千卡" : self == .water ? "ml" : "g" }
+    subscript(_ values: NutritionPayload.Values) -> Double {
+        switch self {
+        case .calories: return values.calories
+        case .protein: return values.protein
+        case .carbs: return values.carbs
+        case .fat: return values.fat
+        case .water: return values.water
+        }
+    }
+}
+
+@MainActor
+private struct NativeNutritionPlanning: View {
+    let api: NativeAPI
+    let owner: String
+    let day: String
+    let payload: NutritionPayload
+    let destination: NutritionDestination
+    let logs: [NativeWorkoutEntry]
+    static let carbKinds = ["低碳", "中碳", "高碳"]
+    static let weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var fields: [NutritionMetric: String]
+    @State private var carbDays: [String]
+    @State private var carbGrams: [String: String]
+    @State private var exerciseEnergy: [String: String]
+    @State private var busy = false
+    @State private var error: String?
+
+    init(api: NativeAPI, owner: String, day: String, payload: NutritionPayload, logs: [NativeWorkoutEntry], destination: NutritionDestination) {
+        self.api = api
+        self.owner = owner
+        self.day = day
+        self.payload = payload
+        self.destination = destination
+        self.logs = logs.filter { $0.day == day && $0.owner == owner }
+        let base = payload.rows.first { $0.kind == "targets" }?.values ?? .init()
+        let saved = payload.rows.first { $0.kind == "nutrition-plan" }?.carbCycle
+        _fields = State(initialValue: Dictionary(uniqueKeysWithValues: NutritionMetric.allCases.map { ($0, nutritionInput($0[base])) }))
+        _carbDays = State(initialValue: saved?.days.count == 7 ? saved?.days ?? [] : Array(repeating: "中碳", count: 7))
+        let defaults = ["低碳": (base.carbs * 0.8).rounded(), "中碳": base.carbs.rounded(), "高碳": (base.carbs * 1.2).rounded()]
+        _carbGrams = State(initialValue: (saved?.grams ?? defaults).mapValues(nutritionInput))
+        let workouts = payload.rows.first { $0.kind == "nutrition-energy" && $0.id == day }?.workouts ?? []
+        _exerciseEnergy = State(initialValue: workouts.reduce(into: [:]) { $0[$1.id] = nutritionInput($1.calories) })
+    }
+
+    private var title: String {
+        switch destination {
+        case .cycle: return "碳循环设置"
+        case .energy: return "计入运动消耗"
+        default: return "营养目标"
+        }
+    }
+
+    var body: some View {
+        NativeNutritionSheet(title: title, busy: busy) {
+            switch destination {
+            case .cycle: cycleContent
+            case .energy: energyContent
+            default: goalsContent
+            }
+            if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+            Button(busy ? "保存中…" : "保存") { Task { await save() } }
+                .disabled(busy || (destination.id == "energy" && logs.isEmpty))
+        }
+    }
+
+    private var goalsContent: some View {
+        Section("每日营养目标") {
+            ForEach(NutritionMetric.allCases) { metric in
+                TextField("\(metric.title)（\(metric.unit)）", text: Binding(get: { fields[metric, default: ""] }, set: { fields[metric] = $0 }))
+                    .keyboardType(.decimalPad)
+            }
+        }
+    }
+
+    @ViewBuilder private var cycleContent: some View {
+        Section("每日碳水") {
+            ForEach(Self.carbKinds, id: \.self) { label in
+                TextField("\(label)（g）", text: Binding(get: { carbGrams[label, default: ""] }, set: { carbGrams[label] = $0 }))
+                    .keyboardType(.decimalPad)
+            }
+        }
+        Section("每周安排") {
+            ForEach(Self.weekdays.indices, id: \.self) { index in
+                Picker(Self.weekdays[index], selection: $carbDays[index]) {
+                    ForEach(Self.carbKinds, id: \.self) { Text($0).tag($0) }
+                }
+            }
+        }
+        if payload.rows.contains(where: { $0.kind == "nutrition-plan" && $0.carbCycle != nil }) {
+            Button("停用碳循环", role: .destructive) { Task { await save(removeCycle: true) } }.disabled(busy)
+        }
+    }
+
+    private var energyContent: some View {
+        Section("当天完成的训练") {
+            if logs.isEmpty { Text("当天没有已完成的训练").foregroundStyle(.secondary) }
+            ForEach(logs, id: \.id) { log in
+                Toggle(log.title, isOn: Binding(get: { exerciseEnergy[log.id] != nil }, set: { exerciseEnergy[log.id] = $0 ? "" : nil }))
+                if exerciseEnergy[log.id] != nil {
+                    TextField("消耗（千卡）", text: Binding(get: { exerciseEnergy[log.id, default: ""] }, set: { exerciseEnergy[log.id] = $0 }))
+                        .keyboardType(.decimalPad)
+                }
+            }
+        }
+    }
+
+    private func planningRecord(removeCycle: Bool) -> [String: Any]? {
+        var record: [String: Any] = ["kind": "nutrition-plan"]
+        if let stages = payload.rows.first(where: { $0.kind == "nutrition-plan" })?.cut {
+            record["cut"] = stages.map { ["date": $0.date, "calories": $0.calories] }
+        }
+        if !removeCycle {
+            let grams = Self.carbKinds.compactMap { key in carbGrams[key].flatMap(nutritionValue) }
+            guard grams.count == 3, grams.allSatisfy({ (0...1500).contains($0) }), grams[0] <= grams[1], grams[1] <= grams[2] else { return nil }
+            record["carbCycle"] = ["days": carbDays, "grams": Dictionary(uniqueKeysWithValues: zip(Self.carbKinds, grams))]
+        }
+        return record
+    }
+
+    private func energyRecord() -> [String: Any]? {
+        let chosen = logs.compactMap { log in exerciseEnergy[log.id].map { (log.id, $0) } }
+        let workouts = chosen.compactMap { id, text -> [String: Any]? in
+            guard let calories = nutritionValue(text), (1...5000).contains(calories) else { return nil }
+            return ["id": id, "calories": calories]
+        }
+        guard chosen.count == workouts.count else { return nil }
+        return ["kind": "nutrition-energy", "id": day, "workouts": workouts]
+    }
+
+    private func targetRecord() -> [String: Any]? {
+        let chosen = NutritionMetric.allCases.compactMap { metric -> (String, Double)? in
+            guard let value = fields[metric].flatMap(nutritionValue), (0...20000).contains(value) else { return nil }
+            return (metric.rawValue, value)
+        }
+        guard chosen.count == NutritionMetric.allCases.count else { return nil }
+        var record: [String: Any] = ["kind": "targets", "values": Dictionary(uniqueKeysWithValues: chosen)]
+        let previous = payload.rows.first { $0.kind == "targets" }
+        if let preference = previous?.preference,
+           let data = try? JSONEncoder().encode(preference), let object = try? JSONSerialization.jsonObject(with: data) {
+            record["preference"] = object
+        }
+        if let weight = previous?.targetWeightKg { record["targetWeightKg"] = weight }
+        return record
+    }
+
+    private func save(removeCycle: Bool = false) async {
+        guard !busy else { return }
+        let record: [String: Any]?
+        switch destination {
+        case .cycle:
+            record = planningRecord(removeCycle: removeCycle)
+            if record == nil { error = "请填写 0–1500 克碳水，低碳、中碳和高碳依次递增。" }
+        case .energy:
+            record = energyRecord()
+            if record == nil { error = "请为所选训练填写 1–5000 千卡。" }
+        default:
+            record = targetRecord()
+            if record == nil { error = "请填写 0–20000 范围内的目标值。" }
+        }
+        guard let record else { return }
+        busy = true
+        error = nil
+        defer { busy = false }
+        do {
+            try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner, "data": record])
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+            dismiss()
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+@MainActor
+private struct NativeNutritionProtein: View {
+    let api: NativeAPI
+    let owner: String
+    let day: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var products: [NativeNutritionProteinServing] = []
+    @State private var selection: String?
+    @State private var id = UUID().uuidString.lowercased()
+    @State private var loading = true
+    @State private var saving = false
+    @State private var error: String?
+
+    private var current: NativeNutritionProteinServing? { products.first { $0.id == selection } }
+
+    var body: some View {
+        NativeNutritionSheet(title: "记录一杯蛋白粉", busy: saving) {
+            Section("\(day) · 加餐") {
+                if loading { ProgressView("正在读取蛋白粉仓库…") }
+                else if products.count == 1, let first = products.first { serving(first) }
+                else if !products.isEmpty {
+                    Picker("喝的是哪款？", selection: $selection) {
+                        Text("请选择").tag(nil as String?)
+                        ForEach(products) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    if let current { serving(current) }
+                } else if error == nil {
+                    Text("仓库暂时没有营养资料完整的配方。").foregroundStyle(.secondary)
+                    NavigationLink { NativeProteinView(api: api, owner: owner) } label: { Text("打开蛋白粉仓库") }
+                    Button("刷新仓库") { Task { await load() } }
+                }
+            }
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(.red)
+                if products.isEmpty { Button("重试") { Task { await load() } } }
+            }
+            Button(saving ? "保存中…" : "记录一杯") { Task { await save() } }
+                .disabled(current == nil || loading || saving)
+        }
+        .task { await load() }
+    }
+
+    private func serving(_ product: NativeNutritionProteinServing) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(product.name).font(.headline)
+            Text("粉 \(nutritionNumber(product.powderGrams)) g · \(product.mixer) \(nutritionNumber(product.cupMl)) ml")
+            Text(product.facts.description)
+        }
+        .font(.footnote)
+    }
+
+    private func load() async {
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            let raw = try await api.request("/api/library")
+            let rows = try JSONDecoder().decode(NativeJSON.self, from: raw)["rows"].array
+            products = rows.first { $0["kind"].string == "protein-warehouse" }?["products"].array.compactMap(NativeNutritionProteinServing.init) ?? []
+            if products.count == 1 { selection = products.first?.id }
+        } catch is CancellationError {
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func save() async {
+        guard !saving, let current else { return }
+        saving = true
+        error = nil
+        defer { saving = false }
+        do {
+            try await api.spotterSend("/api/library", body: [
+                "action": "save", "expectedOwner": owner, "revision": NSNull(),
+                "data": ["kind": "nutrition", "id": id, "date": day, "entry": current.entry]
+            ])
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+            dismiss()
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct NativeNutritionProteinServing: Identifiable {
+    let id: String
+    let name: String
+    let powderGrams: Double
+    let cupMl: Double
+    let mixer: String
+    let facts: NativeNutritionFood.Facts
+
+    init?(product: NativeJSON) {
+        let powder = product["powder"]
+        guard case .object = powder, !product["id"].string.isEmpty else { return nil }
+        id = product["id"].string
+        let original = product["name"].string
+        name = product["scoopEstimated"].bool || product["powderEstimated"].bool ? String(original.prefix(96)) + "（估算）" : original
+        powderGrams = product["scoopGrams"].number
+        cupMl = product["cupMl"].number
+        let liquid = product["mixer"]["per100ml"]
+        mixer = product["mixer"]["name"].string.isEmpty ? "水" : product["mixer"]["name"].string
+        let amount: (String) -> Double = { [powderGrams, cupMl] key in
+            (powder[key].number * powderGrams + liquid[key].number * cupMl).rounded() / 100
+        }
+        facts = .init(calories: amount("calories"), protein: amount("protein"), carbs: amount("carbs"), fat: amount("fat"))
+    }
+
+    var entry: [String: Any] {
+        var entry: [String: Any] = ["type": "meal", "meal": "加餐", "name": name, "grams": ((powderGrams + cupMl) * 100).rounded() / 100]
+        entry.merge(facts.payload) { _, amount in amount }
+        return entry
+    }
+}
+
+@MainActor
+private struct NativeNutritionStats: View {
+    private struct Export: Decodable { let library: [NutritionPayload.Row] }
+    private struct Point: Identifiable { let id: String; let total: NutritionPayload.Values }
+    let api: NativeAPI
+    let day: Date
+    @State private var range = 7
+    @State private var metric = NutritionMetric.calories
+    @State private var points: [Point] = []
+    @State private var busy = true
+    @State private var error: String?
+
+    var body: some View {
+        NativeNutritionSheet(title: "饮食统计") {
+            Section {
+                Picker("区间", selection: $range) {
+                    Text("近 7 天").tag(7)
+                    Text("近 14 天").tag(14)
+                    Text("近 30 天").tag(30)
+                }.pickerStyle(.segmented)
+                Picker("指标", selection: $metric) {
+                    ForEach(NutritionMetric.allCases) { Text($0.title).tag($0) }
+                }
+            }
+            Section(metric.title) {
+                if busy { ProgressView("正在读取…") }
+                else if let error { Button(error) { Task { await load(range) } } }
+                else {
+                    Chart(points) { point in
+                        BarMark(x: .value("日期", String(point.id.suffix(5))), y: .value(metric.title, metric[point.total]))
+                            .foregroundStyle(SpotterPalette.accent)
+                    }
+                    .chartXAxis {
+                        AxisMarks(values: points.enumerated().filter { $0.offset.isMultiple(of: range > 7 ? 5 : 2) }.map { String($0.element.id.suffix(5)) })
+                    }
+                    .frame(height: 175)
+                    let average = points.isEmpty ? 0 : points.reduce(0) { $0 + metric[$1.total] } / Double(points.count)
+                    Text("每日平均 \(nutritionNumber(average)) \(metric.unit)").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .task(id: range) { await load(range) }
+    }
+
+    private func load(_ days: Int) async {
+        busy = true
+        error = nil
+        defer { if !Task.isCancelled && range == days { busy = false } }
+        let dates = (1 - days...0).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: day).map(spotterDay) }
+        guard let start = dates.first, let end = dates.last else { return }
+        do {
+            let data = try await api.spotterRead("/api/data?scope=nutrition&from=\(start)&to=\(end)", as: Export.self)
+            guard !Task.isCancelled, range == days else { return }
+            let byDay = Dictionary(grouping: data.library.filter { $0.date != nil }, by: { $0.date ?? "" })
+            points = dates.map { key in Point(id: key, total: NutritionPayload(rows: byDay[key] ?? []).totals(on: key)) }
+        } catch is CancellationError {
+        } catch { if !Task.isCancelled && range == days { self.error = "饮食统计读取失败，点此重试。" } }
+    }
+}
+
+private struct NativeNutritionFood: Identifiable {
+    struct Facts: Decodable {
+        var calories: Double
+        var protein: Double
+        var carbs: Double
+        var fat: Double
+
+        var payload: [String: Double] { ["calories": calories, "protein": protein, "carbs": carbs, "fat": fat] }
+        var description: String {
+            "\(nutritionNumber(calories)) 千卡 · 蛋白质 \(nutritionNumber(protein)) g · 碳水 \(nutritionNumber(carbs)) g · 脂肪 \(nutritionNumber(fat)) g"
+        }
+
+        func scaled(_ grams: Double) -> Self {
+            Self(calories: calories * grams / 100, protein: protein * grams / 100, carbs: carbs * grams / 100, fat: fat * grams / 100)
+        }
+
+        func adding(_ rhs: Self) -> Self {
+            Self(calories: calories + rhs.calories, protein: protein + rhs.protein, carbs: carbs + rhs.carbs, fat: fat + rhs.fat)
+        }
+
+        func fit(_ remaining: Self) -> Double {
+            let pairs = [(protein, remaining.protein), (carbs, remaining.carbs), (fat, remaining.fat)]
+            let covered = pairs.reduce(0) { $0 + ($1.1 > 0 ? min(1, $1.0 / $1.1) : 0) }
+            let overBudget = remaining.calories > 0 ? max(0, calories / remaining.calories - 1) : 0
+            return covered - overBudget
+        }
+    }
+
+    let id: String
+    let name: String
+    let aliases: [String]
+    let facts: Facts
+
+    init(id: String, name: String, aliases: [String] = [], facts: Facts) {
+        self.id = id
+        self.name = name
+        self.aliases = aliases
+        self.facts = facts
+    }
+
+    init(_ code: Int, _ name: String, _ aliases: [String], _ calories: Double, _ protein: Double, _ carbs: Double, _ fat: Double) {
+        self.init(id: "fdc-\(code)", name: name, aliases: aliases, facts: Facts(calories: calories, protein: protein, carbs: carbs, fat: fat))
+    }
+
+    private static func normalize(_ name: String) -> String {
+        name.folding(options: [.widthInsensitive, .diacriticInsensitive, .caseInsensitive], locale: .current)
+            .filter { $0.isLetter || $0.isNumber }
+    }
+
+    func matches(_ text: String) -> Bool {
+        let needle = Self.normalize(text)
+        guard !needle.isEmpty else { return true }
+        return ([name] + aliases).contains { candidate in
+            let key = Self.normalize(candidate)
+            return !key.isEmpty && (key.contains(needle) || needle.contains(key))
+        }
+    }
+}
+
+private struct NativeNutritionRecipe: Identifiable {
+    struct Ingredient {
+        let food: NativeNutritionFood
+        let grams: Double
+    }
+    var id: String { name }
+    let name: String
+    let method: String
+    let ingredients: [Ingredient]
+    let facts: NativeNutritionFood.Facts
+
+    init(_ name: String, _ method: String, _ amounts: [(Int, Double)]) {
+        self.name = name
+        self.method = method
+        ingredients = amounts.compactMap { code, grams in
+            NativeNutritionFood.builtIn.first { $0.id == "fdc-\(code)" }.map { Ingredient(food: $0, grams: grams) }
+        }
+        facts = ingredients.reduce(.init(calories: 0, protein: 0, carbs: 0, fat: 0)) { $0.adding($1.food.facts.scaled($1.grams)) }
+    }
+}
+
+@MainActor
+private struct NativeNutritionIdeas: View {
+    let api: NativeAPI
+    let owner: String
+    let day: String
+    let payload: NutritionPayload
+    let logs: [NativeWorkoutEntry]
+    let destination: NutritionDestination
+    let openFood: (NativeNutritionFood, NutritionShortcut, Double?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var meal: NutritionShortcut
+    @State private var writing = false
+    @State private var error: String?
+    @State private var ids: [String: [String]] = [:]
+    @StateObject private var voice = NativeNutritionSpeech()
+
+    init(api: NativeAPI, owner: String, day: String, mealNow: NutritionShortcut, payload: NutritionPayload, logs: [NativeWorkoutEntry],
+         destination: NutritionDestination, openFood: @escaping (NativeNutritionFood, NutritionShortcut, Double?) -> Void) {
+        self.api = api
+        self.owner = owner
+        self.day = day
+        self.payload = payload
+        self.logs = logs
+        self.destination = destination
+        self.openFood = openFood
+        _meal = State(initialValue: mealNow)
+    }
+
+    private var remaining: NativeNutritionFood.Facts {
+        let target = payload.targets(on: day, countingWorkoutIDs: Set(logs.filter { $0.day == day && $0.owner == owner }.map(\.id)))
+        let consumed = payload.totals(on: day)
+        return .init(calories: max(0, target.calories - consumed.calories), protein: max(0, target.protein - consumed.protein),
+                     carbs: max(0, target.carbs - consumed.carbs), fat: max(0, target.fat - consumed.fat))
+    }
+
+    private var personal: [NativeNutritionFood] {
+        payload.rows.compactMap { row in
+            guard row.kind == "food", let id = row.id, let name = row.name, let facts = row.per100g else { return nil }
+            return NativeNutritionFood(id: id, name: name, facts: facts)
+        }
+    }
+
+    private var suggestions: [NativeNutritionFood] {
+        let options = personal + NativeNutritionFood.builtIn
+        if case .voice = destination {
+            guard !voice.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+            return Array(options.filter { $0.matches(voice.text) }.prefix(15))
+        }
+        let budget = remaining
+        return Array(options.sorted { $0.facts.fit(budget) > $1.facts.fit(budget) }.prefix(8))
+    }
+
+    private var title: String {
+        switch destination {
+        case .recipes: return "智能食谱"
+        case .voice: return "语音记录饮食"
+        default: return "食物推荐"
+        }
+    }
+
+    var body: some View {
+        NativeNutritionSheet(title: title, busy: writing) {
+            Section {
+                Picker("记入餐次", selection: $meal) {
+                    ForEach(NutritionShortcut.allCases.filter(\.isMeal)) { Text($0.rawValue).tag($0) }
+                }.disabled(writing)
+            }
+            if case .voice = destination { voiceInput }
+            if let error { Text(error).foregroundStyle(.red) }
+            if case .recipes = destination { recipeList }
+            else { foodList }
+        }
+        .onDisappear { voice.stop() }
+    }
+
+    private var voiceInput: some View {
+        Section {
+            TextField("例如：100 克燕麦", text: $voice.text)
+            Button {
+                if voice.recording { voice.stop() }
+                else { Task { await voice.start() } }
+            } label: {
+                Label(voice.recording ? "结束录音" : "开始录音", systemImage: voice.recording ? "stop.circle.fill" : "mic")
+            }.disabled(voice.starting)
+            if let error = voice.error { Text(error).font(.footnote).foregroundStyle(.secondary) }
+        } footer: { Text("录音转成可编辑文字。选中食物并核对份量后保存。") }
+    }
+
+    private var foodList: some View {
+        Section("食物") {
+            ForEach(suggestions) { item in
+                Button {
+                    voice.stop()
+                    openFood(item, meal, spokenGrams)
+                } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(item.name).font(.subheadline.weight(.semibold))
+                        Text("每 100 g · " + item.facts.description).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if case .voice = destination, !voice.text.isEmpty, suggestions.isEmpty {
+                Text("没有找到匹配的食物，试试食物简称。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var spokenGrams: Double? {
+        guard case .voice = destination,
+              let range = voice.text.range(of: #"[0-9]+(?:\.[0-9]+)?\s*(?:克|g)"#, options: .regularExpression),
+              let number = nutritionValue(String(voice.text[range].dropLast())), (0.1...3000).contains(number) else { return nil }
+        return number
+    }
+
+    private var recipeList: some View {
+        let budget = remaining
+        let recipes = NativeNutritionRecipe.builtIn.sorted { $0.facts.fit(budget) > $1.facts.fit(budget) }
+        return ForEach(recipes) { recipe in
+            Section(recipe.name) {
+                Text(recipe.method)
+                Text(recipe.ingredients.map { "\($0.food.name) \(nutritionNumber($0.grams)) g" }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(recipe.facts.description).font(.caption).foregroundStyle(.secondary)
+                Button(writing ? "保存中…" : "记入\(meal.rawValue)") { Task { await save(recipe) } }.disabled(writing)
+            }
+        }
+    }
+
+    private func save(_ recipe: NativeNutritionRecipe) async {
+        guard !writing else { return }
+        writing = true
+        error = nil
+        defer { writing = false }
+        let key = meal.rawValue + recipe.id
+        let recordIDs = ids[key] ?? recipe.ingredients.map { _ in UUID().uuidString.lowercased() }
+        ids[key] = recordIDs
+        let records: [[String: Any]] = zip(recipe.ingredients, recordIDs).map { ingredient, id in
+            var entry: [String: Any] = ["type": "meal", "meal": meal.rawValue, "name": ingredient.food.name, "foodId": ingredient.food.id, "grams": ingredient.grams]
+            entry.merge(ingredient.food.facts.scaled(ingredient.grams).payload) { _, amount in amount }
+            return ["kind": "nutrition", "id": id, "date": day, "entry": entry]
+        }
+        var query = URLComponents()
+        query.path = "/api/data"
+        query.queryItems = [URLQueryItem(name: "expectedOwner", value: owner)]
+        guard let path = query.string else { return }
+        do {
+            try await api.spotterSend(path, body: ["format": "spotter-backup", "version": 1, "training": [], "heart": [], "library": records])
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+            dismiss()
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+@MainActor
+private final class NativeNutritionSpeech: ObservableObject {
+    @Published var text = ""
+    @Published private(set) var recording = false
+    @Published private(set) var starting = false
+    @Published private(set) var error: String?
+    private let engine = AVAudioEngine()
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
+    private var recognition: SFSpeechRecognitionTask?
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var hasTap = false
+    private var generation = 0
+
+    func start() async {
+        guard !recording, !starting else { return }
+        starting = true
+        error = nil
+        generation += 1
+        let current = generation
+        defer { if current == generation { starting = false } }
+        let systemAuth = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+        }
+        guard current == generation else { return }
+        guard systemAuth == .authorized else { error = "请在系统设置允许语音识别，也可以在这里直接输入。"; return }
+        let mic = await withCheckedContinuation { continuation in
+            AVAudioSession.sharedInstance().requestRecordPermission { continuation.resume(returning: $0) }
+        }
+        guard current == generation else { return }
+        guard mic else { error = "请在系统设置允许麦克风。"; return }
+        guard let recognizer, recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
+            error = "设备暂时无法进行离线中文语音识别。你可以使用键盘听写或输入。"
+            return
+        }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true)
+            let bufferRequest = SFSpeechAudioBufferRecognitionRequest()
+            bufferRequest.shouldReportPartialResults = true
+            bufferRequest.requiresOnDeviceRecognition = true
+            request = bufferRequest
+            let node = engine.inputNode
+            let format = node.outputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else {
+                stop(); error = "设备暂时无法读取麦克风。"; return
+            }
+            node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in bufferRequest.append(buffer) }
+            hasTap = true
+            engine.prepare()
+            try engine.start()
+            recording = true
+            recognition = recognizer.recognitionTask(with: bufferRequest) { [weak self] result, failure in
+                let transcript = result?.bestTranscription.formattedString
+                let finished = result?.isFinal ?? false
+                let failed = failure != nil
+                Task { @MainActor in
+                    guard let self, self.generation == current else { return }
+                    if let transcript { self.text = transcript }
+                    if finished || failed { self.stop() }
+                    if failed && self.text.isEmpty { self.error = "没有听清，可以再录一次。" }
+                }
+            }
+        } catch {
+            stop()
+            self.error = "麦克风暂时不可用。"
+        }
+    }
+
+    func stop() {
+        generation += 1
+        let audioWasActive = hasTap || request != nil
+        if engine.isRunning { engine.stop() }
+        if hasTap { engine.inputNode.removeTap(onBus: 0); hasTap = false }
+        request?.endAudio(); request = nil
+        recognition?.cancel(); recognition = nil
+        recording = false
+        starting = false
+        if audioWasActive { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    }
+}
+
+private extension NativeNutritionFood {
+    // Same USDA FoodData Central entries used by the Spotter web nutrition tools.
+    static let builtIn: [Self] = [
+        .init(173904, "原味燕麦片（干）", ["燕麦", "燕麦片", "燕麥", "燕麥片", "干燕麦", "oats", "rolled oats", "dry oats", "oatmeal", "quick oats"], 379, 13.15, 67.7, 6.52),
+        .init(173424, "水煮鸡蛋", ["鸡蛋", "雞蛋", "水煮蛋", "熟鸡蛋", "egg", "eggs", "boiled egg", "hard-boiled egg"], 155, 12.58, 1.12, 10.61),
+        .init(171265, "全脂牛奶", ["牛奶", "纯牛奶", "純牛奶", "全脂奶", "milk", "whole milk", "3.25% milk"], 61, 3.15, 4.8, 3.25),
+        .init(170894, "原味脱脂希腊酸奶", ["希腊酸奶", "希臘酸奶", "希腊优格", "脱脂酸奶", "greek yogurt", "greek yoghurt", "nonfat greek yogurt"], 59, 10.19, 3.6, 0.39),
+        .init(173944, "香蕉", ["banana", "bananas"], 89, 1.09, 22.84, 0.33),
+        .init(172688, "全麦面包", ["全麥麵包", "全麦吐司", "全麦土司", "whole wheat bread", "wholemeal bread"], 252, 12.45, 42.71, 3.5),
+        .init(173905, "燕麦粥（水煮）", ["熟燕麦", "燕麥粥", "煮燕麦", "cooked oats", "cooked oatmeal", "oat porridge"], 71, 2.54, 12, 1.52),
+        .init(171267, "低脂牛奶（2%）", ["低脂奶", "低脂牛奶", "2% milk", "low-fat milk", "reduced fat milk"], 50, 3.3, 4.8, 1.98),
+        .init(171284, "原味全脂酸奶", ["酸奶", "原味酸奶", "原味优格", "原味優格", "plain yogurt", "plain yoghurt", "yogurt"], 61, 3.47, 4.66, 3.25),
+        .init(175215, "无糖豆浆", ["豆浆", "豆漿", "豆奶", "無糖豆漿", "soy milk", "soymilk", "unsweetened soy milk"], 33, 2.86, 1.74, 1.61),
+        .init(171688, "苹果（带皮）", ["苹果", "蘋果", "apple", "apples"], 52, 0.26, 13.81, 0.17),
+        .init(171711, "蓝莓", ["藍莓", "blueberry", "blueberries"], 57, 0.74, 14.49, 0.33),
+        .init(167762, "草莓", ["strawberry", "strawberries"], 32, 0.67, 7.68, 0.3),
+        .init(174924, "白面包", ["白麵包", "白吐司", "白土司", "white bread"], 266, 8.85, 49.42, 3.33),
+        .init(169757, "白米饭（熟）", ["米饭", "白饭", "米飯", "白飯", "熟米饭", "white rice", "cooked rice"], 130, 2.69, 28.17, 0.28),
+        .init(168484, "水煮红薯", ["红薯", "紅薯", "番薯", "地瓜", "熟红薯", "sweet potato", "boiled sweet potato"], 76, 1.37, 17.72, 0.14),
+        .init(168483, "烤红薯（去皮）", ["烤番薯", "烤地瓜", "baked sweet potato"], 90, 2.01, 20.71, 0.15),
+        .init(171705, "牛油果", ["鳄梨", "酪梨", "avocado", "avocados"], 160, 2, 8.53, 14.66),
+        .init(172470, "原味花生酱（无盐）", ["花生酱", "花生醬", "peanut butter", "unsalted peanut butter"], 598, 22.21, 22.31, 51.36),
+        .init(170567, "原味巴旦木", ["巴旦木", "扁桃仁", "杏仁", "almond", "almonds"], 579, 21.15, 21.55, 49.93),
+        .init(170554, "奇亚籽", ["奇亞籽", "chia", "chia seeds"], 486, 16.54, 42.12, 30.74),
+        .init(172475, "北豆腐（生）", ["北豆腐", "老豆腐", "硬豆腐", "豆腐", "tofu", "firm tofu"], 144, 17.27, 2.78, 8.72),
+    ]
+}
+
+private extension NativeNutritionRecipe {
+    static let builtIn: [Self] = [
+        .init("蓝莓燕麦酸奶碗", "用水煮熟燕麦，放温后拌入酸奶，铺上蓝莓。", [(173904, 45), (170894, 170), (171711, 80)]),
+        .init("鸡蛋牛油果全麦吐司", "烤脆吐司，将牛油果压泥抹上，铺水煮蛋片。", [(173424, 100), (171705, 45), (172688, 70)]),
+        .init("豆腐红薯饭碗", "豆腐切块加热至熟透，红薯切片，和热米饭一起装碗。", [(172475, 130), (168484, 120), (169757, 100)]),
+        .init("草莓香蕉酸奶杯", "水果洗净切块，和原味酸奶交替装杯。", [(167762, 80), (173944, 85), (170894, 160)]),
+        .init("豆浆花生燕麦粥", "燕麦加豆浆小火煮稠，关火后拌入花生酱。", [(173904, 45), (175215, 240), (172470, 12)]),
+    ]
 }

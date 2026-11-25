@@ -136,12 +136,8 @@ struct NativeWorkoutSession: Equatable, Sendable {
     }
     static var nowMilliseconds: Int { Int((Date().timeIntervalSince1970 * 1000).rounded()) }
     static func day(_ date: Date = Date()) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        let parts = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 2000, parts.month ?? 1, parts.day ?? 1)
     }
     static func start(plan: NativePlan, planId: String, now: Int = nowMilliseconds) -> NativeWorkoutSession {
         let rows = plan.exercises.map { move in
@@ -251,8 +247,8 @@ struct NativeWorkoutEntry: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-struct NativeWorkoutState: Decodable {
-    struct Viewer: Decodable { var id: String; var name: String? }
+struct NativeWorkoutState: Decodable, Sendable {
+    struct Viewer: Decodable, Sendable { var id: String; var name: String? }
     var me: Viewer
     var entries: [NativeWorkoutEntry]
     var room: NativeJSON?

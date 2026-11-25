@@ -42,7 +42,8 @@ struct NativeCatalogueBrowser: View {
     let addToPlan: (NativeCatalogEntry) -> Void
 
     @AppStorage("spotter.native.catalogue.cards") private var cards = true
-    @AppStorage(NativePreferenceKey.equipment) private var equipmentPreference = ""
+    @AppStorage(NativeGymPreferences.storageKey) private var gymPreferences = Data()
+    @AppStorage(NativePreferenceKey.equipment) private var legacyEquipment = ""
     @AppStorage(NativePreferenceKey.exerciseLanguage) private var language = "zh"
     @State private var index: NativeCatalogIndex?
     @State private var results: NativeCatalogResults?
@@ -71,7 +72,7 @@ struct NativeCatalogueBrowser: View {
     }
 
     private var selectedGear: Set<String> {
-        Set(equipmentPreference.split(separator: "\n").map(String.init))
+        NativeGymPreferences.read(gymPreferences, legacy: legacyEquipment).catalogueGear
     }
 
     var body: some View {
@@ -514,16 +515,17 @@ struct NativeCatalogueBrowser: View {
             NativeCatalogueCustomEditor(store: store, index: index, name: name, knownNames: request.names,
                                         saved: dismissCreated)
         case .filters:
-            NativeCatalogueFiltersSheet(index: index, filters: $filters, gear: $equipmentPreference)
+            NativeCatalogueFiltersSheet(index: index, filters: $filters, savedGyms: $gymPreferences, legacyGear: legacyEquipment)
         }
     }
 
     private func allowedVariants(_ family: NativeCatalogFamily, initial: NativeCatalogEntry, index: NativeCatalogIndex) -> [NativeCatalogEntry] {
-        family.variants.filter { variant in
+        let gear = filters.usesGear ? selectedGear : []
+        return family.variants.filter { variant in
             if variant.id == initial.id { return true }
             if let type = results?.activeType, !type.isEmpty, type != variant.type { return false }
             if let equipment = results?.activeEquipment, !equipment.isEmpty, equipment != variant.equipment { return false }
-            if filters.usesGear, !selectedGear.isEmpty, variant.equipment != "body weight", !selectedGear.contains(variant.equipment) { return false }
+            if !gear.isEmpty, variant.equipment != "body weight", !gear.contains(variant.equipment) { return false }
             return index.matchesArea(variant, filters.area)
         }
     }
@@ -684,9 +686,10 @@ private struct NativeCatalogueFiltersSheet: View {
     @Environment(\.dismiss) private var dismiss
     let index: NativeCatalogIndex
     @Binding var filters: NativeCatalogueFilters
-    @Binding var gear: String
+    @Binding var savedGyms: Data
+    let legacyGear: String
 
-    private var selectedGear: Set<String> { Set(gear.split(separator: "\n").map(String.init)) }
+    private var preferences: NativeGymPreferences { .read(savedGyms, legacy: legacyGear) }
 
     var body: some View {
         NavigationStack {
@@ -698,16 +701,10 @@ private struct NativeCatalogueFiltersSheet: View {
                     }
                     filterChips("动作类型", options: [""] + index.types, selection: filters.type, blank: "全部类型") { filters.type = $0 }
                     filterChips("器械", options: [""] + index.equipmentOptions, selection: filters.equipment, blank: "全部器械") { filters.equipment = $0 }
-                    DisclosureGroup("设置我的器械") {
-                        Text("勾选后会显示所选器械和自重动作。")
-                            .font(.footnote).foregroundStyle(SpotterPalette.muted).padding(.vertical, 8)
-                        chipGrid(index.equipmentOptions.filter { $0 != "body weight" }) { option in
-                            catalogueChip(index.label(option), selected: selectedGear.contains(option)) {
-                                var next = selectedGear
-                                if !next.insert(option).inserted { next.remove(option) }
-                                gear = next.sorted().joined(separator: "\n")
-                            }
-                        }
+                    DisclosureGroup("我的器械 · \(preferences.gym.name)") {
+                        Toggle("只显示我的器械", isOn: $filters.usesGear).padding(.vertical, 8)
+                        NativeGymEquipmentGrid(preferences: preferences, toggle: { key in updateGear { $0.toggle(key) } },
+                                               toggleAll: { updateGear { $0.toggleAll() } })
                     }
                     Button("清除筛选") {
                         filters.area = ""
@@ -727,6 +724,12 @@ private struct NativeCatalogueFiltersSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
+    }
+
+    private func updateGear(_ change: (inout NativeGymPreferences) -> Void) {
+        var next = preferences
+        change(&next)
+        if let data = try? JSONEncoder().encode(next) { savedGyms = data }
     }
 
     private var muscleFilters: some View {

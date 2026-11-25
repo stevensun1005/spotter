@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CADisableMinimumFrameDurationOnPhone</key>
+    <true/>
     <key>CFBundleDisplayName</key>
     <string>训练搭子</string>
     <key>CFBundleURLTypes</key>
@@ -38,13 +40,13 @@
         <key>hosting</key>
         <string>cloudflare</string>
         <key>version</key>
-        <integer>84</integer>
+        <integer>85</integer>
         <key>sourceCommit</key>
-        <string>9b7b9e0f7dcc6659c3525b000a780f97c01d1edf</string>
+        <string>628a1f4058d894f718e83170c0797c1afa6a4dbc</string>
         <key>exportRef</key>
         <string>origin/codex/cloudflare-free</string>
         <key>exportCommit</key>
-        <string>9b7b9e0f7dcc6659c3525b000a780f97c01d1edf</string>
+        <string>628a1f4058d894f718e83170c0797c1afa6a4dbc</string>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>

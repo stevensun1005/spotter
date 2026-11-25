@@ -115,6 +115,56 @@ struct NativeRestSchedule: View {
     }
 }
 
+private struct NativeBodyLibrary: Decodable, Sendable {
+    struct Record: Identifiable, Sendable {
+        let id: String
+        let day: String
+        let date: Date
+        let value: Double
+        let updated: String
+    }
+
+    var profile: NativeJSON?
+    var measurements: [String: [Record]] = [:]
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let rows = try NativeJSON(from: decoder)["rows"]
+        guard case .array(let items) = rows else { throw NativeAPIError.invalidResponse }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        var ids = Set<String>()
+        for row in items {
+            if row["kind"].string == "body-profile" {
+                if profile == nil { profile = row }
+                continue
+            }
+            guard row["kind"].string == "nutrition" else { continue }
+            let entry = row["entry"]
+            let id = row["id"].string
+            let day = row["date"].string
+            guard !id.isEmpty, let date = formatter.date(from: day), formatter.string(from: date) == day else { continue }
+            let key: String
+            let value: NativeJSON
+            switch entry["type"].string {
+            case "weight": key = "weight"; value = entry["kg"]
+            case "measurement": key = entry["metric"].string; value = entry["value"]
+            default: continue
+            }
+            guard !key.isEmpty, case .number(let reading) = value, reading.isFinite, ids.insert(id).inserted else { continue }
+            measurements[key, default: []].append(Record(id: id, day: day, date: date, value: reading, updated: row["updated"].string))
+        }
+        for key in Array(measurements.keys) {
+            measurements[key]?.sort { ($0.day, $0.updated, $0.id) < ($1.day, $1.updated, $1.id) }
+        }
+    }
+}
+
 @MainActor
 struct NativeBodyData: View {
     private struct Metric: Identifiable {
@@ -126,13 +176,6 @@ struct NativeBodyData: View {
         init(_ id: String, _ name: String, _ unit: String, _ range: ClosedRange<Double>) {
             self.id = id; self.name = name; self.unit = unit; self.range = range
         }
-    }
-
-    private struct Record: Identifiable {
-        let id: String
-        let day: String
-        let value: Double
-        let updated: String
     }
 
     private static let metrics = [
@@ -151,8 +194,10 @@ struct NativeBodyData: View {
 
     let api: NativeAPI
     let owner: String
+    var showsClose = false
     @Environment(\.dismiss) private var dismiss
-    @State private var rows: [NativeJSON] = []
+    @State private var library = NativeBodyLibrary()
+    @State private var loading = false
     @State private var ready = false
     @State private var busy = false
     @State private var message: String?
@@ -166,27 +211,33 @@ struct NativeBodyData: View {
     @State private var sex = ""
 
     private var metric: Metric { Self.metrics.first { $0.id == selected } ?? Self.metrics[0] }
-    private var profile: NativeJSON? { rows.first { $0["kind"].string == "body-profile" } }
+    private var profile: NativeJSON? { library.profile }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    profileCard
-                    measurementCard
-                    trendCard
-                    if let message { Text(message).font(.footnote).foregroundStyle(SpotterPalette.muted) }
-                    if !ready && !busy { Button("重新读取身体数据") { Task { await load(updateProfile: true) } } }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                profileCard
+                measurementCard
+                if ready { trendCard }
+                if let message { Text(message).font(.footnote).foregroundStyle(SpotterPalette.muted) }
+                if loading && !ready { ProgressView("正在读取身体数据…") }
+                if !ready && !loading && !busy {
+                    Button("重新读取身体数据") { Task { await load(updateProfile: true) } }
+                        .buttonStyle(.spotterPress)
                 }
-                .padding(14)
             }
-            .background(SpotterPalette.background.ignoresSafeArea())
-            .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("身体数据")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) {
-                Button { dismiss() } label: { Label("返回", systemImage: "chevron.left") }.disabled(busy)
-            } }
+            .padding(14)
+        }
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("身体数据")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if showsClose {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Label("返回", systemImage: "chevron.left") }.disabled(busy)
+                }
+            }
         }
         .task { await load(updateProfile: true) }
     }
@@ -194,14 +245,14 @@ struct NativeBodyData: View {
     private var profileCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("身体档案").font(.headline)
-            if let latest = records(for: "weight").last {
+            if let latest = library.measurements["weight"]?.last {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(format(latest.value, "kg")).font(.title3.weight(.bold))
                         Text("最新体重 · " + latest.day).font(.caption).foregroundStyle(SpotterPalette.muted)
                     }
                     Spacer()
-                    if let cm = profile?["values"]["heightCm"].number, cm > 0 {
+                    if let cm = profile?["values"]["heightCm"].number, (50...280).contains(cm) {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text(format(latest.value / pow(cm / 100, 2), "")).font(.title3.weight(.bold))
                             Text("BMI").font(.caption).foregroundStyle(SpotterPalette.muted)
@@ -232,7 +283,7 @@ struct NativeBodyData: View {
                 ForEach(Self.metrics) { Text($0.name).tag($0.id) }
             }
             .onChange(of: selected) { _ in clearReading() }
-            DatePicker("测量日期", selection: $date, in: ...Date.now, displayedComponents: .date)
+            DatePicker("测量日期", selection: $date, in: ...max(date, .now), displayedComponents: .date)
             field(metric.unit.isEmpty ? metric.name : "\(metric.name)（\(metric.unit)）", $reading)
             HStack {
                 if editing != nil { Button("取消编辑", action: clearReading).buttonStyle(.bordered) }
@@ -245,7 +296,7 @@ struct NativeBodyData: View {
     }
 
     private var trendCard: some View {
-        let data = records(for: selected)
+        let data = library.measurements[selected] ?? []
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(metric.name + "趋势").font(.headline)
@@ -255,8 +306,10 @@ struct NativeBodyData: View {
             if data.isEmpty { Text("暂无测量记录。").font(.footnote).foregroundStyle(SpotterPalette.muted) }
             else {
                 Chart(data) { point in
-                    LineMark(x: .value("日期", point.day), y: .value(metric.name, point.value))
-                    PointMark(x: .value("日期", point.day), y: .value(metric.name, point.value))
+                    LineMark(x: .value("日期", point.date), y: .value(metric.name, point.value))
+                    if data.count <= 60 {
+                        PointMark(x: .value("日期", point.date), y: .value(metric.name, point.value))
+                    }
                 }
                 .foregroundStyle(SpotterPalette.color(0x2c6b4a))
                 .frame(height: 155)
@@ -269,12 +322,7 @@ struct NativeBodyData: View {
                         }
                         Spacer()
                         Button("编辑") {
-                            if let parsed = ISO8601DateFormatter().date(from: record.day + "T12:00:00Z") {
-                                let parts = record.day.split(separator: "-").compactMap { Int($0) }
-                                if parts.count == 3 {
-                                    date = Calendar(identifier: .gregorian).date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) ?? parsed
-                                }
-                            }
+                            date = record.date
                             editing = record.id
                             reading = format(record.value, "")
                         }.buttonStyle(.bordered).disabled(busy)
@@ -291,19 +339,6 @@ struct NativeBodyData: View {
             TextField("", text: value).keyboardType(type).accessibilityLabel(label)
                 .padding(.horizontal, 9).frame(minHeight: 40).spotterCard(radius: 9)
         }
-    }
-
-    private func records(for metric: String) -> [Record] {
-        rows.compactMap { row in
-            guard row["kind"].string == "nutrition" else { return nil }
-            let entry = row["entry"]
-            let type = entry["type"].string
-            let value: Double
-            if metric == "weight" && type == "weight" { value = entry["kg"].number }
-            else if type == "measurement" && entry["metric"].string == metric { value = entry["value"].number }
-            else { return nil }
-            return Record(id: row["id"].string, day: row["date"].string, value: value, updated: row["updated"].string)
-        }.sorted { ($0.day, $0.updated, $0.id) < ($1.day, $1.updated, $1.id) }
     }
 
     private func format(_ value: Double, _ unit: String) -> String {
@@ -324,16 +359,27 @@ struct NativeBodyData: View {
     }
 
     private func load(updateProfile: Bool) async {
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
         do {
-            let data = try await api.spotterRead("/api/library?section=body", as: NativeJSON.self)
-            rows = data["rows"].array
+            let data = try await api.spotterRead("/api/library?section=body", as: NativeBodyLibrary.self)
+            try Task.checkCancellation()
+            library = data
+            if !ready { message = nil }
             ready = true
             if updateProfile {
-                let data = profile?["values"] ?? .null
-                if case .number(let cm) = data["heightCm"] { height = format(cm, "") } else { height = "" }
-                if case .number(let years) = data["age"] { age = String(Int(years)) } else { age = "" }
-                sex = data["sex"].string
+                let values = profile?["values"] ?? .null
+                let cm = values["heightCm"].number
+                height = (50...280).contains(cm) ? format(cm, "") : ""
+                if let years = Int(exactly: values["age"].number), (1...130).contains(years) {
+                    age = String(years)
+                } else { age = "" }
+                let storedSex = values["sex"].string
+                sex = ["male", "female"].contains(storedSex) ? storedSex : ""
             }
+        } catch is CancellationError {
+            return
         } catch { message = error.localizedDescription }
     }
 
