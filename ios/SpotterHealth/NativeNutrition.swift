@@ -159,6 +159,7 @@ private struct NativeQuickMealReceipt: Equatable {
     let id: String
     let updated: String
     let name: String
+    var day: String? = nil
 }
 
 private struct NativeQuickMealStatus: View {
@@ -177,6 +178,9 @@ private struct NativeQuickMealStatus: View {
                 Spacer(minLength: 4)
                 Button("撤销") { Task { await undo() } }
                     .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).disabled(pending)
+            }
+            if let day = receipt.day, day != spotterDay() {
+                Text(day).font(.caption).foregroundStyle(SpotterPalette.muted)
             }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }.padding(9).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 9))
@@ -363,6 +367,7 @@ struct NativeHomeNutrition: View {
     @State private var payload = NutritionPayload(rows: [])
     @State private var shortcut: NutritionShortcut?
     @State private var quickMeal: NativeQuickMealReceipt?
+    @State private var showFavoriteMeals = false
     @State private var error: String?
     @Environment(\.spotterInteractionMotion) private var motion
 
@@ -371,6 +376,13 @@ struct NativeHomeNutrition: View {
             NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs, onOpen: onOpen)
             Divider().overlay(SpotterPalette.line)
             NutritionShortcuts(zoomNamespace: reduceMotion || systemReduceMotion ? nil : entryZoom) { shortcut = $0 }
+            Button { showFavoriteMeals = true } label: {
+                Label("常用餐", systemImage: "star")
+                    .font(.footnote.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 11))
+            }
+            .buttonStyle(.spotterPress)
             if let quickMeal {
                 NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
                     .id(quickMeal.id).transition(.opacity)
@@ -397,6 +409,12 @@ struct NativeHomeNutrition: View {
             }
                 .nutritionEntryTransition(from: reduceMotion || systemReduceMotion ? nil : selected, in: entryZoom)
         }
+        .sheet(isPresented: $showFavoriteMeals) {
+            NativeFavoriteMeals(api: api, owner: owner, date: .now) { receipt, _ in
+                quickMeal = receipt
+                showFavoriteMeals = false
+            }
+        }
     }
 
     private func load() async {
@@ -413,7 +431,7 @@ struct NativeHomeNutrition: View {
 
 private enum NutritionDestination: Identifiable {
     case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
-    case settings, goals, cycle, recipes, recommendations, protein, stats, photo, voice, energy, copy
+    case settings, goals, cycle, recipes, recommendations, protein, stats, photo, voice, energy, copy, favorites
 
     var id: String {
         switch self {
@@ -429,6 +447,7 @@ private enum NutritionDestination: Identifiable {
         case .voice: return "voice"
         case .energy: return "energy"
         case .copy: return "copy"
+        case .favorites: return "favorites"
         }
     }
 }
@@ -458,6 +477,17 @@ struct NativeNutritionDetail: View {
     @State private var deleting = false
     @State private var deleteCandidate: NutritionPayload.Row?
     @State private var quickMeal: NativeQuickMealReceipt?
+
+    init(api: NativeAPI, owner: String, logs: [NativeWorkoutEntry]? = nil, initialDate: Date = .now) {
+        self.api = api
+        self.owner = owner
+        self.logs = logs
+        _date = State(initialValue: initialDate)
+    }
+
+    static func clearFavoriteMeals(api: NativeAPI, owner: String) {
+        NativeFavoriteMealStore(api: api, owner: owner).clear()
+    }
 
     private var day: String { spotterDay(date) }
     private var ready: Bool { loadedDate == day && loadError == nil }
@@ -626,6 +656,7 @@ struct NativeNutritionDetail: View {
                 shortcutButton("记蛋白粉", icon: "cup.and.saucer") { destination = .protein }
                 shortcutButton("复制往日餐食", icon: "doc.on.doc") { destination = .copy }
             }
+            shortcutButton("常用餐", icon: "star") { destination = .favorites }
         }
     }
 
@@ -792,6 +823,7 @@ struct NativeNutritionDetail: View {
                     settingsLink("碳循环设置", icon: "calendar", destination: .cycle)
                     settingsLink("计入运动消耗", icon: "flame", destination: .energy)
                     settingsLink("复制往日餐食", icon: "doc.on.doc", destination: .copy)
+                    settingsLink("常用餐", icon: "star", destination: .favorites)
                     settingsLink("记体重", icon: "scalemass", destination: .entry(.weight, nil, nil, nil))
                     settingsLink("统计", icon: "chart.bar.xaxis", destination: .stats)
                 }
@@ -812,6 +844,12 @@ struct NativeNutritionDetail: View {
                 .presentationDetents([.large])
         case .copy:
             NativeNutritionCopy(api: api, owner: owner, destination: date, suggestedMeal: mealNow, dateBounds: dateBounds)
+        case .favorites:
+            NativeFavoriteMeals(api: api, owner: owner, date: date) { receipt, recordedDate in
+                date = recordedDate
+                quickMeal = receipt
+                destination = nil
+            }
         }
     }
 
@@ -918,6 +956,340 @@ private struct NativeMealCopyItem: Identifiable {
                              bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
         return Record(id: id.uuidString.lowercased(), date: destination, entry: meal.inMeal(target),
                       proteinProductId: proteinProductId)
+    }
+}
+
+private struct NativeFavoriteMeal: Codable, Identifiable {
+    struct Food: Codable, Identifiable {
+        let id: String
+        let name: String
+        let calories: Double
+        let protein: Double
+        let carbs: Double
+        let fat: Double
+        let grams: Double?
+        let foodId: String?
+        let proteinProductId: String?
+
+        init?(_ row: NutritionPayload.Row) {
+            guard let entry = row.entry, entry.type == "meal", let id = row.id, let name = entry.name,
+                  let calories = entry.calories, let protein = entry.protein, let carbs = entry.carbs, let fat = entry.fat else { return nil }
+            self.id = id
+            self.name = name
+            self.calories = calories
+            self.protein = protein
+            self.carbs = carbs
+            self.fat = fat
+            grams = entry.grams
+            foodId = entry.foodId
+            proteinProductId = row.proteinProductId
+        }
+    }
+
+    var id = UUID()
+    let name: String
+    let meal: NutritionShortcut.RawValue
+    let foods: [Food]
+
+    var defaultMeal: NutritionShortcut { NutritionShortcut(rawValue: meal) ?? .snack }
+    var calories: Double { foods.reduce(0) { $0 + $1.calories } }
+    var protein: Double { foods.reduce(0) { $0 + $1.protein } }
+
+    func record(id: String, day: String, meal: NutritionShortcut, servings: Double) -> [String: Any]? {
+        guard meal.isMeal, servings.isFinite, servings > 0, !foods.isEmpty, (1...100).contains(name.utf16.count) else { return nil }
+        func scaled(_ value: Double) -> Double { (value * servings * 100).rounded() / 100 }
+        let energy = scaled(calories)
+        let macros = [scaled(protein), scaled(foods.reduce(0) { $0 + $1.carbs }), scaled(foods.reduce(0) { $0 + $1.fat })]
+        guard (0...30_000).contains(energy), macros.allSatisfy({ (0...20_000).contains($0) }) else { return nil }
+        var entry: [String: Any] = ["type": "meal", "name": name, "meal": meal.rawValue, "calories": energy,
+                                    "protein": macros[0], "carbs": macros[1], "fat": macros[2]]
+        let amounts = foods.compactMap(\.grams)
+        if amounts.count == foods.count {
+            let grams = scaled(amounts.reduce(0, +))
+            guard (0.1...3_000).contains(grams) else { return nil }
+            entry["grams"] = grams
+        }
+        if foods.count == 1, let foodId = foods[0].foodId { entry["foodId"] = foodId }
+        var record: [String: Any] = ["kind": "nutrition", "id": id, "date": day, "entry": entry]
+        if foods.count == 1, let proteinId = foods[0].proteinProductId { record["proteinProductId"] = proteinId }
+        return record
+    }
+}
+
+@MainActor private struct NativeFavoriteMealStore {
+    let api: NativeAPI
+    let owner: String
+
+    private var url: URL? {
+        let digest = SHA256.hash(data: Data((api.origin + "\n" + owner).utf8)).map { String(format: "%02x", $0) }.joined()
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Spotter/FavoriteMeals", isDirectory: true).appendingPathComponent(digest + ".json")
+    }
+
+    func load() throws -> [NativeFavoriteMeal] {
+        guard let url else { throw CocoaError(.fileNoSuchFile) }
+        do { return try JSONDecoder().decode([NativeFavoriteMeal].self, from: Data(contentsOf: url)) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile { return [] }
+    }
+
+    func edit(_ change: (inout [NativeFavoriteMeal]) -> Void) throws -> [NativeFavoriteMeal] {
+        guard let url else { throw CocoaError(.fileNoSuchFile) }
+        var presets = try load()
+        change(&presets)
+        var directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                attributes: [.protectionKey: FileProtectionType.complete])
+        var attributes = URLResourceValues()
+        attributes.isExcludedFromBackup = true
+        try directory.setResourceValues(attributes)
+        try JSONEncoder().encode(presets).write(to: url, options: [.atomic, .completeFileProtection])
+        return presets
+    }
+
+    func clear() {
+        if let url { try? FileManager.default.removeItem(at: url) }
+    }
+
+    func log(_ preset: NativeFavoriteMeal, id: String, date: Date, meal: NutritionShortcut,
+             servings: Double) async throws -> NativeQuickMealReceipt {
+        let day = spotterDay(date)
+        guard let record = preset.record(id: id, day: day, meal: meal, servings: servings) else { throw NativeAPIError.invalidRequest }
+        let response = try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner,
+                                                                       "revision": NSNull(), "data": record])
+        let updated = try JSONDecoder().decode(NativeJSON.self, from: response)["updated"].string
+        guard !updated.isEmpty else { throw NativeAPIError.invalidResponse }
+        NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+        return NativeQuickMealReceipt(id: id, updated: updated, name: preset.name, day: day)
+    }
+}
+
+@MainActor private struct NativeFavoriteMeals: View {
+    let api: NativeAPI
+    let owner: String
+    let date: Date
+    let onSaved: (NativeQuickMealReceipt, Date) -> Void
+
+    @State private var presets: [NativeFavoriteMeal] = []
+    @State private var removing: NativeFavoriteMeal?
+    @State private var retry: (preset: NativeFavoriteMeal, id: String)?
+    @State private var busy = false
+    @State private var error: String?
+
+    private var store: NativeFavoriteMealStore { .init(api: api, owner: owner) }
+
+    var body: some View {
+        NativeNutritionSheet(title: "常用餐", busy: busy) {
+            Section {
+                NavigationLink {
+                    NativeFavoriteMealEditor(api: api, owner: owner, date: date, save: add)
+                } label: { Label("新建常用组合", systemImage: "plus.circle") }
+                .disabled(busy || retry != nil)
+            } footer: {
+                Text("快速记餐会记入 \(spotterDay(date))。常用组合保存在这台 iPhone，新的饮食记录会自动同步。")
+            }
+            Section("我的常用餐") {
+                if presets.isEmpty { Text("还没有常用餐").foregroundStyle(.secondary) }
+                ForEach(presets) { preset in
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(preset.name).font(.headline)
+                        Text(preset.foods.map(\.name).joined(separator: "、"))
+                            .font(.footnote).foregroundStyle(SpotterPalette.muted).lineLimit(2)
+                        Text("\(preset.defaultMeal.rawValue) · 一份 \(nutritionNumber(preset.calories)) 千卡 · 蛋白质 \(nutritionNumber(preset.protein)) g")
+                            .font(.caption).foregroundStyle(SpotterPalette.muted)
+                        HStack(spacing: 10) {
+                            Button { Task { await log(preset) } } label: {
+                                Label(retry?.preset.id == preset.id ? "重试记餐" : "记一份", systemImage: "plus.circle.fill")
+                                    .font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                            }.buttonStyle(.spotterPress).disabled(busy || retry.map { $0.preset.id != preset.id } == true)
+                            NavigationLink {
+                                NativeFavoriteMealOptions(preset: preset, store: store, date: date, onSaved: onSaved)
+                            } label: {
+                                Text("调整日期与份量").font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                            }.disabled(busy || retry != nil)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .swipeActions { Button("删除", role: .destructive) { removing = preset }.disabled(busy || retry != nil) }
+                }
+            }
+            if let error { Section { Text(error).font(.footnote).foregroundStyle(.red) } }
+        }
+        .task {
+            do { presets = try store.load() }
+            catch { self.error = "暂时无法读取此设备的常用餐。" }
+        }
+        .confirmationDialog("删除这份常用组合？", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            presenting: removing) { preset in
+            Button("删除", role: .destructive) {
+                do { presets = try store.edit { $0.removeAll(where: { $0.id == preset.id }) }; error = nil }
+                catch { self.error = "暂时无法删除常用餐。" }
+            }
+        }
+    }
+
+    private func add(_ preset: NativeFavoriteMeal) throws {
+        presets = try store.edit { $0.insert(preset, at: 0) }
+        error = nil
+    }
+
+    private func log(_ preset: NativeFavoriteMeal) async {
+        guard !busy else { return }
+        let id = retry?.id ?? UUID().uuidString.lowercased()
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            let receipt = try await store.log(preset, id: id, date: date, meal: preset.defaultMeal, servings: 1)
+            retry = nil
+            onSaved(receipt, date)
+        } catch {
+            retry = (preset, id)
+            self.error = "\(error.localizedDescription) 请使用「重试记餐」核对这一次的结果。"
+        }
+    }
+}
+
+@MainActor private struct NativeFavoriteMealEditor: View {
+    let api: NativeAPI
+    let owner: String
+    let save: (NativeFavoriteMeal) throws -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var date: Date
+    @State private var name = ""
+    @State private var meal = NutritionShortcut.snack
+    @State private var foods: [NativeFavoriteMeal.Food] = []
+    @State private var selected: Set<String> = []
+    @State private var loading = true
+    @State private var error: String?
+
+    init(api: NativeAPI, owner: String, date: Date, save: @escaping (NativeFavoriteMeal) throws -> Void) {
+        self.api = api
+        self.owner = owner
+        self.save = save
+        _date = State(initialValue: date)
+    }
+
+    private var day: String { spotterDay(date) }
+    private var title: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("组合名称", text: $name)
+                SpotterMenuPicker("默认餐次", selection: $meal, options: NutritionShortcut.allCases.filter(\.isMeal).map { ($0, $0.rawValue) })
+                DatePicker("选取记录日期", selection: $date, displayedComponents: .date)
+            }
+            Section("选入一份的食物") {
+                if loading { ProgressView() }
+                if !loading && foods.isEmpty && error == nil { Text("这一天没有可选的餐食。").foregroundStyle(.secondary) }
+                ForEach(foods) { food in
+                    Toggle(isOn: Binding(get: { selected.contains(food.id) }, set: { checked in
+                        if checked { selected.insert(food.id) } else { selected.remove(food.id) }
+                    })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(food.name)
+                            Text("\(nutritionNumber(food.calories)) 千卡").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Section {
+                Button("存为常用餐") {
+                    let preset = NativeFavoriteMeal(name: title, meal: meal.rawValue, foods: foods.filter { selected.contains($0.id) })
+                    guard preset.record(id: preset.id.uuidString, day: day, meal: meal, servings: 1) != nil else {
+                        error = "这份组合的总重量或营养数值超出记餐范围，请减少选中的食物。"
+                        return
+                    }
+                    do {
+                        try save(preset)
+                        dismiss()
+                    } catch { self.error = "暂时无法保存这份组合。" }
+                }.disabled(loading || selected.isEmpty || !(1...100).contains(title.utf16.count))
+                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+            }
+        }
+        .buttonStyle(.spotterPress)
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .navigationTitle("新建常用组合")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: day) { await load(day) }
+    }
+
+    private func load(_ requested: String) async {
+        loading = true; foods = []; selected = []; error = nil
+        defer { if day == requested { loading = false } }
+        do {
+            let response = try await api.request("/api/library?date=" + requested, method: "GET", json: nil, for: owner)
+            let payload = try JSONDecoder().decode(NutritionPayload.self, from: response)
+            guard day == requested, !Task.isCancelled else { return }
+            foods = payload.entries(on: requested).compactMap(NativeFavoriteMeal.Food.init)
+        } catch {
+            guard day == requested, !Task.isCancelled else { return }
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+@MainActor private struct NativeFavoriteMealOptions: View {
+    let preset: NativeFavoriteMeal
+    let store: NativeFavoriteMealStore
+    let onSaved: (NativeQuickMealReceipt, Date) -> Void
+    @State private var date: Date
+    @State private var meal: NutritionShortcut
+    @State private var amount = "1"
+    @State private var id = UUID().uuidString.lowercased()
+    @State private var busy = false
+    @State private var submitted = false
+    @State private var error: String?
+
+    init(preset: NativeFavoriteMeal, store: NativeFavoriteMealStore, date: Date, onSaved: @escaping (NativeQuickMealReceipt, Date) -> Void) {
+        self.preset = preset
+        self.store = store
+        self.onSaved = onSaved
+        _date = State(initialValue: date)
+        _meal = State(initialValue: preset.defaultMeal)
+    }
+
+    var body: some View {
+        let servings = nutritionValue(amount)
+        let allowed = servings.map { preset.record(id: id, day: spotterDay(date), meal: meal, servings: $0) != nil } ?? false
+        Form {
+            Section {
+                DatePicker("记入日期", selection: $date, displayedComponents: .date)
+                SpotterMenuPicker("餐次", selection: $meal, options: NutritionShortcut.allCases.filter(\.isMeal).map { ($0, $0.rawValue) })
+                LabeledContent("份数") {
+                    TextField("份数", text: $amount).keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing).accessibilityLabel("份数")
+                }
+            }.disabled(submitted || busy)
+            Section {
+                if let servings, allowed {
+                    Text("热量 \(nutritionNumber(preset.calories * servings)) 千卡 · 蛋白质 \(nutritionNumber(preset.protein * servings)) g")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else { Text("请输入可记录的份数。").font(.footnote).foregroundStyle(.secondary) }
+                Button(busy ? "正在记录…" : (submitted ? "重试记餐" : "记入饮食")) {
+                    if let servings { Task { await log(servings) } }
+                }.disabled(!allowed || busy)
+                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+            }
+        }
+        .buttonStyle(.spotterPress)
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .navigationTitle(preset.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .interactiveDismissDisabled(busy)
+        .navigationBarBackButtonHidden(busy)
+    }
+
+    private func log(_ servings: Double) async {
+        guard !busy else { return }
+        busy = true; submitted = true; error = nil
+        defer { busy = false }
+        do { onSaved(try await store.log(preset, id: id, date: date, meal: meal, servings: servings), date) }
+        catch { self.error = "\(error.localizedDescription) 重试会继续使用这一次的记录。" }
     }
 }
 
