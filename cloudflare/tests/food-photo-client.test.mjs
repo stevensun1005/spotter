@@ -59,6 +59,27 @@ test("coach attachment uses the meal endpoint with a re-encoded image and the se
   assert.equal(release.mock.callCount(), 1);
 });
 
+test("coach photo follow-up keeps the prior exchange and returns the estimate with the draft", async (t) => {
+  mockImageBrowser(t);
+  const mealHistory = [
+    { role: "user", content: "我喝了粥和牛奶" },
+    { role: "assistant", content: "粥和牛奶各喝了多少？" },
+  ];
+  const estimate = "一碗粥约 300 g，一杯牛奶约 250 mL";
+  const draft = { name: "粥和牛奶", grams: 550, calories: 270, protein: 11, carbs: 39, fat: 8 };
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(body.notes, "各一份，粥是一碗，牛奶是一杯");
+    if (body.inCoach) assert.deepEqual(body.mealHistory, mealHistory);
+    else assert.equal("mealHistory" in body, false);
+    return Response.json({ draft, estimate });
+  });
+  const request = (inCoach) => recognizeMealPhoto(imageFile, "各一份，粥是一碗，牛奶是一杯", "coach-account",
+    new AbortController().signal, inCoach, undefined, mealHistory);
+  assert.deepEqual(await request(true), { kind: "draft", draft, estimate });
+  await request(false);
+});
+
 test("aborting an attachment during decoding releases it without an upload", async (t) => {
   const { release } = mockImageBrowser(t, false);
   const send = t.mock.method(globalThis, "fetch", async () => assert.fail("aborted attachment was uploaded"));
@@ -71,17 +92,24 @@ test("aborting an attachment during decoding releases it without an upload", asy
 });
 
 test("photo capability and missing-portion replies remain bound to the requested account", async (t) => {
+  const quota = { dailyLimit: 200, monthlyLimit: 2000, dailyRemaining: 199, monthlyRemaining: 1999,
+    dailyResetsAt: "2026-11-26T00:00:00.000Z", monthlyResetsAt: "2026-12-01T00:00:00.000Z" };
+  const quotas = [];
   t.mock.method(globalThis, "fetch", async (_url, options) => options.method === "POST"
-    ? Response.json({ needs: ["牛奶的份量"] })
+    ? Response.json({ needs: ["牛奶的份量"], quota })
     : Response.json({ enabled: true, owner: "other-account" }));
   const controller = new AbortController();
   await assert.rejects(fetchFoodPhotoConfiguration("coach-account", controller.signal), /登录账号已切换/);
   assert.equal(await fetchFoodPhotoConfiguration("other-account", controller.signal), true);
 
   mockImageBrowser(t);
-  assert.deepEqual(await recognizeMealPhoto(imageFile, "一勺蛋白粉", "coach-account", controller.signal), {
+  assert.deepEqual(await recognizeMealPhoto(imageFile, "一勺蛋白粉", "coach-account", controller.signal, true, (value) => quotas.push(value)), {
     kind: "needs", needs: ["牛奶的份量"],
   });
+  assert.deepEqual(await recognizeProteinPhoto(imageFile, "coach-account", controller.signal, true, (value) => quotas.push(value)), {
+    kind: "needs", needs: ["牛奶的份量"],
+  });
+  assert.deepEqual(quotas, [quota, quota]);
   const invalid = new File(["other data"], "document.txt", { type: "text/plain" });
   assert.throws(() => validatePhotoFile(invalid), /请选择 24 MB 以内的图片/);
 });
