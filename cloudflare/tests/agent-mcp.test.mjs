@@ -21,6 +21,9 @@ const drafts = await import("../app/api/agent/drafts/route.ts");
 const commit = await import("../app/api/agent/commit/route.ts");
 const profile = await import("../app/api/agent/profile/route.ts");
 const records = await import("../app/api/agent/records/route.ts");
+const meals = await import("../app/api/agent/meals/route.ts");
+const health = await import("../app/api/health/workout-summary/route.ts");
+
 const { createConnection } = await import("../features/agent-access/store.ts");
 const { agentProfileRef } = await import("../features/agent/profile.ts");
 const { agentApiSchema } = await import("../features/agent-access/schema.ts");
@@ -128,7 +131,7 @@ test("external nutrition MCP appends confirmed records for the token owner and s
   globalThis.__spotterAgentUser = null;
   const profileRef = (await (await profile.GET(request("/api/agent/profile", null, token))).json()).profileRef;
   const methods = await value(await external.POST(request("/api/agent/mcp", rpc("tools/list"), token)));
-  assert.deepEqual(methods.tools.map(({ name }) => name), ["get_spotter_agent_profile", "import_spotter_records", "add_spotter_foods"]);
+  assert.deepEqual(methods.tools.map(({ name }) => name), ["get_spotter_agent_profile", "import_spotter_records", "add_spotter_foods", "add_spotter_meals"]);
   assert.deepEqual(methods.tools[1].inputSchema.properties.scope.enum, ["nutrition"]);
   const meal = { kind: "nutrition", id: crypto.randomUUID(), date: plan.date, entry: { type: "meal", meal: "午餐", name: "白米饭", grams: 100, calories: 130, protein: 2.7, carbs: 28, fat: 0.3 } };
   const targets = { kind: "targets", values: { calories: 2000, protein: 130, carbs: 240, fat: 58, water: 2100 } };
@@ -186,4 +189,94 @@ test("external record REST uses the same grants and keeps plans on the existing 
   assert.deepEqual(await savedLog.json(), { scope: "训练", added: 1, skipped: 0 });
   assert.equal(db.sqlite.prepare("SELECT kind FROM entries WHERE owner = ? AND id = ?").get(owner, log.id).kind, "log");
   assert.ok(agentApiSchema(origin).paths["/api/agent/records"].post);
+});
+
+test("external Agents read only granted records for the same account and append meals once", async (t) => {
+  const db = fixture(t);
+  const owner = globalThis.__spotterAgentUser.userId;
+  const profileRef = await agentProfileRef(owner);
+  const differentRef = await agentProfileRef("another");
+  const issued = await connections.POST(request("/api/agent/connections", {
+    action: "create", name: "Synthetic analysis", scopes: ["training:read", "nutrition:read", "nutrition:write"], expiresInDays: 2,
+  }));
+  assert.equal(issued.status, 200);
+  const { token } = await issued.json();
+  const readOnly = await createConnection(db, owner, { name: "Synthetic read only", scopes: ["nutrition:read"], expiresInDays: 1 });
+  const other = await createConnection(db, "another", { name: "Synthetic second", scopes: ["nutrition:read", "nutrition:write"], expiresInDays: 1 });
+  globalThis.__spotterAgentUser = null;
+
+  const insert = db.sqlite.prepare("INSERT INTO entries(owner,id,kind,payload,updated) VALUES (?,?,'plan',?,'test')");
+  insert.run(owner, crypto.randomUUID(), JSON.stringify(plan));
+  insert.run("another", crypto.randomUUID(), JSON.stringify({ ...plan, title: "other owner's private plan" }));
+
+  const reads = await value(await external.POST(request("/api/agent/mcp", rpc("tools/list"), token)));
+  assert.deepEqual(reads.tools.find(({ name }) => name === "read_spotter_records").inputSchema.properties.scope.enum, ["training", "nutrition"]);
+  const card = (name, arguments_, bearer = token) => external.POST(request("/api/agent/mcp", rpc("tools/call", { name, arguments: arguments_ }), bearer));
+  const meal = { id: crypto.randomUUID(), date: plan.date, meal: "午餐", name: "Fixture oats", calories: 140, protein: 7, carbs: 22, fat: 3 };
+  const body = { profileRef, confirmed: true, meals: [meal] };
+  let response = await meals.POST(request("/api/agent/meals", body, token));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { scope: "饮食", added: 1, skipped: 0, dates: [plan.date] });
+  const retry = await value(await card("add_spotter_meals", body));
+  assert.equal(JSON.parse(retry.content[0].text).skipped, 1);
+  assert.equal((await meals.POST(request("/api/agent/meals", body, readOnly.token))).status, 403);
+  assert.equal((await meals.POST(request("/api/agent/meals", body, other.token))).status, 403);
+  assert.equal((await meals.POST(request("/api/agent/meals", { ...body, confirmed: false }, token))).status, 400);
+  assert.equal((await meals.POST(request("/api/agent/meals", { ...body, meals: [meal, meal] }, token))).status, 400);
+
+  const nextMeal = { ...meal, id: crypto.randomUUID(), name: "Fixture berries" };
+  assert.equal((await meals.POST(request("/api/agent/meals", { ...body, meals: [nextMeal] }, token))).status, 200);
+  const otherMeal = { ...meal, id: crypto.randomUUID(), name: "Another owner's meal" };
+  assert.equal((await meals.POST(request("/api/agent/meals", { profileRef: differentRef, confirmed: true, meals: [otherMeal] }, other.token))).status, 200);
+  const weighIn = { kind: "nutrition", id: crypto.randomUUID(), date: plan.date, entry: { type: "weight", kg: 87.1 } };
+  db.sqlite.prepare("INSERT INTO personal_library(owner,kind,id,day,payload,updated) VALUES (?,'nutrition',?,?,?,'test')")
+    .run(owner, weighIn.id, plan.date, JSON.stringify(weighIn));
+
+  const path = (scope, reference = profileRef, offset = 0, limit = 1) => "/api/agent/records?" + new URLSearchParams({
+    profileRef: reference, scope, from: "2026-11-01", to: "2026-11-30", offset: String(offset), limit: String(limit),
+  });
+  assert.equal((await records.GET(request(path("nutrition"), null))).status, 401);
+  assert.equal((await records.GET(request(path("nutrition", differentRef), null, token))).status, 403);
+  assert.equal((await records.GET(request(path("body"), null, token))).status, 400);
+  assert.equal((await records.GET(request(path("training"), null, readOnly.token))).status, 403);
+  const result = await (await records.GET(request(path("nutrition"), null, token))).json();
+  assert.equal(result.nextOffset, 1);
+  const second = await (await records.GET(request(path("nutrition", profileRef, result.nextOffset), null, token))).json();
+  assert.equal(second.nextOffset, null);
+  assert.deepEqual(new Set([...result.records, ...second.records].map(({ id }) => id)), new Set([meal.id, nextMeal.id]));
+  const programs = await value(await card("read_spotter_records", { profileRef, scope: "training", from: "2026-11-01", to: "2026-11-30" }));
+  assert.equal(programs.isError, false);
+  assert.deepEqual(JSON.parse(programs.content[0].text).records.map(({ data }) => data.title), [plan.title]);
+});
+
+test("Apple Watch summary is private, time-bound, and retries never overwrite with a partial or affect nutrition", async (t) => {
+  const db = fixture(t);
+  const owner = globalThis.__spotterAgentUser.userId;
+  const checkinId = crypto.randomUUID();
+  const started = Date.parse("2026-11-26T17:00:00Z");
+  const ended = started + 30 * 60_000;
+  const addLog = db.sqlite.prepare("INSERT INTO entries(owner,id,kind,payload,updated) VALUES (?,?,?,?,'test')");
+  addLog.run(owner, checkinId, "log", JSON.stringify({ started, ended, minutes: 30 }));
+  addLog.run(owner, crypto.randomUUID(), "draft", JSON.stringify({ started, ended, minutes: 30 }));
+  const get = () => health.GET(request("/api/health/workout-summary?id=" + checkinId));
+  const save = (data, expectedOwner = owner) => health.POST(request("/api/health/workout-summary", { id: checkinId, expectedOwner, data }));
+  assert.deepEqual(await (await get()).json(), { data: null });
+  const measured = { source: "apple-watch", startedAtMilliseconds: started + 10_000, endedAtMilliseconds: ended,
+    activeKilocalories: 223, totalKilocalories: 259.2, averageHeartRate: 144.5 };
+  assert.equal((await save({ ...measured, totalKilocalories: 200 })).status, 400);
+  assert.equal((await save({ ...measured, startedAtMilliseconds: started - 900_000 })).status, 400);
+  assert.equal((await save(measured, "other")).status, 403);
+  assert.deepEqual(await (await save(measured)).json(), { data: measured });
+  const { totalKilocalories: _total, ...partial } = measured;
+  assert.deepEqual(await (await save(partial)).json(), { data: measured });
+  assert.deepEqual(await (await save(measured)).json(), { data: measured });
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM workout_health_summaries").get().n, 1);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM personal_library").get().n, 0);
+  globalThis.__spotterAgentUser = { userId: "other" };
+  assert.equal((await get()).status, 404);
+  assert.equal((await save(measured, "other")).status, 404);
+  globalThis.__spotterAgentUser = null;
+  assert.equal((await get()).status, 401);
+  db.sqlite.prepare("DELETE FROM entries WHERE owner=? AND id=?").run(owner, checkinId);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM workout_health_summaries").get().n, 0);
 });

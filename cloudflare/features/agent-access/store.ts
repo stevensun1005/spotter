@@ -8,7 +8,7 @@ import type { AgentConnection, AgentDraft, AgentPrincipal, AgentScope, CommitRes
 const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 export const digest = async (text: string) => hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))));
 export function requireScope(principal: AgentPrincipal, scope: AgentScope) {
-  if (!principal.scopes.includes(scope)) throw new HttpError(403, "此 Agent 连接未获准执行这项操作，请在网页检查权限范围。");
+  if (!principal.scopes.includes(scope)) throw new HttpError(403, "此 Agent 连接未获准执行这项操作，请在训练搭子的 Agent 连接设置检查权限范围。");
 }
 export async function verifyProfile(owner: string, expected: string) {
   if (expected !== await agentProfileRef(owner)) throw new HttpError(403, "账号标识与当前连接不一致，操作未执行。");

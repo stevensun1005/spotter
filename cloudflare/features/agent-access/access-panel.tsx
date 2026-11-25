@@ -14,6 +14,8 @@ type Draft = { id: string; title: string; plans: Plan[]; createdAt: string; expi
 type Preview = Draft & { preview: { id: string; title: string; date: string; status: "new" | "existing" | "blocked"; conflict?: string }[]; willAdd: number; blocked: number };
 const scopes: readonly [Scope, string][] = [
   ["read:context", "读取动作、模板和编排偏好"], ["plans:draft", "提交计划草稿"], ["plans:write", "按授权排入训练日历"],
+  ["training:read", "读取训练计划和完成记录"], ["nutrition:read", "读取餐食和饮水记录"],
+  ["templates:read", "读取个人模板"],
   ["training:write", "追加已完成训练、动作和训练设置"], ["nutrition:write", "追加饮食、常用食物和营养目标"],
   ["body:write", "追加身体测量和档案"], ["templates:write", "追加训练模板"],
 ];

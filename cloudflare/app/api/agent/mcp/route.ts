@@ -3,6 +3,8 @@ import { HttpError, json, readJsonBody } from "@/server/http";
 import { agentApi, agentDatabase, requestPrincipal } from "@/features/agent-access/http";
 import { agentIdentity, callPlanningTool, isPlanningTool, toolsFor } from "@/features/agent-access/tools";
 import { callRecordTool, isRecordTool, recordToolsFor } from "@/features/agent-access/records";
+import { readAgentRecords, recordReadInput, recordReaderTools, recordReadToolName } from "@/features/agent-access/record-read";
+import { addAgentMeals, mealWriteInput, mealWriteTool } from "@/features/agent-access/meal-write";
 
 export const dynamic = "force-dynamic";
 const rpcSchema = z.object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number(), z.null()]).optional(), method: z.string(), params: z.record(z.unknown()).optional(), _meta: z.record(z.unknown()).optional() });
@@ -23,11 +25,18 @@ export const POST = agentApi(async (request) => {
     return json({ ...envelope, result: { protocolVersion: ["2025-11-25", "2025-06-18", "2025-03-26"].includes(String(requested)) ? requested : "2025-11-25", capabilities: { tools: {} }, serverInfo } });
   }
   if (rpc.method === "ping") return json({ ...envelope, result: {} });
-  if (rpc.method === "tools/list") return json({ ...envelope, result: { tools: [{ name: "get_spotter_agent_profile", description: "Read the account reference and granted scopes for this connection.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, destructiveHint: false } }, ...toolsFor(principal), ...recordToolsFor(principal)] } });
+  if (rpc.method === "tools/list") return json({ ...envelope, result: { tools: [{ name: "get_spotter_agent_profile", description: "Read the account reference and granted scopes for this connection.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, destructiveHint: false } }, ...toolsFor(principal), ...recordReaderTools(principal),
+    ...recordToolsFor(principal), ...(principal.scopes.includes("nutrition:write") ? [mealWriteTool] : [])] } });
   if (rpc.method === "tools/call") {
     try {
       const name = rpc.params?.name;
       if (name === "get_spotter_agent_profile") return json({ ...envelope, result: toolResult(await agentIdentity(principal)) });
+      if (name === recordReadToolName) {
+        return json({ ...envelope, result: toolResult(await readAgentRecords(agentDatabase(), principal, recordReadInput.parse(rpc.params?.arguments))) });
+      }
+      if (name === mealWriteTool.name) {
+        return json({ ...envelope, result: toolResult(await addAgentMeals(principal, mealWriteInput.parse(rpc.params?.arguments))) });
+      }
       if (isRecordTool(name)) return json({ ...envelope, result: toolResult(await callRecordTool(principal, name, rpc.params?.arguments)) });
       if (!isPlanningTool(name)) return json({ ...envelope, error: { code: -32602, message: "Unknown tool" } });
       return json({ ...envelope, result: toolResult(await callPlanningTool(agentDatabase(), principal, name, rpc.params?.arguments)) });
