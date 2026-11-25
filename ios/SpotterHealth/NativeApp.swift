@@ -273,6 +273,7 @@ struct NativeSpotterApp: View {
             NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
             if owner == nil {
                 clearTrainingLiveActivity()
+                if #available(iOS 17.0, *) { NativeWatchHeartRate.shared.useWorkout(nil) }
                 Task {
                     await NativeTrainingNotifications.shared.scheduleRest(nil)
                     await NativeTrainingNotifications.shared.clear()
@@ -633,6 +634,12 @@ private struct NativeSpotterTabs: View {
             refreshLiveActivity()
         }
         .onChange(of: workouts.active?.id) { _ in refreshLiveActivity() }
+        .onChange(of: watchWorkoutContext) { context in
+            if #available(iOS 17.0, *) { NativeWatchHeartRate.shared.useWorkout(context) }
+        }
+        .task {
+            if #available(iOS 17.0, *) { NativeWatchHeartRate.shared.useWorkout(watchWorkoutContext) }
+        }
         .onChange(of: showsTrainingLiveActivity) { _ in refreshLiveActivity() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
             refreshWidget()
@@ -834,6 +841,11 @@ private struct NativeSpotterTabs: View {
             restDeadline: deadline, pausedRestSeconds: !session.isRunning && restSeconds > 0 ? restSeconds : nil
         )
         manager.sync(workoutKey: key, state: state, foreground: scenePhase == .active)
+    }
+
+    private var watchWorkoutContext: NativeWatchWorkoutContext? {
+        guard let entry = workouts.active, entry.owner == owner, let session = entry.session else { return nil }
+        return .init(owner: owner, workoutID: entry.id, isRunning: session.isRunning)
     }
 
     private var isAvailableForWidget: Bool {

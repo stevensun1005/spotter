@@ -25,6 +25,16 @@
 
 饮食可以把已记的食物组合存为常用餐。组合保存在这台 iPhone，记入前可以选择份量、餐次和日期，保存后可撤销。实际饮食记录同步到账号。AI 教练的蛋白粉操作回执分别显示仓库、训练默认配方与各日期的饮食结果。
 
+构建 27 起，首页收起饮食后只显示左上角的圆形图标，点按可恢复。iOS 26 及以上的训练、统计、动作库和饮食等页面使用系统液态玻璃控件。分段切换和成组按钮共用按压动效，并遵循减少动态效果设置。
+
+## 训练中的 Apple Watch 心率
+
+在已经配对的 Apple Watch 上安装「训练搭子」。iPhone 需运行 iOS 17 及以上，手表需运行 watchOS 10 及以上。在 iPhone 开始训练后，点计时器下方的「Apple Watch 心率 → 连接」。首次连接时，打开手表上的「训练搭子」，点「授权并开始」，在系统界面允许所需的健康权限。如果 iPhone 连接已超时，回到训练页点「重试」。
+
+收到心率后，训练页显示当前 BPM。暂停时会清除读数，恢复后等待新样本。手表断连或超过 30 秒没有新样本时会隐藏旧读数。结束训练、主动停止测量或退出账号会停止本次连接。实时读数仅在配对设备之间传输。手表的临时测量会话不创建额外的健康训练记录。打卡详情里的历史曲线仍按训练起止时间从 iPhone 的 Apple 健康读取。
+
+`npm run test:ios-app` 使用合成样本核对连接前、陈旧、重复和无效读数的过滤。首次授权、真实 BPM 变化及锁屏或断连后的恢复需要在配对真机上验收。
+
 ## 网页功能对照
 
 按私密 Sites v78 的源码及 App 共用的 Cloudflare API 核对。以下覆盖训练、统计、社交和个人设置的主要入口。
@@ -60,6 +70,6 @@ npm run ios:package
 
 `ios:package` 在构建前后核对 `origin/main`、健康同步分支和 iPhone 开发分支，并核对 App 连接的 Cloudflare 提交。产物位于 `outputs/`，包括模拟器 ZIP 和构建清单。iPhone 安装使用 Xcode 签名或 TestFlight。
 
-TestFlight 使用同一 **Spotter** scheme 的 Release 归档，分发目标是 App Store Connect 的 `app.spotter.health` 应用。主 App 的签名描述文件须支持 HealthKit、Sign in with Apple 和 Associated Domains。在 Apple Developer 将 App Group `group.app.spotter.health` 分配给 `app.spotter.health` 和 `app.spotter.health.widget`，再更新两个目标的描述文件。原生 Apple 服务端使用 `APPLE_OAUTH_NATIVE_CLIENT_ID=app.spotter.health`。网页的 Apple Services ID 与原生 App ID 在同一 Apple Developer 配置下管理，详情见 [登录配置](cloudflare-login.md)。
+TestFlight 使用同一 **Spotter** scheme 的 Release 归档，分发目标是 App Store Connect 的 `app.spotter.health` 应用。主 App 的签名描述文件须支持 HealthKit、Sign in with Apple 和 Associated Domains。随 App 一起归档的 `app.spotter.health.watchkitapp` 也需要自己的 HealthKit 签名。Apple Developer 中的 App Group `group.app.spotter.health` 需分配给 `app.spotter.health` 和 `app.spotter.health.widget`。原生 Apple 服务端使用 `APPLE_OAUTH_NATIVE_CLIENT_ID=app.spotter.health`。网页的 Apple Services ID 与原生 App ID 在同一 Apple Developer 配置下管理，详情见 [登录配置](cloudflare-login.md)。
 
 私密 Sites 与独立 Node 自托管服务各有账号和数据。配对码和批量健康同步协议另见 [健康设备同步](health-device-sync.md)。

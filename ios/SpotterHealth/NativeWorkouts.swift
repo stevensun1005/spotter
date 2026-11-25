@@ -2207,6 +2207,10 @@ struct NativeActiveWorkoutView: View {
                     Text("\(session.volumeKg.formatted(.number.precision(.fractionLength(0...1)))) kg 容量").font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
                 }
             }
+            if #available(iOS 17.0, *) {
+                NativeWatchHeartRateStrip(context: .init(owner: store.owner, workoutID: entry.id, isRunning: session.isRunning),
+                                          cardio: session.cardioActivity)
+            }
             HStack(spacing: 8) {
                 NativeWorkoutSyncLabel(status: store.draftSyncStatus).lineLimit(2)
                 Spacer(minLength: 0)

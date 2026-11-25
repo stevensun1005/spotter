@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>训练搭子</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>在训练时从 Apple Watch 读取实时心率，并在手表和配对的 iPhone 上显示。</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>运行显示实时心率所需的 Apple Watch 训练会话。完成后仍由训练搭子记录本次训练。</string>
+    <key>WKApplication</key>
+    <true/>
+    <key>WKBackgroundModes</key>
+    <array>
+        <string>workout-processing</string>
+    </array>
+    <key>WKCompanionAppBundleIdentifier</key>
+    <string>$(SPOTTER_PHONE_BUNDLE_ID)</string>
+</dict>
+</plist>

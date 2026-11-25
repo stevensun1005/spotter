@@ -2,7 +2,9 @@
 
 完整 App 选择 **Spotter** scheme，产品为 `Spotter.app`。SwiftUI 界面使用 Cloudflare 账号和 API。旧 SpotterHealth scheme 仍构建同一产品。Cloudflare App 的现有功能和打包流程见 [App 说明](../docs/iphone-app.md)。
 
-Cloudflare 版在「设置 → 手表与健康」按日期和项目读取已同步到 iPhone「健康」的 33 项指标，包括心率与恢复、活动和训练、身体测量、睡眠及饮食。读取权限由 Apple 健康逐项控制。体重、体脂率、去脂体重和腰围可在核对后同步到当前账号。训练详情可按实际打卡时段同步心率。其余指标在 App 查看。应用仅申请 HealthKit 读取权限。
+Cloudflare 版在「设置 → 手表与健康」按日期和项目读取已同步到 iPhone「健康」的 33 项指标，包括心率与恢复、活动和训练、身体测量、睡眠及饮食。读取权限由 Apple 健康逐项控制。体重、体脂率、去脂体重和腰围可在核对后同步到当前账号。训练详情可按实际打卡时段同步心率。其余指标在 App 查看。
+
+Cloudflare 版的 Watch 配套 App 通过 HealthKit 在训练时测量并发送实时心率。手表测量使用临时训练会话，结束后丢弃该会话。安装、授权及测试方法见 [训练中的 Apple Watch 心率](../docs/iphone-app.md#训练中的-apple-watch-心率)。
 
 以下章节记录独立 Node 服务的设备配对与同步协议。该方案支持 iOS 16 及以上，默认只选择训练心率。
 

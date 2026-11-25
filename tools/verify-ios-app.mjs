@@ -19,6 +19,7 @@ const checks = [
   ["native-protein", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/Tests/NativeProteinSmoke.swift"]],
   ["native-heart-files", ["ios/SpotterHealth/HeartPayload.swift", "ios/SpotterHealth/NativeHeartFileImport.swift",
     "ios/SpotterHealth/NativeHeartWorkoutFiles.swift", "ios/Tests/NativeHeartFileSmoke.swift"]],
+  ["watch-heart-rate", ["ios/SpotterHealth/NativeWatchHeartRatePacket.swift", "ios/Tests/NativeWatchHeartRateSmoke.swift"]],
 ];
 
 try {

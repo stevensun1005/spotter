@@ -37,7 +37,7 @@ function checkedWebRelease(plist) {
   return release;
 }
 
-function checkedWidget() {
+function checkedExtensions() {
   const host = readPlist(join(app, "Info.plist"));
   const widget = readPlist(join(app, "PlugIns", "SpotterWidget.appex", "Info.plist"));
   if (widget.CFBundleIdentifier !== `${host.CFBundleIdentifier}.widget` ||
@@ -45,6 +45,14 @@ function checkedWidget() {
       widget.CFBundleShortVersionString !== host.CFBundleShortVersionString ||
       widget.NSExtension?.NSExtensionPointIdentifier !== "com.apple.widgetkit-extension") {
     throw new Error("模拟器 App 缺少同版本的训练搭子小组件。");
+  }
+  const watch = readPlist(join(app, "Watch", "SpotterWatch.app", "Info.plist"));
+  if (watch.CFBundleIdentifier !== `${host.CFBundleIdentifier}.watchkitapp` ||
+      watch.CFBundleVersion !== host.CFBundleVersion ||
+      watch.CFBundleShortVersionString !== host.CFBundleShortVersionString ||
+      watch.WKCompanionAppBundleIdentifier !== host.CFBundleIdentifier || watch.WKApplication !== true ||
+      !watch.WKBackgroundModes?.includes("workout-processing")) {
+    throw new Error("模拟器 App 缺少同版本、可用于训练的 Apple Watch 配套 App。");
   }
 }
 
@@ -70,7 +78,7 @@ try {
   if (!Object.keys(webBefore).every((key) => webBefore[key] === webRelease[key])) {
     throw new Error("App 内的网页版本记录与源码不一致，请重新打包。");
   }
-  checkedWidget();
+  checkedExtensions();
   await mkdir(join(root, "outputs"), { recursive: true });
   const name = "Spotter-Simulator-" + after.head.slice(0, 8);
   const archive = join(root, "outputs", name + ".zip");
