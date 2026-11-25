@@ -42,13 +42,13 @@
         <key>hosting</key>
         <string>cloudflare</string>
         <key>version</key>
-		<integer>86</integer>
+		<integer>87</integer>
         <key>sourceCommit</key>
-		<string>e39875017cb5004166effddbaa3da18c078d8580</string>
+		<string>d3eefe752202b67dd8c0c99a9dae196f50bc6900</string>
         <key>exportRef</key>
         <string>origin/codex/cloudflare-free</string>
         <key>exportCommit</key>
-		<string>e39875017cb5004166effddbaa3da18c078d8580</string>
+		<string>d3eefe752202b67dd8c0c99a9dae196f50bc6900</string>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>
