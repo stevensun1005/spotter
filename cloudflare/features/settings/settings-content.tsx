@@ -1,11 +1,12 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CalendarDays, ClipboardList, Download, HeartPulse, LifeBuoy, Package, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
 import { DeleteAccount } from "@/features/auth/delete-account";
 import { signInPath, signOutEndpoint } from "@/features/auth/paths";
 import { OAuthControls } from "@/features/auth/oauth-controls";
 import { AISharingSettings } from "@/features/ai-coach/sharing-consent";
+import type { CoachConfig } from "@/features/ai-coach/model";
 import type { OAuthNotice } from "@/features/auth/oauth-ui";
 import type { AnatomyVariant } from "@/features/body/profile";
 import type { ChangeDisplay, DisplayPreferences } from "./display-preferences";
@@ -58,7 +59,7 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
     </>;
     case "workout":
     case "advanced":
-    case "alerts": return <WorkoutSettings page={page} navigate={open}>
+    case "alerts": return <WorkoutSettings page={page} navigate={open} owner={owner}>
       {page === "workout" && <>
         {protein}
         <SettingsRows><SettingsLink label="蛋白粉仓库" detail="管理训练打卡可选的款式" icon={Package} onClick={() => open("proteinWarehouse")} /></SettingsRows>
@@ -89,7 +90,7 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
     </>;
     case "reminders": return <ReminderSettings owner={owner} />;
     case "units": return <>
-      <WeightEntrySettings />
+      <WeightEntrySettings owner={owner} />
       <SettingsRows title="训练统计">
         <label className="settings-control"><strong>1RM 估算公式</strong>
           <select value={display.maxFormula} onChange={(event) => changeDisplay("maxFormula", event.target.value === "brzycki" ? "brzycki" : "epley")}>
@@ -108,7 +109,7 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
         </label>
       </SettingsRows>
     </>;
-    case "equipment": return <EquipmentSettings />;
+    case "equipment": return <EquipmentSettings owner={owner} />;
     case "appearance":
     case "modules": return <DisplaySettings display={display} change={changeDisplay} modules={page === "modules"} />;
     case "watches": return <>
@@ -134,7 +135,7 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
       </SettingsRows>
     </>;
     case "data": return data;
-    case "ai": return <div className="feature-stack">{agent}<AISharingSettings key={owner} owner={owner} /></div>;
+    case "ai": return <div className="feature-stack">{owner && <CoachMessageUsage key={owner} />}{agent}<AISharingSettings key={owner} owner={owner} /></div>;
     case "planImport": return planImport;
     case "about": return <>
       <SettingsRows title="训练搭子 · Spotter">
@@ -153,4 +154,30 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
     </>;
     default: return null;
   }
+}
+
+function CoachMessageUsage() {
+  const [config, setConfig] = useState<CoachConfig>();
+  const [error, setError] = useState(false);
+  const [attempt, retry] = useState(0);
+  useEffect(() => {
+    const request = new AbortController();
+    fetch("/api/ai-coach", { cache: "no-store", signal: request.signal }).then((response) => {
+      if (!response.ok) throw new Error("Usage unavailable");
+      return response.json() as Promise<CoachConfig>;
+    }).then((data) => {
+      if (!request.signal.aborted) { setConfig(data); setError(false); }
+    }).catch(() => { if (!request.signal.aborted) setError(true); });
+    return () => request.abort();
+  }, [attempt]);
+  const quota = config?.quota;
+  const display = (value: string) => new Date(value).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return <SettingsRows title="AI 教练消息用量">
+    {quota ? <>
+      <div className="settings-control"><strong>今天</strong><span>剩余 {quota.dailyRemaining} / {quota.dailyLimit} 条 · {display(quota.dailyResetsAt)} 重置</span></div>
+      <div className="settings-control"><strong>本月</strong><span>剩余 {quota.monthlyRemaining} / {quota.monthlyLimit} 条 · {display(quota.monthlyResetsAt)} 重置</span></div>
+    </> : <div className="settings-control" role="status">{error
+      ? <button className="button outline" onClick={() => { setError(false); retry((value) => value + 1); }}>无法读取用量，重试</button>
+      : <span>{config ? "AI 教练当前不可用。" : "正在读取用量…"}</span>}</div>}
+  </SettingsRows>;
 }

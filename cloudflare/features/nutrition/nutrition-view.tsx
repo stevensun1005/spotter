@@ -24,7 +24,7 @@ import { NutritionVoice } from "./nutrition-voice";
 import { ProteinDrink } from "./protein-drink";
 import type { ProteinProduct } from "@/features/training/protein";
 
-type RecordOptions = { initial?: MealEntry; food?: Food; grams?: number; query?: string };
+type RecordOptions = { initial?: MealEntry; food?: Food; grams?: number; query?: string; proteinProductId?: string };
 type RecordSheet = { kind: "record"; shortcut: NutritionShortcut; id: string } & RecordOptions;
 type Sheet = RecordSheet | { kind: "settings"; page: "menu" | "goals" } | { kind: "tool"; tool: NutritionTool }
   | { kind: "stats" } | { kind: "voice" } | { kind: "protein" };
@@ -89,7 +89,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
   const personal = store.rows.filter((row) => row.kind === "food");
   const portions = store.rows.filter((row) => row.kind === "food-portions");
   const rows = displayedRows.flatMap((row) => row.kind === "nutrition" && row.date === date && row.entry.type !== "measurement"
-    ? [{ id: row.id, entry: row.entry, sourceWorkoutId: row.sourceWorkoutId }] : []);
+    ? [{ id: row.id, entry: row.entry, sourceWorkoutId: row.sourceWorkoutId, proteinProductId: row.proteinProductId }] : []);
   const totals = nutritionTotals(displayedRows, date);
   const shortcuts = [...preferences.mealOrder, ...nutritionShortcuts.filter((shortcut) => !isMeal(shortcut))];
 
@@ -137,7 +137,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
     link.href = href; link.download = date + "-饮食记录.txt"; link.click();
     window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
   }
-  function renderRecord({ id, entry, sourceWorkoutId }: typeof rows[number]) {
+  function renderRecord({ id, entry, sourceWorkoutId, proteinProductId }: typeof rows[number]) {
     const name = entry.type === "meal" ? entry.name : entry.type === "water" ? "饮水" : "体重";
     const Icon = entry.type === "meal" ? Apple : entry.type === "water" ? CupSoda : Scale;
     const detail = entry.type === "meal" ? [
@@ -153,7 +153,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
         <button className="button subtle small" type="button" disabled={busy} onClick={() => setConfirm("")}>取消</button>
       </> : <>
         {entry.type === "meal" && <button className="icon-button" aria-label={"编辑 " + name} disabled={busy} type="button"
-          onClick={() => open(entry.meal, { initial: entry }, id)}><Pencil size={16} aria-hidden="true" /></button>}
+          onClick={() => open(entry.meal, { initial: entry, proteinProductId }, id)}><Pencil size={16} aria-hidden="true" /></button>}
         <button className="icon-button" aria-label={"删除 " + name} disabled={busy} type="button" onClick={() => setConfirm(id)}>
           <Trash2 size={16} aria-hidden="true" />
         </button>
@@ -237,7 +237,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       onMealPhoto={sheet.initial ? undefined : () => { if (isMeal(sheet.shortcut)) onMealPhoto(date, sheet.shortcut); }}
       preferAll={preferences.foodSearch === "all"} personal={personal} recent={store.recentMeals} savedPortions={portions}
       close={close} onSaveFood={persist} onSavePortions={persist} onLog={async (entry) => {
-        await persist({ kind: "nutrition", date, id: sheet.id, entry }); close();
+        await persist({ kind: "nutrition", date, id: sheet.id, entry, proteinProductId: sheet.proteinProductId }); close();
       }} /> : <MeasureEditor key={sheet.id} shortcut={sheet.shortcut} close={close} save={async (value) => {
         await persist({ kind: "nutrition", date, id: sheet.id, entry: sheet.shortcut === "饮水" ? { type: "water", ml: value } : { type: "weight", kg: value } });
         close();
@@ -251,6 +251,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       save={persist} close={close} reload={() => void refresh()} openFood={(food, meal, grams) => open(meal, { food, grams })} />}
     {sheet?.kind === "stats" && <NutritionStats date={date} close={close} />}
     {sheet?.kind === "voice" && <NutritionVoice close={close} initialMeal={mealForNow()} openSearch={(meal, query) => open(meal, { query })} />}
-    {sheet?.kind === "protein" && <ProteinDrink products={proteinProducts} date={date} close={close} warehouse={onProteinWarehouse} save={persist} />}
+    {sheet?.kind === "protein" && <ProteinDrink products={proteinProducts} date={date} owner={owner}
+      close={close} warehouse={onProteinWarehouse} saved={() => { void refresh(); }} />}
   </div>;
 }

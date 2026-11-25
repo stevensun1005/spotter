@@ -22,7 +22,7 @@ export function combineProteinLabels(current: ProteinPhotoProduct | undefined, n
   return { ...current, ...next, name: current?.name ?? next.name };
 }
 
-function milkFor(fat: number | undefined) {
+export function milkFor(fat: number | undefined) {
   const referenceId = fat === 2 ? "fdc-171267" : fat === 3.25 ? "fdc-171265" : undefined;
   const food = foods.find(({ id }) => id === referenceId);
   if (food) return { name: food.name, per100ml: food.per100g };

@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { barbellReplacementGear, cableReplacementGear, commonReplacementGear } from "@/features/exercises/replacements";
 import { SettingsRows } from "./settings-hub";
+import { accountGymChanged, queueAccountWorkoutPreferences } from "./account-workout-client";
 
 const equipmentKey = "spotter:equipment";
 const gear = [...commonReplacementGear, ...cableReplacementGear, ...barbellReplacementGear];
@@ -28,14 +29,20 @@ export function readGymEquipment() {
   return state.profiles.find(({ id }) => id === state.active)?.gear ?? [];
 }
 
-export function EquipmentSettings() {
+export function EquipmentSettings({ owner = "" }: { owner?: string }) {
   const [state, setState] = useState(initial);
   const [name, setName] = useState("");
-  useEffect(() => setState(readProfiles()), []);
+  useEffect(() => {
+    const refresh = () => setState(readProfiles());
+    refresh();
+    window.addEventListener(accountGymChanged, refresh);
+    return () => window.removeEventListener(accountGymChanged, refresh);
+  }, []);
   const active = state.profiles.find(({ id }) => id === state.active) ?? state.profiles[0];
   function save(next: GymState) {
     setState(next);
     try { localStorage.setItem(equipmentKey, JSON.stringify(next)); } catch { /* Current screen remains usable. */ }
+    queueAccountWorkoutPreferences(owner, next.profiles.length ? { gyms: next } : {});
   }
   function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,6 +70,6 @@ export function EquipmentSettings() {
       <div className="settings-gear">{gear.map(([key, label]) => <label key={key}><input type="checkbox" checked={active.gear.includes(key)}
         onChange={() => toggle(key)} />{label}</label>)}</div>
     </SettingsRows>
-    <p className="settings-footnote">替换动作时会默认使用当前配置。器械列表留空时按训练站推荐。</p>
+    <p className="settings-footnote">器械配置随账号同步。替换动作时优先使用当前配置。</p>
   </>;
 }

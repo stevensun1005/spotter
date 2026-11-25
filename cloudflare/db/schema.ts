@@ -79,6 +79,20 @@ export const friendFeedCheers = sqliteTable("friend_feed_cheers", {
   check("friend_feed_cheers_distinct_people", sql`${table.sender} <> ${table.recipient}`),
 ]);
 
+export const buddyWorkoutAppointments = sqliteTable("buddy_workout_appointments", {
+  id: text().primaryKey().notNull(),
+  room: text().notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  sender: text().notNull(),
+  recipient: text().notNull(),
+  startsAt: integer("starts_at").notNull(),
+  note: text().notNull().default(""),
+  status: text({ enum: ["pending", "accepted", "declined", "cancelled"] }).notNull(),
+}, (table) => [
+  index("buddy_workout_appointments_room_starts").on(table.room, table.startsAt),
+  index("buddy_workout_appointments_recipient").on(table.recipient),
+  check("buddy_workout_appointments_distinct_people", sql`${table.sender} <> ${table.recipient}`),
+]);
+
 export const friendProfiles = sqliteTable("friend_profiles", {
   owner: text().primaryKey().notNull(),
   name: text().notNull(),

@@ -22,7 +22,8 @@ registerHooks({ resolve(specifier, context, next) {
   }
   return next(specifier, context);
 } });
-const { buddyCheckins, changeFriendFeedCheer, changeFriends, friendDay, friendFeed, listFriends, shareAccess } = await import("../features/friends/server.ts");
+const { buddyCheckins, changeFriendFeedCheer, changeFriends, friendDay, friendFeed, listFriends, receivedCheers, shareAccess } = await import("../features/friends/server.ts");
+const { changeWorkoutAppointment, workoutAppointments } = await import("../features/friends/appointments.ts");
 const { changeSocial } = await import("../features/friends/social-server.ts");
 
 const { disconnectPair, sendPairCheer } = await import("../features/pair/server.ts");
@@ -30,6 +31,7 @@ const { publicPartnerSession } = await import("../features/friends/public-traini
 const { sessionTotals } = await import("../features/training/model.ts");
 const { GET: loadWorkout } = await import("../app/api/workout/route.ts");
 const { GET: loadFriends, POST: mutateFriends } = await import("../app/api/friends/route.ts");
+const { GET: loadEngagement, POST: mutateEngagement } = await import("../app/api/friends/engagement/route.ts");
 
 function fixture(t, beforeMigration = false) {
   const sqlite = new DatabaseSync(":memory:");
@@ -101,6 +103,77 @@ function seedRecords(db, owner) {
   db.sqlite.prepare("INSERT INTO personal_library (owner, id, kind, day, payload, updated) VALUES (?, ?, 'nutrition', ?, ?, ?)")
     .run(owner, "private-weight", date, JSON.stringify({ entry: { type: "weight", kg: 80 } }), date);
 }
+
+test("received cheers open only the active recipient's own workouts and disappear when withdrawn", async (t) => {
+  const db = fixture(t);
+  seedRecords(db, alex.id);
+  seedRecords(db, sam.id);
+  const existing = db.sqlite.prepare("SELECT payload FROM entries WHERE owner = ? AND id = 'log'").get(alex.id);
+  db.sqlite.prepare("INSERT INTO entries (owner, id, kind, payload, updated) VALUES (?, 'another', 'log', ?, ?)")
+    .run(alex.id, existing.payload, date);
+  await changeFriends(db, alex, { action: "invite" });
+  const code = (await listFriends(db, alex.id)).invite.code;
+  await changeFriends(db, sam, { action: "join", code });
+  await changeFriendFeedCheer(db, sam.id, alex.id, date, true, date);
+  const inbox = await receivedCheers(db, alex.id, date);
+  assert.deepEqual(inbox, [{ date, names: [sam.name], workouts: [{ id: "another", title: "力量" }, { id: "log", title: "力量" }] }]);
+  assert.deepEqual(await receivedCheers(db, sam.id, date), []);
+  await changeFriendFeedCheer(db, sam.id, alex.id, date, false, date);
+  assert.deepEqual(await receivedCheers(db, alex.id, date), []);
+});
+
+test("workout appointments follow the live buddy relationship and retry the same invitation safely", async (t) => {
+  const db = fixture(t);
+  db.sqlite.exec("INSERT INTO rooms (id, invite, owner) VALUES ('pair', 'example', 'test-alex'); " +
+    "INSERT INTO members (user, room, name) VALUES ('test-alex','pair','Alex'),('test-sam','pair','Sam')");
+  const now = Date.parse("2026-11-23T00:00:00Z");
+  const invite = { action: "propose", id: crypto.randomUUID(), partner: sam.id,
+    expectedOwner: alex.id, startsAt: now + 3_600_000, note: "健身房门口" };
+  await changeWorkoutAppointment(db, alex.id, invite, now);
+  await changeWorkoutAppointment(db, alex.id, invite, now);
+  const incoming = await workoutAppointments(db, sam.id, now);
+  assert.equal(incoming.length, 1);
+  assert.equal(incoming[0].status, "pending");
+  assert.deepEqual(await workoutAppointments(db, lee.id, now), []);
+  await assert.rejects(changeWorkoutAppointment(db, lee.id, invite, now), { status: 403 });
+  await assert.rejects(changeWorkoutAppointment(db, alex.id, { action: "accept", expectedOwner: alex.id, id: invite.id }, now), { status: 409 });
+  const accept = { action: "accept", expectedOwner: sam.id, id: invite.id };
+  await changeWorkoutAppointment(db, sam.id, accept, now);
+  await changeWorkoutAppointment(db, sam.id, accept, now);
+  assert.equal((await workoutAppointments(db, alex.id, now))[0].status, "accepted");
+  await changeWorkoutAppointment(db, alex.id, { action: "cancel", expectedOwner: alex.id, id: invite.id }, now);
+  assert.equal((await workoutAppointments(db, sam.id, now))[0].status, "cancelled");
+  db.sqlite.exec("DELETE FROM members WHERE user = 'test-sam'");
+  assert.deepEqual(await workoutAppointments(db, alex.id, now), []);
+  await assert.rejects(changeWorkoutAppointment(db, alex.id, { ...invite, id: crypto.randomUUID() }, now), { status: 409 });
+});
+
+test("the shared engagement API keeps invitations scoped to the signed-in account", async (t) => {
+  const db = fixture(t);
+  pair(db);
+  runtime.owner = null;
+  runtime.env.DB = db;
+  t.after(() => { runtime.owner = alex.id; runtime.env.DB = undefined; });
+  const origin = "https://example.invalid";
+  const endpoint = origin + "/api/friends/engagement";
+  const post = (body) => mutateEngagement(new Request(endpoint, {
+    method: "POST", body: JSON.stringify(body), headers: { origin, "Content-Type": "application/json" },
+  }));
+  assert.equal((await loadEngagement(new Request(endpoint))).status, 401);
+  runtime.owner = alex.id;
+  const id = crypto.randomUUID();
+  const startsAt = Date.now() + 60_000;
+  const proposal = { action: "propose", id, startsAt, note: "", partner: sam.id, expectedOwner: alex.id };
+  assert.equal((await post({ ...proposal, expectedOwner: sam.id })).status, 403);
+  assert.equal((await post(proposal)).status, 200);
+  runtime.owner = sam.id;
+  const inbox = await (await loadEngagement(new Request(endpoint))).json();
+  assert.deepEqual(inbox.appointments, [{ id, startsAt, sender: alex.id, recipient: sam.id, note: "", status: "pending" }]);
+  assert.equal((await post({ action: "cancel", id, expectedOwner: sam.id })).status, 409);
+  const response = await post({ action: "decline", id, expectedOwner: sam.id });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).appointments[0].status, "declined");
+});
 
 test("a completed workout can be renamed without changing its logged data", async (t) => {
   const db = fixture(t);

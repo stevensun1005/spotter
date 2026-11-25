@@ -77,7 +77,7 @@ export type FreeWorkoutKind = keyof typeof freeWorkoutPresets;
 
 export function startFreeSession(date: string, kind: FreeWorkoutKind = "strength"): Session {
   const session = startSession({ ...planBlank(date), ...freeWorkoutPresets[kind], exercises: [] }, "", date);
-  return kind === "incline" ? { ...session, cardio: { activity: "incline-walk" } } : session;
+  return kind === "strength" ? session : { ...session, cardio: { activity: kind === "incline" ? "incline-walk" : kind } };
 }
 
 export function sessionTotals(session: Session) {

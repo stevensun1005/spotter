@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { planSchema, type Plan } from "@/features/plans/model";
 import { resolvePlanTemplate } from "@/features/plans/template-link";
 import { ownTemplateJoin } from "@/features/plans/template-server";
+import { accountWorkoutPreferences } from "@/features/settings/account-workout-model";
 import { HttpError } from "@/server/http";
 import { anthropicRequester, askAnthropic } from "./anthropic";
 import { guidedContext } from "./guided";
@@ -57,6 +58,21 @@ async function calendarContext(db: D1Database, owner: string, request: CoachRequ
   return "用户选中的个人日历安排（" + from + " 至 " + to + "）\n" + JSON.stringify(plans);
 }
 
+async function trainingPreferenceContext(db: D1Database, owner: string) {
+  const entry = await db.prepare(
+    "SELECT payload FROM personal_library WHERE owner=? AND kind='workout-preferences' AND id='workout-preferences'",
+  ).bind(owner).first<{ payload: string }>();
+  if (!entry) return;
+  const preferences = accountWorkoutPreferences.safeParse(JSON.parse(entry.payload).values);
+  if (!preferences.success) return;
+  const { gyms, defaultUnit, defaultRest } = preferences.data;
+  const equipment = gyms?.profiles.find(({ id }) => id === gyms.active)?.gear;
+  if (!equipment?.length && defaultUnit === undefined && defaultRest === undefined) return;
+  return "用户已保存的训练偏好。使用所列器械或自重，重量用所选单位，休息时间使用秒。" +
+    " 用户在本次消息或问卷明确指定的新条件优先。\n" +
+    JSON.stringify({ equipment: equipment?.length ? equipment : undefined, defaultUnit, defaultRest });
+}
+
 export async function coachReply(owner: string, request: CoachRequest) {
   if (request.expectedOwner !== owner) throw new HttpError(403, "登录账号已切换，请刷新后重开对话。");
   const available = credentials();
@@ -68,6 +84,10 @@ export async function coachReply(owner: string, request: CoachRequest) {
       guidedContext(request.guided, request.date, request.draftDays ?? 7));
   }
   if (request.includePlans) context.push(await calendarContext(db, owner, request));
+  if (request.intent === "draft") {
+    const preferences = await trainingPreferenceContext(db, owner);
+    if (preferences) context.push(preferences);
+  }
   if (request.priorDraft) {
     context.push("用户提交用于修改的未保存草稿\n" +
       JSON.stringify(request.priorDraft.plans.map(({ date, title, category, minutes, durationNote, defaultRestSeconds, video, exercises }) =>

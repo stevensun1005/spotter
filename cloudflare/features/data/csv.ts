@@ -1,5 +1,6 @@
 import { measurements } from "@/features/body/measurements";
 import { isWarmupMove } from "@/features/training/sequence";
+import { cardioActivityTitles } from "@/features/training/cardio";
 import type { Backup } from "./model";
 
 type Cell = string | number | undefined;
@@ -39,7 +40,7 @@ export function trainingCsv(training: Backup["training"]) {
     const cardio = data.cardio;
     const common: Cell[] = [
       data.date, id, data.plan.title, data.plan.category, utc(data.started), utc(data.ended), data.minutes, data.finishedVideo ? "是" : "",
-      cardio?.activity === "incline-walk" ? "爬坡走" : undefined, cardio?.durationSeconds, cardio?.distanceKm, cardio?.speedKmh,
+      cardio ? cardioActivityTitles[cardio.activity] : undefined, cardio?.durationSeconds, cardio?.distanceKm, cardio?.speedKmh,
       cardio?.incline?.value, cardio?.incline?.kind === "percent" ? "%" : cardio?.incline?.kind === "level" ? "档" : undefined,
     ];
     const sets = data.plan.exercises.flatMap((move, exercise) => (data.rows[exercise] ?? []).flatMap((line, index) => line.done ? [[

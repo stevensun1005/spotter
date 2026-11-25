@@ -233,6 +233,33 @@ export async function changeFriendFeedCheer(db: D1Database, owner: string, frien
   if (!result) throw new HttpError(404, "这条打卡已不在朋友圈里。");
 }
 
+export async function receivedCheers(db: D1Database, owner: string, today: string) {
+  const firstDay = offsetDate(today, -13);
+  const { friends } = await listFriends(db, owner);
+  const names = new Map(friends.map(({ id, name }) => [id, name]));
+  const [cheers, workouts] = await Promise.all([
+    db.prepare("SELECT c.day AS date, c.sender FROM friend_feed_cheers c WHERE c.recipient = ? AND c.day BETWEEN ? AND ? AND " +
+      relationshipAccess("SELECT c.sender AS viewer, c.recipient AS peer", "checkin") + " ORDER BY c.day DESC, c.sender")
+      .bind(owner, firstDay, today).all<{ date: string; sender: string }>(),
+    db.prepare("SELECT e.id, json_extract(e.payload, '$.date') AS date, json_extract(e.payload, '$.plan.title') AS title " +
+      "FROM entries e WHERE e.owner = ? AND e.kind = 'log' AND json_extract(e.payload, '$.date') BETWEEN ? AND ? " +
+      "ORDER BY e.updated DESC, e.id")
+      .bind(owner, firstDay, today).all<{ id: string; date: string; title: string }>(),
+  ]);
+  const byDay = new Map<string, string[]>();
+  for (const { date, sender } of cheers.results) {
+    const name = names.get(sender);
+    if (!name) continue;
+    const group = byDay.get(date) ?? [];
+    group.push(name);
+    byDay.set(date, group);
+  }
+  return [...byDay].flatMap(([date, senderNames]) => {
+    const daily = workouts.results.filter((record) => record.date === date).map(({ id, title }) => ({ id, title }));
+    return daily.length ? [{ date, names: senderNames, workouts: daily }] : [];
+  });
+}
+
 function publicMeal(id: string, entry: MealEntry): SharedMeal {
   const { meal, name, grams, calories, protein, carbs, fat } = entry;
   return { id, meal, name, grams, calories, protein, carbs, fat };

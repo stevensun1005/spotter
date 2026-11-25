@@ -5,6 +5,7 @@ import { ChevronRight, Volume2 } from "lucide-react";
 import { useRestSignals } from "@/features/training/use-rest-reminder";
 import { SettingsRows } from "./settings-hub";
 import { saveWorkoutPreferences, useWorkoutPreferences, type WorkoutPreferences } from "./workout-prefs";
+import { queueAccountWorkoutPreferences } from "./account-workout-client";
 
 export type WorkoutSettingsPage = "workout" | "advanced" | "alerts";
 
@@ -52,16 +53,19 @@ function Select<T extends string | number>({ label, options, value, change }: {
   }}>{options.map(([option, name]) => <option key={option} value={option}>{name}</option>)}</select></label>;
 }
 
-export function WeightEntrySettings() {
+export function WeightEntrySettings({ owner = "" }: { owner?: string }) {
   const prefs = useWorkoutPreferences();
   return <Group title="重量记录"><Select label="新动作重量单位" options={[["kg", "公斤（kg）"], ["lb", "磅（lb）"]]} value={prefs.defaultUnit}
-    change={(defaultUnit) => saveWorkoutPreferences({ defaultUnit })} />
+    change={(defaultUnit) => {
+      saveWorkoutPreferences({ defaultUnit });
+      queueAccountWorkoutPreferences(owner, { defaultUnit });
+    }} />
     <Select label="重量调整步长" options={([0.25, 0.5, 1, 2.5, 5, 10] as const).map((amount) => [amount, String(amount)] as const)} value={prefs.weightStep}
       change={(weightStep) => saveWorkoutPreferences({ weightStep })} /></Group>;
 }
 
-export function WorkoutSettings({ page, navigate, children }: {
-  page: WorkoutSettingsPage; navigate?: (page: WorkoutSettingsPage) => void; children?: ReactNode;
+export function WorkoutSettings({ page, navigate, children, owner = "" }: {
+  page: WorkoutSettingsPage; navigate?: (page: WorkoutSettingsPage) => void; children?: ReactNode; owner?: string;
 }) {
   const prefs = useWorkoutPreferences();
   const signals = useRestSignals(prefs);
@@ -109,7 +113,11 @@ export function WorkoutSettings({ page, navigate, children }: {
   }
   return <div className="feature-stack">
     <Group title="休息设置">
-      <Count label="默认组间休息（秒）" value={prefs.defaultRest} change={(defaultRest) => saveWorkoutPreferences({ defaultRest: defaultRest ?? 30 })} />
+      <Count label="默认组间休息（秒）" value={prefs.defaultRest} change={(value) => {
+        const defaultRest = value ?? 30;
+        saveWorkoutPreferences({ defaultRest });
+        queueAccountWorkoutPreferences(owner, { defaultRest });
+      }} />
       <Count label="热身组休息（秒）" blank="跟随默认" value={prefs.warmupRest} change={(warmupRest) => saveWorkoutPreferences({ warmupRest })} />
       <Count label="换动作休息（秒）" blank="跟随默认" value={prefs.transitionRest} change={(transitionRest) => saveWorkoutPreferences({ transitionRest })} />
     </Group>

@@ -47,7 +47,7 @@ export function parseWorkoutPreferences(value: unknown, legacy?: unknown): Worko
 
 let sessionPrefs: WorkoutPreferences | undefined;
 
-function readWorkoutPreferences() {
+export function readWorkoutPreferences() {
   if (sessionPrefs) return sessionPrefs;
   try {
     const raw = localStorage.getItem(key);
@@ -55,6 +55,17 @@ function readWorkoutPreferences() {
   } catch {
     return parseWorkoutPreferences(undefined);
   }
+}
+
+export function storedWorkoutPreferences(): Pick<Partial<WorkoutPreferences>, "defaultRest" | "defaultUnit"> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) ?? "null");
+    const values = parseWorkoutPreferences(raw);
+    return {
+      ...(typeof raw?.defaultRest === "number" ? { defaultRest: values.defaultRest } : {}),
+      ...(raw?.defaultUnit === "kg" || raw?.defaultUnit === "lb" ? { defaultUnit: values.defaultUnit } : {}),
+    };
+  } catch { return {}; }
 }
 
 export function saveWorkoutPreferences(update: Partial<WorkoutPreferences>) {
