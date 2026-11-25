@@ -260,7 +260,12 @@ struct NativeSpotterApp: View {
         .background { SpotterWindowAppearance(theme: theme).accessibilityHidden(true) }
         .task { await account.restore() }
         .onChange(of: account.profile?.id) { owner in
-            if owner == nil { Task { await NativeTrainingNotifications.shared.clear() } }
+            if owner == nil {
+                Task {
+                    await NativeTrainingNotifications.shared.scheduleRest(nil)
+                    await NativeTrainingNotifications.shared.clear()
+                }
+            }
         }
         .onOpenURL(perform: acceptInviteURL)
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
@@ -466,6 +471,8 @@ private struct NativeSpotterTabs: View {
     @AppStorage(NativePreferenceKey.nutritionModule) private var showsNutrition = true
     @AppStorage(NativePreferenceKey.reduceMotion) private var reduceMotion = false
     @AppStorage(NativePreferenceKey.largerText) private var largerText = false
+    @AppStorage(NativeTrainingNotifications.restPreference) private var backgroundRestAlerts = false
+    @AppStorage(NativePreferenceKey.restSound) private var restSound = false
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.dynamicTypeSize) private var systemTextSize
     let owner: String
@@ -514,6 +521,9 @@ private struct NativeSpotterTabs: View {
         .task(id: reminderSchedule) {
             guard scenePhase == .active else { return }
             await NativeTrainingNotifications.shared.schedule(reminderSchedule)
+        }
+        .task(id: restAlert) {
+            await NativeTrainingNotifications.shared.scheduleRest(restAlert)
         }
         .sheet(isPresented: $showCoach, onDismiss: {
             stageInvite()
@@ -645,6 +655,11 @@ private struct NativeSpotterTabs: View {
         return .init(enabled: reminderEnabled, time: reminderMinute, days: days, active: scenePhase == .active)
     }
 
+    private var restAlert: NativeTrainingNotifications.RestAlert? {
+        guard backgroundRestAlerts, let deadline = workouts.active?.session?.runningRestDeadlineMilliseconds else { return nil }
+        return .init(deadlineMilliseconds: deadline, playsSound: restSound)
+    }
+
     private var welcomeKey: String { "spotter.native.welcome.v1." + owner }
 
     private func refreshHome() async {
@@ -749,7 +764,16 @@ private struct NativeSpotterTabs: View {
             ForEach(contentSections, id: \.self) { section in tabScene(section).tag(section) }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            dock.background {
+            VStack(spacing: 0) {
+                if let active = workouts.active, let session = active.session, !showActiveWorkout {
+                    NativeWorkoutStatusStrip(title: active.displayTitle, session: session, open: openActiveWorkout)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                dock
+            }
+            .animation(allowsMotion ? .spring(response: 0.34, dampingFraction: 0.85) : nil,
+                       value: workouts.active != nil && !showActiveWorkout)
+            .background {
                 GeometryReader { geometry in
                     let top = geometry.frame(in: .global).minY
                     Color.clear
@@ -876,6 +900,70 @@ private struct NativeSpotterTabs: View {
     }
 }
 
+private struct NativeWorkoutStatusStrip: View {
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    let title: String
+    let session: NativeWorkoutSession
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 10) {
+                Image(systemName: session.isRunning ? "figure.strengthtraining.traditional" : "pause.fill")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(accent.tint)
+                    .frame(width: 31, height: 31)
+                    .background(accent.selection, in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(session.isRunning ? "\(session.completedSets) 组已完成" : "计时已暂停")
+                        .font(.caption).foregroundStyle(SpotterPalette.muted).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    timer(at: Int(context.date.timeIntervalSince1970 * 1_000))
+                }
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(SpotterPalette.ink)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(minHeight: 46)
+            .contentShape(.rect)
+            .spotterGlass(cornerRadius: 20, tint: accent.fill.opacity(0.20), interactive: motion != nil)
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityIdentifier("spotter-active-workout-strip")
+        .accessibilityHint("返回进行中的训练")
+        .frame(maxWidth: 530)
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
+    }
+
+    private func timer(at now: Int) -> some View {
+        let rest = session.restStatus(at: now)
+        let remaining = rest?.remainingSeconds ?? 0
+        let elapsed = session.elapsedMilliseconds(at: now)
+        return Group {
+            if rest != nil && remaining == 0 {
+                Text("休息结束").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+            } else {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(rest != nil ? "休息" : "训练用时").font(.caption2)
+                    Text(NativeWorkoutView.duration(rest != nil ? remaining * 1_000 : elapsed))
+                        .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                }
+                .foregroundStyle(rest != nil ? accent.tint : SpotterPalette.ink)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
 @MainActor
 final class NativeTrainingNotifications {
     struct Schedule: Equatable {
@@ -885,10 +973,18 @@ final class NativeTrainingNotifications {
         let active: Bool
     }
 
+    struct RestAlert: Equatable {
+        let deadlineMilliseconds: Int
+        let playsSound: Bool
+    }
+
     static let shared = NativeTrainingNotifications()
+    static let restPreference = "spotter.native.workout.restNotification"
     private let center = UNUserNotificationCenter.current()
     private let prefix = "spotter.training.reminder."
+    private let restIdentifier = "spotter.training.rest-end"
     private var generation = 0
+    private var restGeneration = 0
 
     func enable() async -> Bool {
         (try? await center.requestAuthorization(options: [.alert, .sound])) == true
@@ -896,6 +992,29 @@ final class NativeTrainingNotifications {
 
     func clear() async {
         await schedule(.init(enabled: false, time: 0, days: [], active: true))
+    }
+
+    func scheduleRest(_ alert: RestAlert?) async {
+        restGeneration += 1
+        let revision = restGeneration
+        center.removePendingNotificationRequests(withIdentifiers: [restIdentifier])
+        guard let alert else {
+            center.removeDeliveredNotifications(withIdentifiers: [restIdentifier])
+            return
+        }
+        let permission = await center.notificationSettings().authorizationStatus
+        guard revision == restGeneration, !Task.isCancelled,
+              [.authorized, .provisional, .ephemeral].contains(permission) else { return }
+
+        let deadline = Date(timeIntervalSince1970: Double(alert.deadlineMilliseconds) / 1_000)
+        let seconds = deadline.timeIntervalSinceNow
+        guard seconds > 0 else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "组间休息结束"
+        content.body = "可以回到训练搭子继续下一组。"
+        if alert.playsSound { content.sound = .default }
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, seconds), repeats: false)
+        try? await center.add(.init(identifier: restIdentifier, content: content, trigger: trigger))
     }
 
     func schedule(_ schedule: Schedule) async {

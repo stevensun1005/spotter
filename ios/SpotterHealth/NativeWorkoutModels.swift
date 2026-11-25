@@ -261,7 +261,21 @@ struct NativeWorkoutSession: Equatable, Sendable {
         }
     }
 
-    struct SetPosition: Equatable { let move: Int; let row: Int }
+    struct SetPosition: Codable, Hashable, Sendable { let move: Int; let row: Int }
+
+    struct SetCompletion: Codable, Equatable, Sendable {
+        let position: SetPosition
+        let previousPosition: SetPosition?
+        let previousRest: NativeJSON
+    }
+
+    struct RestStatus: Equatable {
+        let kind: String
+        let remainingSeconds: Int
+    }
+
+    private static let maximumElapsedMilliseconds = 86_400_000
+    static let maximumRestSeconds = 600
 
     var raw: NativeJSON
     var plan: NativePlan { NativePlan(raw: raw["plan"]) }
@@ -296,13 +310,13 @@ struct NativeWorkoutSession: Equatable, Sendable {
     func elapsedMilliseconds(at now: Int = Self.nowMilliseconds) -> Int {
         let clock = raw["clock"]
         guard case .object = clock else {
-            return min(86_400_000, max(0, Int(raw["minutes"].number * 60_000)))
+            return min(Self.maximumElapsedMilliseconds, max(0, Int(raw["minutes"].number * 60_000)))
         }
         let saved = Int(clock["elapsed"].number)
         let delta: Int
         if case .number(let since) = clock["runningSince"] { delta = max(0, now - Int(since)) }
         else { delta = 0 }
-        return min(86_400_000, max(0, saved + delta))
+        return min(Self.maximumElapsedMilliseconds, max(0, saved + delta))
     }
     mutating func pause(at now: Int = Self.nowMilliseconds) {
         raw["clock"] = .object(["elapsed": .number(Double(elapsedMilliseconds(at: now))), "runningSince": .null])
@@ -310,6 +324,43 @@ struct NativeWorkoutSession: Equatable, Sendable {
     mutating func resume(at now: Int = Self.nowMilliseconds) {
         guard !isRunning else { return }
         raw["clock"] = .object(["elapsed": .number(Double(elapsedMilliseconds(at: now))), "runningSince": .number(Double(now))])
+    }
+
+    var runningRestDeadlineMilliseconds: Int? {
+        guard case .number(let since) = raw["clock"]["runningSince"],
+              let deadline = Self.restDeadline(raw["rest"]) else { return nil }
+        return Int(exactly: (since + deadline - raw["clock"]["elapsed"].number).rounded(.up))
+    }
+
+    func restStatus(at now: Int = Self.nowMilliseconds) -> RestStatus? {
+        let rest = raw["rest"]
+        guard let deadline = Self.restDeadline(rest) else { return nil }
+        let remaining = max(0, deadline - Double(elapsedMilliseconds(at: now)))
+        return RestStatus(kind: rest["kind"].string, remainingSeconds: Int(ceil(remaining / 1_000)))
+    }
+
+    @discardableResult
+    mutating func adjustRest(by seconds: Int, at now: Int = Self.nowMilliseconds) -> Bool {
+        guard seconds != 0, let deadline = Self.restDeadline(raw["rest"]) else { return false }
+        let elapsed = Double(elapsedMilliseconds(at: now))
+        guard seconds > 0 || deadline > elapsed else { return false }
+        let limit = elapsed + Double(Self.maximumRestSeconds) * 1_000
+        let adjusted = min(limit, max(elapsed, max(elapsed, deadline) + Double(seconds) * 1_000))
+        guard adjusted != deadline else { return false }
+        raw["rest"]["until"] = .number(adjusted)
+        return true
+    }
+
+    mutating func clearRest() {
+        var fields = raw.object
+        fields.removeValue(forKey: "rest")
+        raw = .object(fields)
+    }
+
+    private static func restDeadline(_ rest: NativeJSON) -> Double? {
+        guard case .number(let until) = rest["until"],
+              (0...Double(Self.maximumElapsedMilliseconds + Self.maximumRestSeconds * 1_000)).contains(until) else { return nil }
+        return until
     }
     static var nowMilliseconds: Int { Int((Date().timeIntervalSince1970 * 1000).rounded()) }
     static func day(_ date: Date = Date()) -> String {
@@ -362,6 +413,44 @@ struct NativeWorkoutSession: Equatable, Sendable {
         guard groups.indices.contains(move), groups[move].indices.contains(row) else { return }
         groups[move][row][key] = value
         raw["rows"] = .array(groups.map(NativeJSON.array))
+    }
+
+    func line(at position: SetPosition) -> NativeJSON? {
+        let groups = rows
+        guard groups.indices.contains(position.move), groups[position.move].indices.contains(position.row) else { return nil }
+        return groups[position.move][position.row]
+    }
+
+    @discardableResult
+    mutating func completeSet(at position: SetPosition, after previousPosition: SetPosition? = nil,
+                              now: Int = Self.nowMilliseconds) -> SetCompletion? {
+        guard plan.exercises.indices.contains(position.move), let line = line(at: position), !line["done"].bool else { return nil }
+        let completion = SetCompletion(position: position, previousPosition: previousPosition, previousRest: raw["rest"])
+        setLine(move: position.move, row: position.row, key: "done", value: .bool(true))
+        clearRest()
+        if let next = nextSet(after: position) {
+            let rest = restBetween(position, and: next)
+            if rest.seconds > 0 {
+                raw["rest"] = .object(["until": .number(Double(elapsedMilliseconds(at: now)) + rest.seconds * 1_000),
+                                      "kind": .string(rest.kind)])
+            }
+        }
+        return completion
+    }
+
+    @discardableResult
+    mutating func undoSetCompletion(_ completion: SetCompletion, at now: Int = Self.nowMilliseconds) -> Bool {
+        let position = completion.position
+        guard line(at: position)?["done"].bool == true else { return false }
+        setLine(move: position.move, row: position.row, key: "done", value: .bool(false))
+        let previousSetStillDone = completion.previousPosition.map { line(at: $0)?["done"].bool == true } ?? true
+        if previousSetStillDone, let deadline = Self.restDeadline(completion.previousRest),
+           deadline > Double(elapsedMilliseconds(at: now)) {
+            raw["rest"] = completion.previousRest
+        } else {
+            clearRest()
+        }
+        return true
     }
     mutating func addSet(move: Int) {
         var groups = rows

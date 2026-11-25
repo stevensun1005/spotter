@@ -42,6 +42,7 @@ final class NativeWorkoutStore: ObservableObject {
     private var entryRevision = 0
     private var localCompletedPlanIds: Set<String> = []
     private var networkAvailable: Bool?
+    private var lastSetCompletion: LastSetCompletion?
 
     private(set) var plans: [NativeWorkoutEntry] = []
     private(set) var logs: [NativeWorkoutEntry] = []
@@ -49,6 +50,11 @@ final class NativeWorkoutStore: ObservableObject {
     private var savedDrafts: [NativeWorkoutEntry] = []
     private var savedLogs: [NativeWorkoutEntry] = []
     var drafts: [NativeWorkoutEntry] { savedDrafts.filter { $0.id != active?.id } }
+    var undoableSet: NativeWorkoutSession.SetPosition? {
+        guard let active, let lastSetCompletion, lastSetCompletion.workoutID == active.id,
+              active.session?.line(at: lastSetCompletion.completion.position)?["done"].bool == true else { return nil }
+        return lastSetCompletion.completion.position
+    }
     var pendingDraftRemovalCount: Int { discardedDrafts.count }
     var todayPendingPlans: [NativeWorkoutEntry] { pendingPlans(on: NativeWorkoutSession.day()) }
     var partnerID: String { room["partner"]["id"].string }
@@ -106,6 +112,7 @@ final class NativeWorkoutStore: ObservableObject {
         if let cacheURL, let data = try? Data(contentsOf: cacheURL), let saved = try? JSONDecoder().decode(Recovery.self, from: data),
            saved.owner == owner, saved.origin == api.origin {
             active = saved.active?.owner == owner && saved.active?.kind == "draft" ? saved.active : nil
+            if let completion = saved.lastSetCompletion, completion.workoutID == active?.id { lastSetCompletion = completion }
             draftNeedsSync = active != nil && (saved.draftNeedsSync ?? true)
             pendingCheckins = saved.pending.filter { $0.owner == owner && $0.kind == "log" }
             discardedDrafts = (saved.discarded ?? []).filter { UUID(uuidString: $0) != nil }
@@ -134,6 +141,11 @@ final class NativeWorkoutStore: ObservableObject {
 
     deinit { reachability.cancel() }
 
+    private struct LastSetCompletion: Codable {
+        let workoutID: String
+        let completion: NativeWorkoutSession.SetCompletion
+    }
+
     private struct Recovery: Codable {
         let origin: String
         let owner: String
@@ -141,6 +153,7 @@ final class NativeWorkoutStore: ObservableObject {
         let pending: [NativeWorkoutEntry]
         let discarded: [String]?
         let draftNeedsSync: Bool?
+        let lastSetCompletion: LastSetCompletion?
     }
 
     private struct Snapshot: Codable {
@@ -163,8 +176,9 @@ final class NativeWorkoutStore: ObservableObject {
     private func persist() -> Bool {
         guard let cacheURL else { errorMessage = "无法保存本机恢复记录，请保持 App 打开并联网保存。"; return false }
         do {
+            let completion = lastSetCompletion.flatMap { $0.workoutID == active?.id ? $0 : nil }
             let recovery = Recovery(origin: origin, owner: owner, active: active, pending: pendingCheckins,
-                                    discarded: discardedDrafts, draftNeedsSync: draftNeedsSync)
+                                    discarded: discardedDrafts, draftNeedsSync: draftNeedsSync, lastSetCompletion: completion)
             try Self.writeLocal(recovery, to: cacheURL)
             return true
         } catch { errorMessage = "本机恢复记录未保存，请保持 App 打开并联网保存。"; return false }
@@ -219,6 +233,7 @@ final class NativeWorkoutStore: ObservableObject {
             if viewerName == loadedViewerName, let name = value.me.name { useConfirmedViewerName(name) }
             if let active, value.entries.contains(where: { $0.owner == owner && $0.kind == "log" && $0.id == active.id }) {
                 self.active = nil
+                lastSetCompletion = nil
                 draftNeedsSync = false
                 persist()
             }
@@ -328,6 +343,7 @@ final class NativeWorkoutStore: ObservableObject {
         discardedDrafts = []
         completedPlanIds = []
         recentHistoryStart = nil
+        lastSetCompletion = nil
         active = nil; pendingCheckins = []; entries = []; room = .null
         libraryRows = []
         proteinProducts = []; defaultProteinProductID = nil; tracksWorkoutProtein = false
@@ -358,7 +374,7 @@ final class NativeWorkoutStore: ObservableObject {
             discardedDrafts = previousRemovals
             return false
         }
-        if current?.id == entry.id { draftTask?.cancel() }
+        if current?.id == entry.id { draftTask?.cancel(); lastSetCompletion = nil }
         entryRevision &+= 1
         if isLoading { reloadAfterPlanWrite = true }
         entries.removeAll { $0.key == entry.key && $0.kind == "draft" }
@@ -383,6 +399,7 @@ final class NativeWorkoutStore: ObservableObject {
     }
 
     private func begin(_ session: NativeWorkoutSession) {
+        lastSetCompletion = nil
         active = NativeWorkoutEntry(id: UUID().uuidString.lowercased(), owner: owner, kind: "draft",
                                     updated: ISO8601DateFormatter().string(from: Date()), data: session.raw)
         errorMessage = nil
@@ -395,6 +412,7 @@ final class NativeWorkoutStore: ObservableObject {
         // A draft opened from another device keeps saved elapsed time until explicitly resumed here.
         if restored.isRunning { restored.pause(at: Int(restored.raw["clock"]["runningSince"].number)) }
         restored.resume()
+        lastSetCompletion = nil
         active = entry
         active?.data = restored.raw
         errorMessage = nil
@@ -421,21 +439,39 @@ final class NativeWorkoutStore: ObservableObject {
         mutate { $0.setLine(move: move, row: row, key: key, value: .number(bounded)) }
     }
 
-    func toggleDone(move: Int, row: Int) {
+    @discardableResult
+    func toggleDone(move: Int, row: Int) -> Bool {
+        guard let id = active?.id else { return false }
+        let position = NativeWorkoutSession.SetPosition(move: move, row: row)
+        let previousPosition = undoableSet
+        var completed = false
         mutate { session in
-            guard session.rows.indices.contains(move), session.rows[move].indices.contains(row) else { return }
-            session.setLine(move: move, row: row, key: "done", value: .bool(!session.rows[move][row]["done"].bool))
-            var raw = session.raw.object
-            raw.removeValue(forKey: "rest")
-            let position = NativeWorkoutSession.SetPosition(move: move, row: row)
-            if session.rows[move][row]["done"].bool, let next = session.nextSet(after: position) {
-                let rest = session.restBetween(position, and: next)
-                if rest.seconds > 0 {
-                    raw["rest"] = .object(["until": .number(Double(session.elapsedMilliseconds()) + rest.seconds * 1_000), "kind": .string(rest.kind)])
+            guard let line = session.line(at: position) else { return }
+            if line["done"].bool {
+                if previousPosition == position, let lastSetCompletion {
+                    session.undoSetCompletion(lastSetCompletion.completion)
+                    self.lastSetCompletion = nil
+                } else {
+                    session.setLine(move: move, row: row, key: "done", value: .bool(false))
+                    if previousPosition == nil { session.clearRest() }
                 }
+            } else if let action = session.completeSet(at: position, after: previousPosition) {
+                lastSetCompletion = LastSetCompletion(workoutID: id, completion: action)
+                completed = true
             }
-            session.raw = .object(raw)
         }
+        return completed
+    }
+
+    func undoLastCompletedSet() -> NativeWorkoutSession.SetPosition? {
+        guard let position = undoableSet, let lastSetCompletion else { return nil }
+        var undone = false
+        mutate { session in
+            guard session.undoSetCompletion(lastSetCompletion.completion) else { return }
+            self.lastSetCompletion = nil
+            undone = true
+        }
+        return undone ? position : nil
     }
 
     func toggleSetKind(move: Int, row: Int, kind: String) {
@@ -547,6 +583,7 @@ final class NativeWorkoutStore: ObservableObject {
             active = nil
             draftNeedsSync = false
             guard persist() else { active = current; pendingCheckins = oldPending; draftNeedsSync = previousDirty; return nil }
+            lastSetCompletion = nil
             status = "打卡已保存在本机，正在上传"
             Task { await retryPending() }
             return checkin
@@ -1860,7 +1897,7 @@ struct NativeActiveWorkoutView: View {
     @State private var dismissAfterPanel = false
     @State private var changedIdleTimer = false
     @State private var lastRestRemaining: Int?
-    @State private var recentlyCompleted: NativeWorkoutSession.SetPosition?
+    @State private var undoneSet: NativeWorkoutSession.SetPosition?
     @State private var setFeedback = UIImpactFeedbackGenerator(style: .light)
 
     private var needsIdleTimer: Bool {
@@ -1908,33 +1945,46 @@ struct NativeActiveWorkoutView: View {
     private func workout(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
         VStack(spacing: 0) {
             editorHeader(entry, session: session)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    let total = session.rows.flatMap { $0 }.count + (session.plan.video.isEmpty ? 0 : 1)
-                    if total > 0 { ProgressView(value: Double(session.completedSets + (session.raw["finishedVideo"].bool ? 1 : 0)), total: Double(total)).tint(SpotterPalette.accent).padding(.horizontal, 2) }
-                    if !session.plan.raw["durationNote"].string.isEmpty { Text(session.plan.raw["durationNote"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
-                    if showNext, let next = nextSet(session) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("下一组").font(.system(size: 13))
-                            Text(session.plan.exercises[next.move]["name"].string).font(.system(size: 14, weight: .bold)).lineLimit(2)
-                            Spacer(minLength: 0); Text("第 \(next.row + 1) 组").font(.system(size: 13))
-                        }.padding(11).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        let total = session.rows.flatMap { $0 }.count + (session.plan.video.isEmpty ? 0 : 1)
+                        if total > 0 { ProgressView(value: Double(session.completedSets + (session.raw["finishedVideo"].bool ? 1 : 0)), total: Double(total)).tint(SpotterPalette.accent).padding(.horizontal, 2) }
+                        if !session.plan.raw["durationNote"].string.isEmpty { Text(session.plan.raw["durationNote"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
+                        if showNext, let next = nextSet(session) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("下一组").font(.system(size: 13))
+                                Text(session.plan.exercises[next.move]["name"].string).font(.system(size: 14, weight: .bold)).lineLimit(2)
+                                Spacer(minLength: 0); Text("第 \(next.row + 1) 组").font(.system(size: 13))
+                            }.padding(11).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+                        }
+                        if let cardio = session.cardioActivity { NativeWorkoutCardioFields(store: store, activity: cardio) }
+                        if let video = URL(string: session.plan.video), !session.plan.video.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Link(destination: video) { Label("打开跟练视频", systemImage: "play.circle") }
+                                Toggle("已完成跟练", isOn: Binding(get: { session.raw["finishedVideo"].bool }, set: { value in store.mutate { $0.raw["finishedVideo"] = .bool(value) } }))
+                            }.font(.system(size: 14)).padding(13).spotterCard()
+                        }
+                        ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in
+                            exerciseCard(index, move: move, session: session).id(index)
+                        }
+                        if session.plan.exercises.isEmpty && session.raw["cardio"] == .null {
+                            VStack(spacing: 12) { tile("dumbbell", size: 44); Text("添加动作，开始记录训练").font(.system(size: 15, weight: .semibold)); Button("添加动作") { panel = .add }.buttonStyle(SpotterNativeButtonStyle(primary: true)) }
+                                .frame(maxWidth: .infinity).padding(30).spotterCard()
+                        }
+                        if let error = store.errorMessage { Text(error).font(.system(size: 13)).foregroundStyle(.red) }
+                    }.padding(14)
+                }
+                .onChange(of: undoneSet) { target in
+                    guard let target else { return }
+                    Task { @MainActor in
+                        await Task.yield()
+                        guard target == undoneSet else { return }
+                        withAnimation(motion) { scroll.scrollTo(target, anchor: .center) }
                     }
-                    if let cardio = session.cardioActivity { NativeWorkoutCardioFields(store: store, activity: cardio) }
-                    if let video = URL(string: session.plan.video), !session.plan.video.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Link(destination: video) { Label("打开跟练视频", systemImage: "play.circle") }
-                            Toggle("已完成跟练", isOn: Binding(get: { session.raw["finishedVideo"].bool }, set: { value in store.mutate { $0.raw["finishedVideo"] = .bool(value) } }))
-                        }.font(.system(size: 14)).padding(13).spotterCard()
-                    }
-                    ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in exerciseCard(index, move: move, session: session) }
-                    if session.plan.exercises.isEmpty && session.raw["cardio"] == .null {
-                        VStack(spacing: 12) { tile("dumbbell", size: 44); Text("添加动作，开始记录训练").font(.system(size: 15, weight: .semibold)); Button("添加动作") { panel = .add }.buttonStyle(SpotterNativeButtonStyle(primary: true)) }
-                            .frame(maxWidth: .infinity).padding(30).spotterCard()
-                    }
-                    if let error = store.errorMessage { Text(error).font(.system(size: 13)).foregroundStyle(.red) }
-                }.padding(14)
-            }.background(SpotterPalette.background).clipShape(UnevenTopRoundedShape(radius: 23))
+                }
+            }
+            .background(SpotterPalette.background).clipShape(UnevenTopRoundedShape(radius: 23))
             ZStack(alignment: .bottom) {
                 if let edit { keypad(edit, session: session).transition(.move(edge: .bottom).combined(with: .opacity)) }
                 else { actionBar(session).transition(.opacity) }
@@ -1976,25 +2026,82 @@ struct NativeActiveWorkoutView: View {
                     Text("\(session.volumeKg.formatted(.number.precision(.fractionLength(0...1)))) kg 容量").font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
                 }
             }
-            Text(store.status).font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
-            if session.raw["rest"] != .null {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    let remaining = max(0, Int(ceil((session.raw["rest"]["until"].number - Double(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1000)))) / 1000)))
-                    HStack {
-                        Text(remaining > 0 ? "\(session.raw["rest"]["kind"].string) \(NativeWorkoutView.duration(remaining * 1000))" : "休息结束").font(.system(size: 13, weight: .semibold))
-                        Spacer()
-                        Button(remaining > 0 ? "跳过" : "关闭") { store.mutate { session in var raw = session.raw.object; raw.removeValue(forKey: "rest"); session.raw = .object(raw) } }.font(.system(size: 12))
-                    }.padding(.top, 5).onAppear { lastRestRemaining = remaining }
-                        .onChange(of: remaining) { current in
-                        if (lastRestRemaining ?? 0) > 0, current == 0, phase == .active {
-                            if restSound { AudioServicesPlaySystemSound(1057) }
-                            if restHaptics { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-                        }
-                        lastRestRemaining = current
+            HStack(spacing: 8) {
+                Text(store.status).font(.caption2).foregroundStyle(SpotterPalette.muted).lineLimit(2)
+                Spacer(minLength: 0)
+                if let position = store.undoableSet, session.plan.exercises.indices.contains(position.move) {
+                    Button(action: undoLatestSet) {
+                        Label("撤销上一组", systemImage: "arrow.uturn.backward").font(.caption.weight(.semibold))
                     }
+                    .buttonStyle(.spotterControl)
+                    .disabled(store.isBusy)
+                    .accessibilityIdentifier("workout-undo-set")
+                    .accessibilityHint("\(session.plan.exercises[position.move]["name"].string)，第 \(position.row + 1) 组")
                 }
             }
+            if session.raw["rest"] != .null { restTimer(session) }
         }.padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 12)
+    }
+
+    private func restTimer(_ session: NativeWorkoutSession) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let rest = session.restStatus(at: Int(context.date.timeIntervalSince1970 * 1_000)) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 5) {
+                        restSummary(rest).fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 4)
+                        restControls(rest)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        restSummary(rest)
+                        restControls(rest)
+                    }
+                }
+                .padding(.top, 5)
+                .onAppear { lastRestRemaining = rest.remainingSeconds }
+                .onChange(of: rest.remainingSeconds) { remaining in
+                    if (lastRestRemaining ?? 0) > 0, remaining == 0, phase == .active {
+                        if restSound { AudioServicesPlaySystemSound(1057) }
+                        if restHaptics { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+                    }
+                    lastRestRemaining = remaining
+                }
+            }
+        }
+    }
+
+    private func restSummary(_ rest: NativeWorkoutSession.RestStatus) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(rest.remainingSeconds > 0 ? rest.kind : "休息结束").font(.caption.weight(.semibold))
+            if rest.remainingSeconds > 0 {
+                Text(NativeWorkoutView.duration(rest.remainingSeconds * 1_000)).font(.subheadline.bold()).monospacedDigit()
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(rest.remainingSeconds > 0 ? rest.kind : "休息结束")
+        .accessibilityValue(rest.remainingSeconds > 0 ? "剩余 \(rest.remainingSeconds) 秒" : "")
+        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityIdentifier("workout-rest-summary")
+    }
+
+    private func restControls(_ rest: NativeWorkoutSession.RestStatus) -> some View {
+        HStack(spacing: 5) {
+            Button { store.mutate { $0.adjustRest(by: -15) } } label: { Text("−15 秒").font(.caption.weight(.semibold)) }
+                .disabled(rest.remainingSeconds == 0)
+                .accessibilityLabel("减少休息 15 秒")
+                .accessibilityIdentifier("workout-rest-less")
+            Button { store.mutate { $0.adjustRest(by: 15) } } label: { Text("+15 秒").font(.caption.weight(.semibold)) }
+                .disabled(rest.remainingSeconds >= NativeWorkoutSession.maximumRestSeconds)
+                .accessibilityLabel("增加休息 15 秒")
+                .accessibilityIdentifier("workout-rest-more")
+            Button { store.mutate { $0.clearRest() } } label: {
+                Text(rest.remainingSeconds > 0 ? "跳过" : "关闭").font(.caption.weight(.semibold))
+            }
+            .accessibilityLabel(rest.remainingSeconds > 0 ? "跳过休息" : "关闭休息计时")
+            .accessibilityIdentifier("workout-rest-skip")
+        }
+        .buttonStyle(.spotterControl)
+        .disabled(store.isBusy)
     }
 
     private func exerciseCard(_ index: Int, move: NativeJSON, session: NativeWorkoutSession) -> some View {
@@ -2015,7 +2122,10 @@ struct NativeActiveWorkoutView: View {
                     if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
                     Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
                     if showTempo && !move["tempo"].string.isEmpty { Text("节奏 \(move["tempo"].string)").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
-                    ForEach(Array((session.rows.indices.contains(index) ? session.rows[index] : []).enumerated()), id: \.offset) { row, line in setRow(index, row: row, move: move, line: line) }
+                    ForEach(Array((session.rows.indices.contains(index) ? session.rows[index] : []).enumerated()), id: \.offset) { row, line in
+                        setRow(index, row: row, move: move, line: line)
+                            .id(NativeWorkoutSession.SetPosition(move: index, row: row))
+                    }
                     Button { withAnimation(motion) { store.mutate { $0.addSet(move: index) } } } label: { Label("增加一组", systemImage: "plus").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity) }
                         .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled((session.rows.indices.contains(index) ? session.rows[index].count : 30) >= 30)
                 }.transition(.offset(y: -5).combined(with: .opacity))
@@ -2056,14 +2166,22 @@ struct NativeActiveWorkoutView: View {
 
     private func toggleDone(move: Int, row: Int) {
         edit = nil
-        store.toggleDone(move: move, row: row)
-        guard let session = store.active?.session, session.rows.indices.contains(move), session.rows[move].indices.contains(row),
-              session.rows[move][row]["done"].bool else { return }
+        guard store.toggleDone(move: move, row: row), let session = store.active?.session else { return }
         setFeedback.impactOccurred()
         let position = NativeWorkoutSession.SetPosition(move: move, row: row)
-        recentlyCompleted = position
+        undoneSet = nil
         guard autoAdvance, let next = session.nextSet(after: position) else { return }
         withAnimation(motion) { openedMove = next.move }
+    }
+
+    private func undoLatestSet() {
+        guard let position = store.undoLastCompletedSet() else { return }
+        setFeedback.impactOccurred()
+        withAnimation(motion) {
+            edit = nil
+            openedMove = position.move
+            undoneSet = position
+        }
     }
 
     private func updateIdleTimer(_ enabled: Bool) {
@@ -2108,7 +2226,12 @@ struct NativeActiveWorkoutView: View {
     }
     private func activate(_ target: NativeSetTarget, value: Double) { edit = target; editText = value.formatted(.number.grouping(.never).precision(.fractionLength(0...2))); pristine = true; openedMove = target.move }
     private func nextSet(_ session: NativeWorkoutSession) -> NativeSetTarget? {
-        session.nextSet(after: recentlyCompleted).map { NativeSetTarget(move: $0.move, row: $0.row, key: "weight") }
+        let reopened = undoneSet.flatMap { position in
+            session.plan.exercises.indices.contains(position.move) && session.line(at: position)?["done"].bool == false
+                ? position : nil
+        }
+        let position = reopened ?? session.nextSet(after: store.undoableSet)
+        return position.map { NativeSetTarget(move: $0.move, row: $0.row, key: "weight") }
     }
     private func finish() {
         if (store.tracksWorkoutProtein && !store.proteinProducts.isEmpty) || store.active?.data["proteinShake"].bool == true { panel = .finish }

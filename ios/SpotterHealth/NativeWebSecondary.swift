@@ -1613,12 +1613,13 @@ private struct SecondaryHistory: View {
         var id: Self { self }
     }
     private enum Selection: Identifiable {
-        case day(String), workout(NativeWorkoutEntry)
+        case monthPicker, day(String), workout(NativeWorkoutEntry)
         enum Identity: Hashable {
-            case day(String), workout(NativeWorkoutEntry.Key)
+            case monthPicker, day(String), workout(NativeWorkoutEntry.Key)
         }
         var id: Identity {
             switch self {
+            case .monthPicker: return .monthPicker
             case .day(let day): return .day(day)
             case .workout(let entry): return .workout(entry.key)
             }
@@ -1631,7 +1632,7 @@ private struct SecondaryHistory: View {
     private let sectionSpacing: CGFloat = 7
     private let navigationButtonSize: CGFloat = 44
     private let weekdayHeight: CGFloat = 19
-    private let legendHeight: CGFloat = 21
+    private let legendHeight: CGFloat = 44
     private let weekSpacing: CGFloat = 2
 
     private var owner: String { store.owner }
@@ -1646,7 +1647,9 @@ private struct SecondaryHistory: View {
     private var grouped: [String: [NativeWorkoutEntry]] {
         var entries = visibleScope == .partner ? [] : store.logs
         if visibleScope != .mine { entries += store.partnerLogs }
-        var byDay = Dictionary(grouping: entries, by: \.day)
+        let first = spotterDay(gridStart)
+        let last = spotterDay(gridEnd)
+        var byDay = Dictionary(grouping: entries.filter { $0.day >= first && $0.day <= last }, by: \.day)
         for row in store.libraryRows where row["kind"].string == "history-order" {
             let day = row["id"].string
             if let entries = byDay[day] {
@@ -1658,6 +1661,7 @@ private struct SecondaryHistory: View {
 
     private var gridStart: Date { SecondaryDate.weekStart(month) }
     private var nextMonth: Date { SecondaryDate.shift(month, 1, component: .month) }
+    private var gridEnd: Date { SecondaryDate.shift(gridStart, weeks * 7 - 1) }
     private var weeks: Int {
         (SecondaryDate.days(gridStart, through: SecondaryDate.shift(nextMonth, -1)) + 6) / 7
     }
@@ -1686,10 +1690,7 @@ private struct SecondaryHistory: View {
                                      inside: date >= month && date < nextMonth, rowHeight: rowHeight)
                     }
                 }
-                HStack(spacing: 14) {
-                    if visibleScope != .partner { legend("我", tone: Self.ownTone) }
-                    if partnerID != nil, visibleScope != .mine { legend(partnerName, tone: Self.partnerTone) }
-                }.frame(height: legendHeight)
+                monthFooter(records)
             }
             .padding(cardInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1699,34 +1700,50 @@ private struct SecondaryHistory: View {
         .accessibilityLabel("训练月历")
         .onChange(of: partnerID) { _ in scope = .all }
         .task(id: month) {
-            await store.loadHistory(from: spotterDay(gridStart), through: spotterDay(SecondaryDate.shift(gridStart, weeks * 7 - 1)))
+            await store.loadHistory(from: spotterDay(gridStart), through: spotterDay(gridEnd))
         }
         .sheet(item: $selection, onDismiss: endOrdering) { selection in
             NavigationStack {
                 switch selection {
+                case .monthPicker:
+                    SecondaryHistoryMonthPicker(month: month) {
+                        goToMonth($0)
+                        self.selection = nil
+                    }
                 case .day(let day): dayDetail(day)
                 case .workout(let record): recordDetail(record).toolbar { closeAction }
                 }
             }
             .presentationDragIndicator(.visible)
+            .presentationDetents(selection.id == .monthPicker ? [.medium, .large] : [.large])
             .interactiveDismissDisabled(savingOrder)
         }
     }
 
     private var monthHeader: some View {
-        let date = SecondaryDate.calendar.dateComponents([.year, .month], from: month)
+        let calendar = SecondaryDate.calendar
+        let year = calendar.component(.year, from: month).formatted(.number.grouping(.never))
+        let monthNumber = calendar.component(.month, from: month)
         return HStack(alignment: .center, spacing: 5) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(date.year ?? 0, format: .number.grouping(.never)) 年")
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
-                    Text("\(date.month ?? 0) 月").font(.title2.weight(.heavy))
-                }.fixedSize(horizontal: true, vertical: false)
-                Text("\(date.year ?? 0, format: .number.grouping(.never)) 年 \(date.month ?? 0) 月")
-                    .font(.headline).lineLimit(2).minimumScaleFactor(0.8)
+            Button { selection = .monthPicker } label: {
+                HStack(spacing: 5) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Text("\(year) 年").font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                            Text("\(monthNumber) 月").font(.title2.weight(.heavy))
+                        }.fixedSize(horizontal: true, vertical: false)
+                        Text("\(year)/\(monthNumber)").font(.headline).lineLimit(1).minimumScaleFactor(0.6)
+                    }
+                    Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(SpotterPalette.muted)
+                        .accessibilityHidden(true)
+                }
+                .frame(minHeight: navigationButtonSize)
+                .contentShape(Rectangle())
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
+            .buttonStyle(.spotterPress)
+            .accessibilityLabel("选择月份")
+            .accessibilityValue("\(year) 年 \(monthNumber) 月")
+            .accessibilityIdentifier("history-month-selector")
             Spacer(minLength: 0)
             if partnerID != nil {
                 SpotterMenuPicker("记录筛选", selection: $scope, options: Scope.allCases.map { ($0, $0.rawValue) }) {
@@ -1739,6 +1756,10 @@ private struct SecondaryHistory: View {
         }
     }
 
+    private func goToMonth(_ date: Date) {
+        withAnimation(motion) { month = SecondaryDate.monthStart(date) }
+    }
+
     private func headerIcon(_ symbol: String) -> some View {
         Image(systemName: symbol).font(.subheadline.weight(.semibold))
             .foregroundStyle(SpotterPalette.ink)
@@ -1747,7 +1768,7 @@ private struct SecondaryHistory: View {
 
     private func monthStep(_ label: String, symbol: String, direction: Int) -> some View {
         Button {
-            withAnimation(motion) { month = SecondaryDate.shift(month, direction, component: .month) }
+            goToMonth(SecondaryDate.shift(month, direction, component: .month))
         } label: {
             headerIcon(symbol)
         }
@@ -1755,12 +1776,40 @@ private struct SecondaryHistory: View {
         .accessibilityLabel(label)
     }
 
-    private func legend(_ name: String, tone: Color) -> some View {
-        HStack(spacing: 6) {
+    private func monthFooter(_ records: [String: [NativeWorkoutEntry]]) -> some View {
+        let start = spotterDay(month)
+        let end = spotterDay(nextMonth)
+        let monthlyRecords = records.filter { $0.key >= start && $0.key < end }.values
+        let ownDays = monthlyRecords.filter { $0.contains { $0.owner == owner } }.count
+        let partnerDays = monthlyRecords.filter { $0.contains { $0.owner != owner } }.count
+        return HStack(spacing: 10) {
+            if visibleScope != .partner { legend("我", days: ownDays, tone: Self.ownTone) }
+            if partnerID != nil, visibleScope != .mine { legend(partnerName, days: partnerDays, tone: Self.partnerTone) }
+            Spacer(minLength: 0)
+            if month != SecondaryDate.monthStart(SecondaryDate.today) {
+                Button { goToMonth(SecondaryDate.today) } label: {
+                    Text("本月").font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .buttonStyle(.spotterControl)
+                .accessibilityLabel("回到本月")
+                .accessibilityIdentifier("history-current-month")
+            }
+        }
+        .frame(height: legendHeight)
+    }
+
+    private func legend(_ name: String, days: Int, tone: Color) -> some View {
+        HStack(spacing: 4) {
             Capsule().fill(tone).frame(width: 12, height: 7).accessibilityHidden(true)
             Text(name).font(.caption).foregroundStyle(SpotterPalette.muted)
                 .lineLimit(1).minimumScaleFactor(0.65)
+            if days > 0 {
+                Text("\(days) 天").font(.caption2.weight(.semibold)).foregroundStyle(SpotterPalette.ink)
+                    .lineLimit(1).minimumScaleFactor(0.65).layoutPriority(1)
+            }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name)本月有 \(days) 个打卡日")
     }
 
     private func calendarCell(_ date: Date, records: [NativeWorkoutEntry], inside: Bool, rowHeight: CGFloat) -> some View {
@@ -1930,6 +1979,66 @@ private struct SecondaryHistory: View {
     private func endOrdering() {
         draftOrder = nil
         orderError = nil
+    }
+}
+
+private struct SecondaryHistoryMonthPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var year: Int
+    @State private var monthNumber: Int
+    private let years: ClosedRange<Int>
+    let select: (Date) -> Void
+
+    init(month: Date, select: @escaping (Date) -> Void) {
+        let calendar = SecondaryDate.calendar
+        let selectedYear = calendar.component(.year, from: month)
+        let currentYear = calendar.component(.year, from: SecondaryDate.today)
+        _year = State(initialValue: selectedYear)
+        _monthNumber = State(initialValue: calendar.component(.month, from: month))
+        years = min(1900, selectedYear)...max(currentYear + 1, selectedYear)
+        self.select = select
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 0) {
+                Picker("年份", selection: $year) {
+                    ForEach(years, id: \.self) {
+                        Text("\($0, format: .number.grouping(.never)) 年").tag($0)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .clipped()
+                Picker("月份", selection: $monthNumber) {
+                    ForEach(1...12, id: \.self) { Text("\($0) 月").tag($0) }
+                }
+                .frame(maxWidth: .infinity)
+                .clipped()
+            }
+            .pickerStyle(.wheel)
+            .frame(height: 180)
+            .secondaryCard()
+
+            Button("回到本月") { select(SecondaryDate.today) }
+                .buttonStyle(.spotterControl)
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: 460)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(SpotterPalette.background)
+        .navigationTitle("跳转到月份")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("查看") {
+                    if let month = SecondaryDate.calendar.date(from: DateComponents(year: year, month: monthNumber, day: 1)) {
+                        select(month)
+                    }
+                }
+                .accessibilityIdentifier("history-apply-month")
+            }
+        }
     }
 }
 
@@ -2539,6 +2648,10 @@ private struct NativeTimerPreferences: View {
     @AppStorage(NativePreferenceKey.restSound) private var sound = false
     @AppStorage(NativePreferenceKey.restHaptics) private var haptics = false
     @AppStorage(NativePreferenceKey.keepAwake) private var keepAwake = false
+    @AppStorage(NativeTrainingNotifications.restPreference) private var backgroundRestAlerts = false
+    @Environment(\.openURL) private var openURL
+    @State private var askingForNotifications = false
+    @State private var notificationDenied = false
     var sync: NativeAccountPreferences?
 
     var body: some View {
@@ -2551,10 +2664,33 @@ private struct NativeTimerPreferences: View {
             NativeSettingToggle(title: "提示声音", detail: "训练页面打开时，组间休息倒数结束后提示。", value: $sound)
             Divider()
             NativeSettingToggle(title: "提示触感", detail: "训练页面打开时，组间休息倒数结束后振动。", value: $haptics)
+            Divider()
+            NativeSettingToggle(title: "锁屏时提醒", detail: "App 进入后台或锁屏后，在组间休息结束时发送系统通知。", value: Binding(
+                get: { backgroundRestAlerts },
+                set: { value in
+                    if value { Task { await requestRestNotifications() } }
+                    else { backgroundRestAlerts = false; notificationDenied = false }
+                }
+            ))
+            .disabled(askingForNotifications)
+            if notificationDenied, let url = URL(string: UIApplication.openSettingsURLString) {
+                Button { openURL(url) } label: {
+                    SecondaryRow(title: "打开 iPhone 设置", detail: "允许通知后，再开启锁屏提醒。", icon: "bell.slash")
+                }.buttonStyle(.spotterPress)
+            }
         }
         SecondaryGroup(title: "训练计时") {
             NativeSettingToggle(title: "训练时保持常亮", detail: "训练页面打开且计时进行时延缓自动锁屏。", value: $keepAwake)
         }
+    }
+
+    private func requestRestNotifications() async {
+        guard !askingForNotifications else { return }
+        askingForNotifications = true
+        let allowed = await NativeTrainingNotifications.shared.enable()
+        backgroundRestAlerts = allowed
+        notificationDenied = !allowed
+        askingForNotifications = false
     }
 }
 
