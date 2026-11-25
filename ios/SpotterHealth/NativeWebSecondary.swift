@@ -2118,9 +2118,6 @@ struct NativeSettings: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 17) {
-                Button { dismiss() } label: { Label("今日", systemImage: "arrow.left").font(.subheadline.weight(.semibold)) }
-                    .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.muted).frame(minHeight: 36)
-                Text("设置").font(.system(.largeTitle, weight: .heavy)).foregroundStyle(SpotterPalette.ink).accessibilityAddTraits(.isHeader)
                 HStack(spacing: 9) {
                     Image(systemName: "magnifyingglass").foregroundStyle(SpotterPalette.muted)
                     TextField("搜索设置", text: $search).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -2146,7 +2143,16 @@ struct NativeSettings: View {
         }
         .background(SpotterPalette.background.ignoresSafeArea())
         .navigationDestination(for: Page.self) { destination($0) }
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("设置")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button { dismiss() } label: { Image(systemName: "chevron.left") }
+                    .accessibilityLabel("返回")
+                    .accessibilityIdentifier("spotter-settings-back")
+            }
+        }
         .task { await loadHandle() }
         .sheet(isPresented: $showRestSchedule, onDismiss: { Task { await refreshPlans() } }) {
             NativeRestSchedule(api: account.api, owner: owner, addToday: false)
@@ -2193,7 +2199,6 @@ struct NativeSettings: View {
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(page.rawValue).font(.system(.largeTitle, weight: .heavy)).foregroundStyle(SpotterPalette.ink).accessibilityAddTraits(.isHeader)
                     switch page {
                     case .account: accountContent
                     case .workout: NativeWorkoutPreferences()
@@ -2219,7 +2224,7 @@ struct NativeSettings: View {
                 }.secondaryPage()
             }
             .background(SpotterPalette.background.ignoresSafeArea())
-            .navigationTitle("设置")
+            .navigationTitle(page.rawValue)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
         }
@@ -2834,7 +2839,6 @@ private struct NativeUnitsPreferences: View {
 }
 
 private struct NativeEquipmentPreferences: View {
-    @Environment(\.dismiss) private var dismiss
     @AppStorage(NativeGymPreferences.storageKey) private var saved = Data()
     @AppStorage(NativePreferenceKey.equipment) private var legacy = ""
     @State private var name = ""
@@ -2845,10 +2849,6 @@ private struct NativeEquipmentPreferences: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 17) {
-                Button { dismiss() } label: { Label("设置", systemImage: "arrow.left").font(.subheadline.weight(.semibold)) }
-                    .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.muted).frame(minHeight: 44)
-                Text("器械").font(.system(.largeTitle, weight: .heavy)).foregroundStyle(SpotterPalette.ink)
-                    .accessibilityAddTraits(.isHeader)
                 gymPicker
                 NativeGymEquipmentGrid(preferences: preferences, toggle: { key in update { $0.toggle(key) } },
                                        toggleAll: { update { $0.toggleAll() } })
@@ -2857,7 +2857,9 @@ private struct NativeEquipmentPreferences: View {
             }.secondaryPage()
         }
         .background(SpotterPalette.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("器械")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
     }
 
     private var gymPicker: some View {
