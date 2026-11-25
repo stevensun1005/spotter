@@ -1169,12 +1169,24 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
     }
 
     private var day: String { spotterDay(date) }
-    private var title: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var selectedFoods: [NativeFavoriteMeal.Food] { foods.filter { selected.contains($0.id) } }
+    private var suggestedName: String {
+        let picked = selectedFoods
+        let names = picked.prefix(2).map(\.name).joined(separator: " + ")
+        let suffix = picked.count > 2 ? "等 \(picked.count) 项" : ""
+        let label = String(names.prefix(44)) + suffix
+        return label.utf16.count > 100 ? "常用餐 · \(picked.count) 项" : label
+    }
+    private var title: String {
+        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return typed.isEmpty ? suggestedName : typed
+    }
 
     var body: some View {
         Form {
             Section {
-                TextField("组合名称", text: $name)
+                TextField(suggestedName.isEmpty ? "组合名称（选填）" : suggestedName, text: $name)
+                    .accessibilityLabel("组合名称（选填）")
                 SpotterMenuPicker("默认餐次", selection: $meal, options: NutritionShortcut.allCases.filter(\.isMeal).map { ($0, $0.rawValue) })
                 DatePicker("选取记录日期", selection: $date, displayedComponents: .date)
             }
@@ -1194,7 +1206,7 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
             }
             Section {
                 Button("存为常用餐") {
-                    let preset = NativeFavoriteMeal(name: title, meal: meal.rawValue, foods: foods.filter { selected.contains($0.id) })
+                    let preset = NativeFavoriteMeal(name: title, meal: meal.rawValue, foods: selectedFoods)
                     guard preset.record(id: preset.id.uuidString, day: day, meal: meal, servings: 1) != nil else {
                         error = "这份组合的总重量或营养数值超出记餐范围，请减少选中的食物。"
                         return
@@ -1259,8 +1271,17 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
                 DatePicker("记入日期", selection: $date, displayedComponents: .date)
                 SpotterMenuPicker("餐次", selection: $meal, options: NutritionShortcut.allCases.filter(\.isMeal).map { ($0, $0.rawValue) })
                 LabeledContent("份数") {
-                    TextField("份数", text: $amount).keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing).accessibilityLabel("份数")
+                    HStack(spacing: 4) {
+                        portionControl("减少半份", icon: "minus.circle") {
+                            amount = nutritionNumber(max(0.1, (servings ?? 1) - 0.5))
+                        }.disabled((servings ?? 1) <= 0.1)
+                        TextField("份数", text: $amount).keyboardType(.decimalPad)
+                            .multilineTextAlignment(.center).accessibilityLabel("份数")
+                            .monospacedDigit().frame(width: 46)
+                        portionControl("增加半份", icon: "plus.circle") {
+                            amount = nutritionNumber((servings ?? 1) + 0.5)
+                        }
+                    }
                 }
             }.disabled(submitted || busy)
             Section {
@@ -1282,6 +1303,13 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(busy)
         .navigationBarBackButtonHidden(busy)
+    }
+
+    private func portionControl(_ label: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 19, weight: .medium)).frame(width: 44, height: 44)
+        }
+        .buttonStyle(.borderless).accessibilityLabel(label)
     }
 
     private func log(_ servings: Double) async {

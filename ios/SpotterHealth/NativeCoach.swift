@@ -290,6 +290,7 @@ struct NativeCoachView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Environment(\.spotterInteractionMotion) private var controlMotion
+    @ScaledMetric(relativeTo: .body) private var composerHeight: CGFloat = 54
     @FocusState private var editingMessage: Bool
     @AppStorage private var sharingAllowed: Bool
     @State private var lines: [Line] = []
@@ -870,7 +871,6 @@ struct NativeCoachView: View {
         }
         .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 8)
         .animation(controlMotion, value: showsOptions)
-        .animation(controlMotion, value: showsSuggestions)
         .animation(controlMotion, value: showsContextChip)
         .animation(controlMotion, value: picture != nil)
         .animation(controlMotion, value: planMode || weightPrompt)
@@ -921,22 +921,14 @@ struct NativeCoachView: View {
                                                            accent.fill.opacity(editingMessage ? 0.40 : 0.12), CoachColors.border],
                                                    startPoint: .topLeading, endPoint: .bottomTrailing)).allowsHitTesting(false))
         .animation(controlMotion, value: editingMessage)
-        .animation(controlMotion, value: cleanText.isEmpty)
     }
 
     private var composerField: some View {
-        // Measure with SwiftUI Text so the multiline editor receives a bounded height in the dock.
-        Text(text.isEmpty ? " " : text)
-            .font(.body).lineLimit(1...4).fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 8).padding(.horizontal, 5)
-            .opacity(0).accessibilityHidden(true)
-            .overlay {
-                TextEditor(text: $text)
-                    .font(.body).scrollContentBackground(.hidden)
-                    .focused($editingMessage).disabled(busy)
-                    .accessibilityLabel(composerHint).accessibilityIdentifier("coach-composer")
-            }
+        TextEditor(text: $text)
+            .font(.body).scrollContentBackground(.hidden)
+            .focused($editingMessage).disabled(busy)
+            .frame(height: composerHeight)
+            .accessibilityLabel(composerHint).accessibilityIdentifier("coach-composer")
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(composerHint).font(.body).foregroundStyle(CoachColors.muted)
