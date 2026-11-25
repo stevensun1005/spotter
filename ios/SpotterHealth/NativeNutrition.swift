@@ -363,26 +363,29 @@ struct NativeNutritionDetail: View {
     var body: some View {
         VStack(spacing: 14) {
             header
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    NativeNutritionSummary(payload: payload, date: day, logs: logs, topActions: AnyView(summaryActions))
-                        .padding(14).spotterCard(radius: 18)
-                    planningActions
-                    if let loadError {
-                        Button { Task { await load(day) } } label: {
-                            Label(loadError, systemImage: "arrow.clockwise")
-                                .font(.footnote).multilineTextAlignment(.leading)
-                        }.buttonStyle(.spotterPress)
+            VStack(spacing: 6) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        NativeNutritionSummary(payload: payload, date: day, logs: logs, topActions: AnyView(summaryActions))
+                            .padding(14).spotterCard(radius: 18)
+                        planningActions
+                        if let loadError {
+                            Button { Task { await load(day) } } label: {
+                                Label(loadError, systemImage: "arrow.clockwise")
+                                    .font(.footnote).multilineTextAlignment(.leading)
+                            }.buttonStyle(.spotterPress)
+                        }
+                        if let mutationError { Text(mutationError).font(.footnote).foregroundStyle(.red) }
+                        if ready { records }
+                        else if loadError == nil { ProgressView().frame(maxWidth: .infinity, minHeight: 140) }
+                        if ready { exerciseCard }
                     }
-                    if let mutationError { Text(mutationError).font(.footnote).foregroundStyle(.red) }
-                    if ready { records }
-                    else if loadError == nil { ProgressView().frame(maxWidth: .infinity, minHeight: 140) }
-                    if ready { exerciseCard }
+                    .padding(.bottom, 4)
                 }
-                .padding(.bottom, 4)
+                .clipped()
+                .refreshable { await load(day) }
+                toolbar
             }
-            .safeAreaInset(edge: .bottom, spacing: 6) { toolbar }
-            .refreshable { await load(day) }
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -529,11 +532,14 @@ struct NativeNutritionDetail: View {
     }
 
     private func recordDetail(_ entry: NutritionPayload.Row.Entry) -> String {
-        if entry.type == "water" { return nutritionNumber(entry.ml ?? 0) + " ml" }
-        if entry.type == "weight" { return nutritionNumber(entry.kg ?? 0) + " kg" }
-        let values = ["\(nutritionNumber(entry.calories ?? 0)) 千卡", "蛋白质 \(nutritionNumber(entry.protein ?? 0)) g",
-                      "碳水 \(nutritionNumber(entry.carbs ?? 0)) g", "脂肪 \(nutritionNumber(entry.fat ?? 0)) g"]
-        return ((entry.grams.map { [nutritionNumber($0) + " g"] } ?? []) + values).joined(separator: " · ")
+        func measure(_ amount: Double, _ unit: String) -> String {
+            nutritionNumber(amount) + "\u{00A0}" + unit
+        }
+        if entry.type == "water" { return measure(entry.ml ?? 0, "ml") }
+        if entry.type == "weight" { return measure(entry.kg ?? 0, "kg") }
+        let values = [measure(entry.calories ?? 0, "千卡"), "蛋白质 " + measure(entry.protein ?? 0, "g"),
+                      "碳水 " + measure(entry.carbs ?? 0, "g"), "脂肪 " + measure(entry.fat ?? 0, "g")]
+        return ((entry.grams.map { [measure($0, "g")] } ?? []) + values).joined(separator: " · ")
     }
 
     private var exerciseCard: some View {
