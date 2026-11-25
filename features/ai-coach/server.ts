@@ -9,6 +9,7 @@ import { anthropicRequester, askAnthropic } from "./anthropic";
 import { guidedContext } from "./guided";
 import { coachCalendarRange, coachModel, type CoachConfig, type CoachQuota, type CoachRequest, type CoachResponse } from "./model";
 import { readCoachQuota } from "./quota";
+import { productHelpReply } from "./product-help";
 
 const maxCalendarPlans = 8;
 const maxCalendarMoves = 8;
@@ -77,12 +78,17 @@ async function trainingPreferenceContext(db: D1Database, owner: string) {
 
 export async function coachReply(owner: string, request: CoachRequest, signal: AbortSignal): Promise<CoachResponse> {
   if (request.expectedOwner !== owner) throw new HttpError(403, "登录账号已切换，请刷新后重开对话。");
+  const mealTurn = mealLoggingTurn(request);
+  const question = request.messages.at(-1)?.content;
+  if (request.intent === "chat" && question && !mealTurn) {
+    const reply = productHelpReply(question);
+    if (reply) return { reply, model: coachModel };
+  }
   const available = credentials();
   if (!available) throw new HttpError(503, "AI 教练暂未启用。");
   const { db, key } = available;
   let quota: CoachQuota | undefined;
   const send = anthropicRequester(db, owner, key, (value) => { quota = value; });
-  const mealTurn = mealLoggingTurn(request);
   if (mealTurn?.kind === "cancelled") return { reply: "已取消这次记餐。", model: coachModel, mealAction: { kind: "cancelled" } };
   if (mealTurn?.kind === "estimate") {
     const mealAction = await estimateCoachMeal(send, mealTurn, signal);

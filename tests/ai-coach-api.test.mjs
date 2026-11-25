@@ -186,7 +186,7 @@ test("text meal recognition requires current authorization and respects date and
     { messages: continuing, mealLogging: { pending: true, historyStart: 2 } },
     { messages: [{ role: "user", content: "如果午餐吃两个蛋挞，帮我记一下" }], mealLogging: {} },
     { messages: [{ role: "user", content: "不要帮我加进饮食里" }], mealLogging: {} },
-    { messages: [{ role: "user", content: "怎么记录午餐？" }], mealLogging: {} },
+    { messages: [{ role: "user", content: "午餐应该吃两个蛋挞吗？" }], mealLogging: {} },
     { messages: [{ role: "user", content: "汤圆和蛋挞能不能一起吃？" }], mealLogging: { pending: true } },
     { messages: [{ role: "user", content: "你觉得这顿怎么样？" }, { role: "assistant", content: command },
       { role: "user", content: "就这些" }], mealLogging: { pending: true } },
@@ -361,6 +361,60 @@ test("AI coach enables every signed-in account when configured and validates ide
   runtime.env.AI_COACH_SONNET_ENABLED = "true";
   assert.deepEqual(await checked(get(owner)), { enabled: true, models: ["haiku"], mealLoggingEnabled: true, quota: blankQuota });
   await checked(post(outsider, chat));
+});
+
+test("product help uses verified web or iPhone navigation without spending message quota", async (t) => {
+  const { calls, charged, seedMessages, sqlite } = setup(t);
+  const ask = (content) => post(owner, { ...chat, messages: [{ role: "user", content }], mealLogging: {} });
+  seedMessages(owner, date, 200);
+  const lunch = await checked(ask("怎么记录午餐？"));
+  assert.match(lunch.reply, /网页版.*\n1\. 打开首页的饮食记录/u);
+  assert.equal(lunch.mealAction, undefined);
+  assert.equal(lunch.quota, undefined);
+
+  const importHelp = await checked(ask("训练搭子里怎么导入训练计划？"));
+  assert.match(importHelp.reply, /导入已有计划.*网页版/u);
+  assert.match(importHelp.reply, /设置 → 计划与日程 → 粘贴已有内容/u);
+  const iPhone = await checked(ask("官方模板在哪儿？"));
+  assert.match(iPhone.reply, /官方模板.*iPhone App/u);
+  assert.match(iPhone.reply, /设置 → 功能模块/u);
+  const friendHelp = await checked(ask("Where can I add a friend in Spotter?"));
+  assert.match(friendHelp.reply, /好友.*联系人.*添加好友/u);
+  assert.match(friendHelp.reply, /设置 → 账号 → 搭子空间/u);
+  for (const question of ["怎么找搭子？", "好友怎么加？"]) {
+    assert.match((await checked(ask(question))).reply, /设置 → 账号 → 搭子空间/u);
+  }
+  const unknown = await checked(ask("训练搭子里在哪里看睡眠评分？"));
+  assert.match(unknown.reply, /还没找到这个功能/u);
+
+  assert.equal((await checked(get(owner))).quota.dailyRemaining, 0);
+  runtime.env.AI_COACH_ENABLED = "false";
+  assert.equal((await checked(get(owner))).enabled, false);
+  for (const question of ["怎么用？", "训练搭子怎么用？", "这个 App 有什么功能？"]) {
+    assert.match((await checked(ask(question))).reply, /训练搭子的使用方法/u);
+  }
+  await checked(post(second, { ...chat, expectedOwner: owner.userId, messages: [{ role: "user", content: "官方模板在哪儿？" }] }), 403);
+  await checked(post(null, { ...chat, messages: [{ role: "user", content: "官方模板在哪儿？" }] }), 401);
+  assert.equal(calls.length, 0);
+  assert.equal(charged(owner), 0);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM personal_library").get().count, 0);
+});
+
+test("product help leaves coaching and action turns on their existing paths", async (t) => {
+  const { calls, respond } = setup(t);
+  const ask = (content) => post(owner, { ...chat, messages: [{ role: "user", content }], mealLogging: {} });
+  for (const question of ["怎么提高平均心率？", "如何增加体重？", "怎么练跑步的耐力？",
+    "如何安排训练计划减脂？", "官方模板在哪里？然后帮我删除训练计划"]) {
+    const response = await checked(ask(question));
+    assert.match(response.reply, /分两天/u);
+  }
+
+  respond(photoTool("prepare_meal_log", { meal: "午餐", name: "蛋挞", grams: 120,
+    calories: 350, protein: 6, carbs: 42, fat: 18, estimate: "两个普通大小的蛋挞。" }));
+  assert.equal((await checked(ask("帮我记录午餐，吃了两个蛋挞"))).mealAction.kind, "ready");
+  assert.equal((await checked(ask("官方模板在哪里？然后帮我记下刚吃的午餐"))).mealAction.kind, "ready");
+  assert.equal(calls.length, 7);
+  assert.equal(calls.at(-1).tools[0].name, "prepare_meal_log");
 });
 
 test("only opted-in, in-range and non-coaching plans from the signed-in account are projected", async (t) => {
