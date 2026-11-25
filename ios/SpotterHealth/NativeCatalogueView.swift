@@ -21,14 +21,14 @@ private struct NativeCatalogueFilterRequest: Equatable, Sendable {
 }
 
 private enum NativeCatalogueSheet: Identifiable {
-    case details(NativeCatalogEntry)
+    case details(NativeCatalogEntry, source: String?)
     case variants(NativeCatalogFamily, NativeCatalogEntry)
     case create(String)
     case filters
 
     var id: String {
         switch self {
-        case .details(let entry): return "details:" + entry.id
+        case .details(let entry, _): return "details:" + entry.id
         case .variants(let family, _): return "family:" + family.id
         case .create: return "create"
         case .filters: return "filters"
@@ -41,6 +41,10 @@ struct NativeCatalogueBrowser: View {
     @ObservedObject var store: NativeWorkoutStore
     let addToPlan: (NativeCatalogEntry) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Namespace private var detailZoom
+    @Namespace private var scopeSelection
     @AppStorage("spotter.native.catalogue.cards") private var cards = true
     @AppStorage(NativeGymPreferences.storageKey) private var gymPreferences = Data()
     @AppStorage(NativePreferenceKey.equipment) private var legacyEquipment = ""
@@ -73,6 +77,11 @@ struct NativeCatalogueBrowser: View {
 
     private var selectedGear: Set<String> {
         NativeGymPreferences.read(gymPreferences, legacy: legacyEquipment).catalogueGear
+    }
+
+    private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
+    private var filterMotion: Animation? {
+        allowsMotion ? .spring(response: 0.26, dampingFraction: 0.86) : nil
     }
 
     var body: some View {
@@ -121,7 +130,7 @@ struct NativeCatalogueBrowser: View {
         }
         .sheet(item: $sheet, onDismiss: presentPlanIfNeeded) { route in
             if let index {
-                sheetContent(route, index: index)
+                sheetContent(route, index: index).presentationDragIndicator(.visible)
             }
         }
     }
@@ -148,7 +157,7 @@ struct NativeCatalogueBrowser: View {
                                 .foregroundStyle(SpotterPalette.muted)
                                 .frame(width: 28, height: 38)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.spotterPress)
                         .accessibilityLabel("清除搜索")
                     }
                 }
@@ -178,11 +187,13 @@ struct NativeCatalogueBrowser: View {
                     if expanded {
                         ForEach(children) { child in
                             areaButton(child, hasChildren: false, expanded: false, isChild: true)
+                                .transition(.opacity)
                         }
                     }
                 }
             }
             .padding(4)
+            .animation(filterMotion, value: filters.area)
         }
         .background(SpotterPalette.color(0xe9eee5), in: RoundedRectangle(cornerRadius: 12))
         .accessibilityLabel("部位筛选")
@@ -221,7 +232,7 @@ struct NativeCatalogueBrowser: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.spotterPress)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
@@ -244,6 +255,8 @@ struct NativeCatalogueBrowser: View {
                     }
                 }
                 .padding(.vertical, 2)
+                .animation(filterMotion, value: filters.equipment)
+                .animation(filterMotion, value: filters.scope)
             }
         }
         .accessibilityLabel("器械快捷筛选")
@@ -263,6 +276,7 @@ struct NativeCatalogueBrowser: View {
                 sheet = .filters
             }
         }
+        .animation(filterMotion, value: filters.scope)
     }
 
     private func scopeButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -278,10 +292,13 @@ struct NativeCatalogueBrowser: View {
                 .frame(height: 34)
                 .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
                 .overlay(alignment: .bottom) {
-                    if selected { Capsule().fill(SpotterPalette.accent).frame(height: 2) }
+                    if selected {
+                        Capsule().fill(SpotterPalette.accent).frame(height: 2)
+                            .matchedGeometryEffect(id: "catalogue-scope", in: scopeSelection)
+                    }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.spotterPress)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
@@ -299,6 +316,7 @@ struct NativeCatalogueBrowser: View {
                     Text(filters.usesGear ? "显示所有器械" : "只显示我的器械")
                         .font(.system(size: 11)).underline()
                 }
+                .buttonStyle(.spotterPress)
                 .foregroundStyle(SpotterPalette.accent)
             }
         }
@@ -338,7 +356,9 @@ struct NativeCatalogueBrowser: View {
                 if result.sections.count > 1 {
                     jumpRail(result.sections) { section in
                         searchFocused = false
-                        scroll.scrollTo(section.id, anchor: .top)
+                        withAnimation(allowsMotion ? .easeInOut(duration: 0.24) : nil) {
+                            scroll.scrollTo(section.id, anchor: .top)
+                        }
                         focusedSection = section.id
                     }
                 }
@@ -373,7 +393,7 @@ struct NativeCatalogueBrowser: View {
                             .frame(width: 27, height: 31)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.spotterPress)
                     .foregroundStyle(SpotterPalette.accent)
                     .accessibilityLabel("跳到 " + section.title)
                 }
@@ -402,7 +422,7 @@ struct NativeCatalogueBrowser: View {
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6, alignment: .top), count: cards ? 2 : 1), spacing: 6) {
                 ForEach(section.rows.prefix(limit)) { entry in
-                    entryRow(entry, index: index, vertical: cards)
+                    entryRow(entry, index: index, vertical: cards, source: "section:" + section.id + ":" + entry.id)
                 }
             }
             if section.rows.count > limit {
@@ -418,7 +438,7 @@ struct NativeCatalogueBrowser: View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 5) {
                 ForEach(entries) { entry in
-                    entryRow(entry, index: index, vertical: false)
+                    entryRow(entry, index: index, vertical: false, source: "featured:" + entry.id)
                         .frame(width: 177)
                 }
             }
@@ -427,17 +447,22 @@ struct NativeCatalogueBrowser: View {
         .accessibilityLabel("精选推荐")
     }
 
-    private func entryRow(_ entry: NativeCatalogEntry, index: NativeCatalogIndex, vertical: Bool) -> some View {
+    @ViewBuilder
+    private func entryRow(_ entry: NativeCatalogEntry, index: NativeCatalogIndex, vertical: Bool, source: String) -> some View {
         let chinese = index.family(for: entry)?.title ?? entry.name
-        let title: String
-        if entry.en.isEmpty || entry.en == chinese || language == "zh" { title = chinese }
-        else if language == "en" { title = entry.en }
-        else { title = chinese + " · " + entry.en }
+        let title = if entry.en.isEmpty || entry.en == chinese || language == "zh" {
+            chinese
+        } else if language == "en" {
+            entry.en
+        } else {
+            chinese + " · " + entry.en
+        }
         let key = index.nameKey(entry.name)
         let isPinned = profiles.contains { $0["pinned"].bool && index.nameKey($0["name"].string) == key }
         let row = Button {
+            let zoomSource = searchFocused ? nil : source
             searchFocused = false
-            sheet = .details(entry)
+            sheet = .details(entry, source: zoomSource)
         } label: {
             if vertical {
                 VStack(alignment: .leading, spacing: 4) {
@@ -456,9 +481,9 @@ struct NativeCatalogueBrowser: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.spotterPress)
 
-        return Group {
+        let card = Group {
             if vertical {
                 row.overlay(alignment: .topTrailing) {
                     quickAdd(entry, title: title, index: index)
@@ -473,6 +498,11 @@ struct NativeCatalogueBrowser: View {
         }
         .padding(4)
         .spotterCard(radius: 11)
+        if #available(iOS 18.0, *), allowsMotion {
+            card.matchedTransitionSource(id: source, in: detailZoom)
+        } else {
+            card
+        }
     }
 
     private func entryText(_ entry: NativeCatalogEntry, title: String, pinned: Bool, index: NativeCatalogIndex) -> some View {
@@ -506,8 +536,13 @@ struct NativeCatalogueBrowser: View {
     @ViewBuilder
     private func sheetContent(_ route: NativeCatalogueSheet, index: NativeCatalogIndex) -> some View {
         switch route {
-        case .details(let entry):
-            NativeCatalogueExerciseDetail(store: store, index: index, entry: entry, add: queueForPlan)
+        case .details(let entry, let source):
+            let details = NativeCatalogueExerciseDetail(store: store, index: index, entry: entry, add: queueForPlan)
+            if #available(iOS 18.0, *), allowsMotion, let source {
+                details.navigationTransition(.zoom(sourceID: source, in: detailZoom))
+            } else {
+                details
+            }
         case .variants(let family, let initial):
             NativeCatalogueVariantChooser(index: index, family: family, initial: initial,
                                           choices: allowedVariants(family, initial: initial, index: index), add: queueForPlan)
@@ -627,7 +662,7 @@ private func catalogueIconButton(
             .contentShape(Rectangle())
             .spotterGlass(cornerRadius: radius ?? size / 2, tint: tint ?? .white.opacity(0.86))
     }
-    .buttonStyle(.plain)
+    .buttonStyle(.spotterPress)
     .accessibilityLabel(label)
 }
 
@@ -643,7 +678,7 @@ private func catalogueChip(_ title: String, symbol: String? = nil, selected: Boo
         .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.muted)
         .spotterGlass(cornerRadius: 8, tint: selected ? SpotterPalette.wash : .white.opacity(0.85))
     }
-    .buttonStyle(.plain)
+    .buttonStyle(.spotterPress)
     .accessibilityAddTraits(selected ? [.isSelected] : [])
 }
 
@@ -806,7 +841,7 @@ private struct NativeCatalogueVariantChooser: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(8).spotterCard(radius: 12)
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(.spotterPress)
                     }
                 }
                 .padding(14)
@@ -905,6 +940,8 @@ private struct NativeCatalogueCustomEditor: View {
 private struct NativeCatalogueExerciseDetail: View {
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
     let index: NativeCatalogIndex
     @State var entry: NativeCatalogEntry
     let add: (NativeCatalogEntry) -> Void
@@ -927,8 +964,7 @@ private struct NativeCatalogueExerciseDetail: View {
                         .filter { !$0.isEmpty }.joined(separator: " · ")
                     if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(SpotterPalette.muted) }
                     HStack {
-                        Button { add(entry) } label: { Label("加入训练计划", systemImage: "plus") }
-                            .buttonStyle(SpotterNativeButtonStyle(primary: true))
+                        addButton
                         Button { Task { await togglePin() } } label: {
                             Label(profile?["pinned"].bool == true ? "取消置顶" : "置顶", systemImage: profile?["pinned"].bool == true ? "star.fill" : "star")
                         }
@@ -961,6 +997,17 @@ private struct NativeCatalogueExerciseDetail: View {
                 let result = await Task.detached(priority: .utility) { try? index.details(for: selected) }.value
                 if !Task.isCancelled { content = result }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var addButton: some View {
+        let button = Button { add(entry) } label: { Label("加入训练计划", systemImage: "plus") }
+        if #available(iOS 26.0, *) {
+            button.buttonStyle(.glass(.regular.tint(SpotterPalette.lime).interactive(!reduceMotion && !systemReduceMotion)))
+                .foregroundStyle(SpotterPalette.deep)
+        } else {
+            button.buttonStyle(SpotterNativeButtonStyle(primary: true))
         }
     }
 

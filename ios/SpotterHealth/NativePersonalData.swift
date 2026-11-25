@@ -9,6 +9,7 @@ struct NativeRestSchedule: View {
     var addToday = true
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterInteractionMotion) private var motion
     @State private var weekdays = Set<Int>()
     @State private var dates = Set<String>()
     @State private var chosenDay = Date.now
@@ -35,16 +36,17 @@ struct NativeRestSchedule: View {
                                                 in: RoundedRectangle(cornerRadius: 8))
                                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(SpotterPalette.line).allowsHitTesting(false))
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.spotterPress)
                             .disabled(!ready || busy || (weekdays.count >= 6 && !weekdays.contains(index)))
                             .accessibilityAddTraits(weekdays.contains(index) ? .isSelected : [])
                         }
                     }
+                    .animation(motion, value: weekdays)
                     Text("临时有事的日期").font(.headline)
                     HStack {
                         DatePicker("临时休息日期", selection: $chosenDay, displayedComponents: .date).labelsHidden()
                         Spacer()
-                        Button { dates.insert(spotterDay(chosenDay)) } label: { Label("加入", systemImage: "plus") }
+                        Button { withAnimation(motion) { _ = dates.insert(spotterDay(chosenDay)) } } label: { Label("加入", systemImage: "plus") }
                             .buttonStyle(.bordered)
                             .disabled(!ready || busy || dates.count >= 180 || dates.contains(spotterDay(chosenDay)))
                     }
@@ -53,20 +55,22 @@ struct NativeRestSchedule: View {
                             Text(day)
                             Spacer()
                             Button {
-                                dates.remove(day)
+                                withAnimation(motion) { _ = dates.remove(day) }
                             } label: {
                                 Image(systemName: "xmark").frame(width: 36, height: 36)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.spotterPress)
                             .accessibilityLabel("移除 " + day)
                             .disabled(busy)
                         }
+                        .transition(.opacity.combined(with: .offset(y: -6)))
                     }
                     Text("新排和顺延会避开这些日子。已排好的训练可从当天单独调整。")
                         .font(.footnote).foregroundStyle(SpotterPalette.muted)
                     if let message { Text(message).font(.footnote).foregroundStyle(SpotterPalette.muted) }
                     if !ready {
-                        Button("重新读取计划设置") { Task { await load() } }.disabled(busy)
+                        Button("重新读取计划设置") { Task { await load() } }
+                            .buttonStyle(.spotterPress).disabled(busy)
                     }
                     Button("保存计划设置") { Task { await save() } }
                         .buttonStyle(SpotterNativeButtonStyle(primary: true))
@@ -80,6 +84,7 @@ struct NativeRestSchedule: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
             .task { await load() }
         }
+        .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(busy)
     }
 
@@ -196,6 +201,7 @@ struct NativeBodyData: View {
     let owner: String
     var showsClose = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterInteractionMotion) private var motion
     @State private var library = NativeBodyLibrary()
     @State private var loading = false
     @State private var ready = false
@@ -218,7 +224,7 @@ struct NativeBodyData: View {
             VStack(alignment: .leading, spacing: 12) {
                 profileCard
                 measurementCard
-                if ready { trendCard }
+                if ready { trendCard.transition(.opacity.combined(with: .offset(y: 8))) }
                 if let message { Text(message).font(.footnote).foregroundStyle(SpotterPalette.muted) }
                 if loading && !ready { ProgressView("正在读取身体数据…") }
                 if !ready && !loading && !busy {
@@ -227,6 +233,7 @@ struct NativeBodyData: View {
                 }
             }
             .padding(14)
+            .animation(motion, value: ready)
         }
         .background(SpotterPalette.background.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
@@ -286,11 +293,15 @@ struct NativeBodyData: View {
             DatePicker("测量日期", selection: $date, in: ...max(date, .now), displayedComponents: .date)
             field(metric.unit.isEmpty ? metric.name : "\(metric.name)（\(metric.unit)）", $reading)
             HStack {
-                if editing != nil { Button("取消编辑", action: clearReading).buttonStyle(.bordered) }
+                if editing != nil {
+                    Button("取消编辑", action: clearReading)
+                        .buttonStyle(.bordered).transition(.opacity)
+                }
                 Button(editing == nil ? "保存测量" : "更新记录") { Task { await saveReading() } }
                     .buttonStyle(SpotterNativeButtonStyle(primary: true))
                     .disabled(busy || !ready)
             }
+            .animation(motion, value: editing != nil)
         }
         .padding(14).spotterCard()
     }

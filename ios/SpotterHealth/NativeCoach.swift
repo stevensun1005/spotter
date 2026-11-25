@@ -143,6 +143,7 @@ struct NativeCoachView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Namespace private var modeSelection
     @FocusState private var editingMessage: Bool
     @AppStorage private var sharingAllowed: Bool
     @State private var lines: [Line] = []
@@ -187,12 +188,21 @@ struct NativeCoachView: View {
     }
 
     private var cleanText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var reducesMotion: Bool { reduceMotion || systemReduceMotion }
+    private var controlMotion: Animation? {
+        reducesMotion ? nil : .spring(response: 0.28, dampingFraction: 0.84)
+    }
+    private var panelTransition: AnyTransition { .opacity.combined(with: .offset(y: 6)) }
+    private var showsOptions: Bool { showOptions && picture == nil && !weightPrompt }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            if mode == .coach { conversation }
-            else { ownAI }
+            ZStack(alignment: .top) {
+                if mode == .coach { conversation.transition(.opacity) }
+                else { ownAI.transition(.opacity) }
+            }
+            .animation(reducesMotion ? nil : .easeInOut(duration: 0.2), value: mode)
         }
         .foregroundStyle(CoachColors.text)
         .tint(CoachColors.accent)
@@ -241,27 +251,38 @@ struct NativeCoachView: View {
 
     private var header: some View {
         HStack(spacing: 7) {
-            Button { onExpand?() } label: {
-                Capsule().fill(CoachColors.muted).frame(width: 25, height: 5).frame(width: 34, height: 36)
+            if compact, let onExpand {
+                headerButton("arrow.up.left.and.arrow.down.right", label: "展开 AI 教练", action: onExpand)
+            } else {
+                Color.clear.frame(width: 36, height: 40).accessibilityHidden(true)
             }
-            .buttonStyle(.spotterPress)
-            .disabled(onExpand == nil)
-            .accessibilityLabel("展开 AI 教练")
-            .simultaneousGesture(DragGesture(minimumDistance: 16).onEnded { drag in
-                if drag.translation.height < -26 { onExpand?() }
-            })
             HStack(spacing: 3) {
                 modeButton("站内 AI", .coach)
                 modeButton("用自己的 AI", .own)
             }
             .padding(3).coachPanel(CoachColors.dark, radius: 13)
-            Button { dismiss() } label: {
-                Image(systemName: "xmark").font(.system(size: 17, weight: .medium)).frame(width: 36, height: 40)
-            }
-            .buttonStyle(.spotterPress).foregroundStyle(CoachColors.muted).accessibilityLabel("关闭 AI 教练")
+            .animation(controlMotion, value: mode)
+            headerButton("xmark", label: "关闭 AI 教练") { dismiss() }
         }
         .padding(.horizontal, 14).padding(.vertical, 6)
         .overlay(alignment: .bottom) { Rectangle().fill(CoachColors.border).frame(height: 1) }
+    }
+
+    @ViewBuilder
+    private func headerButton(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
+        let button = Button(action: action) {
+            Image(systemName: icon).font(.system(size: 14, weight: .semibold))
+        }
+        .foregroundStyle(CoachColors.text)
+        .accessibilityLabel(label)
+        if #available(iOS 26.0, *) {
+            button.buttonStyle(.glass(.clear.interactive(!reducesMotion)))
+                .buttonBorderShape(.circle)
+                .controlSize(.regular)
+        } else {
+            button.buttonStyle(.spotterPress)
+                .frame(width: 36, height: 40)
+        }
     }
 
     private func modeButton(_ title: String, _ item: Mode) -> some View {
@@ -271,7 +292,13 @@ struct NativeCoachView: View {
         } label: {
             Text(title).font(.subheadline.weight(.bold)).frame(maxWidth: .infinity, minHeight: 35)
                 .foregroundStyle(mode == item ? CoachColors.dark : CoachColors.muted)
-                .background(mode == item ? CoachColors.accent : .clear, in: RoundedRectangle(cornerRadius: 10))
+                .background {
+                    if mode == item {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(CoachColors.accent)
+                            .matchedGeometryEffect(id: "coach-mode", in: modeSelection)
+                    }
+                }
         }
         .buttonStyle(.spotterPress)
         .accessibilityAddTraits(mode == item ? .isSelected : [])
@@ -281,21 +308,28 @@ struct NativeCoachView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: 12) {
                         if lines.isEmpty && mealDraft == nil { welcome }
                         else { newConversation }
                         if !sharingAllowed {
                             NativeCoachSharingChoice(allowed: $sharingAllowed, origin: api.origin)
                                 .padding(12).coachPanel()
                         }
-                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in message(line) }
+                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                            message(line).transition(panelTransition)
+                        }
                         if !planDrafts.isEmpty { planPreview }
                         if let draft = mealDraft { mealPreview(draft) }
                         if let error { message(Line(role: "error", content: error)) }
-                        if busy { ProgressView("教练正在回复").font(.footnote).tint(CoachColors.accent).padding(.vertical, 6) }
+                        if busy {
+                            ProgressView("教练正在回复").font(.footnote).tint(CoachColors.accent)
+                                .padding(.vertical, 6).transition(.opacity)
+                        }
                         Color.clear.frame(height: 1).id("latest")
                     }
                     .padding(.horizontal, 16).padding(.vertical, 11)
+                    .animation(controlMotion, value: lines.count)
+                    .animation(controlMotion, value: busy)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: lines.count) { _ in scrollToLatest(proxy) }
@@ -306,7 +340,7 @@ struct NativeCoachView: View {
     }
 
     private func scrollToLatest(_ proxy: ScrollViewProxy) {
-        withAnimation(reduceMotion || systemReduceMotion ? nil : .easeOut(duration: 0.18)) {
+        withAnimation(reducesMotion ? nil : .easeOut(duration: 0.18)) {
             proxy.scrollTo("latest", anchor: .bottom)
         }
     }
@@ -404,19 +438,25 @@ struct NativeCoachView: View {
                     }.disabled(busy)
                 }
             }.buttonStyle(.spotterPress)
-            if showOptions && picture == nil && !weightPrompt {
+            if showsOptions {
                 VStack {
                     Toggle("附上个人训练安排", isOn: $includePlans)
                     if includePlans {
-                        DatePicker("计划日期", selection: $contextDate, displayedComponents: .date)
-                        Picker("安排范围", selection: $contextRange) {
-                            Text("所选日期").tag("day")
-                            Text("所在周").tag("week")
+                        VStack {
+                            DatePicker("计划日期", selection: $contextDate, displayedComponents: .date)
+                            Picker("安排范围", selection: $contextRange) {
+                                Text("所选日期").tag("day")
+                                Text("所在周").tag("week")
+                            }
                         }
+                        .transition(panelTransition)
                     }
-                    Button("问答定制训练计划") { openGuide() }.frame(maxWidth: .infinity, alignment: .leading)
+                    Button("问答定制训练计划") { openGuide() }
+                        .buttonStyle(.spotterPress).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.footnote).padding(9).coachPanel()
+                .animation(controlMotion, value: includePlans)
+                .transition(panelTransition)
             }
             if let picture, let image = UIImage(data: picture) {
                 HStack(spacing: 9) {
@@ -428,14 +468,16 @@ struct NativeCoachView: View {
                     Spacer()
                     Button { self.picture = nil; photoChoice = nil } label: {
                         Image(systemName: "xmark").frame(width: 36, height: 36).accessibilityLabel("移除照片")
-                    }.disabled(busy)
-                }.font(.footnote).padding(8).coachPanel()
+                    }.buttonStyle(.spotterPress).disabled(busy)
+                }.font(.footnote).padding(8).coachPanel().transition(panelTransition)
             } else if planMode || weightPrompt {
                 HStack {
                     Text(weightPrompt ? "记录体重" : "正在调整训练草稿")
                     Spacer()
-                    Button("取消") { planMode = false; weightPrompt = false }.disabled(busy)
+                    Button("取消") { planMode = false; weightPrompt = false }
+                        .buttonStyle(.spotterPress).disabled(busy)
                 }.font(.footnote).foregroundStyle(CoachColors.muted).padding(.horizontal, 4)
+                    .transition(panelTransition)
             }
             HStack(alignment: .center, spacing: 5) {
                 TextField(composerHint, text: $text, axis: .vertical)
@@ -462,6 +504,9 @@ struct NativeCoachView: View {
             .padding(4).coachPanel(radius: 24)
         }
         .padding(.horizontal, 15).padding(.bottom, 8)
+        .animation(controlMotion, value: showsOptions)
+        .animation(controlMotion, value: picture != nil)
+        .animation(controlMotion, value: planMode || weightPrompt)
     }
 
     private var openingSuggestions: some View {
@@ -650,12 +695,14 @@ struct NativeCoachView: View {
                             ownNotice = "已复制。"
                         }
                         Button(ownPromptVisible ? "收起提示词" : "查看提示词") { ownPromptVisible.toggle() }
-                            .font(.footnote.weight(.semibold))
+                            .buttonStyle(.spotterPress).font(.footnote.weight(.semibold))
                     }
                     if ownPromptVisible {
                         Text(externalPrompt).font(.footnote.monospaced()).textSelection(.enabled)
+                            .transition(panelTransition)
                     }
                 }.padding(14).coachPanel()
+                    .animation(controlMotion, value: ownPromptVisible)
                 VStack(alignment: .leading, spacing: 10) {
                     messageTitle("list.bullet.clipboard", "粘贴已有内容")
                     TextField("粘贴计划 JSON", text: $ownInput, axis: .vertical)
@@ -879,6 +926,8 @@ private struct NativePlanQuestions: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
     @State private var goal = "hypertrophy"
     @State private var venue = "gym"
     @State private var frequency = 3
@@ -957,6 +1006,10 @@ private struct NativePlanQuestions: View {
         }
     }
 
+    private var stepMotion: Animation? {
+        reduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.22)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -964,33 +1017,45 @@ private struct NativePlanQuestions: View {
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark").frame(width: 36, height: 38)
-                }.accessibilityLabel("关闭问答")
+                }.buttonStyle(.spotterPress).accessibilityLabel("关闭问答")
             }.padding(.horizontal, 16)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("第 \(step + 1) 步 · \(labels[step])").font(.caption.weight(.semibold)).foregroundStyle(CoachColors.accent)
-                            Text(titles[step]).font(.title2.bold())
-                            Text(details[step]).font(.subheadline).foregroundStyle(CoachColors.muted)
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("第 \(step + 1) 步 · \(labels[step])").font(.caption.weight(.semibold)).foregroundStyle(CoachColors.accent)
+                                Text(titles[step]).font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                                Text(details[step]).font(.subheadline).foregroundStyle(CoachColors.muted)
+                            }
+                            Spacer(minLength: 0)
+                            CoachArt(tile: headerArt[step], symbol: "list.clipboard", size: 65)
                         }
-                        Spacer(minLength: 0)
-                        CoachArt(tile: headerArt[step], symbol: "list.clipboard", size: 65)
-                    }
-                    .foregroundStyle(CoachColors.text).padding(13)
-                    .background(LinearGradient(colors: [CoachColors.dark, CoachColors.glow],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                                in: RoundedRectangle(cornerRadius: 17))
-                    progress
-                    stepContents
-                }.padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 14)
+                        .foregroundStyle(CoachColors.text).padding(13)
+                        .background(LinearGradient(colors: [CoachColors.dark, CoachColors.glow],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    in: RoundedRectangle(cornerRadius: 17))
+                        .id("guide-top")
+                        progress
+                        ZStack(alignment: .topLeading) {
+                            VStack(alignment: .leading, spacing: 12) { stepContents }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id(step)
+                                .transition(.opacity.combined(with: .offset(y: 6)))
+                        }
+                        .animation(stepMotion, value: step)
+                    }.padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 14)
+                }
+                .onChange(of: step) { _ in
+                    scroll.scrollTo("guide-top", anchor: .top)
+                }
             }
             footer
         }
         .foregroundStyle(CoachColors.guideText).background(CoachColors.guideCanvas.ignoresSafeArea())
         .tint(CoachColors.guideAccent).environment(\.colorScheme, .light)
         .task { await loadCatalogue() }
-        .sheet(isPresented: $choosingMove) { cataloguePicker }
+        .sheet(isPresented: $choosingMove) { cataloguePicker.presentationDragIndicator(.visible) }
     }
 
     private var progress: some View {
@@ -1001,7 +1066,7 @@ private struct NativePlanQuestions: View {
                     Text(labels[index]).font(.caption2).foregroundStyle(step == index ? CoachColors.guideText : CoachColors.guideMuted)
                 }.frame(maxWidth: .infinity)
             }
-        }.accessibilityHidden(true)
+        }.accessibilityHidden(true).animation(stepMotion, value: step)
     }
 
     @ViewBuilder
@@ -1041,6 +1106,7 @@ private struct NativePlanQuestions: View {
             }.padding(10).guidePanel(selected: selected)
         }
         .buttonStyle(.spotterPress).accessibilityAddTraits(selected ? .isSelected : [])
+        .animation(stepMotion, value: selected)
     }
 
     private var presetCards: some View {
@@ -1088,6 +1154,7 @@ private struct NativePlanQuestions: View {
                     Button {
                         if editingWarmup { warmup.removeAll { $0.id == move.id } } else { work.removeAll { $0.id == move.id } }
                     } label: { Image(systemName: "trash").frame(width: 34, height: 34) }
+                    .buttonStyle(.spotterPress)
                     .accessibilityLabel("移除 \(move.name)")
                 }.padding(.horizontal, 9).padding(.vertical, 4).guidePanel()
             }

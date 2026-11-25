@@ -26,6 +26,8 @@ private struct SecondarySegment<Option: Hashable>: View {
     let options: [Option]
     @Binding var value: Option
     let title: (Option) -> String
+    @Environment(\.spotterInteractionMotion) private var motion
+    @Namespace private var selection
 
     var body: some View {
         HStack(spacing: 3) {
@@ -37,12 +39,18 @@ private struct SecondarySegment<Option: Hashable>: View {
                         .minimumScaleFactor(0.75)
                         .foregroundStyle(value == option ? SpotterPalette.deep : SpotterPalette.muted)
                         .frame(maxWidth: .infinity, minHeight: 35)
-                        .background(value == option ? SpotterPalette.wash : .clear, in: RoundedRectangle(cornerRadius: 8))
+                        .background {
+                            if value == option {
+                                RoundedRectangle(cornerRadius: 8).fill(SpotterPalette.wash)
+                                    .matchedGeometryEffect(id: "selection", in: selection)
+                            }
+                        }
                         .contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                }.buttonStyle(.spotterPress)
                     .accessibilityAddTraits(value == option ? .isSelected : [])
             }
         }
+        .animation(motion, value: value)
         .padding(3)
         .secondaryCard(radius: 11)
     }
@@ -540,7 +548,7 @@ private func statNumber(_ value: Double) -> String { value.formatted(.number.pre
 private func stepButton(_ name: String, symbol: String, action: @escaping () -> Void) -> some View {
     Button(action: action) {
         Image(systemName: symbol).font(.subheadline.weight(.semibold)).frame(width: 40, height: 40).contentShape(Rectangle())
-    }.buttonStyle(.plain).accessibilityLabel(name)
+    }.buttonStyle(.spotterPress).accessibilityLabel(name)
 }
 
 private struct SecondaryActivityCalendar: View {
@@ -636,7 +644,7 @@ private struct SecondaryActivityCalendar: View {
             RoundedRectangle(cornerRadius: 2).fill(Self.colors[level])
                 .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(selected == key ? SpotterPalette.deep : SpotterPalette.line, lineWidth: 1))
                 .frame(width: 14, height: 14)
-        }.buttonStyle(.plain).accessibilityLabel("\(key) · \(description(entries))")
+        }.buttonStyle(.spotterPress).accessibilityLabel("\(key) · \(description(entries))")
     }
 }
 
@@ -1162,7 +1170,7 @@ private struct SecondaryHistory: View {
                                     NavigationLink { SecondaryTrainingDetail(api: api, owner: owner, record: record) } label: {
                                         SecondaryRow(title: record.title, detail: "\(record.owner == owner ? "我" : partner?.name ?? "搭子") · \(record.durationMinutes) 分钟", icon: "dumbbell", color: record.owner == owner ? SpotterPalette.wash : secondaryLilac)
                                             .secondaryCard()
-                                    }.buttonStyle(.plain)
+                                    }.buttonStyle(.spotterPress)
                                 }
                             }.secondaryPage()
                         }.background(SpotterPalette.background).navigationTitle("\(date.suffix(5)) 的打卡").navigationBarTitleDisplayMode(.inline)
@@ -1182,13 +1190,13 @@ private struct SecondaryHistory: View {
                     Spacer(minLength: 0)
                     if records.count > 2 { Text("+\(records.count - 2)").font(.system(size: 8)) }
                 }.padding(3).frame(maxWidth: .infinity).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel("\(key)，\(records.count) 次打卡")
+            }.buttonStyle(.spotterPress).accessibilityLabel("\(key)，\(records.count) 次打卡")
             ForEach(Array(records.prefix(2).enumerated()), id: \.offset) { _, record in
                 Button { selection = .workout(record) } label: {
                     Text(record.title).font(.system(size: 8, weight: .semibold)).lineLimit(1)
                         .padding(.horizontal, 2).padding(.vertical, 2).frame(maxWidth: .infinity, alignment: .leading)
                         .background(record.owner == owner ? SpotterPalette.wash : secondaryLilac, in: RoundedRectangle(cornerRadius: 3))
-                }.buttonStyle(.plain)
+                }.buttonStyle(.spotterPress)
             }
             Spacer(minLength: 0)
         }.frame(minHeight: 52, alignment: .topLeading)
@@ -1431,12 +1439,12 @@ struct NativeSettings: View {
             if let openTraining {
                 Button(action: openTraining) {
                     SecondaryRow(title: "我的计划", detail: "在训练页查看和编辑计划", icon: "list.clipboard")
-                }.buttonStyle(.plain)
+                }.buttonStyle(.spotterPress)
                 Divider()
             }
             Button { showRestSchedule = true } label: {
                 SecondaryRow(title: "管理休息日", detail: "每周固定休息日和临时休息日期", icon: "calendar.badge.clock")
-            }.buttonStyle(.plain)
+            }.buttonStyle(.spotterPress)
         }
     }
 
@@ -1444,7 +1452,7 @@ struct NativeSettings: View {
         SecondaryGroup {
             NavigationLink {
                 NativeCoachView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar)
-            } label: { SecondaryRow(title: "打开 AI 教练", icon: "sparkles") }.buttonStyle(.plain)
+            } label: { SecondaryRow(title: "打开 AI 教练", icon: "sparkles") }.buttonStyle(.spotterPress)
             Divider()
             NativeCoachSharingSettings(owner: owner, origin: account.api.origin).padding(13)
         }
@@ -1471,11 +1479,11 @@ struct NativeSettings: View {
                     Task { await refreshPlans(); await loadHandle() }
                 } label: {
                     SecondaryRow(title: "立即同步", icon: "arrow.clockwise", accessory: nil)
-                }.buttonStyle(.plain).disabled(handleBusy || account.isBusy)
+                }.buttonStyle(.spotterPress).disabled(handleBusy || account.isBusy)
                 Divider()
                 Button { Task { await account.signOut() } } label: {
                     SecondaryRow(title: "退出当前账号", icon: "rectangle.portrait.and.arrow.right", accessory: nil)
-                }.buttonStyle(.plain).disabled(account.isBusy)
+                }.buttonStyle(.spotterPress).disabled(account.isBusy)
             }
 
             SecondaryGroup(title: "关系与隐私") {
@@ -1483,20 +1491,20 @@ struct NativeSettings: View {
                     NativeFriends(api: account.api, owner: owner, initialBuddySearch: true, refreshPlans: refreshPlans)
                         .toolbar(.visible, for: .navigationBar)
                 } label: { SecondaryRow(title: "搭子空间", detail: "通过用户名找训练搭子", icon: "person.2") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.spotterPress)
                 Divider()
                 NavigationLink {
                     NativeFriends(api: account.api, owner: owner, initialPage: .privacy, refreshPlans: refreshPlans)
                         .toolbar(.visible, for: .navigationBar)
                 } label: { SecondaryRow(title: "好友分享设置", detail: "调整好友和搭子可见的数据", icon: "lock.shield") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.spotterPress)
                 Divider()
                 NavigationLink { NativeCoachingView(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar) } label: {
                     SecondaryRow(title: "教练与学员", icon: "graduationcap")
-                }.buttonStyle(.plain)
+                }.buttonStyle(.spotterPress)
                 if let privacy = URL(string: account.api.origin + "/privacy") {
                     Divider()
-                    Link(destination: privacy) { SecondaryRow(title: "隐私政策", icon: "shield") }.buttonStyle(.plain)
+                    Link(destination: privacy) { SecondaryRow(title: "隐私政策", icon: "shield") }.buttonStyle(.spotterPress)
                 }
             }
 
@@ -1504,7 +1512,7 @@ struct NativeSettings: View {
                 Button(role: .destructive) { showDelete = true } label: {
                     Label("删除账号", systemImage: "trash").font(.subheadline.weight(.semibold)).foregroundStyle(.red)
                         .padding(.horizontal, 13).frame(maxWidth: .infinity, minHeight: 55, alignment: .leading)
-                }.buttonStyle(.plain).disabled(working || account.isBusy)
+                }.buttonStyle(.spotterPress).disabled(working || account.isBusy)
             }
             if let note { SecondaryNotice(message: note, warning: true) }
         }
@@ -1619,7 +1627,7 @@ struct NativeSettings: View {
                 SecondaryBadge(text: option.linked ? "已绑定" : option.enabled ? "绑定" : "待开通", green: option.linked)
             }.padding(.horizontal, 11).frame(minHeight: 45).secondaryCard(radius: 10).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).foregroundStyle(SpotterPalette.ink)
+        .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.ink)
         .disabled(option.linked || !option.enabled || account.isBusy)
     }
 
@@ -1733,7 +1741,7 @@ private struct NativeTrainingReminderSettings: View {
             Divider()
             Button { showPreview = true } label: {
                 SecondaryRow(title: "试试提醒", icon: "bell.badge", accessory: nil)
-            }.buttonStyle(.plain)
+            }.buttonStyle(.spotterPress)
         }
         .alert("训练提醒", isPresented: $showPreview) { Button("好", role: .cancel) {} } message: {
             Text(NativePreferenceKey.reminderTitle)
@@ -1988,12 +1996,12 @@ private struct NativeBackupSettings: View {
                 }.padding(13)
                 Divider()
                 Button { Task { await export() } } label: { SecondaryRow(title: "保存备份文件", icon: "square.and.arrow.up") }
-                    .buttonStyle(.plain).disabled(busy)
+                    .buttonStyle(.spotterPress).disabled(busy)
             }
             SecondaryGroup(title: "恢复备份") {
                 Button { isImporting = true } label: {
                     SecondaryRow(title: "选择 Spotter JSON 备份", detail: "将缺少的条目恢复到当前账号。", icon: "square.and.arrow.down")
-                }.buttonStyle(.plain).disabled(busy)
+                }.buttonStyle(.spotterPress).disabled(busy)
             }
             if let notice { SecondaryNotice(message: notice, warning: warning) }
         }
@@ -2232,7 +2240,10 @@ struct NativeFriends: View {
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) { Button("完成") { closeDialog() }.disabled(busy) }
                     }
-            }.presentationDragIndicator(.visible).interactiveDismissDisabled(busy)
+            }
+            .presentationDetents(item == .invite ? [.medium, .large] : [.large])
+            .presentationDragIndicator(.visible)
+            .interactiveDismissDisabled(busy)
         }
     }
 
@@ -2253,7 +2264,7 @@ struct NativeFriends: View {
                 let count = social?.incoming.count ?? 0
                 SecondaryRow(title: "新的朋友", detail: count > 0 ? "\(count) 条申请" : nil, icon: "person.badge.plus", color: SpotterPalette.wash)
                     .secondaryCard()
-            }.buttonStyle(.plain)
+            }.buttonStyle(.spotterPress)
             if let data {
                 let buddies = data.friends.filter(\.buddy)
                 let ordinary = data.friends.filter { !$0.buddy }
@@ -2305,7 +2316,7 @@ struct NativeFriends: View {
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
                     .padding(.top, 7)
             }.padding(12).frame(minHeight: 58).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(.spotterPress)
     }
 
     private var feedContent: some View {
@@ -2418,7 +2429,7 @@ struct NativeFriends: View {
                         .buttonStyle(SecondaryButtonStyle())
                 }
                 Button("停用邀请码") { Task { await mutateList(["action": "revoke"], confirmation: "邀请码已停用。") } }
-                    .buttonStyle(.plain).foregroundStyle(SpotterPalette.accent).disabled(busy)
+                    .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.accent).disabled(busy)
             } else {
                 Button("生成邀请码") { Task { await mutateList(["action": "invite"], confirmation: "邀请码已生成。") } }
                     .buttonStyle(SecondaryButtonStyle(primary: true)).disabled(busy)
@@ -2640,7 +2651,7 @@ private struct SecondaryFriendDetail: View {
                 if let error { SecondaryNotice(message: error, warning: true) }
                 if !friend.buddy {
                     Button("移除好友", role: .destructive) { showRemove = true }
-                        .buttonStyle(.plain).foregroundStyle(.red).disabled(busy).frame(minHeight: 44)
+                        .buttonStyle(.spotterPress).foregroundStyle(.red).disabled(busy).frame(minHeight: 44)
                 }
             }.secondaryPage()
         }.background(SpotterPalette.background)

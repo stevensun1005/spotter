@@ -128,6 +128,7 @@ struct NativeProteinView: View {
         .task { await store.load() }
         .sheet(item: $editor) { item in
             NavigationStack { NativeProteinEditor(initial: item) { product, makeDefault in await store.save(product, makeDefault: makeDefault) } }
+                .presentationDragIndicator(.visible)
         }
     }
 

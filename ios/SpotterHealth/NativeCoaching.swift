@@ -164,6 +164,7 @@ struct NativeCoachingView: View {
                     Button("关闭") { assignmentPreview = nil }.disabled(isBusy)
                 } }
             }
+            .presentationDragIndicator(.visible)
         }
     }
 

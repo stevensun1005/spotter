@@ -126,6 +126,8 @@ private struct NutritionPayload: Decodable {
 
 @MainActor
 private struct NativeNutritionSummary: View {
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
     let payload: NutritionPayload
     let date: String
     var logs: [NativeWorkoutEntry]? = nil
@@ -188,16 +190,16 @@ private struct NativeNutritionSummary: View {
 
     private func dial(_ title: String, unit: String, color: Color, value: Double, goal: Double) -> some View {
         let progress = goal > 0 ? value / goal : 0
+        let dialProgress = min(max(progress, 0), 1)
         return VStack(spacing: 3) {
             ZStack {
                 Circle().fill(color.opacity(0.06))
                 Circle().strokeBorder(color.opacity(0.19), lineWidth: 5)
-                if progress > 0 {
-                    Circle().inset(by: 2.5)
-                        .trim(from: 0, to: min(progress, 1))
-                        .stroke(color, lineWidth: 5)
-                        .rotationEffect(.degrees(-90))
-                }
+                Circle().inset(by: 2.5)
+                    .trim(from: 0, to: dialProgress)
+                    .stroke(color, lineWidth: 5)
+                    .rotationEffect(.degrees(-90))
+                    .animation(reduceMotion || systemReduceMotion ? nil : .easeOut(duration: 0.26), value: dialProgress)
                 VStack(spacing: 1) {
                     Text(nutritionNumber(value)).font(.system(size: 16, weight: .bold)).monospacedDigit()
                     Text(goal > 0 ? "/ \(nutritionNumber(goal))" : unit)
@@ -230,25 +232,45 @@ private func nutritionNumber(_ value: Double) -> String {
 }
 
 private struct NutritionShortcuts: View {
+    var zoomNamespace: Namespace.ID? = nil
     let onSelect: (NutritionShortcut) -> Void
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(NutritionShortcut.allCases) { shortcut in
-                Button {
-                    onSelect(shortcut)
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(shortcut.icon).renderingMode(.template).resizable()
-                            .frame(width: 18, height: 18).foregroundStyle(SpotterPalette.muted)
-                        Text(shortcut.rawValue).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 51)
-                    .contentShape(Rectangle())
+                if #available(iOS 18.0, *), let zoomNamespace {
+                    button(shortcut).matchedTransitionSource(id: shortcut, in: zoomNamespace)
+                } else {
+                    button(shortcut)
                 }
-                .buttonStyle(.spotterPress)
             }
+        }
+    }
+
+    private func button(_ shortcut: NutritionShortcut) -> some View {
+        Button {
+            onSelect(shortcut)
+        } label: {
+            VStack(spacing: 4) {
+                Image(shortcut.icon).renderingMode(.template).resizable()
+                    .frame(width: 18, height: 18).foregroundStyle(SpotterPalette.muted)
+                Text(shortcut.rawValue).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, minHeight: 51)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.spotterPress)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func nutritionEntryTransition(from shortcut: NutritionShortcut?, in namespace: Namespace.ID) -> some View {
+        if #available(iOS 18.0, *), let shortcut {
+            self.navigationTransition(.zoom(sourceID: shortcut, in: namespace))
+        } else {
+            self
         }
     }
 }
@@ -261,6 +283,9 @@ struct NativeHomeNutrition: View {
     let onOpen: () -> Void
 
     @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Namespace private var entryZoom
     @State private var payload = NutritionPayload(rows: [])
     @State private var shortcut: NutritionShortcut?
     @State private var error: String?
@@ -269,10 +294,10 @@ struct NativeHomeNutrition: View {
         VStack(alignment: .leading, spacing: 10) {
             NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs, onOpen: onOpen)
             Divider().overlay(SpotterPalette.line)
-            NutritionShortcuts { shortcut = $0 }
+            NutritionShortcuts(zoomNamespace: reduceMotion || systemReduceMotion ? nil : entryZoom) { shortcut = $0 }
             if let error {
                 Button("重新读取今日饮食") { Task { await load() } }
-                    .font(.footnote.weight(.semibold)).accessibilityHint(error)
+                    .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).accessibilityHint(error)
             }
         }
         .padding(.horizontal, 12)
@@ -285,6 +310,7 @@ struct NativeHomeNutrition: View {
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in Task { await load() } }
         .sheet(item: $shortcut) {
             NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: $0)
+                .nutritionEntryTransition(from: reduceMotion || systemReduceMotion ? nil : $0, in: entryZoom)
         }
     }
 
@@ -329,7 +355,8 @@ struct NativeNutritionDetail: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @AppStorage(NativePreferenceKey.reduceMotion) private var appReduceMotion = false
+    @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Namespace private var entryZoom
     @State private var date = Date.now
     @State private var payload = NutritionPayload(rows: [])
     @State private var loadedDate = ""
@@ -337,6 +364,7 @@ struct NativeNutritionDetail: View {
     @State private var mutationError: String?
     @State private var destination: NutritionDestination?
     @State private var queuedDestination: NutritionDestination?
+    @State private var entryShortcut: NutritionShortcut?
     @State private var showDate = false
     @State private var expandTools = true
     @State private var deleting = false
@@ -351,7 +379,8 @@ struct NativeNutritionDetail: View {
         if hour < 14 { return .lunch }
         return hour < 17 ? .snack : .dinner
     }
-    private var motion: Animation? { appReduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.22) }
+    private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
+    private var motion: Animation? { allowsMotion ? .spring(response: 0.28, dampingFraction: 0.86) : nil }
     private var dateBounds: ClosedRange<Date> {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
@@ -394,12 +423,16 @@ struct NativeNutritionDetail: View {
         .background(SpotterPalette.background.ignoresSafeArea())
         .task(id: day) { await load(day) }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in Task { await load(day) } }
-        .sheet(item: $destination, onDismiss: openQueuedDestination) { item in destinationView(item) }
+        .sheet(item: $destination, onDismiss: openQueuedDestination) { item in
+            destinationView(item)
+                .nutritionEntryTransition(from: allowsMotion ? entryShortcut : nil, in: entryZoom)
+        }
         .sheet(isPresented: $showDate) {
             DatePicker("选择日期", selection: $date, in: dateBounds, displayedComponents: .date)
                 .datePickerStyle(.graphical)
                 .padding(20)
                 .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .onChange(of: day) { _ in
             showDate = false
@@ -433,17 +466,26 @@ struct NativeNutritionDetail: View {
 
     private var summaryActions: some View {
         HStack(spacing: 6) {
-            Button("营养目标") { destination = .goals }
-                .font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                .padding(.horizontal, 9).frame(minHeight: 37)
-                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 10))
-                .buttonStyle(.spotterPress).disabled(!ready)
+            goalsButton.disabled(!ready)
             ShareLink(item: shareText) {
                 Label("分享", systemImage: "square.and.arrow.up")
                     .font(.system(size: 13, weight: .semibold)).lineLimit(1)
                     .padding(.horizontal, 9).frame(minHeight: 37).spotterCard(radius: 10)
             }
             .buttonStyle(.spotterPress).disabled(!ready || rows.isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private var goalsButton: some View {
+        let button = Button("营养目标") { destination = .goals }
+            .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+        if #available(iOS 26.0, *) {
+            button.buttonStyle(.glass(.regular.interactive(allowsMotion))).controlSize(.small)
+        } else {
+            button.padding(.horizontal, 9).frame(minHeight: 37)
+                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 10))
+                .buttonStyle(.spotterPress)
         }
     }
 
@@ -560,19 +602,27 @@ struct NativeNutritionDetail: View {
         VStack(spacing: 0) {
             HStack(spacing: 2) {
                 if expandTools {
-                    toolButton("统计", icon: "chart.bar.xaxis") { destination = .stats }
-                    toolButton("AI 识别", icon: "wand.and.stars") { destination = .photo }
-                    toolButton("语音", icon: "mic") { destination = .voice }
+                    HStack(spacing: 2) {
+                        toolButton("统计", icon: "chart.bar.xaxis") { destination = .stats }
+                        toolButton("AI 识别", icon: "wand.and.stars") { destination = .photo }
+                        toolButton("语音", icon: "mic") { destination = .voice }
+                    }
+                    .transition(.opacity.combined(with: .offset(x: -5)))
                 } else { Spacer() }
                 Button { withAnimation(motion) { expandTools.toggle() } } label: {
-                    Image(systemName: expandTools ? "chevron.down" : "chevron.up")
-                        .font(.footnote.weight(.semibold)).frame(width: 42, height: 44)
+                    Image(systemName: "chevron.down")
+                        .font(.footnote.weight(.semibold))
+                        .rotationEffect(.degrees(expandTools ? 0 : 180))
+                        .frame(width: 42, height: 44)
                 }
                 .accessibilityLabel(expandTools ? "收起快捷工具栏" : "展开快捷工具栏")
                 .buttonStyle(.spotterPress)
             }
             Divider()
-            NutritionShortcuts { destination = .entry($0, nil, nil, nil) }
+            NutritionShortcuts(zoomNamespace: allowsMotion ? entryZoom : nil) { shortcut in
+                entryShortcut = shortcut
+                destination = .entry(shortcut, nil, nil, nil)
+            }
         }
         .padding(.horizontal, 4).spotterCard(radius: 13)
     }
@@ -643,6 +693,7 @@ struct NativeNutritionDetail: View {
     }
 
     private func openQueuedDestination() {
+        entryShortcut = nil
         guard let next = queuedDestination else { return }
         queuedDestination = nil
         destination = next
@@ -776,6 +827,7 @@ private struct NativeNutritionEditor: View {
         }
         .interactiveDismissDisabled(busy)
         .presentationDetents(shortcut.isMeal ? [.large] : [.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func field(_ title: String, value: Binding<String>, numeric: Bool = true) -> some View {
@@ -860,6 +912,7 @@ private struct NativeNutritionSheet<Content: View>: View {
                 }
         }
         .interactiveDismissDisabled(busy)
+        .presentationDragIndicator(.visible)
     }
 }
 
@@ -1168,6 +1221,8 @@ private struct NativeNutritionStats: View {
     private struct Point: Identifiable { let id: String; let total: NutritionPayload.Values }
     let api: NativeAPI
     let day: Date
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
     @State private var range = 7
     @State private var metric = NutritionMetric.calories
     @State private var points: [Point] = []
@@ -1198,6 +1253,7 @@ private struct NativeNutritionStats: View {
                         AxisMarks(values: points.enumerated().filter { $0.offset.isMultiple(of: range > 7 ? 5 : 2) }.map { String($0.element.id.suffix(5)) })
                     }
                     .frame(height: 175)
+                    .animation(reduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.24), value: metric)
                     let average = points.isEmpty ? 0 : points.reduce(0) { $0 + metric[$1.total] } / Double(points.count)
                     Text("每日平均 \(nutritionNumber(average)) \(metric.unit)").font(.footnote).foregroundStyle(.secondary)
                 }
