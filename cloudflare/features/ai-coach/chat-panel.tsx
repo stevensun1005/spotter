@@ -21,6 +21,7 @@ import { ChatTrainingDraft } from "./chat-draft";
 import { CoachReplyCard, type CoachReplyKind } from "./reply-card";
 import { asksForTrainingPlan, asksToLogMeal, cancelsMealLogging, continuesMealLogging } from "./chat-intent";
 import { asksToReviseDraft, draftWindowFor, type DraftWindow } from "./plan-conversation";
+import { productHelpReply } from "./product-help";
 import { weightDialogue, type PendingWeight } from "./weight-dialogue";
 import { useAnthropicSharing } from "./sharing-consent";
 import { CoachPhotoAttachment, CoachPhotoPickers } from "./coach-photo-attachment";
@@ -194,6 +195,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
   const quotaResetsAt = limitMessage && (currentQuota?.monthlyRemaining === 0 ? currentQuota.monthlyResetsAt : currentQuota?.dailyResetsAt);
   const chatDate = includePlans ? contextDate ?? selectedDate : selectedDate;
   const lastTurn = turns.at(-1);
+  const helpReply = owner && !photo && !protein && !mealPhoto && (!savedDrink || savedDrink.duplicate)
+    ? productHelpReply(input) : undefined;
   const showSuggestions = Boolean(compact && !waiting && !limitMessage && !lastTurn && !mealPhoto && !photo && !protein && !optionsOpen);
 
   useEffect(() => {
@@ -315,8 +318,15 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
 
   function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (limitMessage) return;
+    if (request.current || writing.current) return;
     const question = input.trim();
+    if (helpReply) {
+      setInput("");
+      setError("");
+      addTurn("local", question, { localReply: helpReply });
+      return;
+    }
+    if (limitMessage) return;
     if (asksProteinWarehouseStatus(question)) {
       answerWarehouseStatus(question);
       return;
@@ -964,7 +974,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
             }
           }} />
         {photo ? <button className="coach-send coach-send-meal" type="submit" disabled={waiting || !available || Boolean(limitMessage)}>识别并记餐</button>
-          : <button className="coach-send" type="submit" aria-label="发送消息" disabled={waiting || !input.trim() || Boolean(limitMessage)}><ArrowUp size={20} aria-hidden="true" /></button>}
+          : <button className="coach-send" type="submit" aria-label="发送消息" disabled={waiting || !input.trim() || Boolean(limitMessage && !helpReply)}><ArrowUp size={20} aria-hidden="true" /></button>}
       </form>
       {error && <p className="inline-error coach-composer-notice" role="alert">{error}</p>}
       {(!available || canRetry || limitMessage) && <div className="coach-composer-note">

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { checkAppSource } from "./check-app-source.mjs";
@@ -79,6 +79,9 @@ try {
     throw new Error("App 内的网页版本记录与源码不一致，请重新打包。");
   }
   checkedExtensions();
+  const sourceHelp = await readFile(join(root, "cloudflare/shared/product-help.json"));
+  const bundledHelp = await readFile(join(root, app, "product-help.json"));
+  if (!sourceHelp.equals(bundledHelp)) throw new Error("App 内的使用帮助和共用帮助资料不一致。");
   await mkdir(join(root, "outputs"), { recursive: true });
   const name = "Spotter-Simulator-" + after.head.slice(0, 8);
   const archive = join(root, "outputs", name + ".zip");

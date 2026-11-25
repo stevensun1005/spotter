@@ -335,6 +335,7 @@ private struct NativeAgentCreateView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.spotterAccent) private var accent
     @State private var name = ""
     @State private var days = 30
     @State private var scopes: Set<NativeAgentScope> = [.context, .planDraft]
@@ -404,11 +405,26 @@ private struct NativeAgentCreateView: View {
     private func scopeSection(_ title: String, scopes options: [NativeAgentScope]) -> some View {
         Section(title) {
             ForEach(options) { scope in
-                Toggle(scope.title, isOn: Binding(
-                    get: { scopes.contains(scope) },
-                    set: { if $0 { scopes.insert(scope) } else { scopes.remove(scope) } }
-                ))
+                let selected = scopes.contains(scope)
+                Button {
+                    if selected { scopes.remove(scope) }
+                    else { scopes.insert(scope) }
+                } label: {
+                    HStack {
+                        Text(scope.title)
+                        Spacer(minLength: 8)
+                        Image(systemName: selected ? "checkmark.square.fill" : "square")
+                            .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.spotterPress)
                 .disabled(busy)
+                .accessibilityValue(selected ? "已选择" : "未选择")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityIdentifier("spotter-agent-scope-" + scope.rawValue)
             }
         }
     }

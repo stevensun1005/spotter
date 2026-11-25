@@ -884,7 +884,7 @@ struct NativeCoachView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(line.content).font(.body).lineSpacing(6).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                if let index, line.role == "assistant" {
+                if let index, line.role == "assistant" || line.role == "product-help" {
                     Button {
                         UIPasteboard.general.string = line.content
                         copiedReply = index
@@ -1185,7 +1185,7 @@ struct NativeCoachView: View {
                         .transition(.opacity)
                 }
             }.buttonStyle(.spotterPress).accessibilityIdentifier("coach-send")
-                .disabled(session.busy || hasReachedLimit || !canSendInput)
+                .disabled(session.busy || !canSendInput || hasReachedLimit && productHelpReply(to: cleanText) == nil)
         }
         .padding(3)
         .background(LinearGradient(colors: [CoachColors.indigo.opacity(0.54), CoachColors.dark, CoachColors.ocean.opacity(0.67)],
@@ -1213,6 +1213,9 @@ struct NativeCoachView: View {
     private var suggestedReplies: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                suggestion("怎么用训练搭子？", icon: "questionmark.circle", availableOffline: true) {
+                    sendProductHelp("怎么用训练搭子？")
+                }
                 if !session.planDrafts.isEmpty {
                     suggestion("调整这份计划", icon: "slider.horizontal.3") {
                         planMode = true
@@ -1229,6 +1232,10 @@ struct NativeCoachView: View {
                     suggestion("提炼训练要点") { sendSuggestedReply("用三条总结我该怎么做，标出还需要确认的信息。") }
                     suggestion("给我今天的做法") { sendSuggestedReply("根据刚才的讨论，给我今天能执行的具体步骤。") }
                     suggestion("生成训练计划", icon: "calendar") { openGuide() }
+                } else if session.lines.last?.role == "product-help" {
+                    suggestion("训练计划怎么加？", availableOffline: true) { sendProductHelp("训练计划怎么加？") }
+                    suggestion("从哪里记饮食？", availableOffline: true) { sendProductHelp("从哪里记饮食？") }
+                    suggestion("怎么找搭子？", availableOffline: true) { sendProductHelp("怎么找搭子？") }
                 } else {
                     if workoutStore != nil {
                         if showsOfficialTemplates {
@@ -1249,7 +1256,8 @@ struct NativeCoachView: View {
         .accessibilityLabel("推荐回复").accessibilityIdentifier("coach-suggestions")
     }
 
-    private func suggestion(_ title: String, icon: String? = nil, action: @escaping () -> Void) -> some View {
+    private func suggestion(_ title: String, icon: String? = nil, availableOffline: Bool = false,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if let icon { Image(systemName: icon).accessibilityHidden(true) }
@@ -1259,13 +1267,25 @@ struct NativeCoachView: View {
             .padding(.horizontal, 12).frame(minHeight: 44)
             .background(CoachColors.choice.opacity(0.72), in: Capsule())
             .contentShape(Capsule())
-        }.buttonStyle(.spotterPress).disabled(session.busy || hasReachedLimit)
+        }.buttonStyle(.spotterPress).disabled(session.busy || hasReachedLimit && !availableOffline)
     }
 
     private func sendSuggestedReply(_ reply: String) {
         guard !session.busy else { return }
         text = reply
         sendComposer()
+    }
+
+    private func sendProductHelp(_ input: String) {
+        guard !session.busy, let answer = productHelpReply(to: input) else { return }
+        showProductHelp(answer, question: input)
+    }
+
+    private func showProductHelp(_ answer: String, question: String) {
+        text = ""
+        error = nil
+        editingMessage = false
+        session.lines += [Line(role: "local-user", content: question), Line(role: "product-help", content: answer)]
     }
 
     private var composerHint: String {
@@ -1301,8 +1321,13 @@ struct NativeCoachView: View {
     }
 
     private func sendComposer() {
-        guard !session.busy, canSendConversation() else { return }
+        guard !session.busy else { return }
         let input = cleanText
+        if let answer = productHelpReply(to: input) {
+            showProductHelp(answer, question: input)
+            return
+        }
+        guard canSendConversation() else { return }
         let shortReply = input.trimmingCharacters(in: CharacterSet(charactersIn: "。！!，, "))
         if session.isTextMealDraft, let draft = session.mealDraft {
             if ["取消", "取消本次", "不用记了"].contains(shortReply) {
@@ -1397,6 +1422,20 @@ struct NativeCoachView: View {
         } else { submit(planMode || !session.planDrafts.isEmpty && asksToRevisePlan(input) ? .plan : .chat) }
     }
 
+    private func productHelpReply(to input: String) -> String? {
+        guard !input.isEmpty, session.picture == nil, !session.weightPrompt,
+              !session.isTextMealDraft, session.mealDraft == nil, session.textMealPendingDate == nil,
+              session.pendingDrink == nil, session.pendingProteinPhotoPrompt == nil,
+              !isProteinRecipeCommand(input), !isDrinkCommand(input) else { return nil }
+        let previous: String?
+        if session.lines.last?.role == "product-help" {
+            previous = session.lines.dropLast().last?.content
+        } else {
+            previous = nil
+        }
+        return NativeProductHelp.reply(to: input, previousQuestion: previous)
+    }
+
     private func startRecommendations(_ query: NativeCoachRecommendationQuery, input: String, store: NativeWorkoutStore) {
         text = ""
         editingMessage = false
@@ -1445,7 +1484,7 @@ struct NativeCoachView: View {
 
     private func isDrinkCommand(_ input: String) -> Bool {
         let command = input.precomposedStringWithCompatibilityMapping
-        let noLogging = "[？?]|要不要|是否|怎么样|怎么喝|几杯|怎么算|多少|可以吗|好吗|吗[。！!]?$|不想喝|没喝|不喝|别记|不要记|不用记|已经记|喝过了吗|仓库|入库"
+        let noLogging = "[？?]|要不要|是否|怎么|如何|在哪|几杯|多少|可以吗|好吗|吗[。！!]?$|不想喝|没喝|不喝|别记|不要记|不用记|已经记|喝过了吗|仓库|入库"
         return command.range(of: noLogging, options: .regularExpression) == nil &&
             command.range(of: "喝(?:了|完了)|饮用(?:了)?|记(?:录|一下|入)?|帮我加", options: .regularExpression) != nil &&
             command.range(of: "蛋白粉|乳清|\\bwhey\\b", options: [.regularExpression, .caseInsensitive]) != nil
