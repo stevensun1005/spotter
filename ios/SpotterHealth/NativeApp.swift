@@ -271,6 +271,7 @@ struct NativeSpotterApp: View {
         }
         .onChange(of: account.profile?.id) { owner in
             NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
+            NativeCoachView.useConversationAccount(api: account.api, owner: owner)
             if owner == nil {
                 clearTrainingLiveActivity()
                 if #available(iOS 17.0, *) { NativeWatchHeartRate.shared.updateWorkout(context: nil, snapshot: nil) }

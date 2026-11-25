@@ -241,19 +241,36 @@ struct NativeCoachView: View {
         let liquidName: String?
         let records: [Record]?
     }
-    private struct Snapshot: Codable {
-        var lines: [Line]
-        var plans: [PlanDraft]
-        var pendingDrink: SavedDrink?
-        var duplicateDrink: SavedDrink?
-        var choices: [KnownProtein]
-        var lastDrink: SavedDrink?
-        var mealDraft: NativeMealDraft?
-        var mealID: String?
-        var mealDate: String?
-        var meal: String?
-        var mealEstimate: String? = nil
+    private struct ConversationAccount: Hashable {
+        let origin: String
+        let owner: String
     }
+
+    @MainActor
+    private final class Conversation: ObservableObject {
+        @Published var lines: [Line] = []
+        @Published var busy = false
+        @Published var quota: Quota?
+        @Published var planDrafts: [PlanDraft] = []
+        @Published var mealDraft: NativeMealDraft?
+        var mealID = UUID().uuidString.lowercased()
+        var mealDate = ""
+        var mealEstimate: String?
+        @Published var meal: String?
+        @Published var picture: Data?
+        var photoDay: String?
+        @Published var photoMealHistory: [[String: String]] = []
+        @Published var photoNeedsReply = false
+        @Published var weightPrompt = false
+        var pendingWeight: (id: String, date: String, kg: Double)?
+        @Published var pendingDrink: SavedDrink?
+        @Published var duplicateDrink: SavedDrink?
+        @Published var drinkOptions: [KnownProtein] = []
+        var lastDrink: SavedDrink?
+        @Published var pendingProteinPhotoPrompt: String?
+    }
+
+    private static var activeConversations: [ConversationAccount: Conversation] = [:]
     private struct ProteinPhotoReading: Decodable {
         struct Label: Decodable {
             let name: String?
@@ -303,25 +320,15 @@ struct NativeCoachView: View {
     @ScaledMetric(relativeTo: .body) private var composerHeight: CGFloat = 54
     @FocusState private var editingMessage: Bool
     @AppStorage private var sharingAllowed: Bool
-    @State private var lines: [Line] = []
+    @ObservedObject private var session: Conversation
     @State private var text = ""
     @State private var error: String?
-    @State private var busy = false
-    @State private var quota: Quota?
-    @State private var planDrafts: [PlanDraft] = []
-    @State private var mealDraft: NativeMealDraft?
-    @State private var mealID = UUID().uuidString.lowercased()
-    @State private var mealDate = ""
-    @State private var mealEstimate: String?
-    @State private var picture: Data?
-    @State private var photoMealHistory: [[String: String]] = []
-    @State private var photoNeedsReply = false
     @State private var photoChoice: PhotosPickerItem?
     @State private var showPhotoPicker = false
     @State private var camera = false
     @State private var showGuide = false
     @State private var planMode = false
-    @State private var meal = "加餐"
+    @State private var entryMeal = "加餐"
     @State private var mode: Mode = .coach
     @State private var showOptions = false
     @State private var includePlans = false
@@ -329,24 +336,16 @@ struct NativeCoachView: View {
     @State private var contextRange = "week"
     @State private var guidedDraft: CoachGuidedSelection?
     @State private var sendGuidedAfterClosing = false
-    @State private var weightPrompt = false
-    @State private var pendingWeight: (id: String, date: String, kg: Double)?
     @State private var ownPromptVisible = false
     @State private var ownPromptMode = "起草新计划"
     @State private var ownNotice: String?
     @State private var showOwnImport = false
     @State private var copiedReply: Int?
     @State private var startedWelcomeGuide = false
-    @State private var restoredConversation = false
-    @State private var pendingDrink: SavedDrink?
-    @State private var duplicateDrink: SavedDrink?
-    @State private var drinkOptions: [KnownProtein] = []
-    @State private var lastDrink: SavedDrink?
     @State private var proteinEditor: NativeProteinRecipeEditor?
     @State private var proteinPhotoID = UUID().uuidString.lowercased()
     @State private var proteinPhotoLogsDrink = false
     @State private var proteinPhotoNotes = ""
-    @State private var pendingProteinPhotoPrompt: String?
     @State private var editingReceipt: MealReceipt?
     @State private var receiptDestination: ReceiptDestination?
 
@@ -361,18 +360,27 @@ struct NativeCoachView: View {
         self.nutritionDate = nutritionDate
         self.initialTrainingGoal = initialTrainingGoal
         _sharingAllowed = AppStorage(wrappedValue: false, NativeCoachConsent.key(owner))
-        _meal = State(initialValue: initialMeal ?? "加餐")
+        _session = ObservedObject(wrappedValue: Self.activeConversation(api: api, owner: owner))
+        _entryMeal = State(initialValue: initialMeal ?? "加餐")
+    }
+
+    private var meal: String { session.meal ?? entryMeal }
+    private var mealSelection: Binding<String> {
+        Binding(get: { meal }, set: { value in
+            entryMeal = value
+            session.meal = value
+        })
     }
 
     private var cleanText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var reducesMotion: Bool { reduceMotion || systemReduceMotion }
     private var panelTransition: AnyTransition { reducesMotion ? .identity : .opacity.combined(with: .offset(y: 6)) }
-    private var showsOptions: Bool { showOptions && picture == nil && !weightPrompt }
+    private var showsOptions: Bool { showOptions && session.picture == nil && !session.weightPrompt }
     private var showsSuggestions: Bool {
-        !showsOptions && picture == nil && !weightPrompt && mealDraft == nil && pendingDrink == nil && !editingMessage && cleanText.isEmpty
+        !showsOptions && session.picture == nil && !session.weightPrompt && session.mealDraft == nil && session.pendingDrink == nil && !editingMessage && cleanText.isEmpty
     }
-    private var showsContextChip: Bool { includePlans && !showsOptions && !weightPrompt && picture == nil }
-    private var hasReachedLimit: Bool { quota?.limitMessage != nil }
+    private var showsContextChip: Bool { includePlans && !showsOptions && !session.weightPrompt && session.picture == nil }
+    private var hasReachedLimit: Bool { session.quota?.limitMessage != nil }
     private var canUseCamera: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
     private let mealOptions = ["早餐", "午餐", "晚餐", "加餐"].map { ($0, $0) }
 
@@ -391,18 +399,14 @@ struct NativeCoachView: View {
         .toolbar(.hidden, for: .navigationBar)
         .environment(\.colorScheme, .dark)
         .task(id: owner) {
-            restoreConversation()
             await refreshQuota(ifUnknown: true)
             if initialTrainingGoal != nil, !startedWelcomeGuide, !Task.isCancelled {
                 startedWelcomeGuide = true
                 openGuide()
             }
         }
-        .onChange(of: lines) { _ in persistConversation() }
-        .onChange(of: planDrafts) { _ in persistConversation() }
-        .onDisappear { persistConversation() }
-        .task(id: quota?.blockedUntil) {
-            guard let reset = quota?.blockedUntil else { return }
+        .task(id: session.quota?.blockedUntil) {
+            guard let reset = session.quota?.blockedUntil else { return }
             do {
                 try await Task.sleep(for: .seconds(max(0, reset.timeIntervalSinceNow) + 1))
                 await refreshQuota()
@@ -518,12 +522,17 @@ struct NativeCoachView: View {
         }
         .foregroundStyle(CoachColors.text)
         .accessibilityLabel(label)
+        coachChrome(button)
+    }
+
+    @ViewBuilder
+    private func coachChrome<Control: View>(_ control: Control) -> some View {
         if #available(iOS 26.0, *) {
-            button.buttonStyle(.glass(.clear.interactive(!reducesMotion)))
+            control.buttonStyle(.glass(.clear.interactive(!reducesMotion)))
                 .buttonBorderShape(.circle)
                 .controlSize(.regular)
         } else {
-            button.buttonStyle(.spotterPress)
+            control.buttonStyle(.spotterPress)
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
                 .spotterGlass(in: Circle(), tint: CoachColors.choice, interactive: false)
@@ -531,17 +540,17 @@ struct NativeCoachView: View {
     }
 
     private var headerMenu: some View {
-        SpotterMenu {
+        let menu = Menu {
             if mode == .coach {
-                if !lines.isEmpty || mealDraft != nil || picture != nil {
-                    Button("新对话", systemImage: "plus.message", action: resetConversation).disabled(busy)
+                if !session.lines.isEmpty || session.mealDraft != nil || session.picture != nil {
+                    Button("新对话", systemImage: "plus.message", action: resetConversation).disabled(session.busy)
                 }
                 Button(showOptions ? "收起对话选项" : "对话选项", systemImage: "slider.horizontal.3") {
                     editingMessage = false
                     showOptions.toggle()
-                }.disabled(busy || picture != nil || weightPrompt)
-                if let onStartWorkout { Button("开始训练", systemImage: "dumbbell", action: onStartWorkout).disabled(busy) }
-                Button("用自己的 AI", systemImage: "square.and.arrow.up") { switchMode(.own) }.disabled(busy)
+                }.disabled(session.busy || session.picture != nil || session.weightPrompt)
+                if let onStartWorkout { Button("开始训练", systemImage: "dumbbell", action: onStartWorkout).disabled(session.busy) }
+                Button("用自己的 AI", systemImage: "square.and.arrow.up") { switchMode(.own) }.disabled(session.busy)
             } else {
                 Button("返回教练对话", systemImage: "bubble") { switchMode(.coach) }
             }
@@ -549,6 +558,7 @@ struct NativeCoachView: View {
             Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold)).foregroundStyle(CoachColors.text)
                 .frame(width: 20, height: 44)
         }.accessibilityLabel("教练菜单")
+        return coachChrome(menu)
     }
 
     private func switchMode(_ next: Mode) {
@@ -557,25 +567,25 @@ struct NativeCoachView: View {
     }
 
     private var conversation: some View {
-        let layout = ConversationLayout(lineCount: lines.count, trailingReceipt: lines.last?.proteinReceipt,
-                                        busy: busy, error: error, hasDraft: mealDraft != nil || !planDrafts.isEmpty)
+        let layout = ConversationLayout(lineCount: session.lines.count, trailingReceipt: session.lines.last?.proteinReceipt,
+                                        busy: session.busy, error: error, hasDraft: session.mealDraft != nil || !session.planDrafts.isEmpty)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
-                        if lines.isEmpty && mealDraft == nil { welcome.transition(panelTransition) }
+                        if session.lines.isEmpty && session.mealDraft == nil { welcome.transition(panelTransition) }
                         if !sharingAllowed {
                             NativeCoachSharingChoice(allowed: $sharingAllowed, origin: api.origin)
                                 .padding(12).coachPanel().transition(panelTransition)
                         }
-                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        ForEach(Array(session.lines.enumerated()), id: \.offset) { index, line in
                             message(line, index: index).transition(panelTransition)
                         }
-                        if !planDrafts.isEmpty { planPreview.transition(panelTransition) }
-                        if let draft = mealDraft { mealPreview(draft).transition(panelTransition) }
-                        if pendingDrink != nil || duplicateDrink != nil { drinkFollowup.transition(panelTransition) }
+                        if !session.planDrafts.isEmpty { planPreview.transition(panelTransition) }
+                        if let draft = session.mealDraft { mealPreview(draft).transition(panelTransition) }
+                        if session.pendingDrink != nil || session.duplicateDrink != nil { drinkFollowup.transition(panelTransition) }
                         if let error { message(Line(role: "error", content: error)).transition(panelTransition) }
-                        if busy {
+                        if session.busy {
                             ProgressView("教练正在回复").font(.footnote).tint(accent.fill)
                                 .padding(.vertical, 6).transition(.opacity)
                         }
@@ -608,58 +618,43 @@ struct NativeCoachView: View {
     }
 
     private func resetConversation() {
-        lines = []; planDrafts = []; mealDraft = nil; mealEstimate = nil; error = nil; text = ""
-        clearMealPhoto(); planMode = false; weightPrompt = false; pendingWeight = nil; guidedDraft = nil
+        session.lines = []; session.planDrafts = []; session.mealDraft = nil; session.mealEstimate = nil; error = nil; text = ""
+        clearMealPhoto(); planMode = false; session.weightPrompt = false; session.pendingWeight = nil; guidedDraft = nil
         includePlans = false; showOptions = false; copiedReply = nil; editingMessage = false
-        pendingDrink = nil; duplicateDrink = nil; drinkOptions = []; lastDrink = nil
-        pendingProteinPhotoPrompt = nil
-        Self.removeSavedConversation(api: api, owner: owner)
+        session.pendingDrink = nil; session.duplicateDrink = nil; session.drinkOptions = []; session.lastDrink = nil
+        session.pendingProteinPhotoPrompt = nil
     }
 
-    private static func conversationURL(api: NativeAPI, owner: String) -> URL? {
+    private static func legacyConversationURL(api: NativeAPI, owner: String) -> URL? {
         guard !owner.isEmpty else { return nil }
         let digest = SHA256.hash(data: Data((api.origin + "\n" + owner).utf8)).map { String(format: "%02x", $0) }.joined()
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("Spotter/Coach", isDirectory: true).appendingPathComponent(digest + ".json")
     }
 
+    static func useConversationAccount(api: NativeAPI, owner: String?) {
+        let activeAccount = owner.map { ConversationAccount(origin: api.origin, owner: $0) }
+        activeConversations = activeConversations.filter { $0.key == activeAccount }
+    }
+
     static func removeSavedConversation(api: NativeAPI, owner: String) {
-        guard let file = conversationURL(api: api, owner: owner) else { return }
+        activeConversations.removeValue(forKey: .init(origin: api.origin, owner: owner))
+        removeLegacyConversation(api: api, owner: owner)
+    }
+
+    private static func activeConversation(api: NativeAPI, owner: String) -> Conversation {
+        guard !owner.isEmpty else { return Conversation() }
+        let account = ConversationAccount(origin: api.origin, owner: owner)
+        if let existing = activeConversations[account] { return existing }
+        removeLegacyConversation(api: api, owner: owner)
+        let conversation = Conversation()
+        activeConversations[account] = conversation
+        return conversation
+    }
+
+    private static func removeLegacyConversation(api: NativeAPI, owner: String) {
+        guard let file = legacyConversationURL(api: api, owner: owner) else { return }
         try? FileManager.default.removeItem(at: file)
-    }
-
-    private func restoreConversation() {
-        guard !restoredConversation else { return }
-        restoredConversation = true
-        guard let url = Self.conversationURL(api: api, owner: owner), let data = try? Data(contentsOf: url),
-              let stored = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
-        lines = stored.lines; planDrafts = stored.plans
-        pendingDrink = stored.pendingDrink; duplicateDrink = stored.duplicateDrink
-        drinkOptions = stored.choices; lastDrink = stored.lastDrink
-        if let draft = stored.mealDraft, let id = stored.mealID, let day = stored.mealDate {
-            mealDraft = draft; mealID = id; mealDate = day; meal = stored.meal ?? meal; mealEstimate = stored.mealEstimate
-        }
-    }
-
-    private func persistConversation() {
-        guard restoredConversation, let url = Self.conversationURL(api: api, owner: owner) else { return }
-        if lines.isEmpty && planDrafts.isEmpty && pendingDrink == nil && mealDraft == nil {
-            Self.removeSavedConversation(api: api, owner: owner)
-            return
-        }
-        let stored = Snapshot(lines: Array(lines.suffix(80)), plans: planDrafts, pendingDrink: pendingDrink,
-                              duplicateDrink: duplicateDrink, choices: drinkOptions, lastDrink: lastDrink, mealDraft: mealDraft,
-                              mealID: mealDraft == nil ? nil : mealID, mealDate: mealDraft == nil ? nil : mealDate,
-                              meal: mealDraft == nil ? nil : meal, mealEstimate: mealEstimate)
-        do {
-            var folder = url.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
-                                                    attributes: [.protectionKey: FileProtectionType.complete])
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = true
-            try folder.setResourceValues(values)
-            try JSONEncoder().encode(stored).write(to: url, options: [.atomic, .completeFileProtection])
-        } catch { }
     }
 
     @ViewBuilder
@@ -724,7 +719,7 @@ struct NativeCoachView: View {
                 Button("编辑", systemImage: "pencil") { editingReceipt = receipt }
                 Button("撤销", systemImage: "arrow.uturn.backward") { Task { await undoMeal(receipt) } }
             }
-            .buttonStyle(.spotterPress).font(.footnote.weight(.semibold)).disabled(busy)
+            .buttonStyle(.spotterPress).font(.footnote.weight(.semibold)).disabled(session.busy)
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(13).coachPanel()
     }
@@ -768,15 +763,15 @@ struct NativeCoachView: View {
         }
         .font(.footnote.weight(.semibold))
         .buttonStyle(.spotterPress)
-        .disabled(busy)
+        .disabled(session.busy)
     }
 
     private var drinkFollowup: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let pendingDrink {
-                if !drinkOptions.isEmpty {
+            if let pendingDrink = session.pendingDrink {
+                if !session.drinkOptions.isEmpty {
                     Text("喝的是哪一款？").font(.subheadline.weight(.semibold))
-                    ForEach(drinkOptions) { option in
+                    ForEach(session.drinkOptions) { option in
                         Button(option.name) { Task { await recordDrink(selectDrink(option, for: pendingDrink)) } }
                             .buttonStyle(.spotterPress).frame(minHeight: 38)
                     }
@@ -785,7 +780,7 @@ struct NativeCoachView: View {
                 }
                 Button("取消这次记录") { clearDrink() }.font(.footnote).buttonStyle(.spotterPress)
             }
-            if let duplicateDrink {
+            if let duplicateDrink = session.duplicateDrink {
                 coachPrimary("刚喝了另一杯，继续记") {
                     var next = duplicateDrink
                     next.id = UUID().uuidString.lowercased()
@@ -794,7 +789,7 @@ struct NativeCoachView: View {
                 }
             }
         }
-        .disabled(busy || hasReachedLimit)
+        .disabled(session.busy || hasReachedLimit)
         .frame(maxWidth: .infinity, alignment: .leading).padding(13).coachPanel()
     }
 
@@ -834,33 +829,33 @@ struct NativeCoachView: View {
             if showsSuggestions {
                 suggestedReplies.transition(panelTransition)
             }
-            if let picture, let image = UIImage(data: picture) {
+            if let picture = session.picture, let image = UIImage(data: picture) {
                 HStack(spacing: 9) {
                     Image(uiImage: image).resizable().scaledToFill().frame(width: 48, height: 48)
                         .clipShape(RoundedRectangle(cornerRadius: 9))
-                        .accessibilityLabel(photoMealHistory.isEmpty ? "待发送的餐食照片" : "本轮对话的餐食照片")
-                    SpotterMenuPicker("记入餐次", selection: $meal, options: mealOptions) {
+                        .accessibilityLabel(session.photoMealHistory.isEmpty ? "待发送的餐食照片" : "本轮对话的餐食照片")
+                    SpotterMenuPicker("记入餐次", selection: mealSelection, options: mealOptions) {
                         HStack(spacing: 5) {
                             Text(meal).lineLimit(1)
                             Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                         }
                         .frame(minHeight: 44)
                     }
+                    .disabled(session.busy)
                     Spacer()
                     Button { clearMealPhoto() } label: {
                         Image(systemName: "xmark").fontWeight(.semibold).frame(width: 38, height: 38)
-                            .spotterGlass(cornerRadius: 19, interactive: !reducesMotion)
+                            .background(CoachColors.choice, in: Circle())
                             .frame(width: 44, height: 44).contentShape(Rectangle())
-                    }.buttonStyle(.spotterPress).disabled(busy).accessibilityLabel("移除照片")
+                    }.buttonStyle(.spotterPress).disabled(session.busy).accessibilityLabel("移除照片")
                 }
-                .spotterGlassCluster()
                 .font(.footnote).padding(8).coachPanel().transition(panelTransition)
-            } else if planMode || weightPrompt {
+            } else if planMode || session.weightPrompt {
                 HStack {
-                    Text(weightPrompt ? "记录体重" : "正在调整训练草稿")
+                    Text(session.weightPrompt ? "记录体重" : "正在调整训练草稿")
                     Spacer()
-                    Button("取消") { planMode = false; weightPrompt = false }
-                        .buttonStyle(.spotterPress).disabled(busy)
+                    Button("取消") { planMode = false; session.weightPrompt = false }
+                        .buttonStyle(.spotterPress).disabled(session.busy)
                 }.font(.footnote).foregroundStyle(CoachColors.muted).padding(.horizontal, 4)
                     .transition(panelTransition)
             }
@@ -872,13 +867,13 @@ struct NativeCoachView: View {
                     Label("已附上训练安排", systemImage: "paperclip").font(.caption.weight(.medium))
                         .padding(.horizontal, 5).frame(minHeight: 28)
                 }
-                .buttonStyle(.spotterPress).disabled(busy).transition(panelTransition)
+                .buttonStyle(.spotterPress).disabled(session.busy).transition(panelTransition)
             }
             HStack(alignment: .bottom, spacing: 9) {
                 attachmentMenu
                 inputBar
             }
-            if let message = quota?.limitMessage {
+            if let message = session.quota?.limitMessage {
                 HStack(spacing: 8) {
                     Text(message).font(.caption2).foregroundStyle(CoachColors.muted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -892,13 +887,13 @@ struct NativeCoachView: View {
         .padding(.horizontal, 16).padding(.top, 5).padding(.bottom, 8)
         .animation(controlMotion, value: showsOptions)
         .animation(controlMotion, value: showsContextChip)
-        .animation(controlMotion, value: picture != nil)
-        .animation(controlMotion, value: planMode || weightPrompt)
+        .animation(controlMotion, value: session.picture != nil)
+        .animation(controlMotion, value: planMode || session.weightPrompt)
         .animation(controlMotion, value: hasReachedLimit)
     }
 
     private var attachmentMenu: some View {
-        SpotterMenu {
+        let menu = Menu {
             Button("拍照", systemImage: "camera") {
                 editingMessage = false
                 camera = true
@@ -910,7 +905,8 @@ struct NativeCoachView: View {
         } label: {
             Image(systemName: "plus").font(.title3.weight(.medium)).foregroundStyle(CoachColors.text)
                 .frame(width: 26, height: 48)
-        }.accessibilityLabel("添加餐食照片").accessibilityIdentifier("coach-attachments").disabled(busy || hasReachedLimit)
+        }.accessibilityLabel("添加餐食照片").accessibilityIdentifier("coach-attachments")
+        return coachChrome(menu).disabled(session.busy || hasReachedLimit)
     }
 
     private var inputBar: some View {
@@ -918,8 +914,8 @@ struct NativeCoachView: View {
         return HStack(alignment: .center, spacing: 5) {
             composerField
             Button { sendComposer() } label: {
-                if picture != nil && photoMealHistory.isEmpty {
-                    Text(looksLikeProteinPhoto(cleanText) || pendingProteinPhotoPrompt != nil ? "识别蛋白粉" : "识别并记餐")
+                if session.picture != nil && session.photoMealHistory.isEmpty {
+                    Text(looksLikeProteinPhoto(cleanText) || session.pendingProteinPhotoPrompt != nil ? "识别蛋白粉" : "识别并记餐")
                         .font(.footnote.weight(.bold)).padding(.horizontal, 11).frame(minHeight: 36)
                         .foregroundStyle(CoachColors.dark).background(accent.fill, in: Capsule())
                         .transition(.opacity)
@@ -931,7 +927,7 @@ struct NativeCoachView: View {
                         .transition(.opacity)
                 }
             }.buttonStyle(.spotterPress).accessibilityIdentifier("coach-send")
-                .disabled(busy || hasReachedLimit || !canSendInput)
+                .disabled(session.busy || hasReachedLimit || !canSendInput)
         }
         .padding(4).frame(minHeight: 48)
         .background(LinearGradient(colors: [CoachColors.indigo.opacity(0.54), CoachColors.dark, CoachColors.ocean.opacity(0.67)],
@@ -943,13 +939,13 @@ struct NativeCoachView: View {
     }
 
     private var canSendInput: Bool {
-        !cleanText.isEmpty || (picture != nil && !photoNeedsReply)
+        !cleanText.isEmpty || (session.picture != nil && !session.photoNeedsReply)
     }
 
     private var composerField: some View {
         TextEditor(text: $text)
             .font(.body).scrollContentBackground(.hidden)
-            .focused($editingMessage).disabled(busy)
+            .focused($editingMessage).disabled(session.busy)
             .frame(height: composerHeight)
             .accessibilityLabel(composerHint).accessibilityIdentifier("coach-composer")
             .overlay(alignment: .topLeading) {
@@ -965,13 +961,13 @@ struct NativeCoachView: View {
     private var suggestedReplies: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                if !planDrafts.isEmpty {
+                if !session.planDrafts.isEmpty {
                     suggestion("调整这份计划", icon: "slider.horizontal.3") {
                         planMode = true
                         editingMessage = true
                     }
                     suggestion("重新定制计划", icon: "calendar") { openGuide() }
-                } else if lines.last?.role == "assistant" {
+                } else if session.lines.last?.role == "assistant" {
                     suggestion("总结成训练要点") { sendSuggestedReply("请把刚才的回复总结成训练要点。") }
                     suggestion("给我一个简单做法") { sendSuggestedReply("根据刚才的讨论，给我一个简单、可执行的做法。") }
                     suggestion("生成训练计划", icon: "calendar") { openGuide() }
@@ -982,7 +978,6 @@ struct NativeCoachView: View {
                     suggestion("拍照记饮食", icon: "camera") { showPhotoHelp() }
                 }
             }
-            .spotterGlassCluster(spacing: 5)
         }
         .accessibilityLabel("推荐回复").accessibilityIdentifier("coach-suggestions")
     }
@@ -995,25 +990,24 @@ struct NativeCoachView: View {
             }
             .font(.footnote.weight(.semibold)).foregroundStyle(CoachColors.text)
             .padding(.horizontal, 12).frame(minHeight: 44)
+            .background(CoachColors.choice.opacity(0.72), in: Capsule())
             .contentShape(Capsule())
-            .spotterGlass(in: Capsule(), tint: CoachColors.choice.opacity(0.72),
-                          interactive: !reducesMotion && !busy && !hasReachedLimit)
             .padding(.vertical, 4)
-        }.buttonStyle(.spotterPress).disabled(busy || hasReachedLimit)
+        }.buttonStyle(.spotterPress).disabled(session.busy || hasReachedLimit)
     }
 
     private func sendSuggestedReply(_ reply: String) {
-        guard !busy else { return }
+        guard !session.busy else { return }
         text = reply
         sendComposer()
     }
 
     private var composerHint: String {
-        if picture != nil {
-            return photoMealHistory.isEmpty ? "例如一碗粥、一杯牛奶" : "回复教练，继续这餐…"
+        if session.picture != nil {
+            return session.photoMealHistory.isEmpty ? "例如一碗粥、一杯牛奶" : "回复教练，继续这餐…"
         }
-        if pendingDrink != nil { return "补充这一杯的信息…" }
-        if weightPrompt { return "例如 80.5 kg" }
+        if session.pendingDrink != nil { return "补充这一杯的信息…" }
+        if session.weightPrompt { return "例如 80.5 kg" }
         if planMode { return "想怎么调整这份草稿？" }
         return "问问 Spotter 教练…"
     }
@@ -1026,43 +1020,43 @@ struct NativeCoachView: View {
     }
 
     private func showPhotoHelp() {
-        lines += [Line(role: "local-user", content: "拍照记饮食"),
+        session.lines += [Line(role: "local-user", content: "拍照记饮食"),
                   Line(role: "meal", content: "用输入栏旁的加号拍照或选照片。写下食物和份量后，可以识别并记餐。")]
         if canUseCamera { camera = true } else { showPhotoPicker = true }
     }
 
     private func askWeight() {
-        lines += [Line(role: "local-user", content: "记体重"),
+        session.lines += [Line(role: "local-user", content: "记体重"),
                   Line(role: "local", content: "今天体重是多少？可以输入 kg 或 lb。")]
-        weightPrompt = true
+        session.weightPrompt = true
         editingMessage = true
     }
 
     private func sendComposer() {
-        guard !busy, canSendConversation() else { return }
+        guard !session.busy, canSendConversation() else { return }
         let input = cleanText
-        if picture != nil {
+        if session.picture != nil {
             if ["取消", "取消本次", "不用记了"].contains(input) {
                 clearMealPhoto()
                 text = ""
                 error = nil
-                lines.append(Line(role: "local", content: "已取消这次照片记餐。"))
+                session.lines.append(Line(role: "local", content: "已取消这次照片记餐。"))
             } else if canSendInput {
                 submit(.photo)
             }
             return
         }
-        if let drink = pendingDrink {
+        if let drink = session.pendingDrink {
             if ["取消", "算了", "不用记了", "取消本次", "不用了"].contains(input) {
                 clearDrink()
-                lines.append(Line(role: "local", content: "已取消这次蛋白粉记录。"))
+                session.lines.append(Line(role: "local", content: "已取消这次蛋白粉记录。"))
                 return
             }
-            if let option = drinkOptions.first(where: { drinkName($0.name) == drinkName(input) }) {
+            if let option = session.drinkOptions.first(where: { drinkName($0.name) == drinkName(input) }) {
                 Task { await recordDrink(selectDrink(option, for: drink)) }
                 return
             }
-            if !drinkOptions.isEmpty {
+            if !session.drinkOptions.isEmpty {
                 error = "请选择喝的是哪一款蛋白粉。"
                 return
             }
@@ -1076,12 +1070,12 @@ struct NativeCoachView: View {
             Task { await handleProteinRecipeCommand(input) }
             return
         }
-        pendingProteinPhotoPrompt = nil
+        session.pendingProteinPhotoPrompt = nil
         if isDrinkCommand(input) {
             var drink = SavedDrink(text: input, day: spotterDay())
             if input.range(of: "又喝|再喝|再记|另一杯|第二杯", options: .regularExpression) != nil {
                 drink.anotherCup = true
-                if let prior = duplicateDrink ?? lastDrink,
+                if let prior = session.duplicateDrink ?? session.lastDrink,
                    input.range(of: "[昨天前]天|今日|今天|\\d{4}-", options: .regularExpression) == nil {
                     drink.productID = prior.productID
                 }
@@ -1093,11 +1087,11 @@ struct NativeCoachView: View {
         let weightPrefix = "^(?:(?:帮我|我要|请)\\s*)?(?:记录|记下|记一下|记)\\s*(?:我(?:的)?\\s*)?(?:今天的?\\s*)?体重\\s*[：:=]?\\s*"
         if let range = input.range(of: weightPrefix, options: .regularExpression) {
             text = String(input[range.upperBound...])
-            if cleanText.isEmpty { askWeight() } else { weightPrompt = true; Task { await recordWeight() } }
-        } else if weightPrompt {
+            if cleanText.isEmpty { askWeight() } else { session.weightPrompt = true; Task { await recordWeight() } }
+        } else if session.weightPrompt {
             if ["取消", "不记了", "算了"].contains(input) {
-                weightPrompt = false; pendingWeight = nil; text = ""
-                lines.append(Line(role: "local", content: "已取消这次体重记录。"))
+                session.weightPrompt = false; session.pendingWeight = nil; text = ""
+                session.lines.append(Line(role: "local", content: "已取消这次体重记录。"))
             } else { Task { await recordWeight() } }
         } else if ["看本周训练统计", "看训练统计", "本周训练统计", "查看本周训练统计"].contains(input) {
             text = ""; Task { await trainingStats() }
@@ -1106,7 +1100,7 @@ struct NativeCoachView: View {
         } else if !planMode && input.range(of: "^(?:(?:帮我|请|给我|我要|我想)\\s*)*(?:生成|制定|定制|起草)(?:一个|一份)?(?:训练|健身)?计划[。！!？? ]*$", options: .regularExpression) != nil {
             text = ""
             openGuide()
-        } else { submit(planMode || !planDrafts.isEmpty && asksToRevisePlan(input) ? .plan : .chat) }
+        } else { submit(planMode || !session.planDrafts.isEmpty && asksToRevisePlan(input) ? .plan : .chat) }
     }
 
     private func isDrinkCommand(_ input: String) -> Bool {
@@ -1166,10 +1160,10 @@ struct NativeCoachView: View {
     }
 
     private func handleProteinRecipeCommand(_ notes: String) async {
-        guard !busy else { return }
-        busy = true; error = nil; text = ""; pendingProteinPhotoPrompt = nil
-        defer { busy = false }
-        lines.append(Line(role: "local-user", content: notes))
+        guard !session.busy else { return }
+        session.busy = true; error = nil; text = ""; session.pendingProteinPhotoPrompt = nil
+        defer { session.busy = false }
+        session.lines.append(Line(role: "local-user", content: notes))
         let id = UUID().uuidString.lowercased()
         let makeDefault = requestsTrainingDefault(notes)
         do {
@@ -1184,7 +1178,7 @@ struct NativeCoachView: View {
             let sole = products.count == 1 && notes.range(of: "唯一一款|仓库(?:里|中)的?(?:那款|这款)", options: .regularExpression) != nil
             let match = named.first.flatMap { first in named.dropFirst().first?.name.count == first.name.count ? nil : first.product }
             guard let product = match ?? (named.isEmpty && sole ? products.first : nil) else {
-                pendingProteinPhotoPrompt = notes
+                session.pendingProteinPhotoPrompt = notes
                 let detail = products.isEmpty ? "仓库暂时没有配方。拍一张包装营养表，核对后即可保存。"
                     : "请在指令里写上仓库中的完整品名。添加新产品时，可以直接拍包装营养表。"
                 var steps: [ProteinOperationReceipt.Step] = [.init(area: .warehouse, result: .failed, detail: detail)]
@@ -1198,7 +1192,7 @@ struct NativeCoachView: View {
                 return
             }
             let productID = try await commitProteinRecipe(product, makeDefault: makeDefault, operationID: id)
-            busy = false
+            session.busy = false
             await finishProteinRecipe(notes: notes, id: id, productID: productID)
         } catch {
             reportUnconfirmedProteinRecipe(id: id, makeDefault: makeDefault, notes: notes, reason: error)
@@ -1216,17 +1210,15 @@ struct NativeCoachView: View {
     }
 
     private func clearDrink() {
-        pendingDrink = nil; duplicateDrink = nil; drinkOptions = []; error = nil; text = ""
-        persistConversation()
+        session.pendingDrink = nil; session.duplicateDrink = nil; session.drinkOptions = []; error = nil; text = ""
     }
 
     @discardableResult
     private func recordDrink(_ request: SavedDrink, showQuestion: Bool = true) async -> Bool {
-        guard !busy, !showQuestion || canSendConversation() else { return false }
-        busy = true; defer { busy = false }
-        pendingDrink = request
-        drinkOptions = []; duplicateDrink = nil; error = nil; text = ""
-        persistConversation()
+        guard !session.busy, !showQuestion || canSendConversation() else { return false }
+        session.busy = true; defer { session.busy = false }
+        session.pendingDrink = request
+        session.drinkOptions = []; session.duplicateDrink = nil; error = nil; text = ""
         do {
             var body: [String: Any] = ["action": "record-saved", "expectedOwner": owner, "text": request.text,
                                        "recordId": request.id, "localDate": request.day]
@@ -1234,11 +1226,11 @@ struct NativeCoachView: View {
             if request.anotherCup { body["anotherCup"] = true }
             let data = try await api.request("/api/coach-protein", method: "POST", json: JSONSerialization.data(withJSONObject: body), for: owner)
             let reply = try JSONDecoder().decode(SavedDrinkReply.self, from: data)
-            if showQuestion, lines.last?.content != request.text {
-                lines.append(Line(role: "local-user", content: request.text))
+            if showQuestion, session.lines.last?.content != request.text {
+                session.lines.append(Line(role: "local-user", content: request.text))
             }
             if reply.status == "choose" {
-                drinkOptions = reply.products ?? []
+                session.drinkOptions = reply.products ?? []
             } else if reply.status == "clarify" {
                 setProteinSteps(for: request.id, replacing: [.diary], steps: [
                     .init(area: .diary, result: .failed, detail: reply.message ?? "请补充这杯的配方。")
@@ -1246,13 +1238,13 @@ struct NativeCoachView: View {
             } else if reply.status == "complete", let records = reply.records, !records.isEmpty {
                 var next = request
                 next.productID = reply.productId
-                lastDrink = next
-                pendingDrink = nil
+                session.lastDrink = next
+                session.pendingDrink = nil
                 let liquid = reply.liquidName ?? "冲泡液体"
                 let portion = "每杯 \(coachAmount(reply.powderGrams ?? 0)) g 粉 · \(coachAmount(reply.liquidMl ?? 0)) mL \(liquid)"
                 let steps = records.map { record -> ProteinOperationReceipt.Step in
                     if record.alreadyRecorded {
-                        if records.count == 1 { duplicateDrink = next }
+                        if records.count == 1 { session.duplicateDrink = next }
                         let source = record.linkedWorkout == nil ? "饮食记录" : "训练打卡"
                         return .init(area: .diary, result: .skipped, detail: "\(source)已有「\(record.entry.name)」。", date: record.date)
                     }
@@ -1267,14 +1259,13 @@ struct NativeCoachView: View {
             } else {
                 throw CocoaError(.coderReadCorrupt)
             }
-            persistConversation()
             return true
         } catch {
             setProteinSteps(for: request.id, replacing: [.diary], steps: [
                 .init(area: .diary, result: .unconfirmed, detail: "暂时无法核对保存结果。重试会沿用这一次记录。")
             ])
-            if showQuestion, !lines.contains(where: { $0.role == "local-user" && $0.content == request.text }) {
-                lines.insert(Line(role: "local-user", content: request.text), at: max(0, lines.count - 1))
+            if showQuestion, !session.lines.contains(where: { $0.role == "local-user" && $0.content == request.text }) {
+                session.lines.insert(Line(role: "local-user", content: request.text), at: max(0, session.lines.count - 1))
             }
             await showRequestFailure(error)
             return false
@@ -1283,12 +1274,12 @@ struct NativeCoachView: View {
 
     private func setProteinSteps(for id: String, replacing areas: Set<ProteinOperationReceipt.Area>,
                                  steps: [ProteinOperationReceipt.Step]) {
-        if let index = lines.firstIndex(where: { $0.proteinReceipt?.id == id }), var receipt = lines[index].proteinReceipt {
+        if let index = session.lines.firstIndex(where: { $0.proteinReceipt?.id == id }), var receipt = session.lines[index].proteinReceipt {
             receipt.steps.removeAll { areas.contains($0.area) }
             receipt.steps.append(contentsOf: steps)
-            lines[index].proteinReceipt = receipt
+            session.lines[index].proteinReceipt = receipt
         } else if !steps.isEmpty {
-            lines.append(Line(role: "status", content: "", proteinReceipt: .init(id: id, steps: steps)))
+            session.lines.append(Line(role: "status", content: "", proteinReceipt: .init(id: id, steps: steps)))
         }
     }
 
@@ -1299,10 +1290,10 @@ struct NativeCoachView: View {
     }
 
     private func trainingStats() async {
-        guard !busy else { return }
-        busy = true
+        guard !session.busy else { return }
+        session.busy = true
         error = nil
-        defer { busy = false }
+        defer { session.busy = false }
         do {
             let result = try await api.spotterRead("/api/workout", as: Activity.self)
             var calendar = Calendar(identifier: .gregorian)
@@ -1314,7 +1305,7 @@ struct NativeCoachView: View {
             let minutes = records.reduce(0) { $0 + $1.durationMinutes }
             let sets = records.reduce(0) { $0 + ($1.session?.completedSets ?? 0) }
             let summary = records.isEmpty ? "本周还没有已完成的训练。" : "本周完成 \(records.count) 次训练，累计 \(minutes) 分钟、\(sets) 组。"
-            lines += [Line(role: "local-user", content: "看本周训练统计"), Line(role: "local", content: summary)]
+            session.lines += [Line(role: "local-user", content: "看本周训练统计"), Line(role: "local", content: summary)]
         } catch { self.error = error.localizedDescription }
     }
 
@@ -1326,19 +1317,19 @@ struct NativeCoachView: View {
         guard let weight = Double(numeric), weight.isFinite else { error = "请输入体重数字，可选 kg 或 lb。"; return }
         let kg = ((pounds ? weight * 0.45359237 : weight) * 100).rounded() / 100
         guard (10...700).contains(kg) else { error = "请核对体重或单位。"; return }
-        guard !busy else { return }
-        busy = true
+        guard !session.busy else { return }
+        session.busy = true
         error = nil
-        defer { busy = false }
+        defer { session.busy = false }
         let date = spotterDay()
-        let id = pendingWeight.flatMap { $0.date == date && $0.kg == kg ? $0.id : nil } ?? UUID().uuidString.lowercased()
-        pendingWeight = (id, date, kg)
+        let id = session.pendingWeight.flatMap { $0.date == date && $0.kg == kg ? $0.id : nil } ?? UUID().uuidString.lowercased()
+        session.pendingWeight = (id, date, kg)
         do {
             try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner,
                 "data": ["kind": "nutrition", "id": id, "date": date, "entry": ["type": "weight", "kg": kg]]])
-            lines += [Line(role: "local-user", content: cleanText),
+            session.lines += [Line(role: "local-user", content: cleanText),
                       Line(role: "status", content: "已记录体重 \(kg.formatted(.number.precision(.fractionLength(0...2)))) kg。")]
-            text = ""; weightPrompt = false; editingMessage = false; pendingWeight = nil
+            text = ""; session.weightPrompt = false; editingMessage = false; session.pendingWeight = nil
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -1346,13 +1337,13 @@ struct NativeCoachView: View {
     private var planPreview: some View {
         VStack(alignment: .leading, spacing: 10) {
             messageTitle("calendar", "训练计划草稿")
-            draftRows(planDrafts)
+            draftRows(session.planDrafts)
             coachPrimary("保存到我的训练计划") { Task { await savePlans() } }
             Button("在对话中调整草稿") {
                 planMode = true
                 editingMessage = true
             }
-            .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).frame(minHeight: 44).disabled(busy || hasReachedLimit)
+            .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).frame(minHeight: 44).disabled(session.busy || hasReachedLimit)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14).coachPanel()
@@ -1393,7 +1384,7 @@ struct NativeCoachView: View {
             Text(title).font(.footnote.weight(.bold)).foregroundStyle(CoachColors.dark)
                 .padding(.horizontal, 13).frame(minHeight: 44)
                 .background(accent.fill, in: RoundedRectangle(cornerRadius: 10))
-        }.buttonStyle(.spotterPress).disabled(busy)
+        }.buttonStyle(.spotterPress).disabled(session.busy)
     }
 
     private func mealPreview(_ draft: NativeMealDraft) -> some View {
@@ -1403,8 +1394,8 @@ struct NativeCoachView: View {
                 .font(.footnote).foregroundStyle(CoachColors.muted)
             Text("碳水 \(Int(draft.carbs.rounded())) 克 · 脂肪 \(Int(draft.fat.rounded())) 克")
                 .font(.footnote).foregroundStyle(CoachColors.muted)
-            SpotterMenuPicker("餐次", selection: $meal, options: mealOptions)
-                .disabled(busy)
+            SpotterMenuPicker("餐次", selection: mealSelection, options: mealOptions)
+                .disabled(session.busy)
             coachPrimary("添加到\(meal)") { Task { await retryMeal(draft) } }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1425,11 +1416,10 @@ struct NativeCoachView: View {
                             UIPasteboard.general.string = externalPrompt
                             ownNotice = "已复制。"
                         }
-                        .buttonStyle(.spotterPrimaryControl).disabled(busy)
+                        .buttonStyle(.spotterPrimaryControl).disabled(session.busy)
                         Button(ownPromptVisible ? "收起提示词" : "查看提示词") { ownPromptVisible.toggle() }
                             .buttonStyle(.spotterControl)
                     }
-                    .spotterGlassCluster()
                     if ownPromptVisible {
                         Text(externalPrompt).font(.footnote.monospaced()).textSelection(.enabled)
                             .transition(panelTransition)
@@ -1462,8 +1452,8 @@ struct NativeCoachView: View {
 
     private func refreshQuota(ifUnknown: Bool = false) async {
         guard let result = try? await api.spotterRead("/api/ai-coach", as: QuotaResponse.self),
-              let next = result.quota, !Task.isCancelled, !ifUnknown || quota == nil else { return }
-        quota = next
+              let next = result.quota, !Task.isCancelled, !ifUnknown || session.quota == nil else { return }
+        session.quota = next
     }
 
     private func showRequestFailure(_ reason: Error) async {
@@ -1472,13 +1462,13 @@ struct NativeCoachView: View {
     }
 
     private func canSendConversation() -> Bool {
-        guard let message = quota?.limitMessage else { return true }
+        guard let message = session.quota?.limitMessage else { return true }
         error = message
         return false
     }
 
     private func submit(_ kind: RequestKind) {
-        guard !busy, !cleanText.isEmpty || kind == .photo || kind == .guided, canSendConversation() else { return }
+        guard !session.busy, !cleanText.isEmpty || kind == .photo || kind == .guided, canSendConversation() else { return }
         editingMessage = false
         guard NativeCoachConsent.isAllowed(owner: owner) else {
             error = Self.sharingDisabledMessage
@@ -1488,10 +1478,10 @@ struct NativeCoachView: View {
     }
 
     private func send(_ kind: RequestKind) async {
-        guard !busy, NativeCoachConsent.isAllowed(owner: owner), canSendConversation() else { return }
-        busy = true
+        guard !session.busy, NativeCoachConsent.isAllowed(owner: owner), canSendConversation() else { return }
+        session.busy = true
         error = nil
-        defer { busy = false }
+        defer { session.busy = false }
         if kind == .photo {
             await recognize()
             return
@@ -1499,12 +1489,12 @@ struct NativeCoachView: View {
         let selection = kind == .guided ? guidedDraft : nil
         let user = Line(role: "user", content: selection == nil ? String(cleanText.prefix(4000)) : "请根据我选择的条件起草训练计划。")
         guard !user.content.isEmpty else { return }
-        var context = Array((lines.filter { $0.role == "user" || $0.role == "assistant" } + [user]).suffix(9))
+        var context = Array((session.lines.filter { $0.role == "user" || $0.role == "assistant" } + [user]).suffix(9))
         while let first = context.first, first.role != "user" { context.removeFirst() }
         while context.count > 1 && context.reduce(0, { $0 + $1.content.utf16.count }) > 9000 { context.removeFirst(2) }
         let messages = (selection == nil ? context : [user]).map { ["role": $0.role, "content": $0.content] }
-        let messageIndex = lines.count
-        lines.append(Line(role: "local-user", content: user.content))
+        let messageIndex = session.lines.count
+        session.lines.append(Line(role: "local-user", content: user.content))
         text = ""
         do {
             let attachingPlans = selection == nil && includePlans
@@ -1515,93 +1505,98 @@ struct NativeCoachView: View {
             ]
             if attachingPlans { request["contextRange"] = contextRange }
             if let selection { request["guided"] = selection.values; request["draftDays"] = selection.days }
-            if kind == .plan && !planDrafts.isEmpty {
-                request["priorDraft"] = ["plans": planDrafts.map(\.data)]
-                let dates = planDrafts.map(\.date).compactMap { nativePlanDate($0) }.sorted()
+            if kind == .plan && !session.planDrafts.isEmpty {
+                request["priorDraft"] = ["plans": session.planDrafts.map(\.data)]
+                let dates = session.planDrafts.map(\.date).compactMap { nativePlanDate($0) }.sorted()
                 if let first = dates.first, let last = dates.last, attachingPlans == false {
                     request["date"] = spotterDay(first)
                     request["draftDays"] = min(28, max(7, 1 + (Calendar.current.dateComponents([.day], from: first, to: last).day ?? 0)))
                 }
             }
             let result = try await api.spotterSend("/api/ai-coach", body: request)
-            if let next = (try? JSONDecoder().decode(QuotaResponse.self, from: result))?.quota { quota = next }
+            if let next = (try? JSONDecoder().decode(QuotaResponse.self, from: result))?.quota { session.quota = next }
             guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any],
                   let reply = object["reply"] as? String else { throw CocoaError(.coderReadCorrupt) }
-            lines[messageIndex] = user
-            lines.append(Line(role: "assistant", content: reply))
+            session.lines[messageIndex] = user
+            session.lines.append(Line(role: "assistant", content: reply))
             planMode = false
             guidedDraft = nil
             if let draft = object["draft"] as? [String: Any], let plans = draft["plans"] as? [[String: Any]] {
                 let revised = plans.compactMap(PlanDraft.init(data:))
-                if kind == .plan && !planDrafts.isEmpty {
-                    let old = Set(planDrafts.map { $0.date + $0.title })
+                if kind == .plan && !session.planDrafts.isEmpty {
+                    let old = Set(session.planDrafts.map { $0.date + $0.title })
                     let moved = revised.filter { !old.contains($0.date + $0.title) }.count
                     let summary = moved == 0 ? "已更新草稿。请展开核对组次和休息时间。"
                         : "已调整 \(moved) 堂训练的日期或内容。确认后再保存。"
-                    lines.append(Line(role: "local", content: summary))
+                    session.lines.append(Line(role: "local", content: summary))
                 }
-                planDrafts = revised
+                session.planDrafts = revised
             }
         } catch { await showRequestFailure(error) }
     }
 
     private func attachMealPhoto(_ jpeg: Data) {
-        picture = jpeg
-        photoNeedsReply = false
+        if session.picture == nil {
+            session.photoDay = nutritionDate ?? spotterDay()
+            session.meal = meal
+        }
+        session.picture = jpeg
+        session.photoNeedsReply = false
         error = nil
     }
 
     private func clearMealPhoto() {
-        picture = nil
+        session.picture = nil
         photoChoice = nil
-        photoMealHistory = []
-        photoNeedsReply = false
+        session.photoMealHistory = []
+        session.photoNeedsReply = false
+        session.photoDay = nil
+        if session.mealDraft == nil { session.meal = nil }
     }
 
     private func rememberMealTurn(_ content: String, role: String) {
         let bounded = String(decoding: content.utf16.prefix(300), as: UTF16.self)
-        if photoMealHistory.count == 7 { photoMealHistory.remove(at: 1) }
-        photoMealHistory.append(["role": role, "content": bounded])
+        if session.photoMealHistory.count == 7 { session.photoMealHistory.remove(at: 1) }
+        session.photoMealHistory.append(["role": role, "content": bounded])
     }
 
     private func recognize() async {
-        guard let picture else { return }
+        guard let picture = session.picture else { return }
         let input = cleanText
-        let recipeNotes = [pendingProteinPhotoPrompt, input].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "，")
-        if looksLikeProteinPhoto(recipeNotes) || pendingProteinPhotoPrompt != nil {
+        let recipeNotes = [session.pendingProteinPhotoPrompt, input].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "，")
+        if looksLikeProteinPhoto(recipeNotes) || session.pendingProteinPhotoPrompt != nil {
             await recognizeProtein(picture, notes: recipeNotes)
             return
         }
-        if !input.isEmpty || photoMealHistory.last?["role"] != "user" {
-            let initial = photoMealHistory.isEmpty
+        if !input.isEmpty || session.photoMealHistory.last?["role"] != "user" {
+            let initial = session.photoMealHistory.isEmpty
             let note = input.isEmpty ? (initial ? "请识别这张照片里的餐食。" : "请参考这张补充照片。") : input
             rememberMealTurn(note, role: "user")
-            lines.append(Line(role: "local-user", content: initial ? "照片 · \(note)" : note))
+            session.lines.append(Line(role: "local-user", content: initial ? "照片 · \(note)" : note))
         }
         text = ""
-        photoNeedsReply = false
+        session.photoNeedsReply = false
         var request: [String: Any] = [
             "expectedOwner": owner, "mode": "meal", "inCoach": true,
-            "notes": photoMealHistory.last?["content"] ?? "",
+            "notes": session.photoMealHistory.last?["content"] ?? "",
             "image": ["mediaType": "image/jpeg", "base64": picture.base64EncodedString()]
         ]
-        if photoMealHistory.count > 1 { request["mealHistory"] = Array(photoMealHistory.dropLast().suffix(6)) }
+        if session.photoMealHistory.count > 1 { request["mealHistory"] = Array(session.photoMealHistory.dropLast().suffix(6)) }
         do {
             let data = try await api.spotterSend("/api/food-photo", body: request)
             let answer = try JSONDecoder().decode(RecognizedMeal.self, from: data)
-            if let next = answer.quota { quota = next }
+            if let next = answer.quota { session.quota = next }
             if let draft = answer.draft {
-                mealDraft = draft
-                mealEstimate = answer.estimate
-                mealID = UUID().uuidString.lowercased()
-                mealDate = nutritionDate ?? spotterDay()
+                session.mealDraft = draft
+                session.mealEstimate = answer.estimate
+                session.mealID = UUID().uuidString.lowercased()
+                session.mealDate = session.photoDay ?? nutritionDate ?? spotterDay()
                 clearMealPhoto()
-                persistConversation()
                 try await saveMeal(draft)
             } else if let question = answer.needs?.first, !question.isEmpty {
                 rememberMealTurn(question, role: "assistant")
-                lines.append(Line(role: "meal", content: question))
-                photoNeedsReply = true
+                session.lines.append(Line(role: "meal", content: question))
+                session.photoNeedsReply = true
             } else {
                 error = answer.error ?? "这张照片暂时无法识别。可以重试或换一张照片。"
             }
@@ -1627,7 +1622,7 @@ struct NativeCoachView: View {
                 "image": ["mediaType": "image/jpeg", "base64": image.base64EncodedString()]
             ])
             let answer = try JSONDecoder().decode(ProteinPhotoReading.self, from: data)
-            if let quota = answer.quota { self.quota = quota }
+            if let quota = answer.quota { session.quota = quota }
             let explicitDefault = requestsTrainingDefault(notes)
             var editor = NativeProteinRecipeEditor(makeDefault: explicitDefault)
             let label = answer.product
@@ -1658,13 +1653,14 @@ struct NativeCoachView: View {
             proteinPhotoNotes = notes
             proteinPhotoLogsDrink = proteinDiaryIntent(notes) == .record
             if let needs = answer.needs, !needs.isEmpty {
-                lines.append(Line(role: "meal", content: needs.joined(separator: "\n")))
+                session.lines.append(Line(role: "meal", content: needs.joined(separator: "\n")))
             }
             proteinPhotoID = UUID().uuidString.lowercased()
             proteinEditor = editor
-            pendingProteinPhotoPrompt = nil
-            lines.append(Line(role: "local-user", content: "照片 · " + notes))
-            picture = nil; photoChoice = nil; text = ""
+            session.pendingProteinPhotoPrompt = nil
+            session.lines.append(Line(role: "local-user", content: "照片 · " + notes))
+            clearMealPhoto()
+            text = ""
         } catch { await showRequestFailure(error) }
     }
 
@@ -1720,7 +1716,6 @@ struct NativeCoachView: View {
                 ])
             }
         }
-        persistConversation()
     }
 
     private func reportUnconfirmedProteinRecipe(id: String, makeDefault: Bool, notes: String, reason: Error) {
@@ -1736,23 +1731,25 @@ struct NativeCoachView: View {
     }
 
     private func retryMeal(_ draft: NativeMealDraft) async {
-        guard !busy else { return }
-        busy = true
-        defer { busy = false }
+        guard !session.busy else { return }
+        session.busy = true
+        defer { session.busy = false }
         do {
             try await saveMeal(draft)
         } catch { self.error = error.localizedDescription }
     }
 
     private func saveMeal(_ draft: NativeMealDraft) async throws {
+        let meal = self.meal
         let data = try await api.spotterSend("/api/library", body: [
             "action": "save", "expectedOwner": owner, "revision": NSNull(),
-            "data": ["kind": "nutrition", "id": mealID, "date": mealDate, "entry": draft.values(meal: meal)]
+            "data": ["kind": "nutrition", "id": session.mealID, "date": session.mealDate, "entry": draft.values(meal: meal)]
         ])
         let updated = try JSONDecoder().decode(NativeJSON.self, from: data)["updated"].string
-        mealDraft = nil
-        setReceipt(MealReceipt(id: mealID, date: mealDate, draft: draft, meal: meal, updated: updated, estimate: mealEstimate))
-        mealEstimate = nil
+        session.mealDraft = nil
+        setReceipt(MealReceipt(id: session.mealID, date: session.mealDate, draft: draft, meal: meal, updated: updated, estimate: session.mealEstimate))
+        session.mealEstimate = nil
+        session.meal = nil
         nutritionChanged()
         error = nil
     }
@@ -1763,28 +1760,27 @@ struct NativeCoachView: View {
             step.detail = "\(receipt.draft.name) · \(coachAmount(receipt.draft.calories)) 千卡"
         }) { return }
         let line = Line(role: "status", content: summary, receipt: receipt)
-        if let index = lines.firstIndex(where: { $0.receipt?.id == receipt.id }) { lines[index] = line }
-        else { lines.append(line) }
+        if let index = session.lines.firstIndex(where: { $0.receipt?.id == receipt.id }) { session.lines[index] = line }
+        else { session.lines.append(line) }
     }
 
     private func updateProteinMeal(_ recordID: String, change: (inout ProteinOperationReceipt.Step) -> Void) -> Bool {
-        guard let index = lines.firstIndex(where: { $0.proteinReceipt?.steps.contains { $0.meal?.id == recordID } == true }),
-              var receipt = lines[index].proteinReceipt,
+        guard let index = session.lines.firstIndex(where: { $0.proteinReceipt?.steps.contains { $0.meal?.id == recordID } == true }),
+              var receipt = session.lines[index].proteinReceipt,
               let row = receipt.steps.firstIndex(where: { $0.meal?.id == recordID }) else { return false }
         change(&receipt.steps[row])
-        lines[index].proteinReceipt = receipt
+        session.lines[index].proteinReceipt = receipt
         return true
     }
 
     private func nutritionChanged() {
-        persistConversation()
         NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
     }
 
     private func undoMeal(_ receipt: MealReceipt) async {
-        guard !busy else { return }
-        busy = true; error = nil
-        defer { busy = false }
+        guard !session.busy else { return }
+        session.busy = true; error = nil
+        defer { session.busy = false }
         do {
             try await api.spotterSend("/api/library", body: [
                 "action": "remove", "expectedOwner": owner, "kind": "nutrition", "id": receipt.id, "revision": receipt.updated
@@ -1793,8 +1789,8 @@ struct NativeCoachView: View {
                 step.result = .undone
                 step.meal = nil
                 step.detail = "已撤销「\(receipt.draft.name)」。"
-            }), let index = lines.firstIndex(where: { $0.receipt?.id == receipt.id }) {
-                lines[index] = Line(role: "local", content: "已撤销 \(receipt.date) 的「\(receipt.draft.name)」。")
+            }), let index = session.lines.firstIndex(where: { $0.receipt?.id == receipt.id }) {
+                session.lines[index] = Line(role: "local", content: "已撤销 \(receipt.date) 的「\(receipt.draft.name)」。")
             }
             nutritionChanged()
         } catch { self.error = error.localizedDescription }
@@ -1867,10 +1863,10 @@ struct NativeCoachView: View {
     }
 
     private func savePlans() async {
-        guard !busy else { return }
-        busy = true
-        defer { busy = false }
-        let drafts = planDrafts
+        guard !session.busy else { return }
+        session.busy = true
+        defer { session.busy = false }
+        let drafts = session.planDrafts
         do {
             for offset in stride(from: 0, to: drafts.count, by: 20) {
                 let batch = drafts[offset..<min(offset + 20, drafts.count)]
@@ -1879,7 +1875,7 @@ struct NativeCoachView: View {
                     "items": batch.map { ["id": $0.id, "data": $0.data] }
                 ])
             }
-            planDrafts = []; lines.append(Line(role: "status", content: "训练计划已保存。")); error = nil
+            session.planDrafts = []; session.lines.append(Line(role: "status", content: "训练计划已保存。")); error = nil
         } catch { self.error = error.localizedDescription }
     }
 }
@@ -2215,14 +2211,17 @@ private struct NativePlanQuestions: View {
                     Button {
                         if selected { focus.remove(item.0) } else { focus.insert(item.0) }
                     } label: {
-                        Text(item.1).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
+                        Text(item.1).font(.subheadline.weight(.semibold))
+                            .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(selected ? accent.selection : SpotterPalette.wash,
+                                        in: RoundedRectangle(cornerRadius: 10))
                     }
-                    .buttonStyle(SpotterGlassChoiceStyle(selected: selected, horizontalPadding: 4))
+                    .buttonStyle(.spotterPress)
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .animation(stepMotion, value: selected)
                 }
             }
-            .spotterGlassCluster()
             if frequency * weeks > 12 {
                 Text("每份草稿最多 12 堂，请减少周数或每周次数。").font(.caption).foregroundStyle(.red).transition(.opacity)
             }
@@ -2253,6 +2252,7 @@ private struct NativePlanQuestions: View {
             .buttonStyle(.spotterPrimaryControl).disabled(invalidStep)
         }
         .spotterGlassCluster()
+        .spotterGlassToolbar()
         .padding(.horizontal, 16).padding(.bottom, 10)
         .animation(stepMotion, value: step > 0)
     }
