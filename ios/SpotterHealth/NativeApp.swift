@@ -264,11 +264,15 @@ struct NativeSpotterApp: View {
         .background { SpotterWindowAppearance(theme: theme).accessibilityHidden(true) }
         .task { await account.restore() }
         .onChange(of: account.isRestoring) { restoring in
-            if !restoring { NativeTrainingWidgetBridge.useAccount(account.profile?.id, origin: account.api.origin) }
+            if !restoring {
+                NativeTrainingWidgetBridge.useAccount(account.profile?.id, origin: account.api.origin)
+                if account.profile == nil { clearTrainingLiveActivity() }
+            }
         }
         .onChange(of: account.profile?.id) { owner in
             NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
             if owner == nil {
+                clearTrainingLiveActivity()
                 Task {
                     await NativeTrainingNotifications.shared.scheduleRest(nil)
                     await NativeTrainingNotifications.shared.clear()
@@ -286,6 +290,12 @@ struct NativeSpotterApp: View {
             widgetDestination = destination
         } else {
             acceptInviteURL(url)
+        }
+    }
+
+    private func clearTrainingLiveActivity() {
+        if #available(iOS 16.1, *) {
+            NativeTrainingLiveActivity.shared.sync(workoutKey: nil, state: nil, foreground: false)
         }
     }
 
@@ -555,6 +565,7 @@ private struct NativeSpotterTabs: View {
     @AppStorage(NativePreferenceKey.reduceMotion) private var reduceMotion = false
     @AppStorage(NativePreferenceKey.largerText) private var largerText = false
     @AppStorage(NativeTrainingNotifications.restPreference) private var backgroundRestAlerts = false
+    @AppStorage(NativeTrainingNotifications.liveActivityPreference) private var showsTrainingLiveActivity = true
     @AppStorage(NativePreferenceKey.restSound) private var restSound = false
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.dynamicTypeSize) private var systemTextSize
@@ -601,6 +612,7 @@ private struct NativeSpotterTabs: View {
             do {
                 try await Task.sleep(for: .milliseconds(250))
                 refreshWidget()
+                refreshLiveActivity()
             } catch {}
         }
         .onChange(of: widgetDestination) { _ in stageWidgetDestination() }
@@ -610,9 +622,18 @@ private struct NativeSpotterTabs: View {
         .onChange(of: inboundInvite) { _ in stageInvite() }
         .onChange(of: showsFriends) { visible in if !visible && selected == .friends { selected = .today } }
         .onChange(of: scenePhase) { phase in
-            if phase == .active { Task { await refreshHome() } }
+            if phase == .active {
+                Task {
+                    async let overview: Void = refreshHome()
+                    await workouts.syncLocalChanges()
+                    await overview
+                }
+            }
             if phase == .background { refreshWidget() }
+            refreshLiveActivity()
         }
+        .onChange(of: workouts.active?.id) { _ in refreshLiveActivity() }
+        .onChange(of: showsTrainingLiveActivity) { _ in refreshLiveActivity() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
             refreshWidget()
         }
@@ -647,7 +668,9 @@ private struct NativeSpotterTabs: View {
                 NativeSettings(account: account, owner: owner, onDeleted: {
                                    workouts.clearLocalData()
                                    NativeTrainingWidgetBridge.useAccount(nil, origin: account.api.origin)
+                                   refreshLiveActivity()
                                    NativeCoachView.removeSavedConversation(api: account.api, owner: owner)
+                                   NativeNutritionDetail.clearFavoriteMeals(api: account.api, owner: owner)
                                    trainingPreferences.clear()
                                },
                                refreshPlans: { await refreshHome() }, openTraining: { selected = .training; showSettings = false },
@@ -779,6 +802,38 @@ private struct NativeSpotterTabs: View {
         guard workouts.hasWidgetOverview || workouts.active != nil || !workouts.pendingCheckins.isEmpty else { return }
         NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
         NativeTrainingWidgetBridge.publish(workouts)
+    }
+
+    private func refreshLiveActivity() {
+        guard #available(iOS 16.1, *), account.profile?.id == owner else { return }
+        let manager = NativeTrainingLiveActivity.shared
+        guard showsTrainingLiveActivity, let entry = workouts.active, entry.owner == owner,
+              let session = entry.session else {
+            manager.sync(workoutKey: nil, state: nil, foreground: false)
+            return
+        }
+
+        let identity = [account.api.origin, owner, entry.id].joined(separator: "\n")
+        let key = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+        let next = session.nextSet(after: workouts.undoableSet)
+        let name = next.flatMap { position -> String? in
+            guard session.plan.exercises.indices.contains(position.move) else { return nil }
+            let name = session.plan.exercises[position.move]["name"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? "动作" : String(name.prefix(45))
+        }
+        let now = Date.now
+        let deadline = session.runningRestDeadlineMilliseconds.flatMap { milliseconds -> Date? in
+            let date = Date(timeIntervalSince1970: Double(milliseconds) / 1000)
+            return date > now ? date : nil
+        }
+        let restSeconds = session.restStatus()?.remainingSeconds ?? 0
+        let state = SpotterTrainingActivityAttributes.ContentState(
+            completedSets: session.completedSets,
+            totalSets: session.rows.reduce(0) { $0 + $1.count },
+            nextMovement: name, nextSet: next.map { $0.row + 1 }, isRunning: session.isRunning,
+            restDeadline: deadline, pausedRestSeconds: !session.isRunning && restSeconds > 0 ? restSeconds : nil
+        )
+        manager.sync(workoutKey: key, state: state, foreground: scenePhase == .active)
     }
 
     private var isAvailableForWidget: Bool {
@@ -1112,6 +1167,7 @@ final class NativeTrainingNotifications {
 
     static let shared = NativeTrainingNotifications()
     static let restPreference = "spotter.native.workout.restNotification"
+    static let liveActivityPreference = "spotter.native.training.live-activity"
     private let center = UNUserNotificationCenter.current()
     private let prefix = "spotter.training.reminder."
     private let restIdentifier = "spotter.training.rest-end"

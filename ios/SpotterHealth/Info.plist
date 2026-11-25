@@ -45,6 +45,8 @@
     <string>当你点击保存图片时，将生成的训练分享卡添加到照片。</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>当你选择语音记录饮食时，将食物和份量描述转成可编辑的文字。</string>
+    <key>NSSupportsLiveActivities</key>
+    <true/>
     <key>SpotterWebRelease</key>
     <dict>
         <key>origin</key>

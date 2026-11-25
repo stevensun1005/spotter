@@ -2658,6 +2658,7 @@ private struct NativeTimerPreferences: View {
     @AppStorage(NativePreferenceKey.restHaptics) private var haptics = false
     @AppStorage(NativePreferenceKey.keepAwake) private var keepAwake = false
     @AppStorage(NativeTrainingNotifications.restPreference) private var backgroundRestAlerts = false
+    @AppStorage(NativeTrainingNotifications.liveActivityPreference) private var showsTrainingLiveActivity = true
     @Environment(\.openURL) private var openURL
     @State private var askingForNotifications = false
     @State private var notificationDenied = false
@@ -2690,6 +2691,10 @@ private struct NativeTimerPreferences: View {
         }
         SecondaryGroup(title: "训练计时") {
             NativeSettingToggle(title: "训练时保持常亮", detail: "训练页面打开且计时进行时延缓自动锁屏。", value: $keepAwake)
+            if #available(iOS 16.1, *) {
+                Divider()
+                NativeSettingToggle(title: "锁屏实时训练", detail: "在锁屏和灵动岛显示下一组、完成组数和休息倒计时。", value: $showsTrainingLiveActivity)
+            }
         }
     }
 

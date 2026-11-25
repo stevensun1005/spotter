@@ -56,6 +56,13 @@ private struct SpotterWidgetProvider: TimelineProvider {
 }
 
 @main
+struct SpotterWidgets: WidgetBundle {
+    var body: some Widget {
+        SpotterTrainingWidget()
+        if #available(iOS 16.1, *) { SpotterWorkoutLiveActivity() }
+    }
+}
+
 struct SpotterTrainingWidget: Widget {
     static let kind = SpotterWidgetStore.widgetKind
 
