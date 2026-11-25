@@ -2,7 +2,7 @@
 
 import type { ChangeEvent } from "react";
 import {
-  cardioActivityTitles, formatCardioDuration, inclineReadings, maxCardioDistanceKm, maxCardioMinutes, maxCardioSeconds, maxCardioSpeedKmh, type Cardio,
+  cardioActivityTitles, formatCardioDuration, inclineReadings, maxCardioDistanceKm, maxCardioMinutes, maxCardioSeconds, cardioMaximumSpeedKmh, type Cardio,
 } from "./cardio";
 
 function readNumber(event: ChangeEvent<HTMLInputElement>, change: (value?: number) => void) {
@@ -47,7 +47,7 @@ export function CardioFields({ value, change, liveSeconds }: {
     <div className="field-grid">
       <label>距离（km）<input type="number" inputMode="decimal" min={0} max={maxCardioDistanceKm} step="any" placeholder="可选"
         value={value.distanceKm ?? ""} onChange={(event) => readNumber(event, (distanceKm) => change({ ...value, distanceKm }))} /></label>
-      <label>速度（km/h）<input type="number" inputMode="decimal" min={0} max={maxCardioSpeedKmh} step="any" placeholder="可选"
+      <label>速度（km/h）<input type="number" inputMode="decimal" min={0} max={cardioMaximumSpeedKmh(value.activity)} step="any" placeholder="可选"
         value={value.speedKmh ?? ""} onChange={(event) => readNumber(event, (speedKmh) => change({ ...value, speedKmh }))} /></label>
     </div>
   </section>;
