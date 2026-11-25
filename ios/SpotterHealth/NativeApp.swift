@@ -1114,7 +1114,7 @@ private struct NativeDockTabRail<Play: View>: View {
                 }
             }
             .contentShape(Rectangle())
-            .simultaneousGesture(
+            .highPriorityGesture(
                 DragGesture(minimumDistance: 12)
                     .updating($dragDistance) { value, distance, transaction in
                         guard abs(value.translation.width) > abs(value.translation.height) else { return }

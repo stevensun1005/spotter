@@ -43,11 +43,14 @@ struct SpotterWorkoutLiveActivity: Widget {
                     }.padding(.top, 3)
                 }
             } compactLeading: {
-                elapsed(context.state, compact: true).foregroundStyle(lime)
+                elapsed(context.state, compact: true)
+                    .frame(width: 46, alignment: .trailing)
+                    .foregroundStyle(lime)
             } compactTrailing: {
                 Text("\(context.state.completedSets)/\(context.state.totalSets)")
                     .font(.caption2.weight(.semibold)).monospacedDigit().foregroundStyle(lime)
                     .lineLimit(1).minimumScaleFactor(0.7)
+                    .fixedSize(horizontal: true, vertical: false)
                     .accessibilityLabel("已完成 \(context.state.completedSets) 组，共 \(context.state.totalSets) 组")
             } minimal: {
                 Image(systemName: context.state.restDeadline == nil ? "dumbbell.fill" : "timer")
