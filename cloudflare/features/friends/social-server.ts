@@ -38,7 +38,7 @@ function connected(first: string, second: string) {
     first + " AND peer.user = " + second + "))";
 }
 
-export async function socialState(db: D1Database, owner: string, includeBuddy = false): Promise<SocialState> {
+export async function socialState(db: D1Database, owner: string, includeBuddy = false, betaSocialDefaults = false): Promise<SocialState> {
   const [preferences, { results }, buddy] = await Promise.all([
     readSocialPreferences(db, owner),
     db.prepare("SELECT r.id, r.sender, r.receiver, " + accountName("r.sender", "r.sender_name") + " AS sender_name, " +
@@ -60,7 +60,7 @@ export async function socialState(db: D1Database, owner: string, includeBuddy = 
     outgoing.push(...buddy.outgoing);
     outgoing.sort(newestFirst);
   }
-  return { preferences, incoming, outgoing };
+  return { preferences, incoming, outgoing, ...(betaSocialDefaults ? { betaSocialDefaults: true } : {}) };
 }
 
 export async function searchPeople(db: D1Database, owner: string, raw: string, mode?: PeopleSearchMode): Promise<SocialPerson[]> {
@@ -90,7 +90,7 @@ export async function searchPeople(db: D1Database, owner: string, raw: string, m
   return results;
 }
 
-export async function changeSocial(db: D1Database, user: Person, mutation: SocialMutation) {
+export async function changeSocial(db: D1Database, user: Person, mutation: SocialMutation, betaSocialDefaults = false) {
   if (mutation.expectedOwner && mutation.expectedOwner !== user.id) {
     throw new HttpError(403, "当前登录账号已切换，请重新打开好友页面。");
   }
@@ -113,7 +113,7 @@ export async function changeSocial(db: D1Database, user: Person, mutation: Socia
   if (mutation.action === "request") {
     if (mutation.kind === "buddy") {
       await readAccountProfile(db, user.id);
-      return sendBuddyRequest(db, user, mutation.id);
+      return sendBuddyRequest(db, user, mutation.id, betaSocialDefaults ? mutation.shareNutrition : undefined);
     }
     if (user.id === mutation.id) throw new HttpError(400, "不能加自己为好友。");
     const [first, second] = [user.id, mutation.id].sort();
@@ -132,21 +132,23 @@ export async function changeSocial(db: D1Database, user: Person, mutation: Socia
     return;
   }
 
-  if (await respondBuddyRequest(db, user, mutation.id, mutation.decision)) return;
+  if (await respondBuddyRequest(db, user, mutation.id, mutation.decision, betaSocialDefaults, mutation.shareNutrition)) return;
 
   if (mutation.decision === "accept") {
+    const dietStatus = betaSocialDefaults ? 0 : 1;
     // Link the users and consume the specific request together, while preserving any existing terms.
     await db.batch([
       db.prepare(
         "INSERT INTO friend_links (first_id, second_id, first_name, second_name, linked, " +
         "first_training, second_training, first_nutrition, second_nutrition, first_nutrition_status, second_nutrition_status) " +
         "SELECT r.first_id, r.second_id, CASE WHEN r.receiver = r.first_id THEN ? ELSE r.sender_name END, " +
-        "CASE WHEN r.receiver = r.second_id THEN ? ELSE r.sender_name END, 1, 1, 1, 0, 0, 1, 1 FROM friend_requests r " +
+        "CASE WHEN r.receiver = r.second_id THEN ? ELSE r.sender_name END, 1, 1, 1, 0, 0, ?, ? FROM friend_requests r " +
         "WHERE r.id = ? AND r.receiver = ? AND NOT " + connected("r.first_id", "r.second_id") +
         " ON CONFLICT(first_id, second_id) DO UPDATE SET first_name = excluded.first_name, second_name = excluded.second_name, " +
         "linked = 1, first_training = 1, second_training = 1, first_nutrition = 0, second_nutrition = 0, " +
-        "first_nutrition_status = 1, second_nutrition_status = 1 WHERE friend_links.linked = 0"
-      ).bind(name, name, mutation.id, user.id),
+        "first_nutrition_status = excluded.first_nutrition_status, second_nutrition_status = excluded.second_nutrition_status " +
+        "WHERE friend_links.linked = 0"
+      ).bind(name, name, dietStatus, dietStatus, mutation.id, user.id),
       db.prepare("DELETE FROM friend_requests WHERE id = ? AND receiver = ?").bind(mutation.id, user.id),
     ]);
     return;

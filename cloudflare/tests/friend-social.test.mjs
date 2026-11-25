@@ -224,6 +224,63 @@ test("friend requests preserve direction, isolate actors and survive retries", a
   assert.deepEqual((await socialState(db, alex.id)).outgoing, []);
 });
 
+test("beta friend requests and codes start with private nutrition and retain an established sharing choice", async (t) => {
+  const db = fixture(t);
+  await save(db, sam, { discoverable: true });
+  await changeSocial(db, alex, { action: "request", id: sam.id }, true);
+  const social = await socialState(db, sam.id, true, true);
+  assert.equal(social.betaSocialDefaults, true);
+  assert.equal((await socialState(db, sam.id, true)).betaSocialDefaults, undefined);
+  await changeSocial(db, sam, { action: "respond", id: social.incoming[0].id, decision: "accept" }, true);
+  const privateNutrition = { training: true, nutrition: false, nutritionDetails: false };
+  const [alexFriend] = (await listFriends(db, alex.id)).friends;
+  assert.deepEqual(alexFriend.sharing, privateNutrition);
+  assert.deepEqual(alexFriend.shared, privateNutrition);
+
+  await changeFriends(db, sam, { action: "invite" });
+  await changeFriends(db, lee, { action: "join", code: (await listFriends(db, sam.id)).invite.code }, true);
+  const [leeFriend] = (await listFriends(db, lee.id)).friends;
+  assert.deepEqual(leeFriend.sharing, privateNutrition);
+  assert.deepEqual(leeFriend.shared, privateNutrition);
+
+  const chosen = { training: false, nutrition: true, nutritionDetails: true };
+  await changeFriends(db, alex, { action: "share", id: sam.id, sharing: chosen }, true);
+  await changeFriends(db, sam, { action: "invite" }, true);
+  await changeFriends(db, alex, { action: "join", code: (await listFriends(db, sam.id)).invite.code }, true);
+  assert.deepEqual((await listFriends(db, alex.id)).friends[0].sharing, chosen);
+  assert.deepEqual((await listFriends(db, alex.id)).friends[0].shared, privateNutrition);
+});
+
+for (const { title, senderBeta, senderChoice, receiverBeta, receiverChoice, expected } of [
+  { title: "separate choices and retry protection", senderBeta: true, senderChoice: true, receiverBeta: true, receiverChoice: false, expected: [1, 0] },
+  { title: "legacy sender stays private", senderBeta: false, senderChoice: true, receiverBeta: true, receiverChoice: true, expected: [0, 1] },
+  { title: "stable acceptance stays private", senderBeta: true, senderChoice: true, receiverBeta: false, receiverChoice: true, expected: [0, 0] },
+  { title: "missing choices stay private", senderBeta: true, receiverBeta: true, expected: [0, 0] },
+]) {
+  test("beta buddy nutrition: " + title, async (t) => {
+    const db = fixture(t);
+    for (const person of [alex, sam, lee]) {
+      addAccount(db, person);
+      await readAccountProfile(db, person.id);
+    }
+    await changeSocial(db, alex, { action: "request", kind: "buddy", id: sam.id, shareNutrition: senderChoice }, senderBeta);
+    const pending = (await socialState(db, sam.id, true)).incoming[0];
+    const row = db.sqlite.prepare("SELECT sender_share_nutrition FROM buddy_requests WHERE id = ?").get(pending.id);
+    assert.equal(row.sender_share_nutrition, senderBeta && senderChoice !== undefined ? Number(senderChoice) : null);
+    const accept = { action: "respond", id: pending.id, decision: "accept", shareNutrition: receiverChoice };
+    await changeSocial(db, lee, accept, true);
+    assert.equal(db.sqlite.prepare("SELECT count(*) AS count FROM members").get().count, 0);
+    await changeSocial(db, sam, accept, receiverBeta);
+    await changeSocial(db, sam, { ...accept, shareNutrition: !receiverChoice }, receiverBeta);
+    assert.deepEqual(db.sqlite.prepare("SELECT share_nutrition FROM members ORDER BY user").all().map((row) => row.share_nutrition), expected);
+    const [relation] = (await listFriends(db, alex.id)).friends;
+    assert.equal(relation.buddy, true);
+    assert.equal(relation.sharing.nutritionDetails, Boolean(expected[0]));
+    assert.equal(relation.shared.nutritionDetails, Boolean(expected[1]));
+    assert.equal((await socialState(db, sam.id, true)).incoming.length, 0);
+  });
+}
+
 test("accepting a pending request preserves a concurrent code link or buddy relationship", async (t) => {
   const db = fixture(t);
   await save(db, sam, { discoverable: true });

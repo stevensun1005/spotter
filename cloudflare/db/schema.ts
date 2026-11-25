@@ -285,6 +285,13 @@ export const spotterAccessAccounts = sqliteTable("spotter_access_accounts", {
   check("spotter_access_hash_hex", sql`length(${table.accessHash}) = 64 AND ${table.accessHash} NOT GLOB '*[^0-9a-f]*'`),
 ]);
 
+export const spotterAccountAvatars = sqliteTable("spotter_account_avatars", {
+  owner: text().primaryKey().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  image: text().notNull(),
+}, (table) => [
+  check("spotter_avatar_image_length", sql`length(${table.image}) BETWEEN 4 AND 80000`),
+]);
+
 export const spotterAccountHandles = sqliteTable("spotter_account_handles", {
   owner: text().primaryKey().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
   username: text().notNull(),
@@ -307,6 +314,7 @@ export const buddyRequests = sqliteTable("buddy_requests", {
   senderName: text("sender_name").notNull(),
   receiverName: text("receiver_name").notNull(),
   createdAt: text("created_at").notNull(),
+  senderShareNutrition: integer("sender_share_nutrition", { mode: "boolean" }),
 }, (table) => [
   primaryKey({ columns: [table.firstId, table.secondId] }),
   index("buddy_requests_second").on(table.secondId),

@@ -135,6 +135,19 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 
 Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
 
+## TestFlight 好友与头像 API
+
+`spotter-beta-api` 处理 Beta App 的好友和头像，使用同一个 `spotter-free` D1 的现有会话。正式 Cloudflare 网站按原有路由使用自己的 Worker。
+
+```sh
+CLOUDFLARE_ACCOUNT_ID=<account-id> SPOTTER_D1_DATABASE_ID=<spotter-free-d1-id> node scripts/prepare-beta-api.mjs
+npx wrangler d1 migrations list spotter-free --remote --config work/spotter-beta-api.wrangler.json
+npx wrangler d1 migrations apply spotter-free --remote --config work/spotter-beta-api.wrangler.json
+npx wrangler deploy --config work/spotter-beta-api.wrangler.json
+```
+
+TestFlight 签名归档传入 `SPOTTER_BETA_SOCIAL_API_ENABLED=YES`，让 iPhone 使用独立的 Beta API。此配置只用于测试渠道。
+
 ## Cloudflare 部署
 
 Cloudflare 独立版使用 Workers、静态资产和单独的 `spotter-free` D1 实例。现有 Sites 账号、训练历史及设备连接由原环境继续管理。

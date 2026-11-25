@@ -148,6 +148,20 @@
       "when": 1795636308319,
       "tag": "0020_social_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1795646735260,
+      "tag": "0021_account_avatars",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1795646922727,
+      "tag": "0022_buddy_request_nutrition",
+      "breakpoints": true
     }
   ]
 }

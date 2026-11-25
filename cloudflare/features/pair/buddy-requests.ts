@@ -44,20 +44,22 @@ export async function buddyRequests(db: D1Database, owner: string): Promise<{ in
   return { incoming, outgoing };
 }
 
-export async function sendBuddyRequest(db: D1Database, sender: Person, receiver: string) {
+export async function sendBuddyRequest(db: D1Database, sender: Person, receiver: string, shareNutrition?: boolean) {
   if (sender.id === receiver) throw new HttpError(400, "不能加自己为搭子。");
   const [first, second] = [sender.id, receiver].sort();
   const recipient = await db.prepare(discoverablePerson).bind(receiver, receiver).first<{ name: string }>();
+  const choice = shareNutrition === undefined ? [] : [Number(shareNutrition)];
 
   const [sent, existing, eligible] = await db.batch([
     db.prepare(
-      "INSERT INTO buddy_requests (first_id, second_id, id, sender, receiver, sender_name, receiver_name, created_at) " +
-      "SELECT ?, ?, ?, ?, a.id, ?, ?, ? FROM spotter_access_accounts a " +
+      "INSERT INTO buddy_requests (first_id, second_id, id, sender, receiver, sender_name, receiver_name, created_at" +
+      (choice.length ? ", sender_share_nutrition" : "") + ") " +
+      "SELECT ?, ?, ?, ?, a.id, ?, ?, ?" + (choice.length ? ", ?" : "") + " FROM spotter_access_accounts a " +
       "JOIN spotter_account_handles h ON h.owner = a.id LEFT JOIN friend_profiles p ON p.owner = a.id " +
       "WHERE a.id = ? AND COALESCE(p.discoverable, 1) = 1 AND EXISTS (SELECT 1 FROM spotter_account_handles WHERE owner = ?) AND " +
       canPair("?", "a.id") + " ON CONFLICT(first_id, second_id) DO NOTHING"
     ).bind(first, second, crypto.randomUUID(), sender.id, publicName(sender.name), publicName(recipient?.name ?? ""),
-      new Date().toISOString(), receiver, sender.id, sender.id),
+      new Date().toISOString(), ...choice, receiver, sender.id, sender.id),
     db.prepare("SELECT 1 FROM buddy_requests WHERE first_id = ? AND second_id = ?").bind(first, second),
     db.prepare(
       "SELECT 1 FROM spotter_account_handles h LEFT JOIN friend_profiles p ON p.owner = h.owner " +
@@ -69,7 +71,8 @@ export async function sendBuddyRequest(db: D1Database, sender: Person, receiver:
   throw new HttpError(409, "你或对方已有训练搭子。");
 }
 
-export async function respondBuddyRequest(db: D1Database, user: Person, id: string, decision: "accept" | "decline" | "cancel") {
+export async function respondBuddyRequest(db: D1Database, user: Person, id: string, decision: "accept" | "decline" | "cancel",
+  betaSocialDefaults = false, shareNutrition?: boolean) {
   const actor = decision === "cancel" ? "sender" : "receiver";
   const addressed = await db.prepare("SELECT 1 FROM buddy_requests WHERE id = ? AND " + actor + " = ?").bind(id, user.id).first();
   if (!addressed) return false;
@@ -88,6 +91,8 @@ export async function respondBuddyRequest(db: D1Database, user: Person, id: stri
     "WHERE r.id = ? AND r.receiver = ? AND " + canPair("r.sender", "r.receiver");
   const candidateArgs = [room, id, user.id];
   const accepted = "SELECT r.* FROM buddy_requests r WHERE r.id = ? AND r.receiver = ? AND " + paired;
+  const dietChoice = betaSocialDefaults ? "CASE WHEN s.side = 0 THEN ? ELSE COALESCE(c.sender_share_nutrition, 0) END" : "0";
+  const receiverChoice = betaSocialDefaults ? [Number(shareNutrition === true)] : [];
   const [, joined, , , consumed] = await db.batch([
     db.prepare(
       "INSERT INTO rooms (id, invite, owner) " +
@@ -96,10 +101,10 @@ export async function respondBuddyRequest(db: D1Database, user: Person, id: stri
     db.prepare(
       "INSERT INTO members (user, room, name, share_nutrition) " +
       "SELECT CASE WHEN s.side = 0 THEN c.receiver ELSE c.sender END, c.target_room, " +
-      "CASE WHEN s.side = 0 THEN ? ELSE c.sender_name END, 0 FROM (" + candidate + ") c " +
+      "CASE WHEN s.side = 0 THEN ? ELSE c.sender_name END, " + dietChoice + " FROM (" + candidate + ") c " +
       "CROSS JOIN (SELECT 0 AS side UNION ALL SELECT 1) s WHERE 1 " +
-      "ON CONFLICT(user) DO UPDATE SET room = excluded.room, name = excluded.name, share_nutrition = 0"
-    ).bind(names, ...candidateArgs),
+      "ON CONFLICT(user) DO UPDATE SET room = excluded.room, name = excluded.name, share_nutrition = excluded.share_nutrition"
+    ).bind(names, ...receiverChoice, ...candidateArgs),
     db.prepare(
       "DELETE FROM friend_requests AS f WHERE EXISTS (SELECT 1 FROM (" + accepted + ") a " +
       "WHERE a.first_id = f.first_id AND a.second_id = f.second_id)"

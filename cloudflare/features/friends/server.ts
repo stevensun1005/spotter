@@ -307,7 +307,7 @@ export async function friendDay(db: D1Database, owner: string, id: string, date:
   };
 }
 
-export async function changeFriends(db: D1Database, user: Person, mutation: FriendMutation) {
+export async function changeFriends(db: D1Database, user: Person, mutation: FriendMutation, betaSocialDefaults = false) {
   const now = new Date().toISOString();
   if (mutation.action === "invite") {
     await db.prepare(
@@ -322,17 +322,18 @@ export async function changeFriends(db: D1Database, user: Person, mutation: Frie
   }
   if (mutation.action === "join") {
     const validInvite = "code = ? AND owner <> ? AND expires_at > ?";
+    const dietStatus = betaSocialDefaults ? 0 : 1;
     // Accept and consume the code in one D1 transaction, even if two people try it concurrently.
     const [linked] = await db.batch([
       db.prepare(
         "INSERT INTO friend_links (first_id, second_id, first_name, second_name, linked, first_training, second_training, first_nutrition_status, second_nutrition_status) " +
         "SELECT CASE WHEN owner < ? THEN owner ELSE ? END, CASE WHEN owner < ? THEN ? ELSE owner END, " +
-        "CASE WHEN owner < ? THEN name ELSE ? END, CASE WHEN owner < ? THEN ? ELSE name END, 1, 1, 1, 1, 1 " +
+        "CASE WHEN owner < ? THEN name ELSE ? END, CASE WHEN owner < ? THEN ? ELSE name END, 1, 1, 1, ?, ? " +
         "FROM friend_invites WHERE " + validInvite +
         " ON CONFLICT(first_id, second_id) DO UPDATE SET linked = 1, first_name = excluded.first_name, second_name = excluded.second_name, " +
         ["first_training", "second_training", "first_nutrition", "second_nutrition", "first_nutrition_status", "second_nutrition_status"]
           .map((field) => field + " = CASE WHEN friend_links.linked = 0 THEN excluded." + field + " ELSE friend_links." + field + " END").join(", ")
-      ).bind(user.id, user.id, user.id, user.id, user.id, user.name, user.id, user.name, mutation.code, user.id, now),
+      ).bind(user.id, user.id, user.id, user.id, user.id, user.name, user.id, user.name, dietStatus, dietStatus, mutation.code, user.id, now),
       db.prepare("DELETE FROM friend_requests AS r WHERE EXISTS (SELECT 1 FROM friend_invites WHERE " + validInvite +
         " AND r.first_id = MIN(owner, ?) AND r.second_id = MAX(owner, ?))")
         .bind(mutation.code, user.id, now, user.id, user.id),
