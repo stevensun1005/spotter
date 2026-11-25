@@ -715,6 +715,7 @@ private struct NativeCreateProgram: View {
                 .buttonStyle(SpotterNativeButtonStyle(primary: true)).disabled(days.isEmpty || busy)
         }
         .disabled(busy).interactiveDismissDisabled(busy)
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("新建训练周期").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
         .sheet(item: $editedDay) { item in

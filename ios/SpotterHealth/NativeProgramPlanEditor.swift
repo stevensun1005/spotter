@@ -62,6 +62,7 @@ struct NativeProgramPlanEditor: View {
             if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
         }
         .scrollContentBackground(.hidden).background(SpotterPalette.background).foregroundStyle(SpotterPalette.ink)
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("编辑这一节").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }

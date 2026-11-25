@@ -13,11 +13,43 @@ enum SpotterTheme: String, CaseIterable, Identifiable {
         case .dark: return "深色"
         }
     }
-    var colorScheme: ColorScheme? {
+    var interfaceStyle: UIUserInterfaceStyle {
         switch self {
-        case .system: return nil
+        case .system: return .unspecified
         case .light: return .light
         case .dark: return .dark
+        }
+    }
+}
+
+private struct SpotterWindowAppearance: UIViewRepresentable {
+    let theme: SpotterTheme
+
+    func makeUIView(context: Context) -> Observer {
+        let view = Observer(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        return view
+    }
+
+    func updateUIView(_ view: Observer, context: Context) {
+        view.style = theme.interfaceStyle
+        view.applyStyle()
+    }
+
+    final class Observer: UIView {
+        var style = UIUserInterfaceStyle.unspecified
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            applyStyle()
+        }
+
+        func applyStyle() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window, window.overrideUserInterfaceStyle != style else { return }
+                window.overrideUserInterfaceStyle = style
+            }
         }
     }
 }
@@ -214,7 +246,7 @@ struct NativeSpotterApp: View {
         .foregroundStyle(SpotterPalette.ink)
         .tint(accent.tint)
         .environment(\.spotterAccent, accent)
-        .preferredColorScheme(theme.colorScheme)
+        .background { SpotterWindowAppearance(theme: theme).accessibilityHidden(true) }
         .task { await account.restore() }
     }
 }
@@ -372,7 +404,6 @@ private struct NativeSpotterTabs: View {
     @StateObject private var workouts: NativeWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
-    @AppStorage(SpotterTheme.storageKey) private var theme: SpotterTheme = .light
     @Namespace private var legacySelection
     @State private var selected: NativeSpotterSection = .today
     @State private var showCoach = false
@@ -434,7 +465,6 @@ private struct NativeSpotterTabs: View {
                                refreshPlans: { await workouts.load() }, openTraining: { selected = .training; showSettings = false },
                                workoutStore: workouts)
             }
-            .preferredColorScheme(theme.colorScheme)
         }
         .sheet(isPresented: $showPlanImport) {
             NavigationStack {
