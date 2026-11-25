@@ -47,6 +47,8 @@
     <string>当你选择语音记录饮食时，将食物和份量描述转成可编辑的文字。</string>
     <key>NSSupportsLiveActivities</key>
     <true/>
+    <key>SpotterInternalCoachWorkerVersion</key>
+    <string>33527ad6-e19e-47d7-848c-ae4e2659e5b5</string>
     <key>SpotterWebRelease</key>
     <dict>
         <key>origin</key>
