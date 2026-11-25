@@ -47,6 +47,65 @@ private struct SecondarySegment<Option: Hashable>: View {
     }
 }
 
+private struct SecondarySelectionMenu<Option: Hashable>: View {
+    let label: String
+    let options: [Option]
+    @Binding var selection: Option
+    let title: (Option) -> String
+
+    var body: some View {
+        Menu {
+            Picker(label, selection: $selection) {
+                ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(title(selection)).font(.subheadline).lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .foregroundStyle(SpotterPalette.deep)
+        }
+        .accessibilityLabel(label)
+        .accessibilityValue(title(selection))
+    }
+}
+
+private struct SecondaryActionHeader<Actions: View>: View {
+    let title: String
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                heading.fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 4)
+                actionRow
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                heading
+                ViewThatFits(in: .horizontal) {
+                    actionRow
+                    VStack(alignment: .leading, spacing: 0) { actions }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var heading: some View {
+        Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 12) { actions }.fixedSize(horizontal: true, vertical: false)
+    }
+}
+
 private struct SecondaryButtonStyle: ButtonStyle {
     var primary = false
 
@@ -387,12 +446,9 @@ struct NativeSpotterStats: View {
         let prior = former.map { metric.value(in: $0) / Double(metric == .volume ? rangeCount(comparedRange) : 1) } ?? 0
         let scale = max(1, value, prior)
         return VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 5) {
-                Text("周期对比").font(.headline)
-                Spacer(minLength: 2)
+            SecondaryActionHeader(title: "周期对比") {
                 metricSelect("对比指标", value: $metric)
-                Picker("比较范围", selection: $comparison) { ForEach(Compare.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
-                    .labelsHidden().tint(SpotterPalette.deep)
+                SecondarySelectionMenu(label: "比较范围", options: Compare.allCases, selection: $comparison, title: \.rawValue)
             }
             comparisonRow("本期", value: value, scale: scale, period: range, empty: current.isEmpty)
             if let former { comparisonRow("对比期", value: prior, scale: scale, period: comparedRange, empty: former.isEmpty) }
@@ -413,8 +469,7 @@ struct NativeSpotterStats: View {
     }
 
     private func metricSelect(_ title: String, value: Binding<SecondaryMetric>) -> some View {
-        Picker(title, selection: value) { ForEach(SecondaryMetric.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
-            .labelsHidden().tint(SpotterPalette.deep)
+        SecondarySelectionMenu(label: title, options: SecondaryMetric.allCases, selection: value, title: \.rawValue)
     }
 
     private func trendCard(current: [NativeWorkoutEntry], former: [NativeWorkoutEntry]?) -> some View {
@@ -422,7 +477,7 @@ struct NativeSpotterStats: View {
         let here = cumulative(current, in: range, points: points)
         let before = former.map { cumulative($0, in: comparedRange, points: points) }
         return VStack(alignment: .leading, spacing: 9) {
-            HStack { Text("累计趋势").font(.headline); Spacer(); metricSelect("趋势指标", value: $trend) }
+            SecondaryActionHeader(title: "累计趋势") { metricSelect("趋势指标", value: $trend) }
             HStack(spacing: 23) {
                 trendTotal("本期累计", value: trend.value(in: current))
                 if let former { trendTotal("对比期累计", value: trend.value(in: former)) }
@@ -1071,15 +1126,14 @@ private struct SecondaryHistory: View {
         let days = (SecondaryDate.days(start, through: last) + 6) / 7 * 7
         let records = grouped
         return VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 3) {
-                Text("\(SecondaryDate.calendar.component(.year, from: month)) 年 \(SecondaryDate.calendar.component(.month, from: month)) 月").font(.headline)
-                Spacer()
+            SecondaryActionHeader(title: "\(SecondaryDate.calendar.component(.year, from: month)) 年 \(SecondaryDate.calendar.component(.month, from: month)) 月") {
                 if partner != nil {
-                    Picker("记录筛选", selection: $scope) { ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
-                        .labelsHidden().tint(SpotterPalette.deep)
+                    SecondarySelectionMenu(label: "记录筛选", options: Scope.allCases, selection: $scope, title: \.rawValue)
                 }
-                stepButton("上个月", symbol: "chevron.left") { month = SecondaryDate.shift(month, -1, component: .month) }
-                stepButton("下个月", symbol: "chevron.right") { month = SecondaryDate.shift(month, 1, component: .month) }
+                HStack(spacing: 3) {
+                    stepButton("上个月", symbol: "chevron.left") { month = SecondaryDate.shift(month, -1, component: .month) }
+                    stepButton("下个月", symbol: "chevron.right") { month = SecondaryDate.shift(month, 1, component: .month) }
+                }
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 7), spacing: 4) {
                 ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) { Text($0).font(.caption2).foregroundStyle(SpotterPalette.muted) }
