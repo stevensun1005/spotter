@@ -148,8 +148,6 @@ function FoodPhotoForm({ owner, onApply, onBack, onManual, onMeal, onProtein }: 
       </>}
       {busy && <p className="sr-only" role="status">正在识别照片。</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <p className="muted">{onProtein ? "点击识别后，Claude 只会收到这张包装照片。"
-        : "点击识别后，AI 教练使用的 Claude 服务只会收到这张照片和你填写的备注。"}</p>
       <div className="food-alternatives">
         <button className="button primary" type="button" disabled={!ready || busy} onClick={recognize}>
           <WandSparkles size={17} aria-hidden="true" /> {busy ? "正在识别…" : needs.length ? "重新识别" : "识别照片"}

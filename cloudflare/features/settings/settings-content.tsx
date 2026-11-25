@@ -5,12 +5,14 @@ import { CalendarDays, ClipboardList, Download, HeartPulse, LifeBuoy, Package, R
 import { DeleteAccount } from "@/features/auth/delete-account";
 import { signInPath, signOutEndpoint } from "@/features/auth/paths";
 import { OAuthControls } from "@/features/auth/oauth-controls";
+import { AISharingSettings } from "@/features/ai-coach/sharing-consent";
 import type { OAuthNotice } from "@/features/auth/oauth-ui";
 import type { AnatomyVariant } from "@/features/body/profile";
 import type { ChangeDisplay, DisplayPreferences } from "./display-preferences";
 import { DisplaySettings } from "./display-settings";
 import { EquipmentSettings } from "./equipment-settings";
 import { ReminderSettings } from "./reminders";
+import { UsernameSettings } from "./username-settings";
 import { SettingsLink, SettingsRows, type SettingsPage } from "./settings-hub";
 import { WeightEntrySettings, WorkoutSettings } from "./workout-settings";
 
@@ -24,6 +26,7 @@ export function SettingsContent({ page, open, owner, cloud, sex, authNotice, syn
 }) {
   switch (page) {
     case "account": return <>
+      {owner && <UsernameSettings key={owner} owner={owner} />}
       {owner && <section className="card padded feature-stack" aria-label="登录方式">
         <h2>绑定登录方式</h2>
         <p className="muted">绑定后，Apple 和 Google 都会打开这个训练搭子账号。</p>
@@ -130,7 +133,7 @@ export function SettingsContent({ page, open, owner, cloud, sex, authNotice, syn
       </SettingsRows>
     </>;
     case "data": return data;
-    case "ai": return agent;
+    case "ai": return <div className="feature-stack">{agent}<AISharingSettings key={owner} owner={owner} /></div>;
     case "planImport": return planImport;
     case "about": return <>
       <SettingsRows title="训练搭子 · Spotter">

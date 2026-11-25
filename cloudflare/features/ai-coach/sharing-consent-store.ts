@@ -7,3 +7,7 @@ export function allowsAnthropicSharing(storage: Pick<Storage, "getItem">, owner:
 export function allowAnthropicSharing(storage: Pick<Storage, "setItem">, owner: string) {
   if (owner) storage.setItem(sharingKey(owner), "allowed");
 }
+
+export function revokeExternalAISharing(storage: Pick<Storage, "removeItem">, owner: string) {
+  if (owner) storage.removeItem(sharingKey(owner));
+}

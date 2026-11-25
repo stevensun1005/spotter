@@ -26,6 +26,8 @@ export const GET = api(async (request) => {
 
 export const POST = api(async (request) => {
   const account = await requireAccount();
+  const expectedOwner = new URL(request.url).searchParams.get("expectedOwner");
+  if (expectedOwner !== null && expectedOwner !== account.id) throw new HttpError(409, "登录账号已切换，请重新打开数据设置。");
   const file = await readJson(request, backupSchema, backupLimit);
   return json(await importBackup(account.id, file));
 });

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { friendDateQuery, friendMutation } from "@/features/friends/model";
-import { socialMutationSchema } from "@/features/friends/social-model";
+import { peopleSearchMode, socialMutationSchema } from "@/features/friends/social-model";
 import { changeSocial, searchPeople, socialState } from "@/features/friends/social-server";
 import { dateSchema } from "@/shared/dates";
 import { changeFriends, friendCurrentDay, friendDay, friendFeed, listFriends } from "@/features/friends/server";
@@ -30,9 +30,13 @@ export const GET = api(async (request) => {
   const { db, user } = await account();
   const query = new URL(request.url).searchParams;
   const today = friendCurrentDay(request);
-  if (query.get("section") === "social") return json(await socialState(db, user.id));
+  if (query.get("section") === "social") return json(await socialState(db, user.id, query.get("includeBuddy") === "1"));
   const search = query.get("search");
-  if (search !== null) return json({ results: await searchPeople(db, user.id, search) });
+  if (search !== null) {
+    const mode = peopleSearchMode.optional().safeParse(query.get("mode") ?? undefined);
+    if (!mode.success) throw new HttpError(400, "请选择好友或搭子搜索。");
+    return json({ results: await searchPeople(db, user.id, search, mode.data) });
+  }
   if (query.get("feed") === "1") return json(await friendFeed(db, user.id, today));
   if (!query.has("friend") && !query.has("date")) return json(await listFriends(db, user.id, visibleDay(query), today));
   const match = friendDateQuery.safeParse({ friend: query.get("friend"), date: query.get("date") });
@@ -43,11 +47,12 @@ export const GET = api(async (request) => {
 export const POST = api(async (request) => {
   const { db, user } = await account();
   const body = await readJson(request, mutation, 2048);
+  const query = new URL(request.url).searchParams;
   if (body.action === "social-preferences" || body.action === "request" || body.action === "respond") {
     await changeSocial(db, user, body);
-    return json(await socialState(db, user.id));
+    return json(await socialState(db, user.id, query.get("includeBuddy") === "1"));
   }
-  const day = visibleDay(new URL(request.url).searchParams);
+  const day = visibleDay(query);
   await changeFriends(db, user, body);
   return json(await listFriends(db, user.id, day, friendCurrentDay(request)));
 });

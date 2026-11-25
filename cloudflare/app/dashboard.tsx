@@ -47,7 +47,7 @@ import { saveCoachProtein } from "@/features/nutrition/coach-protein-save";
 import { HomeNutrition } from "@/features/nutrition/home-nutrition";
 import { useNutritionPreferences } from "@/features/nutrition/nutrition-preferences";
 import type { NutritionShortcut } from "@/features/nutrition/nutrition-summary";
-import { FriendsView } from "@/features/friends/friends-view";
+import { BuddyFinder, FriendsView } from "@/features/friends/friends-view";
 import { planCompletions } from "@/features/plans/completion";
 import { PlanSections } from "@/features/plans/plan-sections";
 import { planDisplayTitle, planWeekDay } from "@/features/plans/scheduled-title";
@@ -879,7 +879,6 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
         {view === "plans" && <PlanSections key={planTab ?? "plans"} date={selected} templates={templates} initial={planTab}
           exerciseLibrary={<OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
           schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, row.updated)}
-          openFriends={display.social ? () => go("friends") : undefined}
           exerciseProfiles={profiles}><section className="card padded plans-list-card">
           <div className="section-head plans-list-heading">
             <h2>全部计划</h2>
@@ -954,7 +953,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
               pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
               savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
         </div>}
-        {view === "friends" && <FriendsView key={friendFocus?.id ?? "friends"} enabled={Boolean(viewer)}
+        {view === "friends" && <FriendsView key={(viewer?.id ?? "guest") + ":" + (friendFocus?.id ?? "friends")} enabled={Boolean(viewer)} owner={viewer?.id}
           today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()} />}
 
         <CoachSheet size={coachSheet} inlineOpen={assistantPage} mode={assistantMode} onModeChange={changeAssistantMode}
@@ -1032,7 +1031,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
       rest={viewer && !library.loading && !library.error ? () => openScheduleSettings(today) : undefined}
       body={() => { close(); go("body"); }} />}
     {overlay?.kind === "friend-sharing" && <Dialog title="好友分享设置" className="friend-settings-dialog" onClose={close}>
-      <div className="dialog-body"><FriendsView enabled={Boolean(viewer)} today={today} sharingOnly onChanged={() => void refresh()} /></div>
+      <div className="dialog-body"><FriendsView enabled={Boolean(viewer)} owner={viewer?.id} today={today} sharingOnly onChanged={() => void refresh()} /></div>
     </Dialog>}
     {overlay?.kind === "schedule" && <ScheduleSettings
       settings={overlay.settings} restDay={overlay.restDay} close={close} save={async (values) => {
@@ -1092,7 +1091,8 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
       onTemplate={viewer && overlay.log.owner === me.id && !pendingLog ? () => openTemplate(overlay.log.data.plan) : undefined} />}
     {overlay?.kind === "pair" && <Dialog title="搭子空间" onClose={close}>
       <div className="dialog-body form-fields">
-        {viewer && !partner && <p className="muted">配对期间双方会互相看到历史和今后的训练打卡及详情。饮食记录默认共享，可在「设置 → 账号 → 好友分享设置」里调整。</p>}
+        {viewer && !partner && <p className="muted">双方同意后会连接搭子。训练和饮食的共享范围可在好友分享设置调整。</p>}
+        {viewer && !partner && <BuddyFinder key={viewer.id} owner={viewer.id} onConnected={() => { void refresh(); setToast("搭子已连接"); }} />}
         {demo ? <><p className="muted">登录训练搭子后，你可以创建搭子空间，也可以输入对方的邀请码。</p><a className="button primary" href={signInPath()}><LogIn size={18} /> 登录</a></> :
           partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partner.name}</strong><small>可以查看彼此的打卡和训练详情。</small></div><span className="state-tag checked">已连接</span></div> :
           room?.invite ? <><p className="muted">把邀请码发给搭子。对方需要先有网站访问权限，再登录并输入邀请码。</p><input aria-label="搭子邀请码" value={room.invite} readOnly onFocus={(e) => e.target.select()} /><button className="button primary" onClick={() => void copy(room.invite!, "已复制邀请码")}><Copy size={17} /> 复制邀请码</button></> :
