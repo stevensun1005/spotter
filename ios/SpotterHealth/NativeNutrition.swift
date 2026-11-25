@@ -209,7 +209,6 @@ private struct NativeNutritionSummary: View {
     let date: String
     var logs: [NativeWorkoutEntry]? = nil
     var onOpen: (() -> Void)? = nil
-    var topActions: AnyView? = nil
 
     private typealias Values = NutritionPayload.Values
     private let nutrients: [(String, String, UInt32, KeyPath<Values, Double>)] = [
@@ -236,15 +235,11 @@ private struct NativeNutritionSummary: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 energy(totals.calories, goal: targets.calories)
-                if let topActions {
-                    Spacer(minLength: 0)
-                    topActions
-                }
                 if showLink {
                     Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
             }
-            .frame(minHeight: showLink || topActions != nil ? 37 : nil)
+            .frame(minHeight: showLink ? 37 : nil)
 
             HStack(alignment: .top, spacing: 5) {
                 ForEach(nutrients, id: \.0) { name, unit, color, key in
@@ -311,49 +306,54 @@ private func nutritionNumber(_ value: Double) -> String {
 
 private struct NutritionShortcuts: View {
     @Environment(\.spotterAccent) private var accent
-    var zoomNamespace: Namespace.ID? = nil
+    @Environment(\.dynamicTypeSize) private var textSize
     let onSelect: (NutritionShortcut) -> Void
+    let onFavorites: () -> Void
+
+    private static let entries = NutritionShortcut.allCases.filter { $0 != .weight }
+    private let buttonWidth: CGFloat = 44
+    private let spacing: CGFloat = 3
 
     var body: some View {
-        HStack(spacing: 3) {
-            ForEach(NutritionShortcut.allCases) { shortcut in
-                if #available(iOS 18.0, *), let zoomNamespace {
-                    button(shortcut).matchedTransitionSource(id: shortcut, in: zoomNamespace)
-                } else {
-                    button(shortcut)
-                }
+        if textSize.isAccessibilitySize {
+            grid
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: spacing) { buttons }
+                    .frame(minWidth: buttonWidth * CGFloat(Self.entries.count + 1) + spacing * CGFloat(Self.entries.count))
+                grid
             }
         }
     }
 
-    private func button(_ shortcut: NutritionShortcut) -> some View {
-        Button {
-            onSelect(shortcut)
-        } label: {
+    private var grid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: buttonWidth), spacing: 4), count: 3), spacing: 4) {
+            buttons
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
+        ForEach(Self.entries) { shortcut in
+            button(shortcut.rawValue, icon: Image(shortcut.icon)) { onSelect(shortcut) }
+        }
+        button("常用餐", icon: Image(systemName: "star"), action: onFavorites)
+    }
+
+    private func button(_ title: String, icon: Image, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             VStack(spacing: 4) {
-                Image(shortcut.icon).renderingMode(.template).resizable()
+                icon.renderingMode(.template).resizable().scaledToFit()
                     .frame(width: 18, height: 18).foregroundStyle(accent.tint)
                     .accessibilityHidden(true)
-                Text(shortcut.rawValue).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                Text(title).font(.caption2.weight(.semibold)).lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
-            .frame(minWidth: 44, maxWidth: .infinity, minHeight: 51)
+            .frame(minWidth: buttonWidth, maxWidth: .infinity, minHeight: 51)
             .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.spotterPress)
-        .accessibilityLabel(shortcut.rawValue)
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func nutritionEntryTransition(from shortcut: NutritionShortcut?, in namespace: Namespace.ID) -> some View {
-        if #available(iOS 18.0, *), let shortcut {
-            self.navigationTransition(.zoom(sourceID: shortcut, in: namespace))
-        } else {
-            self
-        }
+        .accessibilityLabel(title)
     }
 }
 
@@ -365,28 +365,19 @@ struct NativeHomeNutrition: View {
     let onOpen: () -> Void
 
     @Environment(\.scenePhase) private var phase
-    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @Environment(\.spotterReduceMotion) private var reduceMotion
-    @Namespace private var entryZoom
     @State private var payload = NutritionPayload(rows: [])
     @State private var shortcut: NutritionShortcut?
     @State private var quickMeal: NativeQuickMealReceipt?
     @State private var showFavoriteMeals = false
     @State private var error: String?
+    @State private var reloadRevision = 0
     @Environment(\.spotterInteractionMotion) private var motion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs, onOpen: onOpen)
             Divider().overlay(SpotterPalette.line)
-            NutritionShortcuts(zoomNamespace: reduceMotion || systemReduceMotion ? nil : entryZoom) { shortcut = $0 }
-            Button { showFavoriteMeals = true } label: {
-                Label("常用餐", systemImage: "star")
-                    .font(.footnote.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 11))
-            }
-            .buttonStyle(.spotterPress)
+            NutritionShortcuts(onSelect: { shortcut = $0 }, onFavorites: { showFavoriteMeals = true })
             if let quickMeal {
                 NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
                     .id(quickMeal.id).transition(.opacity)
@@ -402,16 +393,15 @@ struct NativeHomeNutrition: View {
         .spotterCard()
         .animation(motion, value: error != nil)
         .animation(motion, value: quickMeal?.id)
-        .task { await load() }
+        .task(id: reloadRevision) { await load() }
         .onChange(of: phase) { phase in
-            if phase == .active { Task { await load() } }
+            if phase == .active { reloadRevision &+= 1 }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in Task { await load() } }
+        .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
         .sheet(item: $shortcut) { selected in
             NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: selected, recent: payload.recentServings(for: selected)) {
                 quickMeal = $0
             }
-                .nutritionEntryTransition(from: reduceMotion || systemReduceMotion ? nil : selected, in: entryZoom)
         }
         .sheet(isPresented: $showFavoriteMeals) {
             NativeFavoriteMeals(api: api, owner: owner, date: .now) { receipt, _ in
@@ -425,11 +415,13 @@ struct NativeHomeNutrition: View {
         let date = spotterDay()
         do {
             let next = try await api.spotterRead("/api/library?date=" + date, as: NutritionPayload.self)
-            guard date == spotterDay() else { return }
+            guard date == spotterDay(), !Task.isCancelled else { return }
             payload = next
             error = nil
         } catch is CancellationError {
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            if date == spotterDay(), !Task.isCancelled { self.error = error.localizedDescription }
+        }
     }
 }
 
@@ -467,7 +459,6 @@ struct NativeNutritionDetail: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Environment(\.spotterInteractionMotion) private var motion
-    @Namespace private var entryZoom
     @State private var date = Date.now
     @State private var payload = NutritionPayload(rows: [])
     @State private var loadedDate = ""
@@ -475,12 +466,11 @@ struct NativeNutritionDetail: View {
     @State private var mutationError: String?
     @State private var destination: NutritionDestination?
     @State private var queuedDestination: NutritionDestination?
-    @State private var entryShortcut: NutritionShortcut?
     @State private var showDate = false
-    @State private var expandTools = true
     @State private var deleting = false
     @State private var deleteCandidate: NutritionPayload.Row?
     @State private var quickMeal: NativeQuickMealReceipt?
+    @State private var reloadRevision = 0
 
     init(api: NativeAPI, owner: String, logs: [NativeWorkoutEntry]? = nil, initialDate: Date = .now) {
         self.api = api
@@ -512,23 +502,22 @@ struct NativeNutritionDetail: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             header
-            VStack(spacing: 6) {
-                nutritionScroll
-                toolbar
-            }
+            nutritionScroll
+                .safeAreaInset(edge: .bottom, spacing: 6) {
+                    toolbar
+                }
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .foregroundStyle(SpotterPalette.ink)
         .tint(accent.tint)
         .background(SpotterPalette.background.ignoresSafeArea())
-        .task(id: day) { await load(day) }
-        .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in Task { await load(day) } }
+        .task(id: "\(day)/\(reloadRevision)") { await load(day) }
+        .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
         .sheet(item: $destination, onDismiss: openQueuedDestination) { item in
             destinationView(item)
-                .nutritionEntryTransition(from: allowsMotion ? entryShortcut : nil, in: entryZoom)
         }
         .sheet(isPresented: $showDate) {
             NavigationStack {
@@ -559,9 +548,8 @@ struct NativeNutritionDetail: View {
     private var nutritionScroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                NativeNutritionSummary(payload: payload, date: day, logs: logs, topActions: AnyView(summaryActions))
+                NativeNutritionSummary(payload: payload, date: day, logs: logs)
                     .padding(14).spotterCard(radius: 18)
-                planningActions
                 if let quickMeal {
                     NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
                         .id(quickMeal.id).transition(.opacity)
@@ -577,7 +565,6 @@ struct NativeNutritionDetail: View {
                 if let mutationError { Text(mutationError).font(.footnote).foregroundStyle(.red).transition(.opacity) }
                 if ready {
                     records.transition(.opacity)
-                    exerciseCard.transition(.opacity)
                 } else if loadError == nil {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 140).transition(.opacity)
                 }
@@ -601,11 +588,13 @@ struct NativeNutritionDetail: View {
                 Button { showDate = true } label: {
                     Text(day == spotterDay() ? "今天" : day)
                         .font(.subheadline.weight(.semibold)).monospacedDigit().lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .contentTransition(allowsMotion ? .numericText() : .identity)
                         .padding(.horizontal, 10).frame(minWidth: 58, minHeight: 44)
+                        .contentShape(Capsule())
                         .spotterGlass(in: Capsule(), tint: accent.selection.opacity(0.65), interactive: allowsMotion)
                 }
-                .buttonStyle(.spotterPress)
+                .buttonStyle(.spotterGlassPress)
                 .accessibilityLabel("选择饮食日期，\(day)")
                 iconButton("chevron.right", "后一天", glass: true) { move(1) }.disabled(date >= dateBounds.upperBound)
                 Spacer(minLength: 0)
@@ -613,22 +602,6 @@ struct NativeNutritionDetail: View {
             }
         }
         .animation(motion, value: day)
-    }
-
-    private var summaryActions: some View {
-        HStack(spacing: 6) {
-            Button { destination = .goals } label: {
-                Text("营养目标").font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            }
-            .buttonStyle(.spotterControl)
-            .disabled(!ready)
-            ShareLink(item: shareText) {
-                Label("分享", systemImage: "square.and.arrow.up")
-                    .font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            }
-            .buttonStyle(.spotterControl)
-            .disabled(!ready || rows.isEmpty)
-        }
     }
 
     private var shareText: String {
@@ -643,24 +616,11 @@ struct NativeNutritionDetail: View {
         return (heading + meals).joined(separator: "\n")
     }
 
-    private var planningActions: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                shortcutButton("碳循环设置") { destination = .cycle }.disabled(!ready)
-                shortcutButton("智能食谱") { destination = .recipes }.disabled(!ready)
-                shortcutButton("食物推荐") { destination = .recommendations }.disabled(!ready)
-            }
-            HStack(spacing: 6) {
-                shortcutButton("记蛋白粉", icon: "cup.and.saucer") { destination = .protein }
-                shortcutButton("复制往日餐食", icon: "doc.on.doc") { destination = .copy }
-            }
-            shortcutButton("常用餐", icon: "star") { destination = .favorites }
-        }
-    }
-
     private var records: some View {
-        LazyVStack(alignment: .leading, spacing: 16) {
-            if rows.isEmpty {
+        let dailyRows = rows
+        let meals = Dictionary(grouping: dailyRows.filter { $0.entry?.type == "meal" }, by: { $0.entry?.meal ?? "" })
+        return LazyVStack(alignment: .leading, spacing: 16) {
+            if dailyRows.isEmpty {
                 VStack(spacing: 8) {
                     Image("NutritionLunch").renderingMode(.template)
                     Text("这一天还没有记录").font(.subheadline)
@@ -670,8 +630,7 @@ struct NativeNutritionDetail: View {
                 .transition(.opacity)
             } else {
                 ForEach(NutritionShortcut.allCases.filter(\.isMeal)) { meal in
-                    let items = rows.filter { $0.entry?.type == "meal" && $0.entry?.meal == meal.rawValue }
-                    if !items.isEmpty {
+                    if let items = meals[meal.rawValue] {
                         HStack {
                             Text(meal.rawValue).font(.headline).accessibilityAddTraits(.isHeader)
                             Spacer()
@@ -684,13 +643,13 @@ struct NativeNutritionDetail: View {
                         Divider()
                     }
                 }
-                ForEach(rows.filter { $0.entry?.type == "water" || $0.entry?.type == "weight" }, id: \.id) { row in
+                ForEach(dailyRows.filter { $0.entry?.type == "water" || $0.entry?.type == "weight" }, id: \.id) { row in
                     record(row, meal: row.entry?.type == "water" ? .water : .weight).transition(.opacity)
                 }
             }
         }
         .padding(14).spotterCard(radius: 18)
-        .animation(motion, value: rows.compactMap(\.id))
+        .animation(motion, value: dailyRows.compactMap(\.id))
     }
 
     @ViewBuilder private func record(_ row: NutritionPayload.Row, meal: NutritionShortcut) -> some View {
@@ -734,79 +693,30 @@ struct NativeNutritionDetail: View {
         return ((entry.grams.map { [measure($0, "g")] } ?? []) + values).joined(separator: " · ")
     }
 
-    private var exerciseCard: some View {
-        HStack(alignment: .center, spacing: 9) {
-            Image(systemName: "flame").foregroundStyle(SpotterPalette.accent).frame(width: 32, height: 38)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("计入运动消耗").font(.subheadline.weight(.semibold))
-                Text("选中的运动消耗会加到当天目标").font(.caption).foregroundStyle(SpotterPalette.muted)
-            }
-            Spacer(minLength: 0)
-            Button("选择训练") { destination = .energy }
-                .font(.footnote.weight(.semibold)).padding(8).spotterCard(radius: 9).buttonStyle(.spotterPress)
-        }
-        .padding(12).spotterCard(radius: 14)
-    }
-
     private var toolbar: some View {
-        VStack(spacing: 5) {
-            if expandTools {
-                HStack(spacing: 6) {
-                    toolButton("统计", icon: "chart.bar.xaxis") { destination = .stats }
-                    toolButton("AI 识别", icon: "wand.and.stars") { destination = .photo }
-                    toolButton("语音", icon: "mic") { destination = .voice }
-                }
-                .transition(.opacity.combined(with: .offset(y: 7)))
-            }
-            HStack(spacing: 4) {
-                NutritionShortcuts(zoomNamespace: allowsMotion ? entryZoom : nil) { shortcut in
-                    entryShortcut = shortcut
-                    destination = .entry(shortcut, nil, nil, nil)
-                }
-                Button { withAnimation(motion) { expandTools.toggle() } } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.footnote.weight(.semibold))
-                        .rotationEffect(.degrees(expandTools ? 0 : 180))
-                        .frame(width: 34, height: 34)
-                        .spotterGlass(in: Circle(), tint: SpotterPalette.wash.opacity(0.72), interactive: allowsMotion)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel(expandTools ? "收起快捷工具栏" : "展开快捷工具栏")
-                .buttonStyle(.spotterPress)
-            }
+        NutritionShortcuts { shortcut in
+            destination = .entry(shortcut, nil, nil, nil)
+        } onFavorites: {
+            destination = .favorites
         }
         .spotterGlassToolbar()
-    }
-
-    private func toolButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
-                .frame(maxWidth: .infinity)
-        }.buttonStyle(.spotterControl)
-    }
-
-    private func shortcutButton(_ title: String, icon: String? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Group {
-                if let icon { Label(title, systemImage: icon) }
-                else { Text(title) }
-            }.font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
-                .frame(maxWidth: .infinity)
-        }.buttonStyle(.spotterControl)
+        .padding(.bottom, 3)
     }
 
     private func iconButton(_ icon: String, _ label: String, glass: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             let symbol = Image(systemName: icon).font(.system(size: 16, weight: .medium))
                 .frame(width: 44, height: 44)
-            if glass {
-                symbol.spotterGlass(in: Circle(), tint: accent.selection.opacity(0.34), interactive: allowsMotion)
-            } else {
-                symbol.background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+            Group {
+                if glass {
+                    symbol.spotterGlass(in: Circle(), tint: accent.selection.opacity(0.34), interactive: allowsMotion)
+                } else {
+                    symbol.background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+                }
             }
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.spotterPress)
+        .buttonStyle(glass ? .spotterGlassPress : .spotterPress)
         .accessibilityLabel(label)
     }
 
@@ -819,14 +729,24 @@ struct NativeNutritionDetail: View {
             }
         case .settings:
             NativeNutritionSheet(title: "饮食设置") {
-                Section {
-                    settingsLink("营养目标", icon: "target", destination: .goals)
-                    settingsLink("碳循环设置", icon: "calendar", destination: .cycle)
-                    settingsLink("计入运动消耗", icon: "flame", destination: .energy)
+                Section("营养计划") {
+                    settingsLink("营养目标", icon: "target", destination: .goals).disabled(!ready)
+                    settingsLink("碳循环设置", icon: "calendar", destination: .cycle).disabled(!ready)
+                    settingsLink("计入运动消耗", icon: "flame", destination: .energy).disabled(!ready)
+                    settingsLink("智能食谱", icon: "book", destination: .recipes).disabled(!ready)
+                    settingsLink("食物推荐", icon: "fork.knife", destination: .recommendations).disabled(!ready)
+                }
+                Section("记录方式") {
+                    settingsLink("AI 识别", icon: "wand.and.stars", destination: .photo)
+                    settingsLink("语音", icon: "mic", destination: .voice)
+                    settingsLink("记蛋白粉", icon: "cup.and.saucer", destination: .protein)
                     settingsLink("复制往日餐食", icon: "doc.on.doc", destination: .copy)
-                    settingsLink("常用餐", icon: "star", destination: .favorites)
                     settingsLink("记体重", icon: "scalemass", destination: .entry(.weight, nil, nil, nil))
+                }
+                Section {
                     settingsLink("统计", icon: "chart.bar.xaxis", destination: .stats)
+                    ShareLink(item: shareText) { Label("分享饮食记录", systemImage: "square.and.arrow.up") }
+                        .disabled(!ready || rows.isEmpty)
                 }
             }
         case .goals, .cycle, .energy:
@@ -871,7 +791,6 @@ struct NativeNutritionDetail: View {
     }
 
     private func openQueuedDestination() {
-        entryShortcut = nil
         guard let next = queuedDestination else { return }
         queuedDestination = nil
         destination = next
@@ -1780,7 +1699,9 @@ private struct NutritionDismissButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "xmark").font(.subheadline.weight(.semibold)).frame(width: 38, height: 44)
+            Image(systemName: "xmark").font(.subheadline.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(label)
