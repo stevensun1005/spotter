@@ -1,0 +1,2172 @@
+{
+  "schemaVersion": 1,
+  "templates": [
+    {
+      "id": "hypertrophy-beginner-dumbbell-start",
+      "goal": "hypertrophy",
+      "level": "beginner",
+      "title": "哑铃全身入门",
+      "summary": "每周两练，从蹲、推、拉和髋铰链开始。两天之间留出恢复时间。",
+      "equipment": "哑铃、训练凳",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "全身 A · 蹲与推", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 6, "repsMax": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "全身 B · 髋与拉", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-beginner-machines",
+      "goal": "hypertrophy",
+      "level": "beginner",
+      "title": "固定器械全身",
+      "summary": "三次短课轮换器械，让主动作可重复、负重容易记录。",
+      "equipment": "腿举机、推胸机、绳索、腿弯举机",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "基础组合 A", "category": "力量训练", "minutes": 32, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 2, "reps": 10, "repsMax": 15, "restSeconds": 45}
+          ]
+        },
+        {"day": 3, "title": "基础组合 B", "category": "力量训练", "minutes": 30, "exercises": [
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "坐姿腿举", "catalogueId": "2267", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 6, "repsMax": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 5, "title": "全身复习", "category": "力量训练", "minutes": 30, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 25, "restSeconds": 45}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-beginner-home-no-bench",
+      "goal": "hypertrophy",
+      "level": "beginner",
+      "title": "居家哑铃无凳",
+      "summary": "在地板和少量空间完成训练，练习逐步加次数，再考虑增加重量。",
+      "equipment": "哑铃、垫子",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "地板推拉", "category": "力量训练", "minutes": 30, "exercises": [
+            {"name": "哑铃前蹲", "catalogueId": "2966", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃地板卧推", "catalogueId": "3668", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 20, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "臀腿与肩背", "category": "力量训练", "minutes": 33, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃臀桥", "catalogueId": "3335", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃侧平举", "catalogueId": "0334", "sets": 2, "reps": 10, "repsMax": 15, "restSeconds": 60},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 8, "restSeconds": 45}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-beginner-bands",
+      "goal": "hypertrophy",
+      "level": "beginner",
+      "title": "弹力带全身两练",
+      "summary": "用弹力带与自重练上下肢，先熟悉固定点与可控的动作幅度。",
+      "equipment": "弹力带、牢固固定点、垫子",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "蹲、水平推拉", "category": "力量训练", "minutes": 30, "exercises": [
+            {"name": "自重坐凳深蹲", "catalogueId": "6541", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "弹力带俯卧撑", "catalogueId": "0915", "sets": 2, "reps": 6, "repsMax": 10, "restSeconds": 75},
+            {"name": "弹力带站姿划船", "catalogueId": "0930", "sets": 3, "reps": 10, "repsMax": 15, "restSeconds": 60},
+            {"name": "弹力带提踵", "catalogueId": "0894", "sets": 2, "reps": 12, "repsMax": 15, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "单腿、垂直推拉", "category": "力量训练", "minutes": 30, "exercises": [
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "弹力带推肩", "catalogueId": "0997", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "弹力带跪姿下拉", "catalogueId": "4358", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "脚跟臀桥", "catalogueId": "6435", "sets": 2, "reps": 10, "repsMax": 15, "restSeconds": 45}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-beginner-glute-base",
+      "goal": "hypertrophy",
+      "level": "beginner",
+      "title": "臀腿优先全身",
+      "summary": "每周两次臀腿主项，穿插上肢推拉，建立全身训练习惯。",
+      "equipment": "哑铃、低台阶、训练凳",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "臀腿 A · 深蹲", "category": "力量训练", "minutes": 38, "exercises": [
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 4, "title": "臀腿 B · 臀桥", "category": "力量训练", "minutes": 38, "exercises": [
+            {"name": "哑铃臀桥", "catalogueId": "3335", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-intermediate-upper-lower",
+      "goal": "hypertrophy",
+      "level": "intermediate",
+      "title": "上下肢四练",
+      "summary": "在各肌群再次训练前留出恢复。下肢轮换屈膝与髋铰链重点。",
+      "equipment": "深蹲架、杠铃、哑铃、绳索与器械",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "上肢 A · 水平推拉", "category": "力量训练", "minutes": 48, "exercises": [
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 3, "reps": 6, "repsMax": 8, "restSeconds": 150},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃侧平举", "catalogueId": "0334", "sets": 2, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 2, "title": "下肢 A · 膝主导", "category": "力量训练", "minutes": 48, "exercises": [
+            {"name": "杠铃深蹲", "catalogueId": "3593", "sets": 3, "reps": 6, "repsMax": 8, "restSeconds": 150},
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 105},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 3, "reps": 10, "repsMax": 15, "restSeconds": 60}
+          ]
+        },
+        {"day": 4, "title": "上肢 B · 垂直推拉", "category": "力量训练", "minutes": 48, "exercises": [
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 105},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 3, "reps": 12, "repsMax": 15, "restSeconds": 60},
+            {"name": "哑铃锤式弯举", "catalogueId": "0313", "sets": 2, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "下肢 B · 髋主导", "category": "力量训练", "minutes": 50, "exercises": [
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 3, "reps": 7, "repsMax": 10, "restSeconds": 135},
+            {"name": "杠铃臀推", "catalogueId": "1060", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 2, "reps": 12, "repsMax": 15, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-intermediate-three-day-split",
+      "goal": "hypertrophy",
+      "level": "intermediate",
+      "title": "推拉腿三练",
+      "summary": "把器械集中到三次专题训练，适合已有基础且每周出勤三天的人。",
+      "equipment": "哑铃、杠铃、绳索、常见器械",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "推 · 胸肩三头", "category": "力量训练", "minutes": 51, "exercises": [
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 4, "reps": 6, "repsMax": 9, "restSeconds": 150},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "绳索侧平举", "catalogueId": "0178", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60},
+            {"name": "绳索绳把下压", "catalogueId": "0200", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        },
+        {"day": 3, "title": "拉 · 背和二头", "category": "力量训练", "minutes": 49, "exercises": [
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 3, "reps": 12, "repsMax": 15, "restSeconds": 60},
+            {"name": "哑铃锤式弯举", "catalogueId": "0313", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        },
+        {"day": 5, "title": "腿 · 股四和后链", "category": "力量训练", "minutes": 53, "exercises": [
+            {"name": "杠铃深蹲", "catalogueId": "3593", "sets": 4, "reps": 6, "repsMax": 9, "restSeconds": 150},
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 135},
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 105},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 2, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-intermediate-dumbbell-full-body",
+      "goal": "hypertrophy",
+      "level": "intermediate",
+      "title": "全哑铃三日进阶",
+      "summary": "三日分别以推、拉、腿为主轴，其他部位用较少的组数补足。",
+      "equipment": "哑铃、可调训练凳",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "卧推重点", "category": "力量训练", "minutes": 44, "exercises": [
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 4, "reps": 6, "repsMax": 10, "restSeconds": 120},
+            {"name": "哑铃前蹲", "catalogueId": "2966", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃侧平举", "catalogueId": "0334", "sets": 2, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 3, "title": "划船重点", "category": "力量训练", "minutes": 46, "exercises": [
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃反向飞鸟", "catalogueId": "2487", "sets": 2, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 5, "title": "臀腿重点", "category": "力量训练", "minutes": 46, "exercises": [
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃臀桥", "catalogueId": "3335", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 90},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃锤式弯举", "catalogueId": "0313", "sets": 2, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-intermediate-back-shoulder",
+      "goal": "hypertrophy",
+      "level": "intermediate",
+      "title": "背肩加量三练",
+      "summary": "增加水平拉、垂直拉与三角肌训练，同时每周保留两次下肢刺激。",
+      "equipment": "哑铃、绳索、腿举机",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "背阔和腿", "category": "力量训练", "minutes": 44, "exercises": [
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索侧平举", "catalogueId": "0178", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 3, "title": "肩与上背", "category": "力量训练", "minutes": 45, "exercises": [
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 2, "reps": 10, "repsMax": 14, "restSeconds": 60},
+            {"name": "哑铃反向飞鸟", "catalogueId": "2487", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 5, "title": "肩背补量", "category": "力量训练", "minutes": 44, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 120},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃侧平举", "catalogueId": "0334", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-intermediate-machine-volume",
+      "goal": "hypertrophy",
+      "level": "intermediate",
+      "title": "器械容量四练",
+      "summary": "以固定轨迹和绳索做中等重量的增肌组，适合偏好器械训练的人。",
+      "equipment": "固定力量器械、绳索",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "上肢 A", "category": "力量训练", "minutes": 44, "exercises": [
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "器械推肩", "catalogueId": "0603", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 2, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 2, "title": "下肢 A", "category": "力量训练", "minutes": 42, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 120},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "腿屈伸", "catalogueId": "0585", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 2, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 4, "title": "上肢 B", "category": "力量训练", "minutes": 44, "exercises": [
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 90},
+            {"name": "绳索夹胸", "catalogueId": "8141", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "绳索侧平举", "catalogueId": "0178", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "下肢 B", "category": "力量训练", "minutes": 40, "exercises": [
+            {"name": "坐姿腿举", "catalogueId": "2267", "sets": 4, "reps": 10, "repsMax": 14, "restSeconds": 105},
+            {"name": "俯卧腿弯举", "catalogueId": "0586", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "腿屈伸", "catalogueId": "0585", "sets": 2, "reps": 12, "repsMax": 15, "restSeconds": 75},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-advanced-ppl-upper-lower",
+      "goal": "hypertrophy",
+      "level": "advanced",
+      "title": "推拉腿加上下肢五练",
+      "summary": "主项保留约两次余力，分配肌群容量到两轮，便于观察恢复。",
+      "equipment": "完整健身房、杠铃、哑铃和绳索",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "推 · 重量优先", "category": "力量训练", "minutes": 52, "exercises": [
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 180, "targetRpe": 8.0},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 105, "targetRpe": 8.0},
+            {"name": "绳索夹胸", "catalogueId": "8141", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "哑铃侧平举", "catalogueId": "0334", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60},
+            {"name": "绳索绳把下压", "catalogueId": "0200", "sets": 2, "reps": 10, "repsMax": 15, "restSeconds": 60}
+          ]
+        },
+        {"day": 2, "title": "拉 · 背宽与上背", "category": "力量训练", "minutes": 51, "exercises": [
+            {"name": "引体向上", "catalogueId": "0652", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60},
+            {"name": "哑铃锤式弯举", "catalogueId": "0313", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        },
+        {"day": 3, "title": "腿 · 深蹲优先", "category": "力量训练", "minutes": 54, "exercises": [
+            {"name": "杠铃深蹲", "catalogueId": "3593", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 180, "targetRpe": 8.0},
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 3, "reps": 7, "repsMax": 10, "restSeconds": 135, "targetRpe": 8.0},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 5, "title": "上肢 · 容量", "category": "力量训练", "minutes": 52, "exercises": [
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 90},
+            {"name": "绳索侧平举", "catalogueId": "0178", "sets": 3, "reps": 12, "repsMax": 18, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "下肢 · 容量", "category": "力量训练", "minutes": 52, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 4, "reps": 10, "repsMax": 14, "restSeconds": 120},
+            {"name": "杠铃臀推", "catalogueId": "1060", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 3, "reps": 12, "repsMax": 18, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-advanced-glute-ham-focus",
+      "goal": "hypertrophy",
+      "level": "advanced",
+      "title": "臀腿后链专项四练",
+      "summary": "重点练硬拉、臀推与腿弯举。两堂上肢课维持推拉容量。",
+      "equipment": "深蹲架、杠铃、哑铃、绳索与器械",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "后链 A", "category": "力量训练", "minutes": 55, "exercises": [
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 4, "reps": 6, "repsMax": 8, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "杠铃臀推", "catalogueId": "1060", "sets": 4, "reps": 8, "repsMax": 10, "restSeconds": 120, "targetRpe": 8.0},
+            {"name": "俯卧腿弯举", "catalogueId": "0586", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 2, "title": "上肢平衡 A", "category": "力量训练", "minutes": 44, "exercises": [
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 3, "reps": 6, "repsMax": 10, "restSeconds": 120},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃侧平举", "catalogueId": "0334", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 4, "title": "后链 B", "category": "力量训练", "minutes": 55, "exercises": [
+            {"name": "杠铃前蹲", "catalogueId": "0042", "sets": 3, "reps": 6, "repsMax": 8, "restSeconds": 150, "targetRpe": 7.5},
+            {"name": "杠铃臀推", "catalogueId": "1060", "sets": 4, "reps": 10, "repsMax": 13, "restSeconds": 120},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75}
+          ]
+        },
+        {"day": 6, "title": "上肢平衡 B", "category": "力量训练", "minutes": 43, "exercises": [
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 105},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-advanced-torso-specialty",
+      "goal": "hypertrophy",
+      "level": "advanced",
+      "title": "胸背专项五练",
+      "summary": "胸背两次主课加一次短补量，其余两堂练腿，观察肩和肘的恢复。",
+      "equipment": "完整健身房",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "胸背 A · 水平力量", "category": "力量训练", "minutes": 55, "exercises": [
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 10, "restSeconds": 105},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 2, "reps": 12, "repsMax": 15, "restSeconds": 60}
+          ]
+        },
+        {"day": 2, "title": "腿 A · 股四", "category": "力量训练", "minutes": 43, "exercises": [
+            {"name": "杠铃前蹲", "catalogueId": "0042", "sets": 3, "reps": 6, "repsMax": 9, "restSeconds": 150},
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 105},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 2, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 4, "title": "胸背 B · 角度切换", "category": "力量训练", "minutes": 53, "exercises": [
+            {"name": "引体向上", "catalogueId": "0652", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索夹胸", "catalogueId": "8141", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75}
+          ]
+        },
+        {"day": 5, "title": "腿 B · 后链", "category": "力量训练", "minutes": 46, "exercises": [
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 3, "reps": 7, "repsMax": 10, "restSeconds": 135},
+            {"name": "杠铃臀推", "catalogueId": "1060", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "俯卧腿弯举", "catalogueId": "0586", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 2, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "胸背短补量", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 90},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 90},
+            {"name": "哑铃反向飞鸟", "catalogueId": "2487", "sets": 2, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-advanced-heavy-volume-alternation",
+      "goal": "hypertrophy",
+      "level": "advanced",
+      "title": "主项与容量交替四练",
+      "summary": "前两课做低次数主项，后两课做中高次数。重量按当日动作质量调整。",
+      "equipment": "深蹲架、杠铃、哑铃、绳索与器械",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "上肢 · 主项", "category": "力量训练", "minutes": 53, "exercises": [
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 5, "reps": 4, "repsMax": 6, "restSeconds": 180, "targetRpe": 8.0},
+            {"name": "引体向上", "catalogueId": "0652", "sets": 4, "reps": 4, "repsMax": 7, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 100},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 100}
+          ]
+        },
+        {"day": 2, "title": "下肢 · 主项", "category": "力量训练", "minutes": 53, "exercises": [
+            {"name": "杠铃停顿深蹲", "catalogueId": "4362", "sets": 4, "reps": 4, "repsMax": 6, "restSeconds": 180, "targetRpe": 8.0},
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 4, "reps": 6, "repsMax": 8, "restSeconds": 135, "targetRpe": 8.0},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        },
+        {"day": 4, "title": "上肢 · 容量", "category": "力量训练", "minutes": 50, "exercises": [
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "绳索夹胸", "catalogueId": "8141", "sets": 3, "reps": 12, "repsMax": 15, "restSeconds": 75},
+            {"name": "绳索侧平举", "catalogueId": "0178", "sets": 3, "reps": 12, "repsMax": 18, "restSeconds": 60},
+            {"name": "哑铃锤式弯举", "catalogueId": "0313", "sets": 2, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "下肢 · 容量", "category": "力量训练", "minutes": 49, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 4, "reps": 10, "repsMax": 15, "restSeconds": 120},
+            {"name": "杠铃臀推", "catalogueId": "1060", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "腿屈伸", "catalogueId": "0585", "sets": 3, "reps": 10, "repsMax": 15, "restSeconds": 75},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 12, "repsMax": 15, "restSeconds": 75}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hypertrophy-advanced-delt-arm",
+      "goal": "hypertrophy",
+      "level": "advanced",
+      "title": "肩臂专项五练",
+      "summary": "肩、二头和三头分到多次短暴露，每次留余力，并维持腿与胸背训练。",
+      "equipment": "完整健身房",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "推与肩", "category": "力量训练", "minutes": 48, "exercises": [
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 4, "reps": 6, "repsMax": 10, "restSeconds": 120, "targetRpe": 8.0},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃侧平举", "catalogueId": "0334", "sets": 4, "reps": 12, "repsMax": 16, "restSeconds": 60},
+            {"name": "绳索绳把下压", "catalogueId": "0200", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        },
+        {"day": 2, "title": "腿与核心", "category": "力量训练", "minutes": 46, "exercises": [
+            {"name": "杠铃深蹲", "catalogueId": "3593", "sets": 3, "reps": 6, "repsMax": 9, "restSeconds": 150},
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 120},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 3, "seconds": 40, "restSeconds": 45}
+          ]
+        },
+        {"day": 3, "title": "拉与二头", "category": "力量训练", "minutes": 48, "exercises": [
+            {"name": "引体向上", "catalogueId": "0652", "sets": 3, "reps": 6, "repsMax": 9, "restSeconds": 135},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃反向飞鸟", "catalogueId": "2487", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60},
+            {"name": "哑铃锤式弯举", "catalogueId": "0313", "sets": 4, "reps": 10, "repsMax": 14, "restSeconds": 60}
+          ]
+        },
+        {"day": 5, "title": "胸背与侧肩", "category": "力量训练", "minutes": 46, "exercises": [
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索侧平举", "catalogueId": "0178", "sets": 4, "reps": 12, "repsMax": 18, "restSeconds": 60},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 3, "reps": 12, "repsMax": 16, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "手臂与臀腿补量", "category": "力量训练", "minutes": 41, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 105},
+            {"name": "杠铃臀推", "catalogueId": "1060", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃锤式弯举", "catalogueId": "0313", "sets": 3, "reps": 10, "repsMax": 15, "restSeconds": 60},
+            {"name": "绳索绳把下压", "catalogueId": "0200", "sets": 3, "reps": 10, "repsMax": 15, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-beginner-dumbbell-brisk",
+      "goal": "fat-loss",
+      "level": "beginner",
+      "title": "哑铃与快走",
+      "summary": "两次全身力量和两次快走。快走时保持能说完整句子的强度。",
+      "equipment": "哑铃、运动鞋",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "全身 A", "category": "力量训练", "minutes": 33, "exercises": [
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃地板卧推", "catalogueId": "3668", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 2, "title": "快走", "category": "有氧训练", "minutes": 23, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 900},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240}
+          ]
+        },
+        {"day": 4, "title": "全身 B", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "行走弓步蹲", "catalogueId": "1460", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 75},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 6, "title": "户外快走", "category": "有氧训练", "minutes": 26, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1080},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-beginner-machines-bike",
+      "goal": "fat-loss",
+      "level": "beginner",
+      "title": "器械加自行车",
+      "summary": "力量放在固定器械完成，骑车轻松起步，适合不想跑跳的训练者。",
+      "equipment": "推胸机、腿举机、绳索、固定自行车",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "全身器械 A", "category": "力量训练", "minutes": 32, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 20, "restSeconds": 45}
+          ]
+        },
+        {"day": 3, "title": "舒适骑行", "category": "有氧训练", "minutes": 23, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1380, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        },
+        {"day": 5, "title": "全身器械 B", "category": "力量训练", "minutes": 33, "exercises": [
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "坐姿腿举", "catalogueId": "2267", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 7, "title": "稳态骑行", "category": "有氧训练", "minutes": 24, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1440, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-beginner-band-elliptical",
+      "goal": "fat-loss",
+      "level": "beginner",
+      "title": "弹力带与椭圆机",
+      "summary": "以弹力带覆盖推拉和腿，椭圆机维持中等强度，有需要可先减少时长。",
+      "equipment": "弹力带、牢固固定点、椭圆机",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "弹力带全身 A", "category": "力量训练", "minutes": 26, "exercises": [
+            {"name": "自重坐凳深蹲", "catalogueId": "6541", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "弹力带俯卧撑", "catalogueId": "0915", "sets": 2, "reps": 6, "repsMax": 10, "restSeconds": 75},
+            {"name": "弹力带站姿划船", "catalogueId": "0930", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 60}
+          ]
+        },
+        {"day": 3, "title": "椭圆机", "category": "有氧训练", "minutes": 20, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 1200, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        },
+        {"day": 5, "title": "弹力带全身 B", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "弹力带跪姿下拉", "catalogueId": "4358", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "弹力带推肩", "catalogueId": "0997", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "脚跟臀桥", "catalogueId": "6435", "sets": 2, "reps": 12, "restSeconds": 45}
+          ]
+        },
+        {"day": 6, "title": "椭圆机", "category": "有氧训练", "minutes": 23, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 1380, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-beginner-bodyweight-step",
+      "goal": "fat-loss",
+      "level": "beginner",
+      "title": "自重与低台阶",
+      "summary": "用可控的自重动作和低台阶交替练习，重点是稳定落脚与完成每周训练。",
+      "equipment": "低台阶、稳定支撑、垫子",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "全身基础", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "自重箱式深蹲", "catalogueId": "10168", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 60},
+            {"name": "脚跟臀桥", "catalogueId": "6435", "sets": 2, "reps": 12, "repsMax": 15, "restSeconds": 45},
+            {"name": "鸟狗式", "catalogueId": "1241", "sets": 2, "reps": 6, "repsMax": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 3, "title": "台阶节奏与步行", "category": "有氧训练", "minutes": 20, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 6, "seconds": 45, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360}
+          ]
+        },
+        {"day": 5, "title": "自重全身 B", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 60},
+            {"name": "熊爬", "catalogueId": "3360", "sets": 2, "seconds": 20, "restSeconds": 45},
+            {"name": "侧平板支撑", "catalogueId": "0714", "sets": 2, "seconds": 20, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-beginner-kettlebell-ellipse",
+      "goal": "fat-loss",
+      "level": "beginner",
+      "title": "壶铃稳态起步",
+      "summary": "用壶铃硬拉和高脚杯深蹲练习负重，搭配两堂轻松有氧。",
+      "equipment": "壶铃、椭圆机、运动鞋",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "壶铃 A", "category": "力量训练", "minutes": 32, "exercises": [
+            {"name": "壶铃硬拉", "catalogueId": "3322", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90},
+            {"name": "壶铃高脚杯深蹲", "catalogueId": "0534", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 6, "repsMax": 10, "restSeconds": 60},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 3, "seconds": 25, "restSeconds": 45}
+          ]
+        },
+        {"day": 2, "title": "轻松椭圆机", "category": "有氧训练", "minutes": 20, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 1200, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        },
+        {"day": 4, "title": "壶铃 B", "category": "力量训练", "minutes": 31, "exercises": [
+            {"name": "壶铃罗马尼亚硬拉", "catalogueId": "4861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 2, "seconds": 30, "restSeconds": 45}
+          ]
+        },
+        {"day": 6, "title": "轻松长走", "category": "有氧训练", "minutes": 29, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1140},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-intermediate-upper-lower-cardio",
+      "goal": "fat-loss",
+      "level": "intermediate",
+      "title": "上下肢与稳态有氧",
+      "summary": "四堂短力量课保持训练容量，两堂稳态课提高每周活动量。",
+      "equipment": "完整健身房、固定自行车",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "上肢 A", "category": "力量训练", "minutes": 39, "exercises": [
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 3, "reps": 6, "repsMax": 9, "restSeconds": 120},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃侧平举", "catalogueId": "0334", "sets": 2, "reps": 12, "repsMax": 15, "restSeconds": 60}
+          ]
+        },
+        {"day": 2, "title": "下肢 A", "category": "力量训练", "minutes": 41, "exercises": [
+            {"name": "杠铃深蹲", "catalogueId": "3593", "sets": 3, "reps": 6, "repsMax": 9, "restSeconds": 135},
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 3, "title": "稳态自行车", "category": "有氧训练", "minutes": 30, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1800, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 4, "title": "上肢 B", "category": "力量训练", "minutes": 39, "exercises": [
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 100},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 2, "reps": 12, "repsMax": 15, "restSeconds": 60}
+          ]
+        },
+        {"day": 5, "title": "下肢 B", "category": "力量训练", "minutes": 40, "exercises": [
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 120},
+            {"name": "杠铃臀推", "catalogueId": "1060", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 7, "title": "户外快走", "category": "有氧训练", "minutes": 35, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1500},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-intermediate-row-mixed",
+      "goal": "fat-loss",
+      "level": "intermediate",
+      "title": "划船机与全身力量",
+      "summary": "三次力训间穿插划船。有氧节奏以重复完成为主，避免和腿部训练抢恢复。",
+      "equipment": "杠铃、哑铃、划船机、绳索",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "下肢与推", "category": "力量训练", "minutes": 42, "exercises": [
+            {"name": "杠铃深蹲", "catalogueId": "3593", "sets": 3, "reps": 6, "repsMax": 9, "restSeconds": 135},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 2, "title": "中等节奏划船", "category": "有氧训练", "minutes": 25, "exercises": [
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 900, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 4, "title": "后链与上背", "category": "力量训练", "minutes": 46, "exercises": [
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 3, "reps": 7, "repsMax": 10, "restSeconds": 120},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃农夫行走", "catalogueId": "2917", "sets": 3, "seconds": 30, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "单腿与上肢补量", "category": "力量训练", "minutes": 39, "exercises": [
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索面拉", "catalogueId": "5609", "sets": 2, "reps": 12, "repsMax": 15, "restSeconds": 60}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-intermediate-incline-walk",
+      "goal": "fat-loss",
+      "level": "intermediate",
+      "title": "坡走与机器保肌",
+      "summary": "两堂器械课加三次容易安排的步行，走路以呼吸和动作舒适为准。",
+      "equipment": "推胸机、腿部器械、绳索、跑步机",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "力量 A", "category": "力量训练", "minutes": 42, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 2, "reps": 10, "repsMax": 15, "restSeconds": 75}
+          ]
+        },
+        {"day": 2, "title": "跑步机坡走", "category": "有氧训练", "minutes": 29, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 1140, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 4, "title": "户外快走", "category": "有氧训练", "minutes": 35, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1500},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 5, "title": "力量 B", "category": "力量训练", "minutes": 43, "exercises": [
+            {"name": "坐姿腿举", "catalogueId": "2267", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "器械推肩", "catalogueId": "0603", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 3, "reps": 10, "repsMax": 15, "restSeconds": 60}
+          ]
+        },
+        {"day": 7, "title": "坡走与放松", "category": "有氧训练", "minutes": 32, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 1200, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-intermediate-kettlebell-and-carry",
+      "goal": "fat-loss",
+      "level": "intermediate",
+      "title": "壶铃力量与负重行走",
+      "summary": "组间完整休息，用两堂壶铃课与一堂混合力量课覆盖全身，再做两次有氧。",
+      "equipment": "壶铃、训练凳、椭圆机与运动鞋",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "髋主导与负重行走", "category": "力量训练", "minutes": 39, "exercises": [
+            {"name": "壶铃硬拉", "catalogueId": "3322", "sets": 4, "reps": 8, "repsMax": 10, "restSeconds": 100},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 3, "reps": 8, "repsMax": 14, "restSeconds": 75},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 4, "seconds": 30, "restSeconds": 60},
+            {"name": "熊式平板支撑", "catalogueId": "4170", "sets": 2, "seconds": 25, "restSeconds": 45}
+          ]
+        },
+        {"day": 2, "title": "稳态椭圆机", "category": "有氧训练", "minutes": 30, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 1800, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 4, "title": "蹲与核心", "category": "力量训练", "minutes": 38, "exercises": [
+            {"name": "壶铃罗马尼亚硬拉", "catalogueId": "4861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "侧向分腿蹲", "catalogueId": "4788", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "俯卧撑", "catalogueId": "0662", "sets": 3, "reps": 6, "repsMax": 12, "restSeconds": 75},
+            {"name": "壶铃斜向伐木", "catalogueId": "8025", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 6, "title": "短力量与快走", "category": "力量训练", "minutes": 42, "exercises": [
+            {"name": "行走弓步蹲", "catalogueId": "1460", "sets": 3, "reps": 10, "restSeconds": 75},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 4, "seconds": 35, "restSeconds": 60},
+            {"name": "鸟狗式", "catalogueId": "1241", "sets": 2, "reps": 8, "restSeconds": 45},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1080}
+          ]
+        },
+        {"day": 7, "title": "舒适散步", "category": "有氧训练", "minutes": 22, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 1320, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-intermediate-daytime-breaks",
+      "goal": "fat-loss",
+      "level": "intermediate",
+      "title": "短课分配保肌",
+      "summary": "把训练拆成早晚都好安排的短单元。三堂力训各有一个主要动作。",
+      "equipment": "哑铃、训练凳、固定自行车",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "蹲与胸", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "哑铃前蹲", "catalogueId": "2966", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃地板卧推", "catalogueId": "3668", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 2, "title": "快走通勤", "category": "有氧训练", "minutes": 27, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1020},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 3, "title": "髋和背", "category": "力量训练", "minutes": 30, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 35, "restSeconds": 45}
+          ]
+        },
+        {"day": 5, "title": "单腿与肩", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 2, "reps": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 6, "title": "连续骑行", "category": "有氧训练", "minutes": 32, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1920, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-advanced-strength-bike-week",
+      "goal": "fat-loss",
+      "level": "advanced",
+      "title": "复合力量与骑行",
+      "summary": "保留三个复合动作主课，安排一次自行车节奏训练与一次低强度骑行。",
+      "equipment": "完整健身房、固定自行车",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "蹲与卧推", "category": "力量训练", "minutes": 49, "exercises": [
+            {"name": "杠铃深蹲", "catalogueId": "3593", "sets": 4, "reps": 5, "repsMax": 7, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 4, "reps": 6, "repsMax": 8, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 40, "restSeconds": 45}
+          ]
+        },
+        {"day": 2, "title": "自行车短节奏", "category": "有氧训练", "minutes": 31, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 360, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 6, "seconds": 120, "restSeconds": 90, "targetRpe": 7.0, "cue": "每组结束后降低速度和阻力，轻松活动至下一组。"},
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 4, "title": "硬拉与垂直拉", "category": "力量训练", "minutes": 49, "exercises": [
+            {"name": "六角杠硬拉", "catalogueId": "0811", "sets": 4, "reps": 4, "repsMax": 6, "restSeconds": 180, "targetRpe": 8.0},
+            {"name": "引体向上", "catalogueId": "0652", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 120, "targetRpe": 8.0},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90},
+            {"name": "哑铃农夫行走", "catalogueId": "2917", "sets": 3, "seconds": 40, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "周末全身补量", "category": "力量训练", "minutes": 43, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 105},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75}
+          ]
+        },
+        {"day": 7, "title": "恢复骑行", "category": "有氧训练", "minutes": 38, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 2280, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-advanced-rowing-pace",
+      "goal": "fat-loss",
+      "level": "advanced",
+      "title": "划船节奏与保肌",
+      "summary": "两次高质量全身力量加三次有氧。划船节奏课后留一天恢复。",
+      "equipment": "深蹲架、杠铃、哑铃、划船机",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "力量 A", "category": "力量训练", "minutes": 55, "exercises": [
+            {"name": "杠铃前蹲", "catalogueId": "0042", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 4, "reps": 6, "repsMax": 10, "restSeconds": 120},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75}
+          ]
+        },
+        {"day": 2, "title": "划船节奏", "category": "有氧训练", "minutes": 30, "exercises": [
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 360, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 6, "seconds": 120, "restSeconds": 75, "targetRpe": 7.0, "cue": "每组结束后降低速度和阻力，轻松活动至下一组。"},
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 4, "title": "力量 B", "category": "力量训练", "minutes": 56, "exercises": [
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 4, "reps": 6, "repsMax": 9, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 95},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 6, "title": "连续划船", "category": "有氧训练", "minutes": 38, "exercises": [
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 2280, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 7, "title": "户外轻松走", "category": "有氧训练", "minutes": 31, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 1860, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-advanced-low-impact-block",
+      "goal": "fat-loss",
+      "level": "advanced",
+      "title": "低冲击交叉训练",
+      "summary": "用椭圆机与自行车提高有氧量，同时维持每周两次下肢刺激。",
+      "equipment": "固定力量器械、哑铃、绳索、椭圆机、自行车",
+      "weeks": 6,
+      "days": [
+        {"day": 1, "title": "全身 A · 膝主导", "category": "力量训练", "minutes": 47, "exercises": [
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 115},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 95},
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75}
+          ]
+        },
+        {"day": 2, "title": "椭圆机耐力", "category": "有氧训练", "minutes": 42, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 420, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 1680, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 420, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 4, "title": "全身 B · 髋主导", "category": "力量训练", "minutes": 47, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 115},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 95},
+            {"name": "哑铃侧弓步", "catalogueId": "4853", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 5, "title": "自行车变速", "category": "有氧训练", "minutes": 33, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 360, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 5, "seconds": 180, "restSeconds": 90, "targetRpe": 7.0, "cue": "每组结束后降低速度和阻力，轻松活动至下一组。"},
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 7, "title": "自行车舒适长骑", "category": "有氧训练", "minutes": 50, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 3000, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-advanced-kettlebell-conditioning",
+      "goal": "fat-loss",
+      "level": "advanced",
+      "title": "壶铃与短时体能",
+      "summary": "保留受控的推拉腿训练，摆荡和绳跳只在技术稳定时完成。",
+      "equipment": "壶铃、哑铃、训练凳、跳绳、自行车",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "深蹲与推拉", "category": "力量训练", "minutes": 45, "exercises": [
+            {"name": "哑铃前蹲", "catalogueId": "2966", "sets": 4, "reps": 6, "repsMax": 10, "restSeconds": 120},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 3, "seconds": 40, "restSeconds": 60}
+          ]
+        },
+        {"day": 3, "title": "短绳跳与步行", "category": "有氧训练", "minutes": 26, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360},
+            {"name": "跳绳", "catalogueId": "2612", "sets": 8, "seconds": 45, "restSeconds": 60, "targetRpe": 7.0, "cue": "小幅轻跳，每组之间步行恢复。"},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 420}
+          ]
+        },
+        {"day": 5, "title": "髋与肩背", "category": "力量训练", "minutes": 47, "exercises": [
+            {"name": "壶铃罗马尼亚硬拉", "catalogueId": "4861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 105},
+            {"name": "壶铃摆荡", "catalogueId": "0549", "sets": 4, "reps": 10, "restSeconds": 75, "targetRpe": 7.0},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 4, "reps": 8, "repsMax": 10, "restSeconds": 95},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90}
+          ]
+        },
+        {"day": 7, "title": "长骑恢复", "category": "有氧训练", "minutes": 42, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 2520, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fat-loss-advanced-trail-ready",
+      "goal": "fat-loss",
+      "level": "advanced",
+      "title": "力量与爬坡耐力",
+      "summary": "每周两次力量维持和一次坡走，一次较长快走从舒适强度开始。",
+      "equipment": "完整健身房、台阶机、运动鞋",
+      "weeks": 6,
+      "days": [
+        {"day": 1, "title": "重力量 A", "category": "力量训练", "minutes": 48, "exercises": [
+            {"name": "杠铃深蹲", "catalogueId": "3593", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 4, "reps": 6, "repsMax": 9, "restSeconds": 135, "targetRpe": 8.0},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 95},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 3, "reps": 10, "repsMax": 15, "restSeconds": 60}
+          ]
+        },
+        {"day": 3, "title": "台阶机节奏", "category": "有氧训练", "minutes": 33, "exercises": [
+            {"name": "台阶机步行", "catalogueId": "2311", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "台阶机步行", "catalogueId": "2311", "sets": 4, "seconds": 240, "restSeconds": 120, "targetRpe": 6.0, "cue": "每组结束后降低速度和阻力，轻松活动至下一组。"},
+            {"name": "台阶机步行", "catalogueId": "2311", "sets": 1, "seconds": 240, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 5, "title": "重力量 B", "category": "力量训练", "minutes": 52, "exercises": [
+            {"name": "六角杠硬拉", "catalogueId": "0811", "sets": 4, "reps": 5, "repsMax": 7, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃上斜卧推", "catalogueId": "0314", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 100},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90}
+          ]
+        },
+        {"day": 7, "title": "长快走", "category": "有氧训练", "minutes": 55, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 480},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 2340},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 480}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-beginner-walking-habit",
+      "goal": "weight-loss",
+      "level": "beginner",
+      "title": "散步习惯建立",
+      "summary": "三次短走配两次居家力量。刚开始也可以把单次步行分成两个短段。",
+      "equipment": "运动鞋、稳固椅子、垫子",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "午间散步", "category": "有氧训练", "minutes": 16, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 960, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 2, "title": "居家力量 A", "category": "力量训练", "minutes": 21, "exercises": [
+            {"name": "自重坐凳深蹲", "catalogueId": "6541", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 60},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 6, "repsMax": 10, "restSeconds": 60},
+            {"name": "脚跟臀桥", "catalogueId": "6435", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "带一点快走", "category": "有氧训练", "minutes": 19, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 420},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360}
+          ]
+        },
+        {"day": 5, "title": "居家力量 B", "category": "力量训练", "minutes": 21, "exercises": [
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 2, "reps": 6, "repsMax": 8, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 60},
+            {"name": "鸟狗式", "catalogueId": "1241", "sets": 2, "reps": 6, "repsMax": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 7, "title": "周末步行", "category": "有氧训练", "minutes": 25, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 1500, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-beginner-bike-habit",
+      "goal": "weight-loss",
+      "level": "beginner",
+      "title": "室内骑行习惯",
+      "summary": "把三次舒适骑行放进固定时段，短力量练习帮助维持训练能力。",
+      "equipment": "固定自行车、弹力带、稳固座椅",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "初次骑行", "category": "有氧训练", "minutes": 18, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1080, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        },
+        {"day": 2, "title": "力量 A", "category": "力量训练", "minutes": 22, "exercises": [
+            {"name": "自重坐凳深蹲", "catalogueId": "6541", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 60},
+            {"name": "弹力带站姿划船", "catalogueId": "0930", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 60},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 6, "repsMax": 10, "restSeconds": 60}
+          ]
+        },
+        {"day": 4, "title": "轻松骑行", "category": "有氧训练", "minutes": 21, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1260, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        },
+        {"day": 5, "title": "力量 B", "category": "力量训练", "minutes": 22, "exercises": [
+            {"name": "脚跟臀桥", "catalogueId": "6435", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 45},
+            {"name": "弹力带推肩", "catalogueId": "0997", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 60},
+            {"name": "弹力带站姿划船", "catalogueId": "0930", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 60},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 2, "reps": 12, "restSeconds": 45}
+          ]
+        },
+        {"day": 7, "title": "稳态骑行", "category": "有氧训练", "minutes": 25, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1500, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-beginner-easy-run-walk",
+      "goal": "weight-loss",
+      "level": "beginner",
+      "title": "跑走交替起步",
+      "summary": "安排两次短跑走，中间留恢复日。如果慢跑尚不舒适，可以用快走替换。",
+      "equipment": "运动鞋、跑步机、稳固座椅",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "跑走 A", "category": "有氧训练", "minutes": 22, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360},
+            {"name": "跑步机慢跑", "catalogueId": "2197", "sets": 5, "seconds": 45, "restSeconds": 90, "targetRpe": 5.0, "cue": "每组慢跑后用步行恢复，按休息计时继续。"},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 2, "title": "小腿与全身力量", "category": "力量训练", "minutes": 23, "exercises": [
+            {"name": "自重坐凳深蹲", "catalogueId": "6541", "sets": 2, "reps": 10, "restSeconds": 60},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 8, "restSeconds": 60},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 2, "reps": 12, "restSeconds": 45},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 20, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "跑走 B", "category": "有氧训练", "minutes": 24, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360},
+            {"name": "跑步机慢跑", "catalogueId": "2197", "sets": 5, "seconds": 60, "restSeconds": 90, "targetRpe": 5.0, "cue": "每组慢跑后用步行恢复，按休息计时继续。"},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360}
+          ]
+        },
+        {"day": 6, "title": "后链和稳定", "category": "力量训练", "minutes": 22, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 2, "reps": 8, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "脚跟臀桥", "catalogueId": "6435", "sets": 2, "reps": 12, "restSeconds": 45},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 7, "title": "舒适步行", "category": "有氧训练", "minutes": 25, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 1500, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-beginner-gym-start",
+      "goal": "weight-loss",
+      "level": "beginner",
+      "title": "健身房低门槛周",
+      "summary": "同一个场地完成机器辅助训练与两次室内有氧，其余用户外短走补足。",
+      "equipment": "椭圆机、固定自行车、基础力量器械",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "椭圆机轻松踩", "category": "有氧训练", "minutes": 17, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 1020, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        },
+        {"day": 2, "title": "简短器械 A", "category": "力量训练", "minutes": 25, "exercises": [
+            {"name": "坐姿腿举", "catalogueId": "2267", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 60}
+          ]
+        },
+        {"day": 3, "title": "下班步行", "category": "有氧训练", "minutes": 20, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 1200, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        },
+        {"day": 5, "title": "简短器械 B", "category": "力量训练", "minutes": 25, "exercises": [
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 60}
+          ]
+        },
+        {"day": 6, "title": "固定自行车", "category": "有氧训练", "minutes": 24, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1440, "restSeconds": 0, "targetRpe": 4.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-beginner-walk-and-stairs",
+      "goal": "weight-loss",
+      "level": "beginner",
+      "title": "步行与阶梯适应",
+      "summary": "以平路走为主，加入少量低台阶练习。踩稳后再提高步频。",
+      "equipment": "运动鞋、带扶手的低台阶、弹力带",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "平路快走", "category": "有氧训练", "minutes": 23, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 780},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 2, "title": "低台阶力量", "category": "力量训练", "minutes": 22, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 2, "reps": 8, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "弹力带站姿划船", "catalogueId": "0930", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 60},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 8, "restSeconds": 60}
+          ]
+        },
+        {"day": 4, "title": "步行与短台阶", "category": "有氧训练", "minutes": 25, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 480},
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 5, "seconds": 45, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 600}
+          ]
+        },
+        {"day": 6, "title": "臀腿、背与核心", "category": "力量训练", "minutes": 22, "exercises": [
+            {"name": "臀桥交替踏步", "catalogueId": "3561", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 60},
+            {"name": "自重箱式深蹲", "catalogueId": "10168", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 60},
+            {"name": "弹力带站姿划船", "catalogueId": "0930", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 60}
+          ]
+        },
+        {"day": 7, "title": "恢复走", "category": "有氧训练", "minutes": 27, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 1620, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-intermediate-walk-commute",
+      "goal": "weight-loss",
+      "level": "intermediate",
+      "title": "通勤快走周",
+      "summary": "用工作日短快走和周末长走积累时长，安排两堂哑铃课。",
+      "equipment": "运动鞋、哑铃、训练凳",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "通勤快走 A", "category": "有氧训练", "minutes": 32, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1320},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 2, "title": "全身力量 A", "category": "力量训练", "minutes": 32, "exercises": [
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 3, "title": "通勤快走 B", "category": "有氧训练", "minutes": 34, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1440},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 4, "title": "午间快走", "category": "有氧训练", "minutes": 30, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1320},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240}
+          ]
+        },
+        {"day": 5, "title": "全身力量 B", "category": "力量训练", "minutes": 32, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 7, "title": "周末长快走", "category": "有氧训练", "minutes": 56, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 480},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 2400},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 480}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-intermediate-mix-cycle-walk",
+      "goal": "weight-loss",
+      "level": "intermediate",
+      "title": "骑行和步行交叉",
+      "summary": "每周三次不同长度的有氧，照顾骑行和走路之间的恢复。",
+      "equipment": "固定自行车、运动鞋、哑铃",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "连续骑行 A", "category": "有氧训练", "minutes": 37, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 2220, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 2, "title": "下肢和水平推拉", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "哑铃前蹲", "catalogueId": "2966", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃地板卧推", "catalogueId": "3668", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 4, "title": "户外快走", "category": "有氧训练", "minutes": 42, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1920},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 5, "title": "髋、上肢、核心", "category": "力量训练", "minutes": 32, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 7, "title": "连续骑行 B", "category": "有氧训练", "minutes": 50, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 3000, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-intermediate-run-walk-progression",
+      "goal": "weight-loss",
+      "level": "intermediate",
+      "title": "跑走耐力周",
+      "summary": "用重复慢跑与步行练节奏，保留一次单纯快走和两堂短力量。",
+      "equipment": "跑步机、运动鞋、哑铃、训练凳",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "四分钟跑走", "category": "有氧训练", "minutes": 32, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360},
+            {"name": "跑步机慢跑", "catalogueId": "2197", "sets": 4, "seconds": 240, "restSeconds": 90, "targetRpe": 5.0, "cue": "每组慢跑后用步行恢复，按休息计时继续。"},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 2, "title": "臀腿与上肢 A", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 2, "reps": 12, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "六分钟跑走", "category": "有氧训练", "minutes": 34, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360},
+            {"name": "跑步机慢跑", "catalogueId": "2197", "sets": 3, "seconds": 360, "restSeconds": 120, "targetRpe": 5.0, "cue": "每组慢跑后用步行恢复，按休息计时继续。"},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 5, "title": "后链与上肢 B", "category": "力量训练", "minutes": 29, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "鸟狗式", "catalogueId": "1241", "sets": 2, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 7, "title": "户外快走", "category": "有氧训练", "minutes": 45, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1980},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-intermediate-elliptical-stability",
+      "goal": "weight-loss",
+      "level": "intermediate",
+      "title": "低冲击耐力周",
+      "summary": "以椭圆机、走路和轻力量交叉，逐步延长舒适的运动时间。",
+      "equipment": "椭圆机、弹力带、低台阶",
+      "weeks": 6,
+      "days": [
+        {"day": 1, "title": "椭圆机持续踩 A", "category": "有氧训练", "minutes": 36, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 2160, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 2, "title": "腿与弹力带推拉", "category": "力量训练", "minutes": 27, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 8, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "弹力带站姿划船", "catalogueId": "0930", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 60},
+            {"name": "弹力带推肩", "catalogueId": "0997", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 60},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 25, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "椭圆机持续踩 B", "category": "有氧训练", "minutes": 40, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 2400, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 5, "title": "全身稳定", "category": "力量训练", "minutes": 28, "exercises": [
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "弹力带俯卧撑", "catalogueId": "0915", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 65},
+            {"name": "弹力带跪姿下拉", "catalogueId": "4358", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 65},
+            {"name": "侧平板支撑", "catalogueId": "0714", "sets": 2, "seconds": 25, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 7, "title": "户外长走", "category": "有氧训练", "minutes": 60, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 600},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 2400},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 600}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-intermediate-weekday-micro-sessions",
+      "goal": "weight-loss",
+      "level": "intermediate",
+      "title": "短时快走积累周",
+      "summary": "一天只量化一项活动，把快走和固定动作拆到多个工作日。",
+      "equipment": "运动鞋、哑铃、稳固座椅",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "快走一", "category": "有氧训练", "minutes": 28, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1200},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240}
+          ]
+        },
+        {"day": 2, "title": "简短力量 A", "category": "力量训练", "minutes": 22, "exercises": [
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃地板卧推", "catalogueId": "3668", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 65},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 65}
+          ]
+        },
+        {"day": 3, "title": "快走二", "category": "有氧训练", "minutes": 30, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1200},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 300}
+          ]
+        },
+        {"day": 4, "title": "快走三", "category": "有氧训练", "minutes": 28, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1200},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 240}
+          ]
+        },
+        {"day": 5, "title": "简短力量 B", "category": "力量训练", "minutes": 22, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 65},
+            {"name": "哑铃臀桥", "catalogueId": "3335", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 65}
+          ]
+        },
+        {"day": 6, "title": "快走四", "category": "有氧训练", "minutes": 50, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 2280},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-advanced-cycling-volume",
+      "goal": "weight-loss",
+      "level": "advanced",
+      "title": "骑行耐力与体重管理",
+      "summary": "把有氧分成两个稳态骑行和一次节奏踩，另留两堂简短全身力量。",
+      "equipment": "固定自行车、哑铃、绳索",
+      "weeks": 6,
+      "days": [
+        {"day": 1, "title": "稳态骑行 A", "category": "有氧训练", "minutes": 45, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 2700, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 2, "title": "力量 A", "category": "力量训练", "minutes": 33, "exercises": [
+            {"name": "哑铃前蹲", "catalogueId": "2966", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 4, "title": "骑行节奏段", "category": "有氧训练", "minutes": 39, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 480, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 5, "seconds": 240, "restSeconds": 90, "targetRpe": 6.0, "cue": "每组结束后降低速度和阻力，轻松活动至下一组。"},
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 300, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 5, "title": "力量 B", "category": "力量训练", "minutes": 34, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 7, "title": "舒适长骑", "category": "有氧训练", "minutes": 65, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 3900, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-advanced-easy-running",
+      "goal": "weight-loss",
+      "level": "advanced",
+      "title": "舒适慢跑积累",
+      "summary": "适合已能舒适连续慢跑的人。大部分跑步用能说句子的节奏。",
+      "equipment": "跑步机或跑步路线、哑铃",
+      "weeks": 6,
+      "days": [
+        {"day": 1, "title": "连续轻松跑", "category": "有氧训练", "minutes": 37, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360},
+            {"name": "跑步机慢跑", "catalogueId": "2197", "sets": 1, "seconds": 1500, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 360}
+          ]
+        },
+        {"day": 2, "title": "全身力量 A", "category": "力量训练", "minutes": 31, "exercises": [
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃地板卧推", "catalogueId": "3668", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 2, "reps": 12, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "跑步节奏", "category": "有氧训练", "minutes": 40, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 480},
+            {"name": "跑步机慢跑", "catalogueId": "2197", "sets": 3, "seconds": 420, "restSeconds": 120, "targetRpe": 6.0, "cue": "每组慢跑后用步行恢复，按休息计时继续。"},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 420}
+          ]
+        },
+        {"day": 5, "title": "全身力量 B", "category": "力量训练", "minutes": 31, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 7, "title": "周末跑走", "category": "有氧训练", "minutes": 57, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 480},
+            {"name": "跑步机慢跑", "catalogueId": "2197", "sets": 1, "seconds": 2400, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 540}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-advanced-hiking-week",
+      "goal": "weight-loss",
+      "level": "advanced",
+      "title": "徒步体重管理周",
+      "summary": "工作日保持两次短负重练习，周末以可持续的户外节奏为主。",
+      "equipment": "运动鞋、哑铃、低台阶与跑步机",
+      "weeks": 6,
+      "days": [
+        {"day": 1, "title": "跑步机坡走", "category": "有氧训练", "minutes": 39, "exercises": [
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 420},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 1500, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "跑步机步行", "catalogueId": "2259", "sets": 1, "seconds": 420}
+          ]
+        },
+        {"day": 2, "title": "上台阶与推拉", "category": "力量训练", "minutes": 33, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 4, "title": "匀速快走", "category": "有氧训练", "minutes": 45, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1980},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360}
+          ]
+        },
+        {"day": 5, "title": "后链与单侧负重", "category": "力量训练", "minutes": 31, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃手提箱行走", "catalogueId": "2910", "sets": 3, "seconds": 35, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 7, "title": "周末长距离步行", "category": "有氧训练", "minutes": 75, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 600},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 3180, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 720}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-advanced-non-running-volume",
+      "goal": "weight-loss",
+      "level": "advanced",
+      "title": "免跑多器械耐力",
+      "summary": "以划船、自行车和椭圆机分配有氧负荷，避免每一堂都追求速度。",
+      "equipment": "划船机、固定自行车、椭圆机、固定力量器械",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "划船耐力", "category": "有氧训练", "minutes": 40, "exercises": [
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 420, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 1560, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 420, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 2, "title": "力量 A", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "坐姿腿举", "catalogueId": "2267", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 90},
+            {"name": "器械推胸", "catalogueId": "0576", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "坐姿提踵", "catalogueId": "0594", "sets": 2, "reps": 12, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "椭圆机耐力", "category": "有氧训练", "minutes": 45, "exercises": [
+            {"name": "椭圆机步行", "catalogueId": "2141", "sets": 1, "seconds": 2700, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 5, "title": "力量 B", "category": "力量训练", "minutes": 34, "exercises": [
+            {"name": "坐姿腿弯举", "catalogueId": "0599", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "绳索高位下拉", "catalogueId": "0198", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "器械推肩", "catalogueId": "0603", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "45°腿举", "catalogueId": "0739", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 90}
+          ]
+        },
+        {"day": 7, "title": "稳态长骑", "category": "有氧训练", "minutes": 62, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 3720, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "weight-loss-advanced-variable-schedule",
+      "goal": "weight-loss",
+      "level": "advanced",
+      "title": "工作日轻量与周末长课",
+      "summary": "两次二十多分钟的力训适合繁忙工作日，周末留出较长的有氧时间。",
+      "equipment": "哑铃、运动鞋、固定自行车",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "工作日力量 A", "category": "力量训练", "minutes": 26, "exercises": [
+            {"name": "哑铃前蹲", "catalogueId": "2966", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃地板卧推", "catalogueId": "3668", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 75}
+          ]
+        },
+        {"day": 2, "title": "快走通勤", "category": "有氧训练", "minutes": 38, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1560},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 360}
+          ]
+        },
+        {"day": 4, "title": "工作日力量 B", "category": "力量训练", "minutes": 27, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃农夫行走", "catalogueId": "2917", "sets": 3, "seconds": 35, "restSeconds": 60}
+          ]
+        },
+        {"day": 5, "title": "工作日短骑", "category": "有氧训练", "minutes": 35, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 2100, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 7, "title": "周末骑行与走路", "category": "有氧训练", "minutes": 81, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 3360, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 600},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 900}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-beginner-balance-basics",
+      "goal": "functional",
+      "level": "beginner",
+      "title": "站稳与起身基础",
+      "summary": "练习起坐、台阶和基本平衡。单腿站和上台阶可扶固定支撑。",
+      "equipment": "稳定的椅子和扶手、低台阶、垫子",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "坐站与平衡", "category": "力量训练", "minutes": 23, "exercises": [
+            {"name": "自重坐凳深蹲", "catalogueId": "6541", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 60},
+            {"name": "扶稳单腿站", "catalogueId": "3714", "sets": 2, "seconds": 15, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 8, "restSeconds": 60},
+            {"name": "鸟狗式", "catalogueId": "1241", "sets": 2, "reps": 6, "repsMax": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "上台阶与髋部", "category": "力量训练", "minutes": 23, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 2, "reps": 8, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "脚跟臀桥", "catalogueId": "6435", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 45},
+            {"name": "扶稳单腿站", "catalogueId": "3714", "sets": 2, "seconds": 20, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 6, "repsMax": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 6, "title": "步行与髋部伸展", "category": "拉伸恢复", "minutes": 16, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 720},
+            {"name": "半跪髋屈肌拉伸", "catalogueId": "1053", "sets": 2, "seconds": 25, "restSeconds": 20, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-beginner-hinge-carry",
+      "goal": "functional",
+      "level": "beginner",
+      "title": "学习髋铰链与搬运",
+      "summary": "用轻壶铃练习从地面提物，保持身体稳定地走短距离。",
+      "equipment": "壶铃、稳定支撑、垫子",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "提物与蹲", "category": "力量训练", "minutes": 28, "exercises": [
+            {"name": "壶铃硬拉", "catalogueId": "3322", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 80},
+            {"name": "自重箱式深蹲", "catalogueId": "10168", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 65},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 3, "seconds": 20, "restSeconds": 60},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 20, "restSeconds": 45}
+          ]
+        },
+        {"day": 4, "title": "弓步与站稳", "category": "力量训练", "minutes": 27, "exercises": [
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 65, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "壶铃罗马尼亚硬拉", "catalogueId": "4861", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 70},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 3, "seconds": 25, "restSeconds": 60},
+            {"name": "扶稳单腿站", "catalogueId": "3714", "sets": 2, "seconds": 20, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-beginner-band-core",
+      "goal": "functional",
+      "level": "beginner",
+      "title": "弹力带核心稳定",
+      "summary": "安排两堂持稳、抗转和推拉课。每组慢慢做，保持均匀呼吸。",
+      "equipment": "弹力带、固定点、垫子",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "抗旋与水平拉", "category": "力量训练", "minutes": 26, "exercises": [
+            {"name": "弹力带帕洛夫抗旋", "catalogueId": "0979", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "弹力带站姿划船", "catalogueId": "0930", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 60},
+            {"name": "自重坐凳深蹲", "catalogueId": "6541", "sets": 2, "reps": 10, "restSeconds": 60},
+            {"name": "侧平板支撑", "catalogueId": "0714", "sets": 2, "seconds": 15, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 4, "title": "四足与肩部控制", "category": "力量训练", "minutes": 27, "exercises": [
+            {"name": "鸟狗式", "catalogueId": "1241", "sets": 3, "reps": 6, "repsMax": 8, "restSeconds": 45},
+            {"name": "弹力带推肩", "catalogueId": "0997", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 60},
+            {"name": "臀桥交替踏步", "catalogueId": "3561", "sets": 2, "reps": 8, "restSeconds": 45},
+            {"name": "弹力带拉开", "catalogueId": "1503", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 45}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-beginner-floor-mobility",
+      "goal": "functional",
+      "level": "beginner",
+      "title": "地面稳定与活动度",
+      "summary": "练习躯干控制和髋部活动。动作只做到舒适的范围，不追求拉伸幅度。",
+      "equipment": "垫子、稳定支撑",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "躯干控制", "category": "力量训练", "minutes": 25, "exercises": [
+            {"name": "死虫式", "catalogueId": "0276", "sets": 3, "reps": 6, "repsMax": 8, "restSeconds": 45},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 6, "repsMax": 10, "restSeconds": 60},
+            {"name": "熊式平板支撑", "catalogueId": "4170", "sets": 2, "seconds": 15, "restSeconds": 45},
+            {"name": "脚跟臀桥", "catalogueId": "6435", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 45}
+          ]
+        },
+        {"day": 3, "title": "髋部与胸椎活动", "category": "拉伸恢复", "minutes": 16, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 600},
+            {"name": "弓步转体伸展", "catalogueId": "1604", "sets": 2, "reps": 5, "restSeconds": 30},
+            {"name": "半跪髋屈肌拉伸", "catalogueId": "1053", "sets": 2, "seconds": 25, "restSeconds": 20, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 5, "title": "侧向稳定", "category": "力量训练", "minutes": 25, "exercises": [
+            {"name": "侧向分腿蹲", "catalogueId": "4788", "sets": 2, "reps": 8, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "侧平板支撑", "catalogueId": "0714", "sets": 2, "seconds": 15, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "扶稳单腿站", "catalogueId": "3714", "sets": 2, "seconds": 20, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 45}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-beginner-stairs-and-reach",
+      "goal": "functional",
+      "level": "beginner",
+      "title": "台阶与伸手控制",
+      "summary": "在低台阶、推和伸手动作中练习转移重心，为日常走楼梯打基础。",
+      "equipment": "低台阶、稳定支撑、哑铃",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "台阶和推拉", "category": "力量训练", "minutes": 27, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 8, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 2, "reps": 8, "repsMax": 10, "restSeconds": 60},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 65},
+            {"name": "扶稳单腿站", "catalogueId": "3714", "sets": 2, "seconds": 20, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 4, "title": "后撤伸手与负重行走", "category": "力量训练", "minutes": 27, "exercises": [
+            {"name": "后撤弓步上举", "catalogueId": "6551", "sets": 2, "reps": 6, "repsMax": 8, "restSeconds": 65, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "自重坐凳深蹲", "catalogueId": "6541", "sets": 2, "reps": 10, "repsMax": 12, "restSeconds": 65},
+            {"name": "哑铃农夫行走", "catalogueId": "2917", "sets": 3, "seconds": 25, "restSeconds": 50},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 2, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 6, "title": "短走与活动度", "category": "拉伸恢复", "minutes": 16, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 720},
+            {"name": "弓步转体伸展", "catalogueId": "1604", "sets": 2, "reps": 5, "restSeconds": 30}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-intermediate-loaded-carries",
+      "goal": "functional",
+      "level": "intermediate",
+      "title": "单侧负重与抗旋",
+      "summary": "每周两次负重移动练习。先完成相同的左右时间，再增加负重。",
+      "equipment": "哑铃、弹力带、可调训练凳",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "下肢与单侧携行", "category": "力量训练", "minutes": 36, "exercises": [
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90},
+            {"name": "哑铃手提箱行走", "catalogueId": "2910", "sets": 3, "seconds": 35, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "弹力带帕洛夫抗旋", "catalogueId": "0979", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 55, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 3, "title": "上肢稳定", "category": "力量训练", "minutes": 34, "exercises": [
+            {"name": "哑铃地板卧推", "catalogueId": "3668", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 2, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "熊式平板支撑", "catalogueId": "4170", "sets": 3, "seconds": 25, "restSeconds": 45}
+          ]
+        },
+        {"day": 6, "title": "侧向与步态", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "哑铃侧弓步", "catalogueId": "4853", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 85, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃农夫行走", "catalogueId": "2917", "sets": 4, "seconds": 35, "restSeconds": 60},
+            {"name": "侧平板支撑", "catalogueId": "0714", "sets": 3, "seconds": 25, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-intermediate-suspension",
+      "goal": "functional",
+      "level": "intermediate",
+      "title": "悬挂带稳定三练",
+      "summary": "调节站位控制悬挂带阻力，搭配单腿与负重行走，把力量带到移动中。",
+      "equipment": "牢固固定的悬挂带、哑铃、低台阶",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "拉与屈膝", "category": "力量训练", "minutes": 34, "exercises": [
+            {"name": "悬挂带划船", "catalogueId": "6220", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃高脚杯深蹲", "catalogueId": "1760", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 3, "seconds": 30, "restSeconds": 45}
+          ]
+        },
+        {"day": 3, "title": "髋与俯撑", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "悬挂带划船", "catalogueId": "6220", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "熊爬", "catalogueId": "3360", "sets": 3, "seconds": 25, "restSeconds": 45},
+            {"name": "臀桥交替踏步", "catalogueId": "3561", "sets": 3, "reps": 10, "restSeconds": 45}
+          ]
+        },
+        {"day": 6, "title": "单腿与整合", "category": "力量训练", "minutes": 34, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "自重分腿蹲", "catalogueId": "0781", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "悬挂带划船", "catalogueId": "6220", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃手提箱行走", "catalogueId": "2910", "sets": 3, "seconds": 30, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-intermediate-movement-planes",
+      "goal": "functional",
+      "level": "intermediate",
+      "title": "多方向移动训练",
+      "summary": "正向、侧向和斜向各安排一个主题，组间留时间恢复，保持动作可控。",
+      "equipment": "哑铃、低台阶、绳索",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "前后方向", "category": "力量训练", "minutes": 34, "exercises": [
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "哑铃农夫行走", "catalogueId": "2917", "sets": 3, "seconds": 35, "restSeconds": 60},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 2, "seconds": 35, "restSeconds": 45}
+          ]
+        },
+        {"day": 3, "title": "侧向移动", "category": "力量训练", "minutes": 34, "exercises": [
+            {"name": "哑铃侧弓步", "catalogueId": "4853", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 80, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "侧向熊爬", "catalogueId": "3965", "sets": 3, "seconds": 20, "restSeconds": 50},
+            {"name": "侧平板支撑", "catalogueId": "0714", "sets": 3, "seconds": 25, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 5, "title": "斜向控制", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "后撤弓步上举", "catalogueId": "6551", "sets": 3, "reps": 8, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "绳索反向伐木", "catalogueId": "8193", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "绳索帕洛夫抗旋", "catalogueId": "1202", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "俯卧撑", "catalogueId": "0662", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-intermediate-kettlebell-control",
+      "goal": "functional",
+      "level": "intermediate",
+      "title": "壶铃稳定与移动",
+      "summary": "每周三次在铰链、深蹲、携行和地面稳定之间切换，优先保持背部与步态稳定。",
+      "equipment": "壶铃、稳固支撑、低台阶与垫子",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "提举与行走", "category": "力量训练", "minutes": 36, "exercises": [
+            {"name": "壶铃硬拉", "catalogueId": "3322", "sets": 4, "reps": 8, "repsMax": 10, "restSeconds": 90},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 4, "seconds": 35, "restSeconds": 60},
+            {"name": "斜板俯卧撑", "catalogueId": "5637", "sets": 3, "reps": 10, "repsMax": 14, "restSeconds": 75},
+            {"name": "前平板支撑", "catalogueId": "0463", "sets": 3, "seconds": 30, "restSeconds": 45}
+          ]
+        },
+        {"day": 3, "title": "下肢和转体", "category": "力量训练", "minutes": 33, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "侧向分腿蹲", "catalogueId": "4788", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "壶铃斜向伐木", "catalogueId": "8025", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "鸟狗式", "catalogueId": "1241", "sets": 3, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 6, "title": "后链与地面移动", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "壶铃罗马尼亚硬拉", "catalogueId": "4861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "俯卧撑", "catalogueId": "0662", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 75},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 3, "seconds": 40, "restSeconds": 60},
+            {"name": "熊爬", "catalogueId": "3360", "sets": 3, "seconds": 25, "restSeconds": 45}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-intermediate-trail-movement",
+      "goal": "functional",
+      "level": "intermediate",
+      "title": "徒步动作准备",
+      "summary": "练习登阶、臀腿耐力与携行，周末把节奏转移到步行或缓坡。",
+      "equipment": "哑铃、可扶的低台阶、运动鞋",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "登阶和膝控制", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 4, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 85, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 3, "reps": 12, "restSeconds": 60},
+            {"name": "哑铃手提箱行走", "catalogueId": "2910", "sets": 3, "seconds": 25, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 4, "title": "后链和躯干", "category": "力量训练", "minutes": 35, "exercises": [
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃侧弓步", "catalogueId": "4853", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 80, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 3, "reps": 10, "repsMax": 12, "restSeconds": 75},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 3, "reps": 8, "restSeconds": 45}
+          ]
+        },
+        {"day": 6, "title": "轻松地形步行", "category": "有氧训练", "minutes": 43, "exercises": [
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 420},
+            {"name": "快走", "catalogueId": "3004", "sets": 1, "seconds": 1680, "restSeconds": 0, "targetRpe": 5.0},
+            {"name": "步行", "catalogueId": "2258", "sets": 1, "seconds": 480}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-advanced-power-and-control",
+      "goal": "functional",
+      "level": "advanced",
+      "title": "力量速度与稳定",
+      "summary": "负重动作维持可控速度。药球推掷与借力推举用轻重量，动作变慢时结束该组。",
+      "equipment": "六角杠、哑铃、可安全落地的药球、绳索",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "髋部力量与携行", "category": "力量训练", "minutes": 43, "exercises": [
+            {"name": "六角杠硬拉", "catalogueId": "0811", "sets": 4, "reps": 4, "repsMax": 6, "restSeconds": 165, "targetRpe": 8.0},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "六角杠农夫行走", "catalogueId": "2912", "sets": 4, "seconds": 30, "restSeconds": 75},
+            {"name": "侧平板支撑", "catalogueId": "0714", "sets": 3, "seconds": 35, "restSeconds": 45, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 3, "title": "上肢速度与抗旋", "category": "力量训练", "minutes": 43, "exercises": [
+            {"name": "药球胸前传球", "catalogueId": "1302", "sets": 4, "reps": 5, "restSeconds": 75},
+            {"name": "哑铃借力推举", "catalogueId": "1700", "sets": 4, "reps": 5, "restSeconds": 120, "targetRpe": 7.0},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "绳索帕洛夫抗旋", "catalogueId": "1202", "sets": 3, "reps": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 6, "title": "侧向与后链", "category": "力量训练", "minutes": 41, "exercises": [
+            {"name": "哑铃侧弓步", "catalogueId": "4853", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 4, "reps": 8, "repsMax": 10, "restSeconds": 110},
+            {"name": "侧向熊爬", "catalogueId": "3965", "sets": 3, "seconds": 25, "restSeconds": 55},
+            {"name": "哑铃手提箱行走", "catalogueId": "2910", "sets": 3, "seconds": 35, "restSeconds": 65, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-advanced-landmine-rotation",
+      "goal": "functional",
+      "level": "advanced",
+      "title": "地雷管与多平面力量",
+      "summary": "用地雷管推举练全身协同，通过侧向弓步和斜向伐木控制不同方向。",
+      "equipment": "地雷管固定端与杠铃、哑铃、绳索",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "上肢协同", "category": "力量训练", "minutes": 42, "exercises": [
+            {"name": "地雷管单臂推举", "catalogueId": "5094", "sets": 4, "reps": 6, "repsMax": 9, "restSeconds": 110, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "引体向上", "catalogueId": "0652", "sets": 4, "reps": 5, "repsMax": 8, "restSeconds": 120},
+            {"name": "绳索反向伐木", "catalogueId": "8193", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 65, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃手提箱行走", "catalogueId": "2910", "sets": 3, "seconds": 35, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 3, "title": "屈膝与侧向", "category": "力量训练", "minutes": 41, "exercises": [
+            {"name": "杠铃前蹲", "catalogueId": "0042", "sets": 4, "reps": 5, "repsMax": 7, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "哑铃侧弓步", "catalogueId": "4853", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 10, "restSeconds": 70, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "站姿提踵", "catalogueId": "3018", "sets": 3, "reps": 12, "restSeconds": 60}
+          ]
+        },
+        {"day": 5, "title": "后链与躯干", "category": "力量训练", "minutes": 41, "exercises": [
+            {"name": "杠铃罗马尼亚硬拉", "catalogueId": "0085", "sets": 4, "reps": 6, "repsMax": 9, "restSeconds": 135},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 95},
+            {"name": "绳索帕洛夫抗旋", "catalogueId": "1202", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "熊爬", "catalogueId": "3360", "sets": 3, "seconds": 25, "restSeconds": 55}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-advanced-carry-endurance",
+      "goal": "functional",
+      "level": "advanced",
+      "title": "重携行与步态耐力",
+      "summary": "高质量提举接短距离负重行走，穿插稳态有氧。走路姿态开始变化就结束该组。",
+      "equipment": "六角杠、哑铃、壶铃与固定自行车",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "重携行 A", "category": "力量训练", "minutes": 45, "exercises": [
+            {"name": "六角杠硬拉", "catalogueId": "0811", "sets": 4, "reps": 5, "repsMax": 7, "restSeconds": 150, "targetRpe": 8.0},
+            {"name": "六角杠农夫行走", "catalogueId": "2912", "sets": 4, "seconds": 35, "restSeconds": 90},
+            {"name": "哑铃卧推", "catalogueId": "0289", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "哑铃俯身划船", "catalogueId": "0293", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 90}
+          ]
+        },
+        {"day": 3, "title": "舒适骑行", "category": "有氧训练", "minutes": 30, "exercises": [
+            {"name": "固定自行车骑行", "catalogueId": "2138", "sets": 1, "seconds": 1800, "restSeconds": 0, "targetRpe": 5.0}
+          ]
+        },
+        {"day": 5, "title": "单侧负重 B", "category": "力量训练", "minutes": 41, "exercises": [
+            {"name": "哑铃前蹲", "catalogueId": "2966", "sets": 4, "reps": 6, "repsMax": 10, "restSeconds": 105},
+            {"name": "哑铃手提箱行走", "catalogueId": "2910", "sets": 4, "seconds": 35, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 95, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃坐姿推肩", "catalogueId": "0405", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90}
+          ]
+        },
+        {"day": 7, "title": "负重步态短练", "category": "力量训练", "minutes": 28, "exercises": [
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 5, "seconds": 35, "restSeconds": 75},
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 10, "restSeconds": 70, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "鸟狗式", "catalogueId": "1241", "sets": 3, "reps": 8, "restSeconds": 45}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-advanced-movement-conditioning",
+      "goal": "functional",
+      "level": "advanced",
+      "title": "功能体能与变速",
+      "summary": "重视动作质量，用划船机控制体能负荷。摆荡与药球动作使用熟练的技术和轻中负重。",
+      "equipment": "壶铃、耐砸地药球、划船机、哑铃",
+      "weeks": 4,
+      "days": [
+        {"day": 1, "title": "拉与髋部速度", "category": "力量训练", "minutes": 43, "exercises": [
+            {"name": "壶铃摆荡", "catalogueId": "0549", "sets": 5, "reps": 8, "restSeconds": 85, "targetRpe": 7.0},
+            {"name": "壶铃罗马尼亚硬拉", "catalogueId": "4861", "sets": 3, "reps": 8, "repsMax": 12, "restSeconds": 95},
+            {"name": "上斜凳哑铃划船", "catalogueId": "0327", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 90},
+            {"name": "壶铃农夫行走", "catalogueId": "3576", "sets": 3, "seconds": 40, "restSeconds": 65}
+          ]
+        },
+        {"day": 3, "title": "划船变速", "category": "有氧训练", "minutes": 29, "exercises": [
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 360, "restSeconds": 0, "targetRpe": 3.0},
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 6, "seconds": 120, "restSeconds": 60, "targetRpe": 7.0, "cue": "每组结束后降低速度和阻力，轻松活动至下一组。"},
+            {"name": "划船机划船", "catalogueId": "1161", "sets": 1, "seconds": 360, "restSeconds": 0, "targetRpe": 3.0}
+          ]
+        },
+        {"day": 5, "title": "投掷与侧向移动", "category": "力量训练", "minutes": 44, "exercises": [
+            {"name": "药球过顶砸地", "catalogueId": "1354", "sets": 4, "reps": 5, "restSeconds": 80},
+            {"name": "哑铃侧弓步", "catalogueId": "4853", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃借力推举", "catalogueId": "1700", "sets": 3, "reps": 5, "repsMax": 7, "restSeconds": 110, "targetRpe": 7.0},
+            {"name": "侧向熊爬", "catalogueId": "3965", "sets": 3, "seconds": 20, "restSeconds": 50},
+            {"name": "死虫式", "catalogueId": "0276", "sets": 3, "reps": 8, "restSeconds": 45}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functional-advanced-sport-movement",
+      "goal": "functional",
+      "level": "advanced",
+      "title": "运动表现动作整合",
+      "summary": "分开练单腿制动、躯干协同和轻快动作。弹跳替代为轻松跳绳，组间恢复充足。",
+      "equipment": "深蹲架、杠铃、哑铃、绳索、跳绳与药球",
+      "weeks": 5,
+      "days": [
+        {"day": 1, "title": "下肢控制与步态", "category": "力量训练", "minutes": 45, "exercises": [
+            {"name": "杠铃停顿深蹲", "catalogueId": "4362", "sets": 4, "reps": 5, "repsMax": 7, "restSeconds": 145, "targetRpe": 8.0},
+            {"name": "哑铃行走弓步蹲", "catalogueId": "1557", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 95, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "低台阶上步", "catalogueId": "0801", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 75, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "哑铃农夫行走", "catalogueId": "2917", "sets": 3, "seconds": 35, "restSeconds": 65}
+          ]
+        },
+        {"day": 3, "title": "上肢与躯干协同", "category": "力量训练", "minutes": 45, "exercises": [
+            {"name": "药球胸前传球", "catalogueId": "1302", "sets": 4, "reps": 5, "restSeconds": 75},
+            {"name": "杠铃卧推", "catalogueId": "0025", "sets": 4, "reps": 6, "repsMax": 8, "restSeconds": 135, "targetRpe": 8.0},
+            {"name": "绳索坐姿划船", "catalogueId": "0861", "sets": 4, "reps": 8, "repsMax": 12, "restSeconds": 95},
+            {"name": "绳索反向伐木", "catalogueId": "8193", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 65, "cue": "每侧完成目标量，动作受控，再进入下一组。"}
+          ]
+        },
+        {"day": 6, "title": "轻快足步和髋部", "category": "力量训练", "minutes": 43, "exercises": [
+            {"name": "跳绳", "catalogueId": "2612", "sets": 6, "seconds": 30, "restSeconds": 60, "targetRpe": 6.0},
+            {"name": "哑铃罗马尼亚硬拉", "catalogueId": "1459", "sets": 4, "reps": 8, "repsMax": 10, "restSeconds": 105},
+            {"name": "哑铃侧弓步", "catalogueId": "4853", "sets": 3, "reps": 8, "repsMax": 10, "restSeconds": 90, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "绳索帕洛夫抗旋", "catalogueId": "1202", "sets": 3, "reps": 10, "restSeconds": 60, "cue": "每侧完成目标量，动作受控，再进入下一组。"},
+            {"name": "熊爬", "catalogueId": "3360", "sets": 3, "seconds": 25, "restSeconds": 50}
+          ]
+        }
+      ]
+    }
+  ]
+}
