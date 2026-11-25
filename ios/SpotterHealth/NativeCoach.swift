@@ -1089,15 +1089,21 @@ struct NativeCoachView: View {
 
     private func isProteinRecipeCommand(_ input: String) -> Bool {
         guard input.range(of: "蛋白粉|乳清|\\bwhey\\b|训练(?:后)?默认", options: [.regularExpression, .caseInsensitive]) != nil,
-              input.range(of: "[?？]|怎么|如何|有没有|是否|要不要|能不能|可不可以|是不是|(?:别|不要|不用|不想).{0,5}(?:加入|加到|添加到|设为|设成|存到|存入)",
+              input.range(of: "[?？]|怎么|如何|有没有|是否|要不要|能不能|可不可以|是不是",
                           options: .regularExpression) == nil else { return false }
         let warehouse = "(?:加入|加到|存入|存到|放进|写入|放入|添加到|添加进).{0,10}仓库|添加.{0,6}入库"
-        return input.range(of: warehouse, options: .regularExpression) != nil || requestsTrainingDefault(input)
+        return hasAffirmativeProteinAction(input, matching: warehouse) || requestsTrainingDefault(input)
     }
 
     private func requestsTrainingDefault(_ text: String) -> Bool {
-        text.range(of: "(?:设为|设成|改成|作为|设置为?).{0,10}默认", options: .regularExpression) != nil &&
-            text.range(of: "(?:别|不必|不要|不用).{0,8}默认", options: .regularExpression) == nil
+        hasAffirmativeProteinAction(text, matching: "(?:设为|设成|改成|作为|设置为?).{0,10}默认")
+    }
+
+    private func hasAffirmativeProteinAction(_ text: String, matching pattern: String) -> Bool {
+        text.split(whereSeparator: { $0.isNewline || "，。！？,.;；".contains($0) }).contains { clause in
+            guard let action = clause.range(of: pattern, options: .regularExpression) else { return false }
+            return clause[..<action.lowerBound].range(of: "不要|不用|不必|不想|不需要|不能|别", options: .regularExpression) == nil
+        }
     }
 
     private enum ProteinDiaryIntent { case none, record, skip }
