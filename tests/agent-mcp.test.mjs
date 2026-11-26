@@ -78,6 +78,41 @@ test("the existing Sites MCP keeps old tools and runs the new draft/program work
   assert.equal(JSON.parse(committed.content[0].text).added, 1);
 });
 
+test("legacy Sites plan appends resolve exact actions and keep existing plan retries idempotent", async (t) => {
+  const db = fixture(t);
+  const owner = globalThis.__spotterAgentUser.userId;
+  const profileRef = await agentProfileRef(owner);
+  const { agentPlanWrite, agentRecordId } = await import("../features/agent/write-model.ts");
+  const auth = { profileRef, confirmed: true };
+  const call = async (plans) => value(await official.POST(request("/mcp", rpc("tools/call", {
+    name: "add_spotter_plans", arguments: { ...auth, plans },
+  }))));
+  const parsed = (reply) => {
+    assert.equal(reply.isError, false, reply.content[0].text);
+    return JSON.parse(reply.content[0].text);
+  };
+  const oldPlan = { ...plan, title: "Saved before exact matching" };
+  const data = agentPlanWrite.parse({ ...auth, plans: [oldPlan] }).plans[0];
+  const id = await agentRecordId("plan", data);
+  db.sqlite.prepare("INSERT INTO entries (owner,id,kind,payload,updated) VALUES (?,?,'plan',?,'synthetic')").run(owner, id, JSON.stringify(data));
+  assert.deepEqual(parsed(await call([oldPlan])), { added: 0, skipped: 1, from: plan.date, to: plan.date });
+  assert.equal(JSON.parse(db.sqlite.prepare("SELECT payload FROM entries WHERE owner = ? AND id = ?").get(owner, id).payload).exercises[0].catalogueId, undefined);
+
+  const move = plan.exercises[0];
+  const personal = "Synthetic Twist Step";
+  const variation = "synthetic seated twist step";
+  const insert = db.sqlite.prepare("INSERT INTO personal_library (owner,kind,id,payload,updated) VALUES (?,'exercise',?,?,'synthetic')");
+  for (const [account, name] of [[owner, personal], ["different-owner", "Synthetic Seated Twist Step"]]) {
+    insert.run(account, name, JSON.stringify({ kind: "exercise", item: { name } }));
+  }
+  const exercises = [move, { ...move, name: personal.toLowerCase() }, { ...move, name: variation }];
+  const input = { ...plan, exercises };
+  assert.deepEqual(parsed(await call([input])), { added: 1, skipped: 0, from: plan.date, to: plan.date });
+  const saved = JSON.parse(db.sqlite.prepare("SELECT payload FROM entries WHERE owner = ? AND id != ?").get(owner, id).payload);
+  assert.deepEqual(saved.exercises, [{ ...move, catalogueId: "0289" }, { ...move, name: personal }, { ...move, name: variation }]);
+  assert.deepEqual(parsed(await call([{ ...input, exercises: saved.exercises }])), { added: 0, skipped: 1, from: plan.date, to: plan.date });
+});
+
 test("generic Agent REST works without a browser identity when its token is scoped and profile-checked", async (t) => {
   const db = fixture(t);
   const created = await connections.POST(request("/api/agent/connections", { action: "create", name: "Synthetic HTTP agent", scopes: ["read:context", "plans:draft", "plans:write"], expiresInDays: 7 }));
@@ -163,6 +198,7 @@ test("external record REST uses the same grants and keeps plans on the existing 
   const db = fixture(t);
   const owner = globalThis.__spotterAgentUser.userId;
   const { token } = await createConnection(db, owner, { name: "Body and training", scopes: ["body:write", "training:write", "templates:write"], expiresInDays: 1 });
+  const { token: templateEditor } = await createConnection(db, owner, { name: "Template and catalogue", scopes: ["templates:write", "read:context"], expiresInDays: 1 });
   const profileRef = await agentProfileRef(owner);
   const date = plan.date;
   const weight = { kind: "nutrition", id: crypto.randomUUID(), date, entry: { type: "weight", kg: 76 } };
@@ -176,7 +212,9 @@ test("external record REST uses the same grants and keeps plans on the existing 
   assert.equal(saved.status, 200);
   assert.deepEqual(await saved.json(), { scope: "身体", added: 1, skipped: 0 });
   const template = { kind: "template", id: crypto.randomUUID(), plan };
-  const savedTemplate = await append({ ...body, scope: "templates", backup: { ...backup, library: [template] } }, token);
+  const templateImport = { ...body, scope: "templates", backup: { ...backup, library: [template] } };
+  assert.equal((await append(templateImport, token)).status, 403);
+  const savedTemplate = await append(templateImport, templateEditor);
   assert.equal((await savedTemplate.json()).added, 1);
   const directPlan = { kind: "plan", id: crypto.randomUUID(), data: plan };
   assert.equal((await append({ ...body, scope: "training", backup: { ...backup, library: [], training: [directPlan] } }, token)).status, 400);
@@ -189,7 +227,73 @@ test("external record REST uses the same grants and keeps plans on the existing 
   const savedLog = await append({ ...body, scope: "training", backup: { ...backup, library: [], training: [log] } }, token);
   assert.deepEqual(await savedLog.json(), { scope: "训练", added: 1, skipped: 0 });
   assert.equal(db.sqlite.prepare("SELECT kind FROM entries WHERE owner = ? AND id = ?").get(owner, log.id).kind, "log");
+  const storedLog = db.sqlite.prepare("SELECT payload FROM entries WHERE owner=? AND id=?").get(owner, log.id);
+  assert.deepEqual(JSON.parse(storedLog.payload).plan.exercises, plan.exercises, "preserve the imported historical snapshot");
   assert.ok(agentApiSchema(origin).paths["/api/agent/records"].post);
+});
+
+test("Agent appends only distinct personal exercises and canonicalizes template moves for the token owner", async (t) => {
+  const db = fixture(t);
+  const owner = globalThis.__spotterAgentUser.userId;
+  const profileRef = await agentProfileRef(owner);
+  const issue = (scopes) => createConnection(db, owner, { name: "Synthetic exercise import", scopes, expiresInDays: 1 });
+  const { token } = await issue(["read:context", "training:write", "templates:write"]);
+  const { token: blindWrite } = await issue(["training:write"]);
+  globalThis.__spotterAgentUser = null;
+  const makeExercise = (name, pinned = false, note = "") => ({ kind: "exercise", item: { name, pinned, note, videos: [] } });
+  const ownProfile = makeExercise("Personal Pike", true, "Keep this note and pin");
+  const otherProfile = makeExercise("Only other account rows", true, "Other private note");
+  const seed = db.sqlite.prepare("INSERT INTO personal_library(owner,kind,id,day,payload,updated) VALUES (?,'exercise',?,NULL,?,'saved')");
+  seed.run(owner, ownProfile.item.name, JSON.stringify(ownProfile));
+  seed.run("another", otherProfile.item.name, JSON.stringify(otherProfile));
+  const find = (kind, id) => db.sqlite.prepare("SELECT payload, updated FROM personal_library WHERE owner=? AND kind=? AND id=?").get(owner, kind, id);
+  const importRows = (scope, library, bearer = token) => records.POST(request("/api/agent/records", {
+    profileRef, scope, confirmed: true, backup: { format: "spotter-backup", version: 1, training: [], library, heart: [] },
+  }, bearer));
+  const desired = [makeExercise("ＤＵＭＢＢＥＬＬ BENCH PRESS"), makeExercise("personal   pike", false, "Unwanted replacement"),
+    makeExercise("Personal Pike with Pause"), makeExercise("personal pike  with pause"), makeExercise(otherProfile.item.name)];
+  assert.equal((await importRows("training", desired, blindWrite)).status, 403);
+  const added = await importRows("training", desired);
+  assert.equal(added.status, 200);
+  assert.deepEqual(await added.json(), { scope: "训练", added: 2, skipped: 3 });
+  assert.deepEqual(await (await importRows("training", desired)).json(), { scope: "训练", added: 0, skipped: 5 });
+  const saved = find("exercise", ownProfile.item.name);
+  assert.equal(saved.updated, "saved");
+  assert.deepEqual(JSON.parse(saved.payload), ownProfile);
+  assert.ok(find("exercise", "Personal Pike with Pause"));
+  assert.notEqual(JSON.parse(find("exercise", otherProfile.item.name).payload).item.note, otherProfile.item.note);
+
+  const moves = ["dumbbell bench press", "personal  pike", "personal pike with pause", "Personal Pike with Slow Pause"]
+    .map((name, index) => ({ ...plan.exercises[0], name, reps: index + 4 }));
+  const template = { kind: "template", id: crypto.randomUUID(), plan: { ...plan, exercises: moves } };
+  assert.deepEqual(await (await importRows("templates", [template])).json(), { scope: "模板", added: 1, skipped: 0 });
+  const stored = JSON.parse(find("template", template.id).payload);
+  assert.deepEqual(stored.plan.exercises.map(({ name, catalogueId, reps }) => [name, catalogueId ?? null, reps]), [
+    ["哑铃卧推", "0289", 4], ["Personal Pike", null, 5], ["Personal Pike with Pause", null, 6], ["Personal Pike with Slow Pause", null, 7],
+  ]);
+  assert.equal(find("exercise", "Personal Pike with Slow Pause"), undefined);
+
+  globalThis.__spotterAgentUser = { userId: owner, email: "synthetic@example.invalid" };
+  const legacyImport = async (scope, library, training = []) => {
+    const result = await value(await official.POST(request("/mcp", rpc("tools/call", { name: "import_spotter_records", arguments: {
+      scope, confirmed: true, backup: { format: "spotter-backup", version: 1, training, library, heart: [] },
+    } }))));
+    assert.equal(result.isError, false);
+    return JSON.parse(result.content[0].text);
+  };
+  const restoredPlan = { kind: "plan", id: crypto.randomUUID(), data: { ...plan, exercises: [moves[0]] } };
+  const started = Date.parse(plan.date + "T13:00:00Z");
+  const restoredLog = { kind: "log", id: crypto.randomUUID(), data: { plan: restoredPlan.data, planId: "", date: plan.date,
+    started, ended: started + 1_800_000, minutes: 30, note: "", finishedVideo: false,
+    rows: [Array.from({ length: moves[0].sets }, () => ({ reps: 4, weight: 15, seconds: 0, done: true }))] } };
+  assert.deepEqual(await legacyImport("training", [makeExercise("PERSONAL PIKE"), makeExercise("Personal Pike with Hold")], [restoredPlan, restoredLog]),
+    { scope: "训练", added: 3, skipped: 1 });
+  const storedTraining = (id) => JSON.parse(db.sqlite.prepare("SELECT payload FROM entries WHERE owner=? AND id=?").get(owner, id).payload);
+  assert.deepEqual(storedTraining(restoredPlan.id).exercises, [stored.plan.exercises[0]], "legacy plan imports reuse the existing catalogue ID");
+  assert.deepEqual(storedTraining(restoredLog.id).plan.exercises, restoredPlan.data.exercises, "legacy completed log keeps its original snapshot");
+  const legacyTemplate = { ...template, id: crypto.randomUUID() };
+  assert.deepEqual(await legacyImport("templates", [legacyTemplate]), { scope: "模板", added: 1, skipped: 0 });
+  assert.deepEqual(JSON.parse(find("template", legacyTemplate.id).payload).plan.exercises, stored.plan.exercises);
 });
 
 test("external Agents read only granted records for the same account and append meals once", async (t) => {
@@ -288,7 +392,7 @@ test("an Agent can preview and confirm a personal template rename and exercise l
   const profileRef = await agentProfileRef(owner);
   const otherProfile = await agentProfileRef("another");
   const issue = (account, scopes) => createConnection(db, account, { name: "Synthetic template tool", scopes, expiresInDays: 1 });
-  const { token } = await issue(owner, ["templates:read", "templates:manage"]);
+  const { token } = await issue(owner, ["templates:read", "templates:manage", "read:context"]);
   const { token: appendOnly } = await issue(owner, ["templates:read", "templates:write"]);
   const { token: siblingToken } = await issue(owner, ["templates:manage"]);
   const { token: otherToken } = await issue("another", ["templates:manage"]);
@@ -309,30 +413,42 @@ test("an Agent can preview and confirm a personal template rename and exercise l
 
   const listed = await (await records.GET(request(`/api/agent/records?scope=templates&profileRef=${profileRef}`, null, token))).json();
   assert.equal(listed.records[0].revision, revision);
-  const exercises = [{ ...plan.exercises[0], name: "坐姿划船", reps: 10 }, plan.exercises[0]];
+  const exercises = [{ ...plan.exercises[0], name: "Synthetic Row with Pause", reps: 10 }, { ...plan.exercises[0], name: "Dumbbell bench press" }];
   const change = { kind: "update", title: "Synthetic renamed template", exercises };
   const input = { action: "preview", profileRef, templateId, revision, change };
   assert.equal((await send(input, null)).status, 401);
   assert.equal((await send(input, appendOnly)).status, 403);
+  assert.equal((await send(input, siblingToken)).status, 403);
   assert.equal((await send(input, otherToken)).status, 403);
   assert.equal((await send({ ...input, profileRef: otherProfile }, otherToken)).status, 404);
   assert.equal((await send({ ...input, change: { kind: "update", exercises: [] } })).status, 400);
   assert.equal((await send({ ...input, revision: "old" })).status, 409);
   const before = own();
-  const renameOnly = await (await send({ ...input, change: { kind: "update", title: change.title } })).json();
+  const renameOnly = await (await send({ ...input, change: { kind: "update", title: change.title } }, siblingToken)).json();
   assert.equal(renameOnly.linkedPlanEffect, "none");
   assert.deepEqual(renameOnly.after.exercises, plan.exercises);
+  db.sqlite.prepare("UPDATE agent_template_changes SET next_payload=? WHERE id=?")
+    .run(JSON.stringify({ kind: "template", id: templateId, plan: { ...renameOnly.after, exercises } }), renameOnly.previewToken);
+  assert.equal((await send({ action: "commit", profileRef, confirmed: true, previewToken: renameOnly.previewToken }, siblingToken)).status, 403,
+    "an unresolved preview staged by a previous server version cannot bypass catalogue scope");
   const preview = await send(input);
   assert.equal(preview.status, 200);
   const { after, previewToken, linkedPlanEffect } = await preview.json();
   assert.equal(linkedPlanEffect, "follow-template-unless-customized");
-  assert.deepEqual(after, { ...plan, title: change.title, exercises });
+  assert.deepEqual(after, { ...plan, title: change.title, exercises: [exercises[0], { ...plan.exercises[0], catalogueId: "0289" }] });
   assert.deepEqual(own(), before);
   const commitInput = { profileRef, previewToken, confirmed: true };
   assert.equal((await send({ action: "commit", ...commitInput, confirmed: false })).status, 400);
   assert.equal((await send({ action: "commit", ...commitInput, change })).status, 400);
   assert.equal((await send({ action: "commit", ...commitInput }, siblingToken)).status, 404);
   assert.equal((await tool("commit_spotter_template_change", commitInput, appendOnly)).isError, true);
+  const profileName = "SYNTHETIC ROW WITH PAUSE";
+  const scopedProfile = { kind: "exercise", item: { name: profileName, pinned: true, note: "Existing user preference", videos: [] } };
+  db.sqlite.prepare("INSERT INTO personal_library(owner,kind,id,day,payload,updated) VALUES (?,'exercise',?,NULL,?,?)")
+    .run(owner, profileName, JSON.stringify(scopedProfile), revision);
+  assert.equal((await send({ action: "commit", ...commitInput })).status, 409, "do not change a reviewed movement after the catalogue changes");
+  assert.deepEqual(own(), before);
+  db.sqlite.prepare("DELETE FROM personal_library WHERE owner=? AND kind='exercise' AND id=?").run(owner, profileName);
   const applied = await tool("commit_spotter_template_change", commitInput);
   assert.equal(applied.isError, false);
   const receipt = JSON.parse(applied.content[0].text);

@@ -3,10 +3,11 @@ import { env } from "cloudflare:workers";
 import { requireAccount } from "@/server/account";
 import { HttpError, json, readJsonBody } from "@/server/http";
 import { backupSchema, dateBounds, scopeBackup, scopeNames, scopeSchema } from "@/features/data/model";
-import { exportBackup, importBackup } from "@/features/data/server";
+import { exportBackup } from "@/features/data/server";
 import { agentProfileRef, profileRefSchema } from "@/features/agent/profile";
 import { agentWriteTools, isAgentWriteTool, writeAgentData } from "@/features/agent/writes";
 import { agentScopes } from "@/features/agent-access/model";
+import { importAgentBackup } from "@/features/agent-access/records";
 import { planningTools, isPlanningTool, callPlanningTool } from "@/features/agent-access/tools";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ const tools = [
   {
     name: "import_spotter_records",
     title: "导入训练搭子记录",
-    description: "向当前账号追加训练搭子备份中的个人记录，已有 ID 不覆盖。写入之前展示预览并取得用户同意。",
+    description: "向当前账号追加训练搭子备份中的个人记录，已有 ID 不覆盖。写入计划、模板或个人动作前，先查询动作库并复用完全相同的已有动作。写入前展示预览并取得用户同意。",
     inputSchema: {
       type: "object", required: ["scope", "confirmed", "backup"], additionalProperties: false,
       properties: { scope: { type: "string", enum: sections }, confirmed: { type: "boolean" }, profileRef: { type: "string" },
@@ -98,8 +99,8 @@ async function call(name: string | undefined, args: unknown) {
   if (name === "import_spotter_records") {
     const data = importArgs.parse(args);
     await verifyProfile(account.id, data.profileRef);
-    const { training, library } = scopeBackup(data.backup, data.scope);
-    const result = await importBackup(account.id, { ...data.backup, training, library, heart: [] });
+    const backup = scopeBackup(data.backup, data.scope);
+    const result = await importAgentBackup({ owner: account.id, scopes: agentScopes }, { ...backup, heart: [] });
     return textResult({ scope: scopeNames[data.scope], ...result });
   }
   return textResult("未找到这个工具。", true);

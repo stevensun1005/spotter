@@ -12,7 +12,7 @@ const agentPlanInput = planSchema.innerType().extend({
   video: planShape.video.default(""),
   exercises: planShape.exercises.default([]),
 }).strict().transform((data, context) => {
-  const plan = cleanPlan({ ...data, shared: false });
+  const plan = cleanPlan({ ...data, shared: false }, { preserveQualifiers: true });
   if (plan.success) return plan.data;
   for (const issue of plan.error.issues) context.addIssue(issue);
   return z.NEVER;

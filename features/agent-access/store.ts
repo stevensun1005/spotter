@@ -3,6 +3,7 @@ import { agentRecordId } from "@/features/agent/write-model";
 import { agentProfileRef } from "@/features/agent/profile";
 import { blocked, openSchedule, scheduleSchema } from "@/features/plans/schedule";
 import { planSchema, type Plan } from "@/features/plans/model";
+import { resolveAgentPlanExercises } from "./exercise-library";
 import type { AgentConnection, AgentDraft, AgentPrincipal, AgentScope, CommitResult } from "./model";
 
 const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -63,10 +64,29 @@ export async function readDraft(db: D1Database, owner: string, id: string) {
   if (!row) throw new HttpError(404, "找不到你的这份计划草稿。");
   return draft(row);
 }
-export async function stageDraft(db: D1Database, owner: string, input: { requestId: string; title?: string; plans: Plan[] }) {
-  // Keep a reviewed draft stable even if the source template is edited later.
-  const plans = input.plans.map(({ templateId: _templateId, ...plan }) => planSchema.parse({ ...plan, shared: false }));
+export async function resolvePlanningExercises(db: D1Database, owner: string, plans: Plan[], principal?: AgentPrincipal) {
+  if (!plans.some(({ exercises }) => exercises.length)) return plans;
+  if (principal) requireScope(principal, "read:context");
+  return resolveAgentPlanExercises(db, owner, plans);
+}
+
+export async function verifyReviewedPlanExercises(db: D1Database, owner: string, plans: Plan[], principal?: AgentPrincipal) {
+  const resolved = await resolvePlanningExercises(db, owner, plans, principal);
+  if (resolved.some((plan, index) => plan !== plans[index] && JSON.stringify(plan) !== JSON.stringify(plans[index]))) {
+    throw new HttpError(409, "动作库中的对应动作已变化，请重新起草并核对后再保存。");
+  }
+}
+
+async function prepareDraftPlans(db: D1Database, owner: string, items: Plan[], principal?: AgentPrincipal) {
+  // Store a private snapshot independent of subsequent source-template edits.
+  const plans = await resolvePlanningExercises(db, owner,
+    items.map(({ templateId: _templateId, ...plan }) => planSchema.parse({ ...plan, shared: false })), principal);
   if (new Set(plans.map((plan) => JSON.stringify(plan))).size !== plans.length) throw new HttpError(400, "同一草稿不能包含重复计划，请保留一份后重试。");
+  return plans;
+}
+
+export async function stageDraft(db: D1Database, owner: string, input: { requestId: string; title?: string; plans: Plan[] }, principal?: AgentPrincipal) {
+  const plans = await prepareDraftPlans(db, owner, input.plans, principal);
   const payload = JSON.stringify(plans);
   const title = input.title ?? plans[0].title;
   const contentHash = await digest(JSON.stringify([title, plans]));
@@ -77,9 +97,8 @@ export async function stageDraft(db: D1Database, owner: string, input: { request
   return draft(row);
 }
 
-export async function reviseDraft(db: D1Database, owner: string, input: { draftId: string; revision: string; title?: string; plans: Plan[] }) {
-  const plans = input.plans.map(({ templateId: _templateId, ...plan }) => planSchema.parse({ ...plan, shared: false }));
-  if (new Set(plans.map((plan) => JSON.stringify(plan))).size !== plans.length) throw new HttpError(400, "同一草稿不能包含重复计划，请保留一份后重试。");
+export async function reviseDraft(db: D1Database, owner: string, input: { draftId: string; revision: string; title?: string; plans: Plan[] }, principal?: AgentPrincipal) {
+  const plans = await prepareDraftPlans(db, owner, input.plans, principal);
   const previous = await readDraft(db, owner, input.draftId);
   const title = input.title ?? previous.title;
   const contentHash = await digest(JSON.stringify([title, plans]));
@@ -102,11 +121,12 @@ export async function previewDraft(db: D1Database, owner: string, id: string) {
   return { ...saved, preview: items, blocked: items.filter((item) => item.status === "blocked").length, willAdd: items.filter((item) => item.status === "new").length };
 }
 
-export async function commitDraft(db: D1Database, owner: string, id: string, revision: string): Promise<CommitResult> {
+export async function commitDraft(db: D1Database, owner: string, id: string, revision: string, principal?: AgentPrincipal): Promise<CommitResult> {
   const saved = await readDraft(db, owner, id);
   if (saved.revision !== revision) throw new HttpError(409, "草稿内容已变化，请重新预览后确认。");
   if (saved.status === "committed" && saved.result) return saved.result;
   if (saved.expiresAt <= new Date().toISOString()) throw new HttpError(409, "计划草稿已过期，请重新起草并预览。");
+  await verifyReviewedPlanExercises(db, owner, saved.plans, principal);
   const preview = await previewDraft(db, owner, id);
   if (preview.blocked) throw new HttpError(409, "草稿包含休息日或已变更记录，未写入日历。请调整后重新起草。");
   const plans = saved.plans;

@@ -126,6 +126,70 @@ test("planning context pages personal/catalogue data and excludes health and oth
   await assert.rejects(callPlanningTool(db, principal, "stage_spotter_plans", { profileRef: await agentProfileRef(owner), requestId: crypto.randomUUID(), plans: [plan] }), { status: 403 });
 });
 
+test("Agent draft staging resolves exact moves for the connected account without changing the prescription", async (t) => {
+  const db = fixture(t);
+  const profileRef = await agentProfileRef(owner);
+  const writer = { owner, scopes: ["plans:draft", "plans:write"], tokenId: "synthetic-connection" };
+  const principal = { ...writer, scopes: [...writer.scopes, "read:context"] };
+  const insert = db.sqlite.prepare("INSERT INTO personal_library (owner,kind,id,payload,updated) VALUES (?,'exercise',?,?,'synthetic')");
+  for (const [account, name] of [[owner, "Synthetic Split Twist"], [other, "Synthetic Split Twist Elevated"]]) {
+    insert.run(account, name, JSON.stringify({ kind: "exercise", item: { name } }));
+  }
+  const move = { ...plan.exercises[0], name: "synthetic  split twist" };
+  const variant = { ...move, name: "synthetic split twist elevated" };
+  const stock = { ...move, name: "哑铃卧推" };
+  const stockVariant = { ...move, name: "上斜哑铃卧推" };
+  const input = { profileRef, requestId: crypto.randomUUID(), plans: [{ ...plan, exercises: [move, variant, stock, stockVariant] }] };
+  await assert.rejects(callPlanningTool(db, writer, "stage_spotter_plans", input), { status: 403 });
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM agent_plan_drafts").get().n, 0);
+  const draft = await callPlanningTool(db, principal, "stage_spotter_plans", input);
+  assert.deepEqual(draft.plans[0].exercises, [{ ...move, name: "Synthetic Split Twist" }, variant,
+    { ...stock, catalogueId: "0289" }, { ...stockVariant, catalogueId: "0314" }]);
+  assert.equal((await callPlanningTool(db, principal, "stage_spotter_plans", input)).revision, draft.revision);
+  const commit = { profileRef, draftId: draft.id, revision: draft.revision, confirmed: true };
+  await assert.rejects(callPlanningTool(db, writer, "commit_spotter_draft", commit), { status: 403 });
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM entries").get().n, 0);
+  assert.equal((await callPlanningTool(db, principal, "commit_spotter_draft", commit)).added, 1);
+  assert.deepEqual(JSON.parse(db.sqlite.prepare("SELECT payload FROM entries").get().payload).exercises, draft.plans[0].exercises);
+  const video = await callPlanningTool(db, writer, "stage_spotter_plans", { ...input, requestId: crypto.randomUUID(),
+    plans: [{ ...plan, category: "跟练视频", video: "https://youtu.be/spotter-fixture", exercises: [] }] });
+  assert.equal((await callPlanningTool(db, writer, "commit_spotter_draft", { ...commit, draftId: video.id, revision: video.revision })).added, 1);
+});
+
+test("Agent draft and program commits keep their reviewed actions stable when the library changes", async (t) => {
+  const db = fixture(t);
+  const profileRef = await agentProfileRef(owner);
+  const writer = { owner, scopes: ["plans:draft", "plans:write"], tokenId: "synthetic-connection" };
+  const principal = { ...writer, scopes: [...writer.scopes, "read:context"] };
+  const move = { ...plan.exercises[0], name: "synthetic bridge with turn" };
+  const training = { ...plan, exercises: [move] };
+  const input = { profileRef, requestId: crypto.randomUUID(), plans: [training] };
+  const draft = await callPlanningTool(db, principal, "stage_spotter_plans", input);
+  const stage = { profileRef, revision: null, program: {
+    id: crypto.randomUUID(), title: "Synthetic block", startDate: "2026-11-26", weeks: 1, phases: [],
+    sessions: [{ id: crypto.randomUUID(), week: 1, day: 1, plan: { ...training, date: "2026-11-26" } }],
+  } };
+  await assert.rejects(callPlanningTool(db, writer, "stage_spotter_program", stage), { status: 403 });
+  const program = await callPlanningTool(db, principal, "stage_spotter_program", stage);
+  const programTarget = { profileRef, programId: program.id, revision: program.revision };
+  const preview = await callPlanningTool(db, principal, "preview_spotter_program", programTarget);
+  const programCommit = { ...programTarget, previewToken: preview.token, confirmed: true };
+  await assert.rejects(callPlanningTool(db, writer, "commit_spotter_program", programCommit), { status: 403 });
+  const name = "Synthetic Bridge with Turn";
+  db.sqlite.prepare("INSERT INTO personal_library (owner,kind,id,payload,updated) VALUES (?,'exercise',?,?,'synthetic')")
+    .run(owner, name, JSON.stringify({ kind: "exercise", item: { name } }));
+  await assert.rejects(callPlanningTool(db, principal, "commit_spotter_draft", { profileRef, draftId: draft.id, revision: draft.revision, confirmed: true }), { status: 409 });
+  await assert.rejects(callPlanningTool(db, principal, "commit_spotter_program", programCommit), { status: 409 });
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM entries").get().n, 0);
+  const revised = await callPlanningTool(db, principal, "stage_spotter_program", { ...stage, revision: program.revision });
+  assert.deepEqual(revised.sessions[0].plan.exercises, [{ ...move, name }]);
+  const revisedTarget = { ...programTarget, revision: revised.revision };
+  const revisedPreview = await callPlanningTool(db, principal, "preview_spotter_program", revisedTarget);
+  const revisedCommit = { ...revisedTarget, previewToken: revisedPreview.token, confirmed: true };
+  assert.equal((await callPlanningTool(db, principal, "commit_spotter_program", revisedCommit)).added, 1);
+  assert.equal((await callPlanningTool(db, principal, "commit_spotter_program", revisedCommit)).replayed, true);
+});
+
 test("token rate windows cap requests and recover in a later minute", async (t) => {
   const db = fixture(t);
   const issued = await store.createConnection(db, owner, { name: "Synthetic", scopes: ["read:context"], expiresInDays: 1 });

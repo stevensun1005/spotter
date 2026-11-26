@@ -36,7 +36,7 @@
 1. `GET /api/agent/profile`：返回此连接的 `profileRef` 和权限。
 2. `GET /api/agent/schema`：取得 OpenAPI 3.1 和 Plan/Program 结构。
 3. `GET /api/agent/context?profileRef=...&query=卧推&offset=0&limit=50`：读取编排所需内容。个人库和内置动作分别报告 `nextOffset`；按返回值继续分页。每页 1–100 项，不读取身体、心率、饮食、好友或搭子数据。
-4. Agent 在自己的模型中生成草稿，保持动作 ID、原名、器械站、组别、休息、节奏、次数范围和单位；未知重量用 0。目标 RPE 与实际记录分开，%1RM 需要用户明确提供参考值和单位。
+4. Agent 先用当前账号的动作库核对输入，再生成草稿。标准目录 ID 一致、明确登记为同一动作的别名或规范化后完全相同的名称可用于复用。沿用已匹配的动作名称和目录 ID（如有）。器械、握法或姿势不同等相近变式各自保留，多个可能结果交给用户核对。保留器械站、组别、休息、节奏、次数范围和单位。未知重量用 0。目标 RPE 与实际记录分开，%1RM 需要用户提供参考值和单位。
 5. `POST /api/agent/drafts`：保存可编辑草稿，尚不加入日历。
 
 ```json
@@ -90,7 +90,7 @@
 
 ## 为自定义动作附上演示动图
 
-从视频或其他材料整理计划和模板时，列出动作库没有的动作，询问用户是否为指定动作附上 GIF。原始跟练链接继续写在计划的 `video`，待训练和个人模板中的跟练内容会列在底部的「跟练视频」。没有动图也可保存计划。
+从视频或其他材料整理计划、周期或模板时，用 `read:context` 调用 `read_spotter_planning_context` 或 `GET /api/agent/context`，先查当前账号的个人动作及内置目录。只对核对后确认没有同一动作的新增项询问是否附上 GIF。原始跟练链接继续写在计划的 `video`，待训练和个人模板中的跟练内容会列在底部的「跟练视频」。没有动图也可保存计划。
 
 - 用户明确同意后，通过 `POST /api/agent/exercise-demos` 或 `manage_spotter_exercise_demo` 传 `{action:"save",profileRef,name,gifBase64,confirmed:true}`。使用用户提供或授权使用的动图。取原始 GIF 字节编码为 base64，最长边 480 像素、体积不超过 768 KiB、有 2–90 帧且总画面像素不超过 900 万。
 - 服务去除常见扩展元数据，按账号和动作名保存一份演示。同名再次保存会替换当前演示。调用 `{action:"remove",profileRef,name,confirmed:true}` 移除演示。

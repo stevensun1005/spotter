@@ -6,6 +6,7 @@ import { planMoveSchema, planSchema } from "@/features/plans/model";
 import { nextRevision, planRevisionSchema } from "@/features/plans/schedule";
 import { withoutTemplateLink } from "@/features/plans/template-link";
 import { HttpError } from "@/server/http";
+import { loadAgentExerciseLibrary } from "./exercise-library";
 import type { AgentPrincipal } from "./model";
 import { requireScope, verifyProfile } from "./store";
 import { agentPlanJsonSchema } from "./tools";
@@ -56,7 +57,7 @@ export const templateChangeRequestSchema = { oneOf: [
 export const templateChangePreviewTool = {
   name: "preview_spotter_template_change",
   title: "预览私有训练模板变更",
-  description: "从 read_spotter_records 的 templates 类别取得模板 ID 和 revision。预览改名、替换完整动作列表或删除模板，返回修改前后及关联计划影响。展示给用户并等待明确确认。这一步只保存预览，不更改模板。",
+  description: "从 read_spotter_records 的 templates 类别取得模板 ID 和 revision。预览改名、替换完整动作列表或删除模板。替换动作前须用 read_spotter_planning_context 查找完全相同的已有动作并复用。向用户展示修改前后及关联计划影响，等待明确确认。",
   inputSchema: previewSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
 } as const;
@@ -70,7 +71,7 @@ export const templateChangeCommitTool = {
 
 type Template = Extract<LibraryItem, { kind: "template" }>;
 type Receipt = { templateId: string; revision: string | null; status: "updated" | "deleted" };
-type ChangeRow = { template_id: string; template_revision: string; next_payload: string | null; expires_at: string; result: string | null };
+type ChangeRow = { template_id: string; template_revision: string; next_payload: string | null; expires_at: string; result: string | null; template_payload: string | null };
 const expired = () => new HttpError(409, "模板已变更或预览已过期，请刷新后重新预览确认。");
 
 async function authorizedConnection(principal: AgentPrincipal, profileRef: string) {
@@ -96,9 +97,15 @@ export async function previewAgentTemplateChange(db: D1Database, principal: Agen
   if (current.updated !== revision) throw expired();
 
   const before = savedTemplate(current.payload, templateId).plan;
-  const after = change.kind === "delete" ? null : withoutTemplateLink(planSchema.parse({
-    ...before, title: change.title ?? before.title, exercises: change.exercises ?? before.exercises,
-  }));
+  let after: typeof before | null = null;
+  if (change.kind === "update") {
+    let exercises = change.exercises ?? before.exercises;
+    if (change.exercises?.length) {
+      requireScope(principal, "read:context");
+      exercises = (await loadAgentExerciseLibrary(db, owner)).moves(exercises);
+    }
+    after = withoutTemplateLink(planSchema.parse({ ...before, title: change.title ?? before.title, exercises }));
+  }
   if (after && JSON.stringify(after) === JSON.stringify(before)) throw new HttpError(400, "预览内容与当前模板相同。");
   const affected = await db.prepare(
     "SELECT COUNT(*) AS linkedPlans, COALESCE(SUM(CASE WHEN json_extract(payload, '$.ownExercises') = 1 THEN 0 ELSE 1 END), 0) AS followsTemplateExercises " +
@@ -126,7 +133,11 @@ export async function commitAgentTemplateChange(db: D1Database, principal: Agent
   const connectionId = await authorizedConnection(principal, input.profileRef);
   const { owner } = principal;
   const { previewToken } = input;
-  const query = () => db.prepare("SELECT template_id, template_revision, next_payload, expires_at, result FROM agent_template_changes WHERE id=? AND owner=? AND connection_id=?")
+  const query = () => db.prepare(
+    "SELECT change.template_id, change.template_revision, change.next_payload, change.expires_at, change.result, source.payload AS template_payload " +
+    "FROM agent_template_changes change LEFT JOIN personal_library source ON source.owner=change.owner AND source.kind='template' " +
+    "AND source.id=change.template_id AND source.updated=change.template_revision WHERE change.id=? AND change.owner=? AND change.connection_id=?"
+  )
     .bind(previewToken, owner, connectionId);
   const saved = await query().first<ChangeRow>();
   if (!saved) throw new HttpError(404, "找不到这次模板预览。");
@@ -134,11 +145,20 @@ export async function commitAgentTemplateChange(db: D1Database, principal: Agent
   const now = new Date(time).toISOString();
   if (saved.expires_at <= now) throw expired();
   if (saved.result) return JSON.parse(saved.result) as Receipt;
+  if (saved.template_payload === null) throw expired();
 
   const id = saved.template_id;
   const revision = saved.template_revision;
   const updated = nextRevision(now, [revision]);
   const item = saved.next_payload === null ? null : savedTemplate(saved.next_payload, id);
+  if (item?.plan.exercises.length &&
+      JSON.stringify(item.plan.exercises) !== JSON.stringify(savedTemplate(saved.template_payload, id).plan.exercises)) {
+    requireScope(principal, "read:context");
+    const currentExercises = (await loadAgentExerciseLibrary(db, owner)).moves(item.plan.exercises);
+    if (JSON.stringify(currentExercises) !== JSON.stringify(item.plan.exercises)) {
+      throw new HttpError(409, "动作库里的匹配已变更，请重新预览模板并确认。");
+    }
+  }
   const receipt: Receipt = { templateId: id, revision: item ? updated : null, status: item ? "updated" : "deleted" };
   const key = crypto.randomUUID();
   const guard = {

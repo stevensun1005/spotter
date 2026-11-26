@@ -151,12 +151,13 @@ export async function commitProgramImport(owner: string, value: Program, revisio
   return commitProgramState(owner, value.id, revision, previewToken, confirmed, provided, { program: programSchema.parse(value), boundary });
 }
 
-export async function commitProgram(owner: string, id: string, revision: string, previewToken: string, confirmed: true, provided?: D1Database): Promise<ProgramCommitResult> {
-  return commitProgramState(owner, id, revision, previewToken, confirmed, database(provided));
+export async function commitProgram(owner: string, id: string, revision: string, previewToken: string, confirmed: true, provided?: D1Database,
+  verifyReviewed?: (program: ProgramRecord) => Promise<void>): Promise<ProgramCommitResult> {
+  return commitProgramState(owner, id, revision, previewToken, confirmed, database(provided), undefined, verifyReviewed);
 }
 
 async function commitProgramState(owner: string, id: string, revision: string, previewToken: string, confirmed: true, db: D1Database,
-  received?: { program: Program; boundary: ProgramImportBoundary }): Promise<ProgramCommitResult> {
+  received?: { program: Program; boundary: ProgramImportBoundary }, verifyReviewed?: (program: ProgramRecord) => Promise<void>): Promise<ProgramCommitResult> {
   if (confirmed !== true) throw new HttpError(400, "请先预览并确认本次日历变更。");
   const prior = await db.prepare("SELECT payload FROM program_commits WHERE owner = ? AND program_id = ? AND revision = ? AND preview_token = ?").bind(owner, id, revision, previewToken).first<{ payload: string }>();
   if (prior) return { ...JSON.parse(prior.payload), replayed: true };
@@ -164,6 +165,7 @@ async function commitProgramState(owner: string, id: string, revision: string, p
     ? await previewRecordWithState(owner, { ...received.program, revision, updatedAt: "", scheduledAt: null }, db)
     : await previewWithState(owner, id, revision, db);
   if (preview.token !== previewToken) throw changed();
+  await verifyReviewed?.(program);
   const allowed = new Set(preview.items.filter(({ status }) => status === "new" || status === "update").map(({ id }) => id));
   const items = program.sessions.filter(({ id }) => allowed.has(id)).map((session) => ({ id: session.id, payload: JSON.stringify(desiredPlan(program, session)) }));
   const now = new Date().toISOString();

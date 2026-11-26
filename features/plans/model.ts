@@ -96,9 +96,9 @@ export const examples = (date: string): Plan => ({
   ],
 });
 
-export function cleanPlan(value: Plan) {
+export function cleanPlan(value: Plan, { preserveQualifiers = false } = {}) {
   const exercises = value.exercises.filter((item) => item.name.trim()).map((item) => {
-    const parsed = parsePlanMove(item.name);
+    const parsed = parsePlanMove(item.name, { preserveQualifiers });
     return {
       ...item, name: parsed.name, station: item.station?.trim() || undefined,
       cue: item.cue?.trim() || parsed.cue, block: item.block ?? parsed.sourceSlot?.[0],

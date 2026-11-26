@@ -13,7 +13,7 @@ export function agentApiSchema(origin: string) {
   const auth = [{ AgentToken: [] }];
   const response = { "200": { description: "Account-scoped result; see response body." }, "401": { description: "Missing, expired or revoked token" }, "403": { description: "Scope or account mismatch" }, "409": { description: "Revision, date or idempotency conflict; no protected records overwritten" }, "429": { description: "Retry after one minute" } };
   return {
-    openapi: "3.1.0", info: { title: "Spotter personal Agent API", version: "1.3.0", description: "User-supplied agents generate content. Spotter validates authorized plan drafts and changes private records within the connection's scopes. Private Sites may require platform authorization before dispatching these routes." },
+    openapi: "3.1.0", info: { title: "Spotter personal Agent API", version: "1.3.1", description: "Spotter verifies authorized writes. When adding exercises, grant read:context and look up the connected account's exercise library first. Spotter resolves identical exercise identities and preserves distinct variants. Private Sites may require platform authorization before dispatching these routes." },
     servers: [{ url: origin }], security: auth,
     components: { securitySchemes: { AgentToken: { type: "http", scheme: "bearer", description: "Create in Spotter settings after signing in. Never send this token to a model provider unless you have intentionally configured that agent's tool runtime to hold it." } }, schemas: { Plan: agentPlanJsonSchema, Program: programJsonSchema } },
     paths: {
