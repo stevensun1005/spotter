@@ -11,7 +11,9 @@ import { exerciseHistory, type MaxFormula } from "./history";
 import { ExerciseProgress } from "./progress";
 import { MuscleBreakdown, type AnatomyVariant } from "./anatomy";
 import { ExerciseAnimation } from "./exercise-animation";
-import { exerciseDemo } from "./catalogue-demo";
+import { catalogueDemo, exerciseDemo } from "./catalogue-demo";
+import { plannedCatalogueExercise } from "./catalogue-identity";
+import { spotterCatalogueVideo } from "./catalogue-video";
 import { fromCatalogue, useCatalogue, useCatalogDetail, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 import { label as translate } from "./labels";
 import { exerciseMuscles, researchedGuide } from "./guidance";
@@ -31,7 +33,7 @@ const sections = [
 type ExerciseDetailProps = {
   choice: ExerciseChoice; close: () => void; select: (choice: ExerciseChoice) => void; profiles: ExerciseProfile[]; names: string[];
   logs: TrainingEntry[]; owner: string; save: (profile: ExerciseProfile) => Promise<void>; addToPlan?: (choice: ExerciseChoice, row?: CatalogEntry) => void;
-  maxFormula?: MaxFormula; sex?: AnatomyVariant | null;
+  maxFormula?: MaxFormula; sex?: AnatomyVariant | null; canSeePersonalDemo: boolean;
 };
 
 function PersonalExerciseDemo({ name }: { name: string }) {
@@ -49,7 +51,7 @@ export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
   const { data } = useCatalogue();
   const families = useMemo(() => data && catalogFamilies(data.rows), [data]);
   const personalBase = profiles.find((profile) => customNameKey(profile.name) === customNameKey(choice.name))?.versionOf;
-  const original = fromCatalogue(data, choice);
+  const original = personalBase ? undefined : plannedCatalogueExercise(data, choice);
   const family = !personalBase && original ? families?.get(original.id) : undefined;
   const item = family?.variants.find((variant) => variant.id === variantId) ?? original;
   const current = item && item.id !== original?.id
@@ -73,7 +75,7 @@ export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
   </Dialog>;
 }
 
-function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data, maxFormula, sex }: Omit<ExerciseDetailProps, "close"> & {
+function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data, maxFormula, sex, canSeePersonalDemo }: Omit<ExerciseDetailProps, "close"> & {
   item: CatalogEntry | undefined; data: ReturnType<typeof useCatalogue>["data"];
 }) {
   const { name, catalogueId } = choice;
@@ -83,21 +85,23 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
   const personal = profile.guide;
   const plannedName = choice.sourceName && researchedGuide(choice.sourceName) ? choice.sourceName : name;
   const plannedGuide = researchedGuide(plannedName);
-  const customMove = Boolean(profile.versionOf || choice.sourceName || (plannedGuide && (choice.trainingCategory || !catalogueId))
-    || (!item && (!choice.catalogueId || data)));
+  const customMove = !item && Boolean(profile.versionOf || !choice.catalogueId || data);
   const exact = customMove ? undefined : item;
   const guide = customMove ? guides[name] : undefined;
   const referenceName = exact?.name ?? plannedName;
   const reference = customMove ? plannedGuide : undefined;
-  const demo = reference?.demoCatalogueId
+  const approved = exact && spotterCatalogueVideo(exact.id) ? exact : undefined;
+  const demo = approved ?? (reference?.demoCatalogueId
     ? fromCatalogue(data, { name: referenceName, catalogueId: reference.demoCatalogueId })
-    : item;
-  const media = exerciseDemo(name, referenceName, demo, customMove);
+    : item);
+  const media = approved ? catalogueDemo(approved) : exerciseDemo(name, referenceName, demo, customMove);
   const classification = customMove ? customCatalogueEntry(name, profile, data) : undefined;
   const weights = exact && !Object.keys(personal?.muscles ?? {}).length && Object.keys(exact.muscles).length
     ? exact.muscles : exerciseMuscles(referenceName, item, personal);
   const steps = personal?.steps.length ? personal.steps : reference?.steps ?? (detail?.data?.steps.length ? detail.data.steps : guide?.steps);
   const description = personal?.description || reference?.description || detail?.data?.description;
+  const equipment = item && [...new Set([item.equipment, ...(item.needs ?? [])])].filter(Boolean).map(translate);
+  const equipmentText = reference?.equipment || (equipment ? equipment.join("、") : guide?.equipment ?? "自定义动作");
   const cadence = exerciseTempo(choice, item, choice.trainingCategory);
   const [tab, setTab] = useState<typeof sections[number]["id"]>("guide");
   const [note, setNote] = useState(profile.note);
@@ -132,13 +136,13 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
     <div className="dialog-body feature-stack">
       {error && <p className="inline-error" role="alert">{error}</p>}
       {tab === "guide" && <>
-        {customMove && <PersonalExerciseDemo key={name} name={name} />}
+        {canSeePersonalDemo && customMove && !approved && <PersonalExerciseDemo key={name} name={name} />}
         {media && (media.video || media.id || media.illustration || media.poseSlug) ? <ExerciseAnimation key={demo?.id ?? referenceName}
-          {...media} name={referenceName} /> :
+          {...media} name={approved?.name ?? referenceName} /> :
           guide?.photos ? <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} /> :
           item && <p className="muted catalogue-detail-label">此动作暂无已核对的动画。</p>}
         {referenceName !== base && <p className="muted catalogue-detail-label">{referenceName}</p>}
-        <div className="exercise-toolbar"><span>{reference?.equipment || (item ? translate(item.equipment) : guide?.equipment ?? "自定义动作")}</span><div>
+        <div className="exercise-toolbar"><span>{equipmentText}</span><div>
           {addToPlan && <button type="button" className="button outline small" onClick={() => addToPlan(
             item && !profile.versionOf && !catalogueId ? { ...choice, catalogueId: item.id } : choice, item
           )}><Plus size={15} /> 加入计划</button>}

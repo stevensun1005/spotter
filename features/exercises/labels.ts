@@ -16,6 +16,9 @@ const labels: Record<string, string> = {
   "hercules columns": "负重立柱", "cross hold weights": "侧举配重", "iron block": "铁块", "throwing keg": "投掷桶",
   "log bar": "圆木杠", "mas stick": "木棒与抵脚板", "weighted shield": "盾形负重", "timber frame": "负重木框",
   "viking press frame": "维京推举架", "throw weight": "投掷配重", wheelbarrow: "独轮车",
+  bench: "训练凳", "incline bench": "上斜凳", "cable handle": "绳索把手", "single handle": "单手把手",
+  "exercise sliders": "训练滑盘", "step platform": "踏台", "squat wedge": "深蹲斜垫", "yoga block": "瑜伽砖",
+  "training anchor": "固定锚点", "light exercise ball": "小训练球", diaphragm: "膈肌",
   pectorals: "胸肌", abs: "腹直肌", "cardiovascular system": "心肺", glutes: "臀肌", delts: "三角肌",
   "front delts": "三角肌前束", "side delts": "三角肌中束", "rear delts": "三角肌后束",
   triceps: "肱三头肌", biceps: "肱二头肌", "upper back": "上背", lats: "背阔肌", calves: "小腿后侧",
@@ -33,7 +36,7 @@ export const muscleNames: Record<string, string> = {
   abs: "腹直肌", "upper-abs": "上腹", "lower-abs": "下腹", obliques: "腹斜肌", gluteal: "臀肌",
   quadriceps: "股四头肌", "inner-quad": "股四头肌内侧", "outer-quad": "股四头肌外侧",
   hamstring: "腘绳肌", adductors: "大腿内收肌", "hip-flexors": "髋屈肌", calves: "小腿后侧", tibialis: "胫骨前肌",
-  "cardiovascular system": "心肺",
+  diaphragm: "膈肌", "cardiovascular system": "心肺",
 };
 
 export const groups = [

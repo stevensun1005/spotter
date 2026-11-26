@@ -6,14 +6,15 @@ import { CalendarPlus } from "lucide-react";
 import { Dialog, VideoLink } from "@/shared/ui";
 import { Anatomy } from "@/features/exercises/anatomy";
 import { muscleNames } from "@/features/exercises/labels";
-import { useCatalogue } from "@/features/exercises/open-gym";
+import { useCatalogue, type ExerciseChoice } from "@/features/exercises/open-gym";
 import type { ExerciseProfile } from "@/features/library/model";
 import { PlanSequence } from "@/features/training/plan-sequence";
 import type { Plan } from "./model";
 import { templateMuscleSets } from "./template-muscles";
 
-export function TemplatePreview({ plan, profiles, close, edit, schedule }: {
+export function TemplatePreview({ plan, profiles, close, edit, schedule, onExercise }: {
   plan: Plan; profiles?: ExerciseProfile[]; close: () => void; edit: () => void; schedule: () => void;
+  onExercise: (choice: ExerciseChoice) => void;
 }) {
   const [layer, setLayer] = useState<"primary" | "secondary">("primary");
   const { data, error } = useCatalogue();
@@ -38,7 +39,7 @@ export function TemplatePreview({ plan, profiles, close, edit, schedule }: {
         </div>
       </details>}
       {plan.video && <VideoLink url={plan.video} />}
-      {!!plan.exercises.length && <PlanSequence plan={plan} />}
+      {!!plan.exercises.length && <PlanSequence plan={plan} onExercise={onExercise} />}
     </div>
     <div className="dialog-footer">
       <button type="button" className="button outline" onClick={edit}>编辑模板</button>

@@ -19,7 +19,7 @@ const sectionDefinitions = [
   ["assisted", "辅助训练", "辅", ["assisted"]],
   ["suspension", "单杠与悬挂带", "悬", ["high bar", "suspension trainer"]],
   ["loaded", "负重配件", "重", ["weighted", "weight plate", "sandbag"]],
-  ["training-balls", "训练球与平衡器材", "球", ["stability ball", "medicine ball", "bosu ball"]],
+  ["training-balls", "训练球与平衡器材", "球", ["stability ball", "medicine ball", "bosu ball", "light exercise ball"]],
   ["training-rope", "训练绳", "绳具", ["rope"]],
   ["recovery", "按摩放松器材", "松", ["roller", "massage ball"]],
   ["accessories", "小型训练器材", "辅具", ["wheel roller", "stick", "macebell", "hammer"]],

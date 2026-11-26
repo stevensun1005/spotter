@@ -54,6 +54,9 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
         <a className="settings-row" href="/privacy">
           <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span><strong>隐私政策</strong>
         </a>
+        <a className="settings-row" href="/open-gym/NOTICE.txt">
+          <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span><strong>第三方许可声明</strong>
+        </a>
       </SettingsRows>
       {owner && <SettingsRows><DeleteAccount key={owner} owner={owner} onDeleted={accountDeleted} /></SettingsRows>}
     </>;

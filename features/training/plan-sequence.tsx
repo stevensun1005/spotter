@@ -16,7 +16,7 @@ export function PlanSequence({ plan, onExercise }: { plan: Plan; onExercise?: (c
         </div>
         <ol className="sequence-moves">{block.moves.map((index, slot) => {
           const move = plan.exercises[index];
-          const { name, cue } = parsePlanMove(move.name);
+          const { name, cue } = parsePlanMove(move.name, { preserveQualifiers: true });
           const choice = { ...move, name, cue: move.cue ?? cue };
           const tempo = exerciseTempo(choice, fromCatalogue(data, choice), plan.category);
           return <li key={index}>

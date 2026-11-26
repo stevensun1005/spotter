@@ -1,0 +1,1561 @@
+[
+  {
+    "id": "12100",
+    "name": "Y 字举臂弹力带侧向走",
+    "en": "banded lateral walk with Y raise",
+    "part": "upper legs",
+    "equipment": "resistance band",
+    "type": "strength",
+    "muscles": {
+      "front-delts": 40,
+      "gluteal": 100,
+      "lower-trapezius": 100,
+      "obliques": 40,
+      "serratus": 40
+    },
+    "target": "abductors",
+    "detail": {
+      "description": "在抵抗环带的侧向迈步中加入轻量 Y 形举臂。髋外侧与肩胛周围肌肉负责维持姿势。",
+      "steps": [
+        "将轻环带套在膝上，留出两侧空间。双脚髋宽，髋膝微屈，环带有轻微张力。",
+        "双臂在身体前外侧举成 Y 形，拇指朝上或相对。上举到肩部舒适的高度，肋骨不外翻。",
+        "领脚侧迈一小步，另一脚跟进。双脚仍有间距，膝盖沿脚尖方向，髋部保持平稳。",
+        "向同一方向迈几步再反向，举臂幅度以能维持侧走质量为准。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12101",
+    "name": "上步接高位绳索过头前下拉",
+    "en": "step-through straight-arm cable pulldown",
+    "part": "back",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 100,
+      "gluteal": 40,
+      "lats": 100,
+      "obliques": 40,
+      "rear-delts": 40,
+      "upper-back": 40
+    },
+    "target": "lats",
+    "needs": [
+      "cable handle"
+    ],
+    "detail": {
+      "description": "用轻滑轮练迈步接前下拉的发力顺序。背阔肌负责将上臂向下带，腹部帮助控制肋骨和骨盆。",
+      "steps": [
+        "面对高位固定点，双手握稳把手，往后退到手臂斜伸向头顶、绳索保持张力。",
+        "用轻阻力，向前短迈一步并踩稳，保持躯干稳定和肘微屈。",
+        "由上臂带动把手从头前上方快速收向身体前下方，肩部保持舒适。",
+        "慢慢把手臂送回起始位置，再收脚重置。保持握住把手并控制配重全程。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12102",
+    "name": "仰卧滑盘腿弯举",
+    "en": "supine sliding leg curl",
+    "part": "upper legs",
+    "equipment": "body weight",
+    "type": "calisthenics",
+    "muscles": {
+      "abs": 40,
+      "calves": 40,
+      "gluteal": 100,
+      "hamstring": 100
+    },
+    "target": "hamstrings",
+    "needs": [
+      "exercise sliders"
+    ],
+    "detail": {
+      "description": "保持桥式，用双脚滑盘做屈膝和伸膝。主练腘绳肌，臀肌和腹部协助稳定骨盆。",
+      "steps": [
+        "仰卧在垫上，双脚跟踩在合适地面的滑盘上，膝盖先弯曲，双臂放于两侧。",
+        "脚跟轻压滑盘，提起髋部至肩、髋和膝大致连线，保持肋骨与骨盆稳定。",
+        "脚跟缓慢向远处滑，伸膝到自己仍能维持髋位置的范围。再用脚跟把滑盘拖回臀部方向。",
+        "回到膝弯曲的起点。若腰部开始拱起或臀部掉下，缩短滑程，或每次先放下髋部重置。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12103",
+    "name": "低位绳索斜向转体",
+    "en": "low-to-high cable wood chop",
+    "part": "waist",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "front-delts": 40,
+      "gluteal": 40,
+      "obliques": 100,
+      "quadriceps": 40,
+      "serratus": 40
+    },
+    "target": "obliques",
+    "needs": [
+      "cable handle"
+    ],
+    "detail": {
+      "description": "从低位斜向上带动绳索的转体练习。腹斜肌主导旋转，臀腿与肩臂传递力量。",
+      "steps": [
+        "将滑轮降至低位，侧对机器站稳，两手握把，起点靠近机器侧的大腿。",
+        "膝盖略屈，脚和髋自然转向，用躯干带动把手向远侧上方走一条斜线。",
+        "在肩部舒服的高度停住，双手跟随胸口，避免只用手把重量拉上去。",
+        "一路控制回到低位，保持两脚有支撑。做完一侧再换侧。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12104",
+    "name": "低台交叉下踩",
+    "en": "lateral crossover step-down",
+    "part": "upper legs",
+    "equipment": "body weight",
+    "type": "calisthenics",
+    "muscles": {
+      "adductors": 40,
+      "calves": 40,
+      "gluteal": 100,
+      "obliques": 40,
+      "quadriceps": 100
+    },
+    "target": "quads",
+    "needs": [
+      "step platform"
+    ],
+    "detail": {
+      "description": "台上支撑腿下蹲，游离腿斜向跨过身体中线轻点地面。重点是控制支撑腿减速和骨盆的侧倾、转动。",
+      "steps": [
+        "在稳固低台的边缘站好，支撑脚全掌踩实，另一脚留在台外。先用徒手和较小跨步。",
+        "支撑腿屈髋屈膝，游离脚从支撑腿后方小幅斜跨，朝台下轻点。",
+        "交叉过程中让骨盆尽量平稳，支撑膝保持对准脚尖。游离脚只点地，别借地面推起。",
+        "用台上腿回到站姿，恢复平衡再重复。感觉支撑膝被扭时，改做同侧的普通低台慢下踩。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12105",
+    "name": "低台单腿慢下踩",
+    "en": "slow single-leg step-down",
+    "part": "upper legs",
+    "equipment": "body weight",
+    "type": "calisthenics",
+    "muscles": {
+      "abs": 40,
+      "adductors": 40,
+      "calves": 40,
+      "gluteal": 100,
+      "quadriceps": 100
+    },
+    "target": "quads",
+    "needs": [
+      "step platform"
+    ],
+    "detail": {
+      "description": "用台上支撑腿慢慢降低身体，练股四头肌的离心制动和臀肌的单腿稳定。",
+      "steps": [
+        "选稳固的低台。一脚全掌踩在台边内侧，另一脚悬在台外。需要时扶固定物。",
+        "台上腿慢慢屈髋、屈膝，另一脚向地面靠近。骨盆尽量保持水平，支撑膝顺着脚尖方向。",
+        "让台下脚轻点地面，体重留在台上腿。轻点前就难以控制时，缩短动作幅度或降低台高。",
+        "台上脚踩稳，伸髋伸膝回到站姿。做完一侧再换边。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12106",
+    "name": "侧平板支撑接高位拉",
+    "en": "side plank with high cable row",
+    "part": "waist",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "biceps": 40,
+      "gluteal": 40,
+      "lats": 40,
+      "obliques": 100,
+      "rear-delts": 40,
+      "serratus": 40,
+      "upper-back": 100
+    },
+    "target": "obliques",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "在侧平板支撑中做单手绳索拉。腹斜肌负责防止髋下沉与转身，上背与背阔肌完成拉动。",
+      "steps": [
+        "使用很轻的配重。侧卧面向滑轮，下方前臂撑地，肘在肩下，上方手握把。",
+        "前臂与脚将身体托起，头、胸和髋尽量成一条线，双肩相叠。",
+        "先稳住髋，再将把手拉向身体，肘带动、肩颈放松。滑轮具体档位以原示范的拉动方向为准。",
+        "慢慢伸臂回到起点，始终保持髋的高度。无法稳住时先用屈膝侧平板或分开练习。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12107",
+    "name": "侧弓步划船接出拳",
+    "en": "cable row to punch in lateral lunge",
+    "part": "full body",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "adductors": 40,
+      "front-delts": 40,
+      "gluteal": 100,
+      "lats": 40,
+      "obliques": 40,
+      "quadriceps": 100,
+      "serratus": 40,
+      "triceps": 40,
+      "upper-back": 100
+    },
+    "target": "upper back",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "保持侧弓步时做划船，再向前出拳。侧弓步练臀腿支撑，划船和出拳练上背、肩臂与躯干协调。",
+      "steps": [
+        "用轻阻力握住把手，向侧方迈一步。重心落在屈膝侧，另一腿伸展，屈膝侧脚掌踩实。",
+        "保持弓步深度，先把持把侧的肘拉到肋骨旁，上背发力。",
+        "让手臂向前做出拳动作，控制身体位置和把手回程。",
+        "先练稳侧弓步，再减轻负荷把两段连起来。左右换侧。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12108",
+    "name": "俯卧 T 字举臂",
+    "en": "incline-supported dumbbell T raise",
+    "part": "shoulders",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "rear-delts": 100,
+      "rotator-cuff": 40,
+      "trapezius": 40,
+      "upper-back": 100
+    },
+    "target": "rear delts",
+    "needs": [
+      "incline bench"
+    ],
+    "detail": {
+      "description": "胸口支撑的 T 字举臂，主要练三角肌后束和肩胛骨之间的肌群。",
+      "steps": [
+        "面向上斜凳俯卧，脚踩稳，两手可徒手或各握一只轻哑铃。",
+        "双手从肩下开始，拇指朝上或掌心相对，双臂微弯。",
+        "将双臂向两侧打开成 T 字，抬到与肩相近的高度。颈部保持自然，胸口贴住凳面。",
+        "在顶端短暂停留后慢慢放下。能保持动作幅度再加负重。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12109",
+    "name": "俯卧 Y 字举臂",
+    "en": "incline-supported dumbbell Y raise",
+    "part": "back",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "front-delts": 40,
+      "lower-trapezius": 100,
+      "rear-delts": 40,
+      "rotator-cuff": 40,
+      "serratus": 40,
+      "upper-back": 40
+    },
+    "target": "traps",
+    "needs": [
+      "incline bench"
+    ],
+    "detail": {
+      "description": "斜向上的 Y 字举臂，练下斜方肌参与的肩胛上旋和上背控制。",
+      "steps": [
+        "俯卧在上斜凳上，让胸口有支撑，双脚踩稳。先做徒手试举。",
+        "拇指朝上，双臂从肩下向头部两侧斜抬，形成自然的 Y 字。",
+        "抬至肩部舒适的高度，肩胛随上臂移动，保持下巴微收和胸口接触凳面。",
+        "停一下后控制下放。若开始耸肩或抬头，缩短幅度或减轻哑铃。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12110",
+    "name": "倒置壶铃胸前行走",
+    "en": "bottoms-up kettlebell rack carry",
+    "part": "shoulders",
+    "equipment": "kettlebell",
+    "type": "strength",
+    "muscles": {
+      "forearm": 100,
+      "front-delts": 100,
+      "gluteal": 40,
+      "obliques": 40,
+      "rotator-cuff": 40,
+      "trapezius": 40
+    },
+    "target": "front delts",
+    "distance": true,
+    "detail": {
+      "description": "单手肩前倒置壶铃行走，重点是握力、肩和腕的稳定，躯干同时抵抗侧倾。",
+      "steps": [
+        "在空旷直道上用轻壶铃先练静止握持。握把中央，让壶铃底朝上，负荷叠在中立手腕与前臂上。",
+        "将壶铃保持在肩前，肘屈曲并置于壶铃下面。肩放稳，肋骨与骨盆对齐。",
+        "目视前方，以短而平稳的步伐完成走行距离。持续呼吸，保持身躯直立，避免靠侧弯托住重量。",
+        "走完停稳，用另一只手协助将壶铃放下，再换侧。若腕偏斜或壶铃将失衡，先停止行走并把铃放稳。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12111",
+    "name": "分腿站姿绳索推胸",
+    "en": "split-stance dual-cable chest press",
+    "part": "chest",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "chest": 100,
+      "front-delts": 40,
+      "obliques": 40,
+      "serratus": 40,
+      "triceps": 100
+    },
+    "target": "pectorals",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "分腿站姿水平胸推，主要练胸大肌和肱三头肌，并要求下肢与躯干保持稳定。",
+      "steps": [
+        "将两侧滑轮调到胸口附近的高度，背朝器械，各握一把，向前迈成分腿站姿。",
+        "双脚踩稳，肘略低于肩并朝后外方，手停在胸两侧。",
+        "两手向身体正前推出，保持肩颈放松、胸口和骨盆朝前。",
+        "控制回到胸两侧，回程时不让配重猛拉手臂。需要时更换前脚。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12112",
+    "name": "分腿高位绳索前下推",
+    "en": "split-stance high-to-low cable chest press",
+    "part": "chest",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "chest": 100,
+      "front-delts": 40,
+      "lower-chest": 100,
+      "obliques": 40,
+      "serratus": 40,
+      "triceps": 100
+    },
+    "target": "pectorals",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "由较高滑轮向前下方推的胸推变式，重点练胸大肌和肱三头肌。",
+      "steps": [
+        "把滑轮设在肩上方，握住把手，背对固定点走出少量距离，分腿踩稳。",
+        "工作侧手在胸肩附近，肘微靠后、手腕中立，胸口正对前方。",
+        "沿自然斜线向前下方推，把手落点在身体前方。保持胸口和骨盆朝前。",
+        "缓慢屈肘回到起始位置，换边。以肩部舒服的行程完成。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12113",
+    "name": "前弓步接后撤相扑蹲",
+    "en": "forward lunge to step-back sumo squat",
+    "part": "upper legs",
+    "equipment": "medicine ball",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "adductors": 100,
+      "gluteal": 100,
+      "hamstring": 40,
+      "quadriceps": 100
+    },
+    "target": "quads",
+    "detail": {
+      "description": "前弓步接宽站距蹲的复合动作。重点是臀腿与内收肌，注意前后换位时的制动。",
+      "steps": [
+        "双手稳持一个轻重物于胸前，留出前后与侧向空间。先徒手熟悉脚步。",
+        "一脚向前迈步屈髋屈膝，做一次前弓步。前脚踩实，膝盖顺着脚尖。",
+        "前脚蹬地回到中间，再将同一脚斜后撤拉宽站距。落脚稳固后，膝盖随脚尖方向弯曲，做一次宽站距蹲。",
+        "双足向地面发力站起，收脚回到原位。把前弓步和宽蹲合计为一次组合，完成后换边。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12114",
+    "name": "前臂垫高平板前后滑动",
+    "en": "forearm-elevated body saw",
+    "part": "waist",
+    "equipment": "body weight",
+    "type": "calisthenics",
+    "muscles": {
+      "abs": 100,
+      "front-delts": 40,
+      "gluteal": 40,
+      "obliques": 100,
+      "quadriceps": 40,
+      "serratus": 40
+    },
+    "target": "abs",
+    "needs": [
+      "step platform"
+    ],
+    "detail": {
+      "description": "垫高支点的 Body Saw，训练腹部抗伸展和肩胛稳定。",
+      "steps": [
+        "确认台面固定。双前臂平放其上，肘与肩接近对齐，向后移脚进入斜平板。",
+        "脚尖踩稳，收住肋骨、夹臀，使肩、髋和脚踝成一条线。",
+        "脚踝小幅推动身体整体后移，肘和前臂保持在台面上。再把身体轻轻带回。",
+        "控制前后幅度，在腰部和肩带能稳住的范围完成。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12115",
+    "name": "半跪 TRX 展臂飞鸟",
+    "en": "half-kneeling suspension reverse fly",
+    "part": "shoulders",
+    "equipment": "suspension trainer",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "rear-delts": 100,
+      "rotator-cuff": 40,
+      "trapezius": 40,
+      "upper-back": 100
+    },
+    "target": "rear delts",
+    "needs": [
+      "training anchor"
+    ],
+    "detail": {
+      "description": "半跪悬挂带反向飞鸟，重点练肩后侧和上背。",
+      "steps": [
+        "面向固定点半跪，两手握把。调好带长，起始时手在胸前、肘微屈，两条带保持张力。",
+        "上臂向外打开到接近 T 字，拉带同时保持躯干稳定。让动作来自肩后侧与肩胛，肘部角度变化尽量小。",
+        "肩膀保持远离耳朵。到舒适终点后，慢慢把双手送回胸前。",
+        "更换在前的脚。通过调整站位或身体倾角，把用力控制在能稳定半跪的范围。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12116",
+    "name": "半跪不对称持重推肩",
+    "en": "half-kneeling offset kettlebell press",
+    "part": "shoulders",
+    "equipment": "kettlebell",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "forearm": 40,
+      "front-delts": 100,
+      "obliques": 100,
+      "serratus": 40,
+      "side-delts": 40,
+      "triceps": 100
+    },
+    "target": "front delts",
+    "needs": [
+      "dumbbell"
+    ],
+    "detail": {
+      "description": "一手壶铃上推，另一手哑铃下垂。三角肌前束、肱三头肌负责推举，躯干抵抗两侧不对称的负荷。",
+      "steps": [
+        "一膝着地，前脚踩稳。推举侧将壶铃摆在肩前，另一手垂直握住哑铃。",
+        "收住肋骨，胸口朝前，推举侧手腕与前臂对齐，缓慢将壶铃向上推。另一手保持悬垂。",
+        "推到肩部舒适的最高点，上臂贴近头侧。过程中保持骨盆水平。",
+        "慢慢放回肩前，完成一侧后换手和跪姿。重量以全程身体能保持直立为准。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12117",
+    "name": "半跪弹力带推肩",
+    "en": "half-kneeling band overhead press",
+    "part": "shoulders",
+    "equipment": "resistance band",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "front-delts": 100,
+      "obliques": 40,
+      "serratus": 40,
+      "side-delts": 40,
+      "triceps": 100
+    },
+    "target": "front delts",
+    "detail": {
+      "description": "单臂过头推举，主要练肩前侧与肱三头肌，半跪支撑考验躯干稳定。",
+      "steps": [
+        "一膝着地，前脚踩稳。将弹力带可靠固定在低位，使工作侧手由肩前向上推时阻力逐渐增加。",
+        "先试拉，确认带子不会滑脱。握带手停在肩前，手腕在肘上，胸廓保持在骨盆上方。",
+        "用手向上推，保持两侧躯干等长。到肩部舒适位置后缓慢放回。",
+        "左右换侧。若越推腰越拱，缩短幅度或减小阻力。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12118",
+    "name": "半跪肩关节慢速绕环",
+    "en": "half-kneeling shoulder controlled articular rotation",
+    "part": "shoulders",
+    "equipment": "body weight",
+    "type": "mobility",
+    "muscles": {
+      "front-delts": 100,
+      "rear-delts": 100,
+      "rotator-cuff": 100,
+      "serratus": 40,
+      "side-delts": 40,
+      "trapezius": 40
+    },
+    "target": "rotator cuff",
+    "detail": {
+      "description": "肩关节控制绕环。三角肌和肩袖共同控制手臂，适合作为上肢活动度热身。",
+      "steps": [
+        "一膝着地，前脚踩稳。骨盆与胸口朝前，背部保持自然。",
+        "工作侧手臂慢慢从身体前方抬高，到舒适顶点后转动上臂，让手沿身体侧后方画弧。",
+        "手回到身侧后沿原路线反向绕回。保持骨盆和躯干稳定，肩胛随手臂自然移动。",
+        "遇到卡点时缩小绕环。两侧轮换。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12119",
+    "name": "半跪胸椎侧弯",
+    "en": "half-kneeling thoracic side bend",
+    "part": "back",
+    "equipment": "body weight",
+    "type": "mobility",
+    "muscles": {
+      "abs": 40,
+      "lats": 40,
+      "lower-back": 40,
+      "obliques": 100
+    },
+    "target": "thoracic",
+    "detail": {
+      "description": "上背侧弯热身，腹斜肌与躯干侧面的肌群参与，半跪姿势帮助稳定骨盆。",
+      "steps": [
+        "一膝着地，前脚踩平。双髋朝前，胸口抬起，头与脊柱保持一线。",
+        "徒手举臂，或轻握一根杆辅助定位。向一侧做小幅侧弯，感受另一侧肋骨下方被拉长。",
+        "保持骨盆大致水平，避免跟着侧移或转身。",
+        "呼气回到直立，在舒服范围完成两侧。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12120",
+    "name": "单腿提膝药球假砸",
+    "en": "single-leg knee-drive medicine ball feint",
+    "part": "full body",
+    "equipment": "medicine ball",
+    "type": "strength",
+    "muscles": {
+      "abs": 100,
+      "gluteal": 40,
+      "hip-flexors": 100,
+      "lats": 40,
+      "quadriceps": 40
+    },
+    "target": "hip flexors",
+    "detail": {
+      "description": "不松手的持球下压动作。以轻球做小幅、可刹停的下压，练单腿支撑、提膝与躯干控制。",
+      "steps": [
+        "双手抱住轻药球，先做一次徒手提膝，找好重心。脚掌稳稳踩地，支撑膝保留微弯。",
+        "提起另一侧膝盖至能稳住骨盆的高度，同时把球举到胸口上方的舒适位置。",
+        "双手始终握球，做小幅下压并主动减速，停在胸前或腹前。让球和提膝之间留出空间。",
+        "稳妥放下抬起的脚，重新站稳后再做下一次。站不稳时降低提膝高度或改为双脚支撑。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12121",
+    "name": "单臂绳索单腿俯身硬拉",
+    "en": "single-arm cable single-leg deadlift",
+    "part": "upper legs",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "adductors": 40,
+      "gluteal": 100,
+      "hamstring": 100,
+      "lower-back": 40,
+      "obliques": 40
+    },
+    "target": "hamstrings",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "低位绳索的单腿髋铰链。主要练支撑侧臀肌和腘绳肌，核心抵抗绳索牵引与骨盆转动。",
+      "steps": [
+        "将滑轮调到低位，面向滑轮站立。用与支撑腿相反的手握住单把手，退至绳索有轻微张力。",
+        "支撑膝微屈，脚掌压稳。把臀部向后送，胸口随躯干前倾，另一条腿向后伸。",
+        "手臂自然伸向绳索，保持两侧髋尽量朝下。到支撑腿后侧有张力、腰背仍能保持自然的位置就停。",
+        "用支撑腿脚掌蹬地，臀部发力站回起始位。每次站稳再开始下一次，完成后换边。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12122",
+    "name": "单臂绳索开胸转体",
+    "en": "single-arm cable chest-opening rotation",
+    "part": "back",
+    "equipment": "cable",
+    "type": "mobility",
+    "muscles": {
+      "abs": 40,
+      "gluteal": 40,
+      "obliques": 100,
+      "rear-delts": 100,
+      "rotator-cuff": 40,
+      "upper-back": 100
+    },
+    "target": "thoracic",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "中位单臂持绳索的开胸转体。用胸椎旋转和肩胛控制带动手臂展开。",
+      "steps": [
+        "将滑轮调到胸口附近，轻阻力单手持把。双脚踩稳，给身体转动留出空间。",
+        "手臂微屈从胸前开始，胸口跟随工作侧手臂慢慢打开，保持颈部自然。",
+        "让胸椎带动转动，脚和髋可适量随动，以免只拧腰或硬拉手臂。",
+        "稳住后沿原路线回到胸前，让绳索全程保持可控。做完一侧再换边。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12123",
+    "name": "双膝夹球仰卧起坐",
+    "en": "ball-squeeze sit-up",
+    "part": "waist",
+    "equipment": "light exercise ball",
+    "type": "strength",
+    "muscles": {
+      "abs": 100,
+      "adductors": 40,
+      "hip-flexors": 40,
+      "obliques": 40
+    },
+    "target": "abs",
+    "detail": {
+      "description": "双膝夹轻球的控制型仰卧起坐。腹直肌负责卷起上半身，内收肌维持夹球，髋屈肌参与起身。",
+      "steps": [
+        "仰卧屈膝，两脚踩地，把轻球放在两膝之间，轻轻夹住。手可交叉放胸前。",
+        "呼气，先让肋骨向骨盆靠近，再卷起上身，颈部放松。",
+        "仅起到双脚和球都能稳住的位置，保持动作平稳。",
+        "慢慢回到垫面，重新稳住膝间轻球。若需借甩手起身，可缩短到卷腹幅度。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12124",
+    "name": "双臂侧举捏片保持",
+    "en": "lateral plate pinch hold",
+    "part": "lower arms",
+    "equipment": "weight plate",
+    "type": "isometric",
+    "muscles": {
+      "forearm": 100,
+      "rotator-cuff": 40,
+      "side-delts": 100,
+      "trapezius": 40
+    },
+    "target": "forearms",
+    "hold": true,
+    "detail": {
+      "description": "用指尖夹持杠铃片并保持双臂侧举，练前臂捏握力与三角肌等长耐力。",
+      "steps": [
+        "选择可以可靠夹住的轻片，每手用拇指和其余手指夹住一块，确认脚下和周围无障碍。",
+        "直立并将双臂小幅向两侧抬起，肘微屈，手腕保持与前臂对齐。",
+        "保持握力、肩膀位置和自然呼吸。片开始滑动或肩部明显耸起时，结束保持。",
+        "先将双臂放至身侧，再稳妥放下杠铃片。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12125",
+    "name": "反向弓步接髋旋转",
+    "en": "reverse lunge with hip rotation",
+    "part": "upper legs",
+    "equipment": "body weight",
+    "type": "calisthenics",
+    "muscles": {
+      "adductors": 40,
+      "gluteal": 100,
+      "hamstring": 40,
+      "obliques": 40,
+      "quadriceps": 100
+    },
+    "target": "glutes",
+    "detail": {
+      "description": "用后撤弓步结合受控的小幅转髋。训练前腿臀肌、股四头肌和转动时的动态平衡。",
+      "steps": [
+        "双脚髋宽站立，先用徒手。向后迈一步，前脚全掌踩稳，后脚以前脚掌支撑。",
+        "屈髋屈膝做一个浅弓步，保持前膝与脚尖同向，躯干稍微前倾也可以，但腰背保持自然。",
+        "在能维持平衡的位置做小幅髋转动，再回正。让后脚随转动微调，避免用固定住的前膝硬拧。",
+        "以前脚蹬地回到站姿，再左右换侧。如转动让落脚或膝盖不稳，将旋转放在回到站姿后完成。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12126",
+    "name": "后撤弓步回位接双绳索快推胸",
+    "en": "reverse lunge to dual-cable speed chest press",
+    "part": "chest",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "chest": 100,
+      "front-delts": 40,
+      "gluteal": 20,
+      "obliques": 40,
+      "quadriceps": 20,
+      "serratus": 40,
+      "triceps": 100
+    },
+    "target": "pectorals",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "用轻绳索练下肢回位后快速胸推。双脚站稳以后再推，适合练移动和出手的节奏。",
+      "steps": [
+        "双侧滑轮设在胸高附近，选轻阻力，背朝器械握稳两把，手停在胸两侧。",
+        "一脚向后撤成弓步，前脚全脚掌踩稳。保持把手靠近胸口，前脚发力回到站姿。",
+        "双脚重新落稳后，快速向前推两把，手始终握紧把手。",
+        "慢慢屈肘收回至胸前，重置后换侧。先练清楚后撤、回稳、推胸的顺序。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12129",
+    "name": "四点支撑穿臂转体",
+    "en": "quadruped thoracic thread-the-needle",
+    "part": "back",
+    "equipment": "body weight",
+    "type": "mobility",
+    "muscles": {
+      "abs": 40,
+      "obliques": 100,
+      "rear-delts": 40,
+      "serratus": 40,
+      "upper-back": 40
+    },
+    "target": "thoracic",
+    "detail": {
+      "description": "四点支撑下做胸椎旋转。以活动度为主，腹斜肌参与转动，前锯肌和肩带支撑身体。",
+      "steps": [
+        "双手在肩下，双膝在髋下。把重心轻移到支撑手，骨盆保持朝向地面。",
+        "另一只手从胸口下方向对侧穿过，让上背随动作缓慢转动。",
+        "顺畅地把手抽回，从胸口带动转向同侧上方；肩胛与胸椎随动。",
+        "保持髋在膝盖上方，手臂在舒适幅度内活动。两侧都做。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12130",
+    "name": "坐地靠凳哑铃推肩",
+    "en": "floor-seated bench-supported dumbbell overhead press",
+    "part": "shoulders",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "front-delts": 100,
+      "serratus": 40,
+      "side-delts": 40,
+      "trapezius": 40,
+      "triceps": 100
+    },
+    "target": "front delts",
+    "needs": [
+      "bench"
+    ],
+    "detail": {
+      "description": "坐地靠凳的哑铃推肩，主要练三角肌前束和肱三头肌，靠凳提供躯干支撑。",
+      "steps": [
+        "将凳固定在不会滑动的位置，坐地靠住凳背或稳固的靠面。双腿摆在能让骨盆稳定的位置。",
+        "双手把哑铃放在肩旁，肘略在躯干前方，手腕与前臂对齐。",
+        "保持躯干与靠面接触，将哑铃沿肩上方推起。避免肋骨向上翻。",
+        "停在肩部自然的范围，缓慢下放到肩旁。结束时先将重量安全放到腿上或地面。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12131",
+    "name": "坐姿锤式弯举接侧平举",
+    "en": "seated dumbbell hammer curl to lateral raise",
+    "part": "upper arms",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "biceps": 100,
+      "forearm": 100,
+      "rotator-cuff": 40,
+      "side-delts": 100,
+      "trapezius": 40
+    },
+    "target": "biceps",
+    "needs": [
+      "bench"
+    ],
+    "detail": {
+      "description": "锤式弯举接侧平举的组合。先练屈肘肌群，再练三角肌中束。",
+      "steps": [
+        "坐稳、双脚踩地，掌心相对，哑铃垂在身侧。",
+        "上臂贴近身体，把哑铃向肩部弯举。控制哑铃回到身侧。",
+        "保持肘微屈，双臂向两侧略偏前举起，到肩部舒适范围。",
+        "控制下放还原，完整的弯举和侧平举算一次。按能稳定完成侧平举的重量选哑铃。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12132",
+    "name": "垫高站姿相扑深蹲",
+    "en": "platform-elevated sumo squat with dumbbell",
+    "part": "upper legs",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "adductors": 100,
+      "forearm": 40,
+      "gluteal": 100,
+      "quadriceps": 100
+    },
+    "target": "quads",
+    "needs": [
+      "step platform"
+    ],
+    "detail": {
+      "description": "站在两侧稳固踏台的宽站距深蹲。增加手持重物下方的空间，主要练股四头肌、臀肌和大腿内侧。",
+      "steps": [
+        "让两块同高踏台防滑、贴地，两脚分别踩稳。站距略宽，脚尖朝能让膝盖自然弯曲的方向。",
+        "双手握住一个哑铃或壶铃，让重物自然垂在两腿之间。收紧腹部，髋膝一起弯曲。",
+        "全脚掌保持受力，膝盖跟着脚尖。下蹲到能稳定控制的深度，保留重物与地面的间距。",
+        "脚掌蹬稳踏台起身，呼气并伸展髋膝。结束后先放下重物，再下踏台。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12133",
+    "name": "夹球直腿慢下放",
+    "en": "straight-leg lower with ball squeeze",
+    "part": "waist",
+    "equipment": "light exercise ball",
+    "type": "strength",
+    "muscles": {
+      "abs": 100,
+      "adductors": 40,
+      "hip-flexors": 100,
+      "obliques": 40,
+      "quadriceps": 40
+    },
+    "target": "abs",
+    "detail": {
+      "description": "仰卧夹轻球做直腿下放。髋屈肌控制双腿，腹部抵抗腰部随腿下沉而拱起，内收肌稳住球。",
+      "steps": [
+        "仰卧，将轻球夹在双脚之间，两腿向上伸，膝盖可微屈。手臂放在身体两侧。",
+        "收住肋骨和骨盆，呼气时慢慢把双腿一起放低。",
+        "在腰部姿势仍稳定时停住。若开始拱腰或球夹不稳，就缩短幅度或让膝盖多弯一点。",
+        "用腹部与髋部控制双腿回到高位，每次都重新稳住再下放。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12134",
+    "name": "平板支撑前后滑动",
+    "en": "forearm plank body saw",
+    "part": "waist",
+    "equipment": "body weight",
+    "type": "calisthenics",
+    "muscles": {
+      "abs": 100,
+      "front-delts": 40,
+      "gluteal": 40,
+      "obliques": 100,
+      "quadriceps": 40,
+      "serratus": 40
+    },
+    "target": "abs",
+    "detail": {
+      "description": "Body Saw 动态平板。腹直肌和腹斜肌抵抗腰部下塌，肩带和臀部维持一条直线。",
+      "steps": [
+        "前臂撑在地面，肘在肩下，脚尖着地，夹紧臀部并让身体成一条线。若用滑盘，先确认地面适用。",
+        "保持前臂位置，用脚踝小幅带动身体整体后移。肩向肘后方移动，骨盆高度保持不变。",
+        "以前臂稳稳压住地面，把身体送回肘上方。",
+        "从小幅度开始。腰一旦开始下塌、脚下失控或肩部顶住时就缩短范围。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12135",
+    "name": "弹力带快步内外踩",
+    "en": "quick in-and-out resisted band steps",
+    "part": "upper legs",
+    "equipment": "resistance band",
+    "type": "cardio",
+    "muscles": {
+      "abs": 40,
+      "calves": 40,
+      "gluteal": 100,
+      "quadriceps": 40
+    },
+    "target": "abductors",
+    "detail": {
+      "description": "用轻环带做快速的小步内外切换，重点是髋部稳定和脚下节奏。双脚轮流向内、向外踩。",
+      "steps": [
+        "将轻环带套在膝上，双脚略窄于髋宽。微屈髋膝，背部自然，双手放在身体前方帮助平衡。",
+        "双脚轮流向外踩到略宽于髋的位置，再轮流收回原位。保持步幅小，脚尖大致朝前。",
+        "先以能安静、准确落脚的节奏练熟，再加快速度。膝盖顺着脚尖，环带始终有轻微张力。",
+        "保持动作稳定。出现跳起落地、膝内扣或躯干明显摆动时，放慢或减轻阻力。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12136",
+    "name": "慢走或轻松骑车",
+    "en": "easy walk or easy cycling",
+    "part": "cardio",
+    "equipment": "body weight",
+    "type": "cardio",
+    "muscles": {
+      "calves": 40,
+      "cardiovascular system": 100,
+      "gluteal": 40,
+      "quadriceps": 40
+    },
+    "target": "cardiovascular system",
+    "detail": {
+      "description": "训练后的低强度整理活动。示范同时展示徒手慢走与固定单车轻阻骑行，让呼吸和步频逐步回落。",
+      "steps": [
+        "任选固定单车或平坦步行区。把速度和阻力降下来，从能舒服说话的节奏开始。",
+        "保持自然呼吸，迈轻松的小步或均匀踩踏。握把用轻握，放松肩颈。",
+        "临近结束时再缓慢放慢。待自行车完全停稳后下车。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12137",
+    "name": "抬脚 TRX 水平划船",
+    "en": "feet-elevated suspension row",
+    "part": "back",
+    "equipment": "suspension trainer",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "biceps": 40,
+      "forearm": 40,
+      "gluteal": 40,
+      "lats": 100,
+      "rear-delts": 40,
+      "upper-back": 100
+    },
+    "target": "upper back",
+    "needs": [
+      "training anchor",
+      "step platform"
+    ],
+    "detail": {
+      "description": "脚垫高的 TRX 划船。背阔肌和上背把胸口拉向把手，后肩、屈肘肌群与腹部协助。",
+      "steps": [
+        "检查固定点和脚台，面向锚点握把，双脚放在台上，手臂伸直，身体向后倾。",
+        "把头、躯干和腿连成一条线，肋骨收住。先确认脚台不会滑动。",
+        "把肘向后拉，让胸口靠近把手，避免抬下巴或挺腰够把。",
+        "缓慢伸肘回到起点。若无法稳定，先把脚移到地面做常规划船。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12138",
+    "name": "支膝哑铃肩外旋",
+    "en": "knee-supported dumbbell shoulder external rotation",
+    "part": "shoulders",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "forearm": 40,
+      "rear-delts": 40,
+      "rotator-cuff": 100,
+      "upper-back": 40
+    },
+    "target": "rotator cuff",
+    "needs": [
+      "bench"
+    ],
+    "detail": {
+      "description": "肘支在膝上的肩外旋，主要练肩袖的外旋肌群，肩后侧协助。",
+      "steps": [
+        "坐稳并抬高一侧膝盖作为支点，工作侧肘靠在膝上，肘约成直角。",
+        "用很轻的哑铃，手腕保持中立，先让前臂在稳定范围停在身体前方。",
+        "上臂和肘的位置保持稳定，转动上臂使前臂向外、向上抬，感受肩后侧发力。",
+        "只抬至肩部舒服的位置，缓慢回到起点。做完一侧再换侧。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12139",
+    "name": "放松呼吸",
+    "en": "relaxation breathing",
+    "part": "full body",
+    "equipment": "body weight",
+    "type": "mobility",
+    "muscles": {
+      "diaphragm": 100
+    },
+    "target": "diaphragm",
+    "detail": {
+      "description": "训练后的放松呼吸。吸气时横膈膜收缩下移，呼气时放松。用舒服的节奏自然呼吸，避免用力和憋气。",
+      "steps": [
+        "找一个舒适、有支撑的位置坐下，或在垫上屈膝仰卧。肩膀、下巴和双手放松。",
+        "轻轻用鼻吸气，观察腹部和下侧肋骨随呼吸自然起伏。吸气幅度以舒适为准。",
+        "缓慢自然地呼出，可从鼻或嘴呼气。维持平顺节奏，避免憋气或勉强拖长呼吸。",
+        "用舒服的节奏继续。若有头晕或不适，停下练习并恢复自然呼吸。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12140",
+    "name": "斜板全半全组合深蹲",
+    "en": "heel-elevated one-and-a-half-rep squat",
+    "part": "upper legs",
+    "equipment": "medicine ball",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "adductors": 40,
+      "calves": 40,
+      "gluteal": 100,
+      "quadriceps": 100
+    },
+    "target": "quads",
+    "needs": [
+      "squat wedge"
+    ],
+    "detail": {
+      "description": "脚跟垫高的深蹲节奏组合，主要练股四头肌和臀肌。完成全程、半程、全程的组合。先用轻负重熟悉深度。",
+      "steps": [
+        "双脚踩在固定防滑的斜板上，脚跟较高，脚掌完整贴合板面。双手抱住轻药球于胸前。",
+        "先做一次到个人可控制深度的深蹲，起身回到站姿。膝盖沿脚尖方向，脚跟保持接触。",
+        "做一次约为刚才一半幅度的浅蹲，站起后，再做一次完整深蹲。全、半、全合计为一次组合。",
+        "全程保持控制与平稳呼吸。若动作变形或无法停稳，先减负重或用徒手练习。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12141",
+    "name": "瑜伽砖垫脚单腿硬拉",
+    "en": "supported single-leg dumbbell deadlift with yoga block",
+    "part": "upper legs",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "adductors": 40,
+      "forearm": 40,
+      "gluteal": 100,
+      "hamstring": 100,
+      "lower-back": 40,
+      "obliques": 40
+    },
+    "target": "hamstrings",
+    "needs": [
+      "yoga block"
+    ],
+    "detail": {
+      "description": "后脚轻触瑜伽砖的单腿硬拉变式。臀肌和腘绳肌主发力，核心负责维持骨盆位置。",
+      "steps": [
+        "用硬质防滑的低瑜伽砖给后脚脚尖轻触，前脚全掌踩地并承担大部分体重。先徒手找平衡，再加入单只哑铃。",
+        "支撑腿微屈，臀部向后推，从髋关节前倾。让哑铃沿支撑大腿靠近小腿下行。",
+        "两侧髋尽量朝前下方，后脚只辅助平衡。到支撑腿后侧有张力且仍能控制时停止下降。",
+        "前脚踩地，收臀回到站姿。做完一侧再换边。若原训练演示规定了不同垫砖位置，按演示的站位练。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12143",
+    "name": "站姿绳索左右转体",
+    "en": "alternating standing cable rotation",
+    "part": "waist",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "gluteal": 40,
+      "obliques": 100,
+      "serratus": 40
+    },
+    "target": "obliques",
+    "needs": [
+      "cable handle"
+    ],
+    "detail": {
+      "description": "面向滑轮的左右转体，用腹斜肌传递转动，臀髋控制换边。",
+      "steps": [
+        "面向滑轮，两脚分开站稳，两手握把于胸前，站到有轻微拉力的位置。",
+        "保持肘微弯，腿和髋启动小幅转动，让胸口与双手同时转向一侧。",
+        "控制回到中间，再转向另一侧。两侧幅度以脚下稳定为准。",
+        "让脚随髋自然转向，避免来回猛甩把手。两侧交替，分别计数。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12144",
+    "name": "绳索划船接转身",
+    "en": "one-arm cable row with pivot",
+    "part": "back",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "biceps": 40,
+      "gluteal": 40,
+      "lats": 100,
+      "obliques": 100,
+      "rear-delts": 40,
+      "upper-back": 100
+    },
+    "target": "upper back",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "把中位单臂划船加上脚髋转向，训练上背与躯干旋转的衔接。",
+      "steps": [
+        "将滑轮调至胸口附近，一手握把，面对机器站稳，工作臂向前伸。",
+        "先把肘收向身侧，肩胛随拉动自然后移。",
+        "再让脚与髋小幅转向，胸口跟着打开。动作从脚下到躯干传递，保持把手可控。",
+        "先转回正面，再缓慢伸肘把手送回。做完一侧再换边。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12145",
+    "name": "绳索水平转体",
+    "en": "standing horizontal cable rotation",
+    "part": "waist",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "front-delts": 40,
+      "gluteal": 40,
+      "obliques": 100,
+      "serratus": 40
+    },
+    "target": "obliques",
+    "needs": [
+      "cable handle"
+    ],
+    "detail": {
+      "description": "胸高滑轮的水平转体，腹斜肌主导，臀髋负责起动和稳定。",
+      "steps": [
+        "侧向站在胸高滑轮旁，两手握把置于胸前。膝微屈，脚下有足够的转动空间。",
+        "让把手沿近水平的弧线远离滑轮，髋和胸一起转动，脚可轻微转向。",
+        "手臂保持相近长度，终点能稳住。避免手臂独自甩过身体或脚钉在地上强扭。",
+        "慢慢回到起点，再做另一侧。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12146",
+    "name": "绳索深蹲接转体",
+    "en": "cable squat to standing rotation",
+    "part": "full body",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "adductors": 40,
+      "gluteal": 100,
+      "hamstring": 40,
+      "obliques": 100,
+      "quadriceps": 100,
+      "serratus": 40
+    },
+    "target": "quads",
+    "needs": [
+      "cable handle"
+    ],
+    "detail": {
+      "description": "先完成深蹲起身，再在站稳后做绳索转体。股四头肌、臀肌和腹斜肌分别承担下蹲与旋转。",
+      "steps": [
+        "选轻阻力，两手握把在胸前。脚约与肩同宽，留好站起和转身的空间。",
+        "保持胸口和把手稳定，双髋下沉做深蹲。膝盖顺脚尖方向，脚掌踩实。",
+        "先蹬地站直，再让脚、髋和胸口协同转动，把手随胸口移动。",
+        "将身体和把手转回起点后再蹲下一次。保持两段动作分明。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12147",
+    "name": "腘绳肌扫地式活动",
+    "en": "walking dynamic hamstring sweep",
+    "part": "upper legs",
+    "equipment": "body weight",
+    "type": "mobility",
+    "muscles": {
+      "calves": 40,
+      "gluteal": 40,
+      "hamstring": 100
+    },
+    "target": "hamstrings",
+    "detail": {
+      "description": "直立直腿扫动。保持上身直立，左右交替向前伸腿，动态拉伸大腿后侧。",
+      "steps": [
+        "自然站直，向前伸出一条腿。前膝保持自然伸直，脚跟轻触地面，脚尖上抬，重心留在支撑脚。",
+        "胸口和骨盆保持上下对齐，双手从髋旁向前、向上平顺扫过，整个过程保持直立。",
+        "感到前腿大腿后侧轻微牵拉后，收回前脚，双手降回身侧。",
+        "两脚站稳后换另一侧，左右交替重复。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12148",
+    "name": "腰带抗阻抱球后撤步",
+    "en": "waist-resisted backward step with ball hold",
+    "part": "upper legs",
+    "equipment": "resistance band",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "calves": 40,
+      "gluteal": 100,
+      "hamstring": 40,
+      "obliques": 40,
+      "quadriceps": 100
+    },
+    "target": "glutes",
+    "needs": [
+      "light exercise ball",
+      "training anchor"
+    ],
+    "detail": {
+      "description": "胸前抱球，对抗腰带弹力后撤并控制回位。主要练臀腿和步幅控制，核心负责稳住躯干。",
+      "steps": [
+        "把专用训练腰带接到正前方稳固的固定点，检查连接和后方通道。抱轻药球于胸前，退至弹力带轻微绷紧。",
+        "微屈髋膝，保持肋骨与骨盆对齐。迈一只脚向后，落脚后把重心平稳移过去。",
+        "前脚保持受力，稳住短暂的后撤姿势。重心高度以能控制为准，双手抱稳药球。",
+        "小步受控地回到起始站位，避免被带子拽回。左右交替，结束后靠近固定点再拆带。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12149",
+    "name": "腰带抗阻药球绕头转体",
+    "en": "waist-resisted medicine ball halo with rotation",
+    "part": "waist",
+    "equipment": "medicine ball",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "forearm": 40,
+      "front-delts": 40,
+      "gluteal": 40,
+      "obliques": 100,
+      "upper-back": 40
+    },
+    "target": "obliques",
+    "needs": [
+      "resistance band",
+      "training anchor"
+    ],
+    "detail": {
+      "description": "持球绕头的转体练习。腹斜肌与髋部参与转向，肩带控制球绕头划弧，腰带增加稳定需求。",
+      "steps": [
+        "将弹力带与腰带可靠固定，先用最轻牵引试站。双脚踩稳，两手持轻球在胸前。",
+        "让球沿头部周围画一个舒适的弧，颈部朝向自然，球始终留在掌中。",
+        "需要转向时让胸廓和髋一起小幅转动，脚随动。保持身体稳定，避免用腰部或脖子硬拧。",
+        "沿弧线回到胸前并稳住，再做另一侧。碰到肩部卡点时用更小弧线。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12150",
+    "name": "行进抬膝",
+    "en": "walking knee drive",
+    "part": "upper legs",
+    "equipment": "body weight",
+    "type": "mobility",
+    "muscles": {
+      "abs": 40,
+      "calves": 40,
+      "gluteal": 40,
+      "hip-flexors": 100,
+      "quadriceps": 40
+    },
+    "target": "hip flexors",
+    "detail": {
+      "description": "走步中交替抬膝，练髋屈和支撑腿稳定，适合放在训练的动态热身。",
+      "steps": [
+        "面朝空旷路线站直，双臂自然摆动。先把重心移到一条腿上，脚掌稳定落地。",
+        "另一腿屈髋屈膝往前抬，在不后仰的前提下抬到舒适高度。支撑腿保持稳定，骨盆不要明显抬偏。",
+        "控制抬起的脚向前落下，转移重心再抬另一侧。两侧交替。",
+        "走出连续、安静的节奏。想加快前，先确认每步都能稳住。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12151",
+    "name": "负重前后弓步组合",
+    "en": "dumbbell forward and reverse lunge combination",
+    "part": "upper legs",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "adductors": 40,
+      "gluteal": 100,
+      "hamstring": 40,
+      "obliques": 40,
+      "quadriceps": 100
+    },
+    "target": "quads",
+    "detail": {
+      "description": "同一腿交替向前和向后迈步，另一腿负责支撑与制动。主要练臀肌、股四头肌和单腿控制。",
+      "steps": [
+        "双手持轻哑铃置于身体两侧，双脚髋宽站好并留出前后的步行空间。",
+        "一腿向前迈步，前脚掌完整落地后屈髋屈膝，下降到能稳定站起的深度。",
+        "用前脚蹬地回到中间站姿。同一腿再向后迈步，另一腿留在前面承重，做一次后撤弓步。",
+        "用留在前方的脚蹬地回到中间。前后各一次组成一轮，先站稳再切换，完成后换边。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12152",
+    "name": "跪凳鸟狗式哑铃划船",
+    "en": "bench-supported dumbbell bird dog row",
+    "part": "back",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "biceps": 40,
+      "gluteal": 40,
+      "lats": 100,
+      "lower-back": 40,
+      "obliques": 100,
+      "rear-delts": 40,
+      "upper-back": 100
+    },
+    "target": "upper back",
+    "needs": [
+      "bench"
+    ],
+    "detail": {
+      "description": "在对侧手和膝支撑下做单臂哑铃划船。背阔肌与上背发力，核心负责抵抗翻转。",
+      "steps": [
+        "一手支在凳上，另一侧膝盖支在凳面。空出的手握哑铃，空出的腿向后伸，与躯干大致延伸成一条线。",
+        "支撑手压住凳面，胸口和骨盆朝下。先确认两处支撑能稳住。",
+        "把握铃侧的肘拉到肋骨旁，短暂停住，不借抬腿或翻身提高哑铃。",
+        "控制哑铃下放到肩下。若晃动明显，先把后伸脚点地，再练回鸟狗支撑。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12153",
+    "name": "跪姿双把手高位下拉",
+    "en": "kneeling dual-handle lat pulldown",
+    "part": "back",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "biceps": 40,
+      "forearm": 40,
+      "lats": 100,
+      "rear-delts": 40,
+      "upper-back": 40
+    },
+    "target": "lats",
+    "needs": [
+      "single handle"
+    ],
+    "detail": {
+      "description": "双膝跪姿高位下拉，重点练背阔肌，上背和屈肘肌群协助。",
+      "steps": [
+        "将两个把手调到对称高位，双膝着地面向器械，握住两把手，臀部在膝盖上方。",
+        "手臂举过头顶，肩胛自然抬起。收住肋骨，保持头部与脊柱对齐。",
+        "把两侧肘向肋骨外侧下拉，把手靠近肩膀。维持身体位置，减少后仰。",
+        "慢慢打开肘，把把手送回头顶，保持两边轨迹对称。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12154",
+    "name": "跪姿弹力带顶髋",
+    "en": "kneeling band-resisted hip extension",
+    "part": "upper legs",
+    "equipment": "resistance band",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "gluteal": 100,
+      "hamstring": 40,
+      "obliques": 40
+    },
+    "target": "glutes",
+    "needs": [
+      "training anchor"
+    ],
+    "detail": {
+      "description": "高跪姿对抗弹力带向后的拉力进行髋伸展。重点收紧臀肌，腹部保持躯干稳定。",
+      "steps": [
+        "在身后低位固定长弹力带，带子绕过髋前部。先检查固定点，双膝落在垫上，膝间约髋宽。",
+        "向前挪到带子有轻微张力，肋骨收在骨盆上方。向后坐一点，从髋关节折叠。",
+        "呼气并收臀，把髋带回到双膝正上方。站直到臀部收紧即可，保持腰背自然。",
+        "缓慢屈髋回到起点，让带子始终可控。结束时先靠近固定点卸掉张力。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12155",
+    "name": "跪姿腰带抗阻侧平举",
+    "en": "kneeling waist-resisted dumbbell lateral raise",
+    "part": "shoulders",
+    "equipment": "dumbbell",
+    "type": "strength",
+    "muscles": {
+      "gluteal": 40,
+      "obliques": 40,
+      "rotator-cuff": 40,
+      "side-delts": 100,
+      "trapezius": 40
+    },
+    "target": "side delts",
+    "needs": [
+      "resistance band",
+      "training anchor"
+    ],
+    "detail": {
+      "description": "哑铃侧平举练三角肌中束，腰带提供额外牵引，核心与臀部维持跪姿。",
+      "steps": [
+        "固定弹力带与髋部腰带，先用轻牵引试稳。双膝跪地，膝距约与髋同宽。",
+        "每手握一只轻哑铃，手在身体两侧，肘微屈。让骨盆和胸口保持在膝盖上方。",
+        "把上臂向两侧稍偏前抬至肩高以内，保持手腕、肘和肩走同一自然弧线。",
+        "缓慢放回身体两侧。若被腰带拉动或要耸肩才能完成，减小阻力。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12156",
+    "name": "转步绳索水平快转",
+    "en": "pivoting high-speed horizontal cable rotation",
+    "part": "waist",
+    "equipment": "cable",
+    "type": "strength",
+    "muscles": {
+      "abs": 40,
+      "front-delts": 40,
+      "gluteal": 100,
+      "obliques": 100,
+      "quadriceps": 40,
+      "serratus": 40
+    },
+    "target": "obliques",
+    "needs": [
+      "cable handle"
+    ],
+    "detail": {
+      "description": "用轻绳索练转脚、转髋和把手加速的衔接。主要依靠臀部与腹斜肌传递发力。",
+      "steps": [
+        "侧对胸高滑轮，两手握把在胸前。用很轻的阻力，给转脚留出空间。",
+        "先做慢速试转，启动脚掌转向，再由髋和胸把把手沿近水平路径带过身体。",
+        "动作熟悉后快速转向目标方向，握稳把手并在结束位置控制住。",
+        "慢慢回到起点，重新找稳脚下，再做下一次。两侧轮换。"
+      ],
+      "language": "zh"
+    }
+  },
+  {
+    "id": "12157",
+    "name": "轻松骑车或快走",
+    "en": "easy cycling or brisk walking",
+    "part": "cardio",
+    "equipment": "body weight",
+    "type": "cardio",
+    "muscles": {
+      "calves": 40,
+      "cardiovascular system": 100,
+      "gluteal": 40,
+      "quadriceps": 40
+    },
+    "target": "cardiovascular system",
+    "detail": {
+      "description": "力量训练前的有氧热身。示范同时展示固定单车轻阻骑行与徒手快走，用持续的腿部动作逐步进入训练状态。",
+      "steps": [
+        "选固定单车或平坦步行区。骑车先调好座位，脚踩到最低点时膝盖仍微屈。",
+        "从慢走或轻阻踩踏起步，逐渐进入轻快、仍能完整说话的节奏。",
+        "保持均匀的步幅或踩踏节奏。结束前把速度放缓，衔接后面的活动度或热身动作。"
+      ],
+      "language": "zh"
+    }
+  }
+]
