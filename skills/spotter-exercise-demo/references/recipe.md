@@ -7,7 +7,7 @@ See [the dumbbell squat sample](example-squat.json) for a complete recipe. The m
 | `version` | `1` |
 | `durationMs` | 1200–6500. Choose a deliberate tempo for the movement. |
 | `camera` | Optional `yaw` and `elevation` in degrees, `focus` as `[x,y,z]`, and `height` in metres. Frame the athlete and full equipment travel. |
-| `equipment` | `none`, `mat`, `step`, `dumbbell`, `dumbbells`, `mat-dumbbells`, `cable`, `dual-cable`, `rope` `band` or `landmine`. The mat is centered near `[0,0,-0.30]` and the step top is 0.31 m at `z=0.51`. |
+| `equipment` | `none`, `mat`, `step`, `dumbbell`, `dumbbells`, `mat-dumbbells`, `cable`, `dual-cable`, `rope` `band` or `landmine`. Additional presets include `bench`, `neutral-pull-up`, `band-ankle`, `cable-lat-bar` and `leg-curl`. The flat bench surface is 0.46 m high at `x=0.10, z=0.98`. The pull-up grips face along Z at `x=±0.193, y=2.144, z=0.097`. The mat is centered near `[0,0,-0.30]` and the step top is 0.31 m at `z=0.51`. |
 | `muscles` | Optional names from `lat`, `quad`, `glute`, `pec`, `core`, `shoulder`, `rearShoulder`, `forearm`, `triceps`. Use `l:` or `r:` for unilateral highlights. |
 | `keyframes` | 3–65 keyframes. `at` increases from 0 to 1. Supply enough samples to control the path and contact timing. |
 
@@ -19,6 +19,7 @@ Optional per-frame fields:
 - `lGrip` and `rGrip` specify the direction of a handle through the grasp. For dumbbells, set `dumbbells` to an array of `{center, axis}` objects in a stable order. Match the corresponding grasp and grip direction on every frame.
 - `cables` uses `{anchor, end, grip}` objects. Anchors remain fixed. Match the end and grip to the athlete's hand. For a rope, provide two ends and one shared anchor.
 - `band` uses a fixed `anchor` and a moving `end`, each an `[x,y,z]` coordinate. Place the end between the hands when both hold the loop.
+- `cable-lat-bar` uses a single `cables` entry with the bar center as its end. `leg-curl` uses a per-frame `roller` center.
 - `landmine` uses `{pivot, end}` with a fixed pivot and an end that matches the athlete's grip through a consistent arc.
 - `followZ` moves the camera along the forward axis for continuous locomotion. The actor and camera should advance by the same amount across one loop.
 - `headDrop` provides a small correction in metres, for example when lying down.

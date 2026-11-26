@@ -3,7 +3,7 @@ const joints = ['hips', 'chest', 'neck', 'head', 'ls', 'le', 'lw', 'rs', 're', '
 const optionalVectors = ['lGrip', 'rGrip'];
 const musclePattern = /^(?:(?:l|r):)?(?:lat|quad|glute|pec|core|shoulder|rearShoulder|forearm|triceps)$/;
 const validEquipment = new Set(['none', 'mat', 'step', 'dumbbell', 'dumbbells',
-  'mat-dumbbells', 'band', 'cable', 'dual-cable', 'rope', 'landmine']);
+  'mat-dumbbells', 'band', 'band-ankle', 'bench', 'neutral-pull-up', 'cable', 'dual-cable', 'cable-lat-bar', 'leg-curl', 'rope', 'landmine']);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -37,9 +37,14 @@ export function prepareRecipe(input) {
   assert(validEquipment.has(equipment), 'Unknown equipment preset.');
   const options = {
     bells: ({dumbbell: 1, dumbbells: 2, 'mat-dumbbells': 2})[equipment] ?? 0,
-    cableCount: ({cable: 1, 'dual-cable': 2, rope: 2})[equipment] ?? 0,
+    cableCount: ({cable: 1, 'cable-lat-bar': 1, 'dual-cable': 2, rope: 2})[equipment] ?? 0,
     rope: equipment === 'rope',
-    band: equipment === 'band',
+    band: equipment === 'band' || equipment === 'band-ankle',
+    ankleCuff: equipment === 'band-ankle',
+    bench: equipment === 'bench',
+    pullUp: equipment === 'neutral-pull-up',
+    latBar: equipment === 'cable-lat-bar',
+    legCurl: equipment === 'leg-curl',
     landmine: equipment === 'landmine',
     mat: equipment === 'mat' || equipment === 'mat-dumbbells',
     step: equipment === 'step',
@@ -85,6 +90,7 @@ export function prepareRecipe(input) {
       return {anchor, end: vector(cable.end, 'cable end'), grip: axis(cable.grip, 'cable grip'), kind: options.rope ? 'rope' : 'handle'};
     });
     if (options.rope) assert(equal(pose.cables[0].anchor, pose.cables[1].anchor), 'Both rope ends must use the same anchor.');
+    if (options.legCurl) pose.roller = vector(frame.roller, 'leg curl roller');
     if (options.band) {
       const anchor = vector(frame.band?.anchor, 'band anchor');
       number(anchor[1], .12, 2.6, 'band anchor height');
@@ -132,6 +138,7 @@ export function prepareRecipe(input) {
       end: blend(cable.end, b.cables[index].end, weight),
       grip: blend(cable.grip, b.cables[index].grip, weight),
     }));
+    if (options.legCurl) pose.roller = blend(a.roller, b.roller, weight);
     if (options.band) pose.band = {anchor: a.band.anchor, end: blend(a.band.end, b.band.end, weight)};
     if (options.landmine) pose.landmine = {pivot: a.landmine.pivot, end: blend(a.landmine.end, b.landmine.end, weight)};
     return pose;

@@ -478,7 +478,11 @@ test("catalogue cards use the same reviewed media as the selected exercise", asy
   const { catalogueDemo, catalogueCover } = await import("../features/exercises/catalogue-demo.ts");
   const { rows } = JSON.parse(readFileSync(new URL("../public/open-gym/index.json", import.meta.url), "utf8"));
   const cover = (id) => catalogueCover(catalogueDemo(rows.find((row) => row.id === id)));
-  assert.equal(cover("0176"), "/open-gym/thumb/0176.svg");
+  const spotter = JSON.parse(readFileSync(new URL("../features/exercises/spotter-demo-assets.json", import.meta.url), "utf8"));
+  for (const [id, path] of Object.entries(spotter)) {
+    assert.equal(cover(id), path.replace(/\.mp4$/, ".jpg"), id);
+  }
+  assert.equal(cover("0025"), "/open-gym/thumb/0025.svg");
   assert.match(decodeURIComponent(cover("6813")), /^data:image\/svg\+xml,<svg/);
   assert.equal(cover("0047"), "/open-gym/demo-video/incline-bench-press.jpg");
   assert.equal(cover("1060"), "/open-gym/workout-guide/hip-thrust/01.svg");

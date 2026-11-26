@@ -235,10 +235,129 @@ function landmine(f) {
   return p;
 }
 
+function neutralPullUp(f) {
+  const t = rep(f, .45);
+  const hip = v(0, mix(1.024, 1.536, t), mix(.030, -.084, t));
+  const p = body(hip, 0, mix(0, -.087, t));
+  legs(p, v(.087, hip[1] - .824, hip[2] + .076),
+    v(-.087, hip[1] - .824, hip[2] + .076),
+    [v(.013, -.123, .107), v(-.013, -.123, .107)]);
+  p.planted = {};
+  for (const [side, sign] of sides) {
+    arm(p, side, v(sign * .193, 2.144, .097), v(sign * .29, -.84, .54), v(0, 0, 1));
+  }
+  return p;
+}
+
+function kneelingLandmine(f) {
+  const d = rep(f, .47);
+  const p = body(v(.004, .456, -.022), -.033, mix(.024, .079, d));
+  for (const [side, sign] of sides) {
+    p[side + 'k'] = v(sign * .128, .077, .100);
+    p[side + 'a'] = v(sign * .137, .093, -.315);
+    p[side + 't'] = v(sign * .143, .011, -.452);
+  }
+  p.planted = {};
+  const pivot = v(.201, .089, 1.050);
+  const angle = mix(44, 67, d) * radians;
+  const axis = v(0, Math.sin(angle), -Math.cos(angle));
+  const hand = arm(p, 'l', add(pivot, mul(axis, 1.271)), v(.44, -.87, .18), axis);
+  arm(p, 'r', add(p.rs, v(-.041, -.413, .126)), v(-.78, -.17, -.44));
+  p.landmine = {pivot, end: hand};
+  return p;
+}
+
+function bandHipAdduction(f) {
+  const d = rep(f, .46);
+  const p = body(v(-.082, .882, .025), -.014, .017);
+  const free = v(mix(.420, -.226, d), mix(.145, .177, d), mix(.093, .223, d));
+  legs(p, free, v(-.202, ankleHeight, .020),
+    [v(.021, -.068, .152), v(-.006, -.071, .149)]);
+  p.planted = {r: 0};
+  const cuff = add(p.la, v(0, .083, 0));
+  p.band = {anchor: v(1.02, .186, .093), end: cuff};
+  arm(p, 'r', v(-.510, 1.108, .30), v(-.72, -.61, .25), v(0, 0, 1));
+  arm(p, 'l', add(p.ls, v(.043, -.47, .104)), v(.82, -.34, -.51));
+  return p;
+}
+
+function singleLegBenchBridge(f) {
+  const d = rep(f, .46);
+  const hip = v(0, mix(.112, .409, d), mix(.182, .109, d));
+  const p = body(hip, 0, 0, true);
+  for (const joint of ['neck', 'head', 'ls', 'rs']) {
+    p[joint][1] = .117;
+    p[joint][2] -= hip[2] - .182;
+  }
+  p.chest = blend(hip, p.neck, .60);
+  p.headDrop = .019;
+  legs(p, v(.184, .535, .817),
+    add(hip, v(-.163, mix(.553, .430, d), mix(.589, .695, d))),
+    [v(.012, -.072, .158), v(-.016, .159, .027)]);
+  p.planted = {l: .460};
+  for (const [side, sign] of sides) {
+    arm(p, side, v(sign * .431, .074, .105), v(sign * .58, -.67, -.27));
+  }
+  return p;
+}
+
+function kneelingHighPulldown(f) {
+  const d = rep(f, .47);
+  const p = body(v(0, .452, -.141), 0, mix(0, -.094, d));
+  for (const [side, sign] of sides) {
+    p[side + 'k'] = v(sign * .125, .080, -.020);
+    p[side + 'a'] = v(sign * .139, .098, -.436);
+    p[side + 't'] = v(sign * .145, .011, -.581);
+    arm(p, side, v(sign * .325, mix(1.44, .996, d), mix(.126,.114,d)),
+      v(sign * .72, -.87, -.16), v(1, 0, 0));
+  }
+  p.planted = {};
+  p.cables = [{anchor:v(0,1.962,.496),end:mul(add(p.lw,p.rw),.5),grip:v(1,0,0)}];
+  return p;
+}
+
+function twoUpOneDownLegCurl(f) {
+  const cycle = f * 2;
+  const phase = cycle % 1;
+  const lowering = cycle < 1 ? 'l' : 'r';
+  const peak = 1.64;
+  const extension = -.12;
+  const raise = smooth(phase / .38);
+  const lower = smooth((phase - .49) / .34);
+  const separate = smooth((phase - .38) / .12) * (1 - smooth((phase - .92) / .08));
+  const hip = v(0, .673, .251);
+  const p = body(hip, Math.PI, 0, true);
+  p.neck[1] = .644;
+  p.headDrop = -.018;
+  p.planted = {};
+  for (const [side, sign] of sides) {
+    const support = side === lowering;
+    const lateReturn = smooth((phase - .70) / .22);
+    const flexion = mix(extension, peak, raise * (1 - (support ? lower : lateReturn)));
+    const knee = v(-sign * .108,.597,.663);
+    const shift = support ? 0 : .224 * separate;
+    const radius = Math.sqrt(.424 ** 2 - shift ** 2);
+    const ankle = add(knee, v(-sign * shift,Math.sin(flexion)*radius,Math.cos(flexion)*radius));
+    p[side + 'k'] = knee;
+    p[side + 'a'] = ankle;
+    p[side + 't'] = add(ankle, v(0,-Math.cos(flexion)*.146+Math.sin(flexion)*.066,
+      Math.sin(flexion)*.146+Math.cos(flexion)*.066));
+    arm(p, side, v(-sign*.30,.491,-.526), v(-sign*.76,-.37,.22), v(0,0,1));
+    if (support) {
+      const rollerRadius = .424;
+      p.roller = v(0, knee[1] + Math.sin(flexion) * rollerRadius + Math.cos(flexion) * .084,
+        knee[2] + Math.cos(flexion) * rollerRadius - Math.sin(flexion) * .084);
+    }
+  }
+  return p;
+}
+
 const moves = {
   '2966': frontSquat, '3668': floorPress, '2910': suitcaseWalk,
   '5609': facePull, '8141': cableFly, '1202': pallof, '0979': bandPallof, '8193': reverseChop,
   '0781': splitSquat, '0801': stepUp, '5094': landmine,
+  '5473': neutralPullUp, '3525': kneelingLandmine, '4029': bandHipAdduction, '2473': singleLegBenchBridge,
+  '11253': kneelingHighPulldown, '3195': twoUpOneDownLegCurl,
 };
 
 export const poseFor = (id, phase) => moves[id]((phase % 1 + 1) % 1);
