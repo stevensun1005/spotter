@@ -12,6 +12,7 @@ struct NativeWorkoutShareView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
+    @EnvironmentObject private var avatars: NativeAvatarStore
     @State private var showDetails = true
     @State private var merge = false
     @State private var includeHeart = false
@@ -88,12 +89,14 @@ struct NativeWorkoutShareView: View {
             shading = MuscleShading(entries: entries, values: values)
         }
         .task(id: requestedHeart) { await loadHeart(ids: requestedHeart) }
+        .onAppear { if entry.owner == owner { avatars.watch(owner) } }
+        .onDisappear { if entry.owner == owner { avatars.unwatch(owner) } }
         .sheet(item: $output) { ShareActivity(image: $0.image).presentationDetents([.medium, .large]) }
     }
 
     private var poster: WorkoutSharePoster {
         WorkoutSharePoster(summary: NativeWorkoutShareSummary(entry: entry, logs: displayedLogs),
-                           name: displayName, theme: theme, artwork: artwork ?? [:], figure: figure,
+                           name: displayName, photo: avatars.photo(for: owner), theme: theme, artwork: artwork ?? [:], figure: figure,
                            intensity: shading?.entries == displayedLogs ? shading?.values ?? [:] : [:],
                            details: showDetails, heart: selectedHeart?.readings ?? [:])
     }
@@ -285,6 +288,7 @@ private struct ShareControlStyle: ButtonStyle {
 private struct WorkoutSharePoster: View {
     let summary: NativeWorkoutShareSummary
     let name: String
+    let photo: NativeAccountAvatarPhoto?
     let theme: ShareTheme
     let artwork: [String: SecondaryAnatomy.Drawing]
     let figure: SecondaryAnatomy.Figure
@@ -352,10 +356,8 @@ private struct WorkoutSharePoster: View {
     private var summaryPanel: some View {
         panel {
             HStack(spacing: 7) {
-                Text(name.first.map { String($0).uppercased() } ?? "练")
-                    .font(.system(size: 12, weight: .bold))
-                    .frame(width: 25, height: 25).background(theme.light, in: Circle())
-                    .accessibilityHidden(true)
+                NativeAccountAvatar(name: name.isEmpty ? "练" : name, photo: photo, size: 25,
+                                    appearance: .init(foreground: theme.ink, background: theme.light, outlined: false))
                 Text(name.isEmpty ? "训练记录" : name).font(.system(size: 14, weight: .bold)).lineLimit(1)
                 Spacer(minLength: 0)
             }

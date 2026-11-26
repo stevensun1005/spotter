@@ -348,6 +348,7 @@ struct NativeCoachView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Environment(\.spotterInteractionMotion) private var controlMotion
+    @Environment(\.spotterGuide) private var guide
     @FocusState private var editingMessage: Bool
     @AppStorage private var sharingAllowed: Bool
     @AppStorage(NativePreferenceKey.officialTemplates) private var showsOfficialTemplates = true
@@ -448,13 +449,14 @@ struct NativeCoachView: View {
         .background(atmosphere)
         .toolbar(.hidden, for: .navigationBar)
         .environment(\.colorScheme, .dark)
+        .nativeGuideLayer(.coachPanel)
         .interactiveDismissDisabled(isNutritionPhoto && session.busy)
         .task(id: owner) {
-            await refreshQuota(ifUnknown: true)
             if initialTrainingGoal != nil, !startedWelcomeGuide, !Task.isCancelled {
                 startedWelcomeGuide = true
                 openGuide()
             }
+            await refreshQuota(ifUnknown: true)
         }
         .task(id: session.quota?.blockedUntil) {
             guard let reset = session.quota?.blockedUntil else { return }
@@ -500,7 +502,9 @@ struct NativeCoachView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showAgentAccess) {
+        .sheet(isPresented: $showAgentAccess, onDismiss: {
+            if guide?.step == .agentTutorial { guide?.close() }
+        }) {
             NavigationStack {
                 NativeAgentAccessView(api: api, owner: owner, showsClose: true)
             }
@@ -626,14 +630,22 @@ struct NativeCoachView: View {
         let menu = Menu {
             if mode == .coach {
                 if !session.lines.isEmpty || session.mealDraft != nil || session.picture != nil {
-                    Button("新对话", systemImage: "plus.message", action: resetConversation).disabled(session.busy)
+                    Button("新对话", systemImage: "plus.message", action: resetConversation)
+                        .disabled(session.busy || guide?.step == .coachMenu)
                 }
                 Button(showOptions ? "收起对话选项" : "对话选项", systemImage: "slider.horizontal.3") {
                     editingMessage = false
                     showOptions.toggle()
-                }.disabled(session.busy || session.picture != nil || session.weightPrompt)
-                if let onStartWorkout { Button("开始训练", systemImage: "dumbbell", action: onStartWorkout).disabled(session.busy) }
-                Button("用自己的 AI", systemImage: "square.and.arrow.up") { switchMode(.own) }.disabled(session.busy)
+                }.disabled(session.busy || session.picture != nil || session.weightPrompt || guide?.step == .coachMenu)
+                if let onStartWorkout {
+                    Button("开始训练", systemImage: "dumbbell", action: onStartWorkout)
+                        .disabled(session.busy || guide?.step == .coachMenu)
+                }
+                Button("用自己的 AI", systemImage: "square.and.arrow.up") {
+                    switchMode(.own)
+                    guide?.advance(.coachMenu)
+                }
+                .disabled(session.busy)
             } else {
                 Button("返回教练对话", systemImage: "bubble") { switchMode(.coach) }
             }
@@ -641,7 +653,7 @@ struct NativeCoachView: View {
             Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold)).foregroundStyle(CoachColors.text)
                 .frame(width: 20, height: 44)
         }.accessibilityLabel("教练菜单")
-        return coachChrome(menu)
+        return coachChrome(menu).nativeGuideTarget(.coachMenu)
     }
 
     private func switchMode(_ next: Mode) {
@@ -1796,7 +1808,11 @@ struct NativeCoachView: View {
                     messageTitle("link", "连接你的 Agent")
                     Text("在支持 MCP 或自定义 HTTP 的工具里，让 Agent 读取你授权的记录，也可以添加训练计划和饮食。")
                         .font(.subheadline).foregroundStyle(CoachColors.muted)
-                    coachPrimary("设置连接与复制提示词") { showAgentAccess = true }
+                    coachPrimary("设置连接与复制提示词") {
+                        showAgentAccess = true
+                        guide?.advance(.agentConnect)
+                    }
+                    .nativeGuideTarget(.agentConnect)
                 }.padding(14).coachPanel()
                 VStack(alignment: .leading, spacing: 10) {
                     messageTitle("sparkles", "用提示词整理计划")

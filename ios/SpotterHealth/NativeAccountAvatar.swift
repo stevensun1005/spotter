@@ -15,6 +15,11 @@ struct NativeAccountAvatarPhoto {
         self.image = image
     }
 
+    static func bytes(_ image: String) -> Data? {
+        guard image.utf8.count <= ((byteLimit + 2) / 3) * 4 else { return nil }
+        return Data(base64Encoded: image)
+    }
+
     static func makeJPEG(from input: Data) -> Data? {
         guard input.count <= 32_000_000, let source = CGImageSourceCreateWithData(
             input as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
@@ -49,27 +54,59 @@ struct NativeAccountAvatarPhoto {
 }
 
 struct NativeAccountAvatar: View {
+    struct Appearance {
+        var foreground: Color? = nil
+        var background: Color? = nil
+        var cornerRadius: CGFloat? = nil
+        var fallbackIcon: String? = nil
+        var outlined = true
+    }
+
     @Environment(\.spotterAccent) private var accent
     let name: String
     let photo: NativeAccountAvatarPhoto?
-    var size: CGFloat
+    let size: CGFloat
+    var appearance = Appearance()
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: appearance.cornerRadius ?? size / 2)
         Group {
             if let photo {
                 Image(uiImage: photo.image).resizable().scaledToFill()
             } else {
-                Text(name.first.map(String.init)?.uppercased() ?? "我")
+                Group {
+                    if let symbol = appearance.fallbackIcon { Image(systemName: symbol) }
+                    else { Text(name.trimmingCharacters(in: .whitespacesAndNewlines).first.map(String.init)?.uppercased() ?? "我") }
+                }
                     .font(.system(size: size * 0.40, weight: .bold, design: .rounded))
-                    .foregroundStyle(accent.tint)
+                    .foregroundStyle(appearance.foreground ?? accent.tint)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(accent.selection)
+                    .background(appearance.background ?? accent.selection)
             }
         }
         .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(Circle().strokeBorder(SpotterPalette.line, lineWidth: 1).allowsHitTesting(false))
+        .clipShape(shape)
+        .overlay {
+            if appearance.outlined { shape.strokeBorder(SpotterPalette.line, lineWidth: 1).allowsHitTesting(false) }
+        }
         .accessibilityHidden(true)
+    }
+}
+
+@MainActor
+struct NativePersonAvatar: View {
+    @EnvironmentObject private var avatars: NativeAvatarStore
+    let id: String?
+    let name: String
+    let size: CGFloat
+    var appearance = NativeAccountAvatar.Appearance()
+
+    var body: some View {
+        let subject = id
+        NativeAccountAvatar(name: name, photo: subject.flatMap { avatars.photo(for: $0) }, size: size, appearance: appearance)
+            .onAppear { if let subject { avatars.watch(subject) } }
+            .onDisappear { if let subject { avatars.unwatch(subject) } }
+            .id(subject)
     }
 }
 
@@ -80,11 +117,24 @@ enum NativeAccountAvatarAPI {
 
         func photo() throws -> NativeAccountAvatarPhoto? {
             guard let image else { return nil }
-            guard let data = Data(base64Encoded: image), let photo = NativeAccountAvatarPhoto(jpeg: data) else {
+            guard let data = NativeAccountAvatarPhoto.bytes(image), let photo = NativeAccountAvatarPhoto(jpeg: data) else {
                 throw NativeAPIError.invalidResponse
             }
             return photo
         }
+    }
+
+    private struct AvatarBatch: Decodable { let avatars: [String: String?] }
+
+    static func get(api: NativeAPI, owner: String, ids: [String]) async throws -> [String: String?] {
+        var components = URLComponents()
+        components.path = "/api/auth/avatars"
+        components.queryItems = ids.map { URLQueryItem(name: "ids", value: $0) }
+        // URLSearchParams treats a literal plus as a space.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        guard let path = components.string else { throw NativeAPIError.invalidRequest }
+        let response = try await api.request(path, method: "GET", json: nil, for: owner)
+        return try JSONDecoder().decode(AvatarBatch.self, from: response).avatars
     }
 
     static func get(api: NativeAPI, owner: String) async throws -> NativeAccountAvatarPhoto? {
@@ -97,6 +147,140 @@ enum NativeAccountAvatarAPI {
         let body = try JSONSerialization.data(withJSONObject: ["image": image, "expectedOwner": owner])
         let response = try await api.request("/api/auth/avatar", method: "PATCH", json: body, for: owner)
         return try JSONDecoder().decode(AvatarResponse.self, from: response).photo()
+    }
+}
+
+@MainActor
+final class NativeAvatarStore: ObservableObject {
+    static let refreshInterval: TimeInterval = 60
+
+    let owner: String
+    private let api: NativeAPI
+    @Published private var photos: [String: NativeAccountAvatarPhoto] = [:]
+    private var observers: [String: Int] = [:]
+    private var lastAttempt: [String: Date] = [:]
+    private var pending: Task<Void, Never>?
+    private var foreground = false
+    private var generation = 0
+    private var ownRevision = 0
+
+    init(api: NativeAPI, owner: String) {
+        self.api = api
+        self.owner = owner
+    }
+
+    deinit { pending?.cancel() }
+
+    func photo(for id: String) -> NativeAccountAvatarPhoto? { photos[id] }
+
+    func watch(_ id: String) {
+        guard !id.isEmpty, id.utf8.count <= 250 else { return }
+        observers[id, default: 0] += 1
+        schedule()
+    }
+
+    func unwatch(_ id: String) {
+        guard let count = observers[id] else { return }
+        if count > 1 { observers[id] = count - 1 }
+        else { observers.removeValue(forKey: id) }
+    }
+
+    func setForeground(_ active: Bool) {
+        guard foreground != active else { return }
+        foreground = active
+        if active { refreshVisible() }
+        else { cancelPending() }
+    }
+
+    func refreshVisible() {
+        guard foreground, pending == nil else { return }
+        lastAttempt.removeAll(keepingCapacity: true)
+        schedule()
+    }
+
+    func confirmOwnPhoto(_ photo: NativeAccountAvatarPhoto?, for id: String) {
+        guard id == owner else { return }
+        ownRevision &+= 1
+        lastAttempt[id] = .now
+        if photos[id]?.jpeg != photo?.jpeg { photos[id] = photo }
+    }
+
+    func forgetPeer(_ id: String) {
+        guard id != owner else { return }
+        cancelPending()
+        if photos[id] != nil { photos.removeValue(forKey: id) }
+        refreshVisible()
+    }
+
+    func clear() {
+        ownRevision &+= 1
+        setForeground(false)
+        photos.removeAll()
+        lastAttempt.removeAll()
+    }
+
+    private func cancelPending() {
+        generation &+= 1
+        pending?.cancel()
+        pending = nil
+    }
+
+    private func dueIDs() -> [String] {
+        let now = Date.now
+        return observers.keys.filter { id in
+            now.timeIntervalSince(lastAttempt[id] ?? .distantPast) >= Self.refreshInterval
+        }.sorted()
+    }
+
+    private func schedule() {
+        guard foreground, pending == nil, !dueIDs().isEmpty else { return }
+        let generation = self.generation
+        pending = Task { [weak self] in
+            // Collect all the identity chips that appeared in a single view update.
+            do { try await Task.sleep(for: .milliseconds(90)) } catch { return }
+            await self?.loadVisible(generation: generation)
+        }
+    }
+
+    private func loadVisible(generation: Int) async {
+        guard generation == self.generation, foreground else { return }
+        defer {
+            if generation == self.generation {
+                pending = nil
+                schedule()
+            }
+        }
+        let ids = dueIDs()
+        // A fully percent-encoded 250-byte ID can consume 750 bytes of the request path.
+        let batchSize = 10
+        for start in stride(from: 0, to: ids.count, by: batchSize) {
+            guard !Task.isCancelled, generation == self.generation else { return }
+            let batch = ids[start ..< min(start + batchSize, ids.count)].filter { observers[$0] != nil }
+            guard !batch.isEmpty else { continue }
+            let ownRevision = self.ownRevision
+            for id in batch { lastAttempt[id] = .now }
+            do {
+                let response = try await NativeAccountAvatarAPI.get(api: api, owner: owner, ids: batch)
+                guard !Task.isCancelled, generation == self.generation else { return }
+                var updated = photos
+                var changed = false
+                for id in batch where id != owner || ownRevision == self.ownRevision {
+                    let bytes = (response[id] ?? nil).flatMap(NativeAccountAvatarPhoto.bytes)
+                    guard bytes != updated[id]?.jpeg else { continue }
+                    // Both a removed image and a no-longer-authorized identity should return to initials.
+                    updated[id] = bytes.flatMap { NativeAccountAvatarPhoto(jpeg: $0) }
+                    changed = true
+                }
+                if changed { photos = updated }
+            } catch let error as NativeAPIError where error.statusCode == 404 && batch.contains(owner) {
+                // Older servers still expose the signed-in account's individual photo.
+                do {
+                    let photo = try await NativeAccountAvatarAPI.get(api: api, owner: owner)
+                    guard !Task.isCancelled, generation == self.generation, ownRevision == self.ownRevision else { continue }
+                    if photos[owner]?.jpeg != photo?.jpeg { photos[owner] = photo }
+                } catch {}
+            } catch {}
+        }
     }
 }
 

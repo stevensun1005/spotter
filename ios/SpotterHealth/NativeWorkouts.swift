@@ -1527,8 +1527,8 @@ struct NativeWorkoutView: View {
                 }
             }
             HStack(spacing: 12) {
-                member("我", initial: String(store.viewerName.prefix(1)), checked: todayMine, connected: true, purple: false, records: mine)
-                member(store.partnerName, initial: connected ? String(store.partnerName.prefix(1)) : "", checked: todayPartner,
+                member("我", avatarName: store.viewerName, id: store.owner, checked: todayMine, connected: true, purple: false, records: mine)
+                member(store.partnerName, avatarName: store.partnerName, id: connected ? store.partnerID : nil, checked: todayPartner,
                        connected: connected, purple: true, statusOverride: canSeePartner ? nil : "打卡未公开", records: partnerToday)
             }
             if canSeePartner, let latest, latest.day >= (lastDay ?? "") {
@@ -1580,14 +1580,14 @@ struct NativeWorkoutView: View {
             store.room["partnerCheckins"].array.contains { $0["date"].string == NativeWorkoutSession.day() && $0["count"].number > 0 }
     }
 
-    private func member(_ name: String, initial: String, checked: Bool, connected: Bool, purple: Bool,
+    private func member(_ name: String, avatarName: String, id: String?, checked: Bool, connected: Bool, purple: Bool,
                         statusOverride: String? = nil, records: [NativeWorkoutEntry]) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 7) {
-                Group { if initial.isEmpty { Image(systemName: "person") } else { Text(initial).fontWeight(.bold) } }
-                    .font(.system(size: 14)).frame(width: 32, height: 32)
-                    .background(purple ? SpotterPalette.color(0xe8def7) : accent.fill, in: Circle())
-                    .foregroundStyle(SpotterPalette.deep)
+                NativePersonAvatar(id: id, name: avatarName, size: 32, appearance: .init(
+                    foreground: SpotterPalette.deep, background: purple ? SpotterPalette.color(0xe8def7) : accent.fill,
+                    fallbackIcon: connected ? nil : "person", outlined: false
+                ))
                 Text(name).font(.system(size: 14, weight: .bold)).lineLimit(1)
             }
             Label(statusOverride ?? (connected ? (checked ? "已打卡" : store.isLoading ? "同步中" : "未打卡") : "未连接"), systemImage: checked ? "checkmark" : "circle")

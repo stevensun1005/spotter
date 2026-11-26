@@ -176,8 +176,12 @@ struct NativeCoachingView: View {
             if links.isEmpty { Text("还没有教练或学员。").foregroundStyle(.secondary) }
             ForEach(links) { link in
                 if link.coachId == owner {
-                    Label(link.studentName, systemImage: "person")
-                        .accessibilityLabel("学员 \(link.studentName)")
+                    HStack {
+                        NativePersonAvatar(id: link.studentId, name: link.studentName, size: 30)
+                        Text(link.studentName)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("学员 \(link.studentName)")
                 } else if link.studentId == owner {
                     Toggle(isOn: Binding(get: { link.shareDetails }, set: { value in
                         Task {
@@ -188,9 +192,12 @@ struct NativeCoachingView: View {
                             }
                         }
                     })) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("教练 \(link.coachName)")
-                            Text("分享已分配训练的实际组数与记录").font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            NativePersonAvatar(id: link.coachId, name: link.coachName, size: 30)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("教练 \(link.coachName)")
+                                Text("分享已分配训练的实际组数与记录").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }.disabled(isBusy)
                 }

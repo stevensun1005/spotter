@@ -21,6 +21,8 @@ struct NativeProductHelpSmoke {
         precondition(help.reply(to: "怎么提高平均心率？", previousQuestion: "官方模板在哪？") == nil)
         precondition(help.reply(to: "午餐该吃多少？", previousQuestion: "官方模板在哪？") == nil)
         precondition(help.reply(to: "如何连接自己的 ＡＩ Agent？")?.contains("新建 Agent 连接") == true)
+        precondition(help.reply(to: "用自己的 AI 的教学在哪？")?.contains("使用教学") == true)
+        precondition(help.reply(to: "怎么更换头像？")?.contains("保存头像") == true)
         precondition(help.reply(to: "在哪里授权 Apple 健康？")?.contains("手表与健康") == true)
         precondition(help.reply(to: "训练搭子里的航班预订入口在哪里？")?.contains("暂时没有") == true)
 

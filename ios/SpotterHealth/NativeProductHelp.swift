@@ -26,7 +26,7 @@ enum NativeProductHelp {
         private let overview: Set<String>
         private static let routePhrases = ["在哪", "哪里", "哪儿", "从哪", "入口", "教程", "怎么点", "点哪个", "哪个按钮", "底栏", "设置里", "where", "whichbutton"]
         private static let questions = ["怎么", "如何", "怎样", "教我", "带我", "howto", "howdo"]
-        private static let interfaceActions = ["打开", "记录", "添加", "导入", "授权", "查看", "使用", "绑定", "连接", "设置", "开启", "关闭", "筛选", "保存", "开始训练", "删除计划", "改昵称", "改头像", "改用户名", "加好友", "找搭子", "打气", "拍照", "同步", "排期", "操作", "怎么弄", "怎么记", "open", "add", "import", "record", "log", "connect", "enable", "use"]
+        private static let interfaceActions = ["打开", "记录", "添加", "导入", "授权", "查看", "使用", "绑定", "连接", "设置", "开启", "关闭", "筛选", "保存", "开始训练", "删除计划", "改昵称", "改头像", "换头像", "更换头像", "改用户名", "加好友", "找搭子", "打气", "拍照", "同步", "排期", "操作", "怎么弄", "怎么记", "open", "add", "import", "record", "log", "connect", "enable", "use"]
         private static let product = ["训练搭子", "spotter", "这个app", "这个应用", "这个软件", "app里", "应用里", "软件里"]
         private static let followUps = ["那", "还有", "以及", "接着", "另外", "and", "whatabout"]
         private static let shortRouteQuestions = ["怎么加", "怎么进", "怎么开", "怎么看", "怎么找", "怎么改", "怎么用"]

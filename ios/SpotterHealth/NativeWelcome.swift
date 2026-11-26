@@ -2,18 +2,19 @@ import SwiftUI
 
 enum NativeGuideStep: Hashable {
     enum Section: Hashable { case training, nutrition, friends, coach }
-    enum Presentation: Equatable { case dock, tabContent, planEditor, mealEditor, invitation }
+    enum Presentation: Equatable { case dock, tabContent, planEditor, mealEditor, invitation, coachPanel, agentAccess }
 
     case trainingTab, newPlan, planFields, officialTemplates, officialFilters
     case todayTab, mainMeal, mealChoice, mealFields
     case friendsTab, findBuddy, buddySearch, privacy, coach
+    case coachMenu, agentConnect, agentTutorial
 
     var section: Section {
         switch self {
         case .trainingTab, .newPlan, .planFields, .officialTemplates, .officialFilters: return .training
         case .todayTab, .mainMeal, .mealChoice, .mealFields: return .nutrition
         case .friendsTab, .findBuddy, .buddySearch, .privacy: return .friends
-        case .coach: return .coach
+        case .coach, .coachMenu, .agentConnect, .agentTutorial: return .coach
         }
     }
 
@@ -23,6 +24,8 @@ enum NativeGuideStep: Hashable {
         case .mealChoice, .mealFields: return .mealEditor
         case .buddySearch: return .invitation
         case .trainingTab, .todayTab, .friendsTab, .coach: return .dock
+        case .coachMenu, .agentConnect: return .coachPanel
+        case .agentTutorial: return .agentAccess
         default: return .tabContent
         }
     }
@@ -50,6 +53,9 @@ enum NativeGuideStep: Hashable {
         case .buddySearch: return "按用户名找人"
         case .privacy: return "查看分享权限"
         case .coach: return "让 AI 教练帮你开个头"
+        case .coachMenu: return "也可以用自己的 AI"
+        case .agentConnect: return "找到连接和提示词"
+        case .agentTutorial: return "跟着教学配置外部 Agent"
         }
     }
 
@@ -68,7 +74,10 @@ enum NativeGuideStep: Hashable {
         case .findBuddy: return "邀请一起练的人时点「找搭子」，加普通朋友时点旁边的「添加好友」。"
         case .buddySearch: return "填对方的用户名或完整的「用户名#数字」，搜索后就能核对结果。发送前看一眼页面上的共享范围。"
         case .privacy: return "点「权限设置」可查看朋友圈共享范围。也可以进某位联系人的资料调整对这个人的分享。"
-        case .coach: return "点右侧的星星，教练会按你的目标、器械和时间帮你制定计划。"
+        case .coach: return "点右侧的星星，先看看教练怎样定制计划。回到教练后，可以继续学怎么连接自己的 AI。"
+        case .coachMenu: return "点高亮的教练菜单，选择「用自己的 AI」。"
+        case .agentConnect: return "点「设置连接与复制提示词」，查看该给自己的 Agent 开哪些权限。"
+        case .agentTutorial: return "点「使用教学」，按步骤学会连接、复制提示词和发出第一条任务。可以先看示例。"
         }
     }
 
@@ -77,7 +86,7 @@ enum NativeGuideStep: Hashable {
             + (officialTemplates ? [.officialTemplates, .officialFilters] : [])
             + (nutrition ? [.todayTab, .mainMeal, .mealChoice, .mealFields] : [])
             + (friends ? [.friendsTab, .findBuddy, .buddySearch, .privacy] : [])
-            + [.coach]
+            + [.coach, .coachMenu, .agentConnect, .agentTutorial]
     }
 }
 
@@ -281,7 +290,7 @@ private struct NativeGuideSpotlight: View {
             Text(guide.step.instruction).font(.subheadline).foregroundStyle(SpotterPalette.muted)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                if guide.step != .coach {
+                if guide.step.section != .coach {
                     Button("跳过本节") {
                         guide.skipSection(guide.step)
                         leave()
@@ -322,7 +331,7 @@ struct NativeWelcomeView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(accent.tint)
                 Text("欢迎来到训练搭子").font(.largeTitle.weight(.heavy)).accessibilityAddTraits(.isHeader)
-                Text("按需开启权限，再跟着提示在真实页面上试着排训练、记一餐、找搭子。")
+                Text("按需开启权限，再跟着提示试着排训练、记一餐、找搭子和连接自己的 AI。")
                     .font(.subheadline)
                     .foregroundStyle(SpotterPalette.muted)
                 NativePermissionSetup(controller: permissionOnboarding)

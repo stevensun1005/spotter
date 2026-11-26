@@ -137,12 +137,166 @@ private enum NativeAgentPurpose: String, CaseIterable {
 }
 
 @MainActor
+struct NativeAgentTutorialView: View {
+    var onFinish: (() -> Void)? = nil
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccent) private var accent
+    @State private var page = 0
+    @AccessibilityFocusState private var focusHeading: Bool
+
+    private enum Step: Int, CaseIterable {
+        case permission, configuration, prompts, verification
+
+        var title: String {
+            switch self {
+            case .permission: return "创建连接，选好权限"
+            case .configuration: return "到自己的 AI 添加工具"
+            case .prompts: return "复制提示词，发一个任务"
+            case .verification: return "查看结果，管理连接"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .permission: return "key.horizontal"
+            case .configuration: return "point.3.connected.trianglepath.dotted"
+            case .prompts: return "text.bubble"
+            case .verification: return "checkmark.shield"
+            }
+        }
+
+        var instruction: String {
+            switch self {
+            case .permission:
+                return "在「外部 Agent」点「新建 Agent 连接」，填写连接名称和有效期，再按要做的任务勾选权限。每个 AI 工具可以单独建一条连接。"
+            case .configuration:
+                return "创建后在保存页面点「复制令牌」，并到「配置 Agent」复制 MCP 地址。令牌只在创建时显示，本机剪贴板保留两分钟。"
+            case .prompts:
+                return "回到「配置 Agent」，选好「提示词用途」，点「复制提示词」并粘贴到自己 AI 的对话框。让它先确认已连上你的 Spotter 账号，再发一个任务。"
+            case .verification:
+                return "让 AI 说明实际读取或保存的结果。回到「我的连接」，刷新后可看「最近使用」、权限和到期时间。"
+            }
+        }
+    }
+
+    private var step: Step { Step.allCases[page] }
+    private var lastPage: Bool { page == Step.allCases.count - 1 }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                Text(step.instruction)
+                    .font(.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                details
+            }
+            .frame(maxWidth: 520, alignment: .leading)
+            .padding(16)
+            .frame(maxWidth: .infinity)
+        }
+        .id(step)
+        .foregroundStyle(SpotterPalette.ink)
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) { controls }
+        .navigationTitle("用自己的 AI")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) { Button("关闭", action: finish) }
+        }
+        .onChange(of: step) { _ in focusHeading = true }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ProgressView(value: Double(page + 1), total: Double(Step.allCases.count))
+                .tint(accent.tint)
+                .accessibilityHidden(true)
+            Label("第 \(page + 1) 步，共 \(Step.allCases.count) 步", systemImage: step.icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(accent.tint)
+            Text(step.title)
+                .font(.title2.weight(.heavy))
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($focusHeading)
+                .accessibilityIdentifier("spotter-agent-tutorial-step")
+        }
+    }
+
+    @ViewBuilder private var details: some View {
+        switch step {
+        case .permission:
+            tip("分析记录", icon: "chart.xyaxis.line", detail: "只打开要分析的读取项，例如「读取训练计划与打卡」或「读取饮食与饮水」。")
+            tip("训练计划", icon: "calendar", detail: "打开「读取编排资料」和「保存训练草稿」。想由 AI 帮你排入日历，再打开「将确认的计划加入日历」。")
+            tip("记饮食", icon: "fork.knife", detail: "打开「新增饮食与饮水」。需要在记餐前核对当天已有记录时，也可打开「读取饮食与饮水」。")
+        case .configuration:
+            tip("MCP 客户端", icon: "point.3.connected.trianglepath.dotted", detail: "在自己 AI 的工具或连接器设置里，添加远程 MCP 工具，传输方式选 Streamable HTTP，粘贴 MCP 地址。把令牌放进凭据栏，或设置 Authorization 请求头，值为 Bearer 后接空格和令牌。")
+            tip("自定义 HTTP 工具", icon: "network", detail: "用复制的提示词里的 OpenAPI 地址导入接口说明，使用相同的 Bearer 认证。你的 AI 客户端需要支持配置工具及认证头。")
+            tip("令牌放在凭据设置", icon: "lock", detail: "对话里粘贴「复制提示词」得到的文字。令牌只填到 AI 工具的凭据栏。")
+        case .prompts:
+            tip("分析记录示例", icon: "chart.xyaxis.line", detail: "「看我最近 7 天的训练记录，总结频率和训练重点。」")
+            tip("制定计划示例", icon: "calendar", detail: "「给我做一份下周三练的计划，只用哑铃。先保存草稿，让我看日期和组次。」")
+            tip("记录饮食示例", icon: "fork.knife", detail: "「帮我记今天早餐的一杯牛奶，约 250 毫升。先让我核对份量和营养。」")
+        case .verification:
+            tip("核对你的记录", icon: "checkmark.circle", detail: "确认计划预览后，到「训练 → 我的计划」查排入的日期。确认餐食后，到「今日 → 饮食记录」看对应餐次。")
+            tip("检查权限和连接状态", icon: "slider.horizontal.3", detail: "提示连不上时，检查工具地址、令牌和有效期。能连接但无法完成任务时，核对这条连接是否有对应权限。")
+            tip("停用一条连接", icon: "key.slash", detail: "在「我的连接」选择对应的「撤销连接」。旧令牌会失效，需要再次使用时可新建连接。")
+        }
+    }
+
+    private func tip(_ title: String, icon: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(accent.tint)
+            Text(detail)
+                .font(.subheadline)
+                .foregroundStyle(SpotterPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(13)
+        .spotterCard()
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            if page > 0 {
+                Button("上一步") { page -= 1 }
+                    .buttonStyle(.spotterControl)
+                    .accessibilityIdentifier("spotter-agent-tutorial-prev")
+            }
+            Button {
+                if lastPage { finish() }
+                else { page += 1 }
+            } label: {
+                Text(lastPage ? "完成教学" : "下一步")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.spotterPrimaryControl)
+            .accessibilityIdentifier("spotter-agent-tutorial-next")
+        }
+        .frame(maxWidth: 520)
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(SpotterPalette.background)
+    }
+
+    private func finish() {
+        dismiss()
+        onFinish?()
+    }
+}
+
+@MainActor
 struct NativeAgentAccessView: View {
     let api: NativeAPI
     let owner: String
     var showsClose = false
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterGuide) private var guide
     @State private var connections: [NativeAgentConnection] = []
     @State private var profileRef: String?
     @State private var purpose: NativeAgentPurpose = .analyze
@@ -154,6 +308,7 @@ struct NativeAgentAccessView: View {
     @State private var notice: String?
 
     private var mcpEndpoint: String { api.origin + "/api/agent/mcp" }
+    private var isGuidedTutorial: Bool { guide?.step == .agentTutorial }
 
     var body: some View {
         ScrollView {
@@ -167,6 +322,7 @@ struct NativeAgentAccessView: View {
             .frame(maxWidth: .infinity)
         }
         .background(SpotterPalette.background.ignoresSafeArea())
+        .nativeGuideLayer(.agentAccess)
         .navigationTitle("外部 Agent")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -206,8 +362,16 @@ struct NativeAgentAccessView: View {
                 Label("新建 Agent 连接", systemImage: "plus").frame(maxWidth: .infinity)
             }
             .buttonStyle(.spotterPrimaryControl)
-            .disabled(profileRef == nil || revoking != nil)
+            .disabled(profileRef == nil || revoking != nil || isGuidedTutorial)
             .accessibilityIdentifier("spotter-agent-create")
+            NavigationLink {
+                NativeAgentTutorialView(onFinish: { guide?.advance(.agentTutorial) })
+            } label: {
+                Label("使用教学", systemImage: "book").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.spotterControl)
+            .accessibilityIdentifier("spotter-agent-tutorial")
+            .nativeGuideTarget(.agentTutorial)
         }
         .padding(15)
         .spotterCard()
@@ -280,7 +444,9 @@ struct NativeAgentAccessView: View {
                 if connection.active {
                     Button(revoking == connection.id ? "正在撤销…" : "撤销连接", role: .destructive) {
                         revokeCandidate = connection
-                    }.buttonStyle(.spotterControl).disabled(loading || revoking != nil)
+                    }
+                    .buttonStyle(.spotterControl)
+                    .disabled(loading || revoking != nil || isGuidedTutorial)
                 }
             }
         }

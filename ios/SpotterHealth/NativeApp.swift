@@ -773,6 +773,7 @@ private struct NativeSpotterTabs: View {
 
     @ObservedObject var account: NativeAccount
     @StateObject private var workouts: NativeWorkoutStore
+    @StateObject private var avatars: NativeAvatarStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
     @EnvironmentObject private var socialNotifications: NativeSocialNotifications
@@ -845,6 +846,7 @@ private struct NativeSpotterTabs: View {
         _inboundInvite = inboundInvite
         _widgetDestination = widgetDestination
         _workouts = StateObject(wrappedValue: NativeWorkoutStore(api: account.api, owner: owner))
+        _avatars = StateObject(wrappedValue: NativeAvatarStore(api: account.api, owner: owner))
         _trainingPreferences = StateObject(wrappedValue: NativeAccountPreferences(api: account.api, owner: owner))
         _reminderEnabled = AppStorage(wrappedValue: false, NativePreferenceKey.reminderKey(owner, field: "enabled"))
         _reminderMinute = AppStorage(wrappedValue: 18 * 60, NativePreferenceKey.reminderKey(owner, field: "minute"))
@@ -857,6 +859,19 @@ private struct NativeSpotterTabs: View {
         .overlay(alignment: .top) { notificationBanner }
         .animation(allowsMotion ? .easeInOut(duration: 0.23) : nil, value: socialNotifications.banner?.id)
         .task { await refreshHome() }
+        .task(id: scenePhase) {
+            avatars.setForeground(scenePhase == .active)
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(NativeAvatarStore.refreshInterval)) }
+                catch { return }
+                avatars.refreshVisible()
+            }
+        }
+        .onChange(of: selected) { _ in avatars.refreshVisible() }
+        .onChange(of: workouts.networkAvailable) { available in
+            if available == true { avatars.refreshVisible() }
+        }
         .onAppear {
             if !didFinishWelcome && guideStep == nil && !beginGuideAfterWelcome {
                 showWelcome = true
@@ -923,6 +938,7 @@ private struct NativeSpotterTabs: View {
         }
         .sheet(isPresented: $showCoach, onDismiss: {
             guideCoachGoal = nil
+            if guideStep?.section == .coach { finishGuide() }
             stageInvite()
             Task { await workouts.load() }
         }) {
@@ -944,6 +960,7 @@ private struct NativeSpotterTabs: View {
             NavigationStack {
                 NativeSettings(account: account, owner: owner, onDeleted: {
                                    workouts.clearLocalData()
+                                   avatars.clear()
                                    NativeTrainingWidgetBridge.useAccount(nil, origin: account.api.origin)
                                    refreshLiveActivity()
                                    NativeCoachView.removeSavedConversation(api: account.api, owner: owner)
@@ -1048,6 +1065,7 @@ private struct NativeSpotterTabs: View {
         )) { Button("好", role: .cancel) {} } message: { Text(widgetCheerMessage ?? "") }
         .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
         .environment(\.spotterAccountPreferences, trainingPreferences)
+        .environmentObject(avatars)
         .environment(\.spotterReduceMotion, reduceMotion)
         .environment(\.spotterGuide, guideContext)
         .transaction {

@@ -2019,6 +2019,7 @@ private struct SecondaryHistoryMonthPicker: View {
 struct NativeSettings: View {
     @ObservedObject var account: NativeAccount
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var avatars: NativeAvatarStore
     @State private var search = ""
     @State private var showDelete = false
     @State private var working = false
@@ -2037,8 +2038,6 @@ struct NativeSettings: View {
     @State private var nicknameError = false
     @State private var showRestSchedule = false
     @State private var showProfileEditor = false
-    @State private var avatarPhoto: NativeAccountAvatarPhoto?
-    @State private var avatarRevision = 0
     let owner: String
     var onDeleted: () -> Void
     var refreshPlans: @MainActor () async -> Void = {}
@@ -2159,7 +2158,6 @@ struct NativeSettings: View {
             }
         }
         .task { await loadHandle() }
-        .task { await loadAvatar() }
         .sheet(isPresented: $showRestSchedule, onDismiss: { Task { await refreshPlans() } }) {
             NativeRestSchedule(api: account.api, owner: owner, addToday: false)
         }
@@ -2184,7 +2182,7 @@ struct NativeSettings: View {
 
     private func profileIdentity(avatarSize: CGFloat) -> some View {
         HStack(spacing: 12) {
-            NativeAccountAvatar(name: profileName, photo: avatarPhoto, size: avatarSize)
+            NativePersonAvatar(id: owner, name: profileName, size: avatarSize)
             VStack(alignment: .leading, spacing: 4) {
                 Text(profileName).font(avatarSize > 60 ? .title2.bold() : .headline)
                     .foregroundStyle(SpotterPalette.ink)
@@ -2228,8 +2226,8 @@ struct NativeSettings: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 13) {
                     NativeAccountAvatarEditor(api: account.api, owner: owner, name: profileName, current: Binding(
-                        get: { avatarPhoto },
-                        set: { avatarRevision &+= 1; avatarPhoto = $0 }
+                        get: { avatars.photo(for: owner) },
+                        set: { avatars.confirmOwnPhoto($0, for: owner) }
                     ))
                     nicknameContent
                     usernameContent
@@ -2244,17 +2242,6 @@ struct NativeSettings: View {
                     Button("完成") { showProfileEditor = false }
                 }
             }
-        }
-    }
-
-    private func loadAvatar() async {
-        let revision = avatarRevision
-        do {
-            let photo = try await NativeAccountAvatarAPI.get(api: account.api, owner: owner)
-            guard !Task.isCancelled, account.profile?.id == owner, revision == avatarRevision else { return }
-            avatarPhoto = photo
-        } catch {
-            // Keep the initial when the network cannot yet load the account photo.
         }
     }
 
@@ -3654,7 +3641,7 @@ struct NativeFriends: View {
     private func friendLink(_ friend: SecondaryFriend) -> some View {
         NavigationLink { friendDetail(friend) } label: {
             HStack(spacing: 10) {
-                avatar(friend.name, buddy: friend.buddy)
+                avatar(friend.name, id: friend.id, buddy: friend.buddy)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(friend.name).font(.subheadline.weight(.semibold))
                     Text(friend.buddy ? "训练搭子" : "查看每日记录").font(.caption).foregroundStyle(SpotterPalette.muted)
@@ -3935,7 +3922,7 @@ struct NativeFriends: View {
 
     private func feedHeader(_ item: SecondaryFriendFeed.Day.Item) -> some View {
         HStack(spacing: 11) {
-            avatar(item.friend.name, buddy: isOwn(item) || item.friend.buddy, size: 44, circular: true)
+            avatar(item.friend.name, id: item.friend.id, buddy: isOwn(item) || item.friend.buddy, size: 44, circular: true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.friend.name).font(.headline)
                 if isOwn(item) || item.friend.buddy {
@@ -4069,7 +4056,7 @@ struct NativeFriends: View {
                     let waiting = social?.outgoing.contains { $0.personId == result.id && $0.connectionKind == inviteKind } == true
                     let received = social?.incoming.contains { $0.personId == result.id && $0.connectionKind == inviteKind } == true
                     HStack {
-                        avatar(result.name)
+                        avatar(result.name, id: data?.friends.contains(where: { $0.id == result.id }) == true ? result.id : nil)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(result.name).font(.subheadline.weight(.semibold))
                             if let handle = result.handle { Text(handle).font(.caption.monospaced()).foregroundStyle(SpotterPalette.muted) }
@@ -4139,7 +4126,7 @@ struct NativeFriends: View {
                 let confirmsBuddy = incoming && pendingBuddyAcceptance == request.id
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 7) {
-                        avatar(request.name)
+                        avatar(request.name, id: data?.friends.contains(where: { $0.id == request.personId }) == true ? request.personId : nil)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(request.name).font(.subheadline.weight(.semibold))
                             Text(request.connectionKind.requestTitle).font(.caption).foregroundStyle(SpotterPalette.muted)
@@ -4331,12 +4318,12 @@ struct NativeFriends: View {
     }
 }
 
-private func avatar(_ name: String, buddy: Bool = false, size: CGFloat = 35, circular: Bool = false) -> some View {
-    Text(name.trimmingCharacters(in: .whitespacesAndNewlines).first.map(String.init) ?? "友")
-        .font(.subheadline.weight(.heavy)).foregroundStyle(SpotterPalette.ink)
-        .frame(width: size, height: size)
-        .background(buddy ? SpotterPalette.wash : secondaryLilac, in: RoundedRectangle(cornerRadius: circular ? size / 2 : 9))
-        .accessibilityHidden(true)
+@MainActor
+private func avatar(_ name: String, id: String?, buddy: Bool = false, size: CGFloat = 35, circular: Bool = false) -> some View {
+    NativePersonAvatar(id: id, name: name.isEmpty ? "友" : name, size: size, appearance: .init(
+        foreground: SpotterPalette.ink, background: buddy ? SpotterPalette.wash : secondaryLilac,
+        cornerRadius: circular ? nil : 9, outlined: false
+    ))
 }
 
 private struct SecondaryToggle: View {
@@ -4366,6 +4353,7 @@ private struct SecondaryFriendDetail: View {
     let changed: @MainActor () async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var avatars: NativeAvatarStore
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterAccent) private var accent
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -4438,7 +4426,7 @@ private struct SecondaryFriendDetail: View {
         return VStack(alignment: .leading, spacing: 10) {
             layout {
                 HStack(spacing: 12) {
-                    avatar(friend.name, buddy: friend.buddy, size: 47, circular: true)
+                    avatar(friend.name, id: friend.id, buddy: friend.buddy, size: 47, circular: true)
                         .overlay { Circle().strokeBorder(accent.tint.opacity(0.18)).allowsHitTesting(false) }
                     VStack(alignment: .leading, spacing: 4) {
                         Text(friend.name).font(.title2.weight(.bold)).foregroundStyle(SpotterPalette.ink)
@@ -4704,6 +4692,7 @@ private struct SecondaryFriendDetail: View {
                 saved = refreshed.sharing
                 sharing = refreshed.sharing
             }
+            if remove { avatars.forgetPeer(friend.id) }
             await changed()
             if remove { dismiss() }
         } catch { actionError = error.localizedDescription }
