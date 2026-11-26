@@ -169,6 +169,20 @@
       "when": 1795649151019,
       "tag": "0023_workout_health_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1795654397675,
+      "tag": "0024_agent_template_changes",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1795654641006,
+      "tag": "0025_exercise_demonstrations",
+      "breakpoints": true
     }
   ]
 }

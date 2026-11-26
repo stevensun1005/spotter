@@ -4,6 +4,9 @@ import { canonicalCatalogueId, canonicalMoveName, parsePlanMove } from "@/featur
 import { normalizeTempo, tempoMaxLength } from "@/features/exercises/tempo";
 
 export const categories = ["力量训练", "有氧训练", "拉伸恢复", "跟练视频", "其他"] as const;
+export function isFollowAlong(plan: { category: string; video: string }) {
+  return plan.category === "跟练视频" || Boolean(plan.video.trim());
+}
 const text = (max: number) => z.string().trim().min(1).max(max);
 export const loadPercentSchema = z.object({
   percent: z.number().finite().min(1).max(150),
@@ -14,7 +17,7 @@ export function prescribedWeight(load: z.infer<typeof loadPercentSchema>, unit: 
   const converted = load.reference * (load.unit === unit ? 1 : load.unit === "lb" ? 0.45359237 : 1 / 0.45359237);
   return Math.round(converted * load.percent / 100 * 100) / 100;
 }
-const move = z.object({
+export const planMoveSchema = z.object({
   name: text(100).transform(canonicalMoveName),
   catalogueId: z.string().regex(/^\d{4,6}$/).transform(canonicalCatalogueId).optional(),
   block: z.string().regex(/^[A-Z](?:-[2-9]|-[12]\d|-30)?$/).optional(),
@@ -69,10 +72,10 @@ export const planSchema = z.object({
   defaultRestSeconds: z.number().int().min(0).max(600).optional(),
   shared: z.boolean(),
   video: videoUrl,
-  exercises: z.array(move).max(30),
+  exercises: z.array(planMoveSchema).max(30),
 }).refine((value) => value.exercises.length > 0 || value.video.length > 0, "请至少添加一个动作或视频。");
 
-export type Move = z.infer<typeof move>;
+export type Move = z.infer<typeof planMoveSchema>;
 export type Plan = z.infer<typeof planSchema>;
 
 export type PlannedWorkout = { id: string; data: Plan };

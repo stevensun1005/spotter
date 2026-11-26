@@ -20,12 +20,14 @@
 - `plans:draft`：提交或读取个人计划、周期草稿，不能自动排入日历。
 - `plans:write`：在用户明确授权并提供确认字段后，将已预览的草稿排入日历。此权限由用户显式勾选，不默认授予。
 - `training:write`、`nutrition:write`、`body:write`、`templates:write`：分别授权新增已完成训练、饮食和水及常用食物、身体数据、个人模板。创建连接时分别勾选。
+- `templates:manage`：预览后改名、修改动作或删除个人模板。另勾选 `templates:read` 获取模板编号和版本。
+- `exercise-demos:write`：对用户确认过的自定义动作保存、替换或移除个人演示 GIF。
 
 原始令牌仅在创建响应中展示一次，服务端只保存 SHA-256 哈希。网页列表显示名称、权限、有效期和最近使用时间；可随时撤销。新请求会检查过期和撤销状态；已在处理的请求可能完成。每个令牌每分钟最多 60 个请求，超出返回 429。
 
 将个人令牌配置到 Agent 工具运行环境的凭据栏，不作为模型 API key，不放进普通聊天提示、URL、Git 或日志。账号说明编号 `profileRef` 只用于核对账号，不能代替授权令牌。
 
-App 提供分析记录、安排训练及记餐三种可复制指令。能配置 Streamable HTTP 和自定义认证头的 Agent 使用 `/api/agent/mcp`。支持自定义 HTTP 工具的 Agent 可使用 `/api/agent/schema`。把令牌存入工具连接设置，再把复制的指令发给 Agent。
+新建连接成功后回到「复制提示词」，一段指令包含分析记录、训练计划、饮食、身体、模板、动图，以及 MCP 和 OpenAPI 地址。首次连接可在同一张卡复制令牌，把它存到工具连接的凭据栏，再将提示词粘贴到 Agent 对话框。App 可从「设置 → 外部 Agent → 使用教学」查看详细步骤。
 
 ## REST 工作流
 
@@ -79,6 +81,20 @@ App 提供分析记录、安排训练及记餐三种可复制指令。能配置 
 
 - `GET /api/agent/records?profileRef=...&scope=training&from=2026-11-01&to=2026-11-30` 按对应权限读取一类记录。选 `nutrition` 读取餐食和饮水，选 `templates` 读取个人训练模板。日期包含首尾，训练和饮食最多查 366 天，省略两端时查最近 30 天。用返回的 `nextOffset` 继续分页，每页最多 50 条。模板查询无需日期。
 - `POST /api/agent/meals` 接受 `profileRef`、`confirmed: true` 以及最多 20 项的 `meals`。每项提供 `id`、`date`、`meal`、`name`、`calories`、`protein`、`carbs`、`fat` 和可选的 `grams`。热量用千卡，份量和宏量营养用克。餐次为早餐、午餐、晚餐或加餐。明确记餐后才写入，重试复用原 UUID。
+
+## 管理个人训练模板
+
+通过 `GET /api/agent/records?scope=templates&profileRef=...` 读取模板的 `id` 和 `revision`。对 `POST /api/agent/templates` 提交 `{action:"preview",profileRef,templateId,revision,change}`。改名或编辑动作使用 `change: {kind:"update",title?,exercises?}`，填写至少一项；删除使用 `change: {kind:"delete"}`。如果要修改个别动作，先读原模板再提供完整的更新后动作列表。
+
+向用户展示变更和已安排训练受影响的情况。用户确认后提交 `{action:"commit",profileRef,previewToken,confirmed:true}`。预览有效 15 分钟，成功回执可重试 24 小时。其他客户端改过模板时重新预览。删除会保留并解除已排训练的模板关联，已打卡历史仍可查看。对应 MCP 工具为 `preview_spotter_template_change` 和 `commit_spotter_template_change`。
+
+## 为自定义动作附上演示动图
+
+从视频或其他材料整理计划和模板时，列出动作库没有的动作，询问用户是否为指定动作附上 GIF。原始跟练链接继续写在计划的 `video`，待训练和个人模板中的跟练内容会列在底部的「跟练视频」。没有动图也可保存计划。
+
+- 用户明确同意后，通过 `POST /api/agent/exercise-demos` 或 `manage_spotter_exercise_demo` 传 `{action:"save",profileRef,name,gifBase64,confirmed:true}`。使用用户提供或授权使用的动图。取原始 GIF 字节编码为 base64，最长边 480 像素、体积不超过 768 KiB、有 2–90 帧且总画面像素不超过 900 万。
+- 服务去除常见扩展元数据，按账号和动作名保存一份演示。同名再次保存会替换当前演示。调用 `{action:"remove",profileRef,name,confirmed:true}` 移除演示。
+- App 和 Cloudflare 网页在本人动作详情中读取演示。接口不接收其他账号的编号。
 
 ## 完整多周周期
 

@@ -2,6 +2,8 @@ import { agentPlanJsonSchema, programJsonSchema } from "./tools";
 import { recordImportTool } from "./records";
 import { recordReadProperties } from "./record-read";
 import { mealWriteTool } from "./meal-write";
+import { templateChangeRequestSchema } from "./template-change";
+import { exerciseDemoTool } from "./exercise-demos";
 
 const readRecordParameters = Object.entries(recordReadProperties).map(([name, schema]) => ({
   in: "query", name, required: name === "profileRef" || name === "scope", schema,
@@ -11,7 +13,7 @@ export function agentApiSchema(origin: string) {
   const auth = [{ AgentToken: [] }];
   const response = { "200": { description: "Account-scoped result; see response body." }, "401": { description: "Missing, expired or revoked token" }, "403": { description: "Scope or account mismatch" }, "409": { description: "Revision, date or idempotency conflict; no protected records overwritten" }, "429": { description: "Retry after one minute" } };
   return {
-    openapi: "3.1.0", info: { title: "Spotter personal Agent API", version: "1.2.0", description: "User-supplied agents generate content. Spotter validates authorized plan drafts and appends private records within the connection's scopes. Private Sites may require platform authorization before dispatching these routes." },
+    openapi: "3.1.0", info: { title: "Spotter personal Agent API", version: "1.3.0", description: "User-supplied agents generate content. Spotter validates authorized plan drafts and changes private records within the connection's scopes. Private Sites may require platform authorization before dispatching these routes." },
     servers: [{ url: origin }], security: auth,
     components: { securitySchemes: { AgentToken: { type: "http", scheme: "bearer", description: "Create in Spotter settings after signing in. Never send this token to a model provider unless you have intentionally configured that agent's tool runtime to hold it." } }, schemas: { Plan: agentPlanJsonSchema, Program: programJsonSchema } },
     paths: {
@@ -28,6 +30,13 @@ export function agentApiSchema(origin: string) {
       "/api/agent/meals": { post: { operationId: "addPersonalMeals",
         description: "Requires nutrition:write. Append confirmed meals, keeping the UUID of each meal stable across retries.",
         requestBody: { required: true, content: { "application/json": { schema: mealWriteTool.inputSchema } } }, responses: response } },
+      "/api/agent/templates": { post: { operationId: "previewOrCommitTemplateChange",
+        description: "Requires templates:manage. Preview a rename, replacement exercise list or deletion for a known personal template revision. Commit the exact previewToken only after the user confirms it. Read template IDs and revisions with GET /api/agent/records?scope=templates.",
+        requestBody: { required: true, content: { "application/json": { schema: templateChangeRequestSchema } } },
+        responses: { ...response, "404": { description: "Template or preview unavailable for this connection" } } } },
+      "/api/agent/exercise-demos": { post: { operationId: "changePersonalExerciseDemo",
+        description: "Requires exercise-demos:write and confirmation of the attachment or removal for this exact exercise. The private GIF is displayed in the signed-in owner's exercise details.",
+        requestBody: { required: true, content: { "application/json": { schema: exerciseDemoTool.inputSchema } } }, responses: response } },
       "/api/agent/mcp": { post: { operationId: "callMcpTool", description: "JSON Streamable HTTP subset: server/discover, initialize, tools/list, tools/call; explicit Bearer scopes apply. Standard clients need HTTP/MCP support and access through the hosting platform.", responses: response } },
       "/api/agent/programs": { post: { operationId: "stagePreviewOrCommitProgram", description: "Stage/preview a complete multiweek program, then commit only with the user's authorization of that preview. Content is bounded to52 weeks/364 sessions; partial/duplicate/mismatched dates are rejected.", requestBody: { required: true, content: { "application/json": { schema: { oneOf: [
         { type: "object", additionalProperties: false, required: ["action", "profileRef", "program", "revision"], properties: { action: { const: "stage" }, profileRef: { type: "string" }, program: { $ref: "#/components/schemas/Program" }, revision: { type: ["string", "null"] } } },

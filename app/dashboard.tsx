@@ -49,6 +49,7 @@ import { useNutritionPreferences } from "@/features/nutrition/nutrition-preferen
 import type { NutritionShortcut } from "@/features/nutrition/nutrition-summary";
 import { BuddyFinder, FriendsView } from "@/features/friends/friends-view";
 import { planCompletions } from "@/features/plans/completion";
+import { isFollowAlong } from "@/features/plans/model";
 import { PlanSections } from "@/features/plans/plan-sections";
 import { planDisplayTitle, planWeekDay } from "@/features/plans/scheduled-title";
 import { withoutTemplateLink } from "@/features/plans/template-link";
@@ -376,6 +377,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
   const visiblePlans = planStatus === "completed"
     ? completedPlans.sort((a, b) => (completionFor(b)?.data.date ?? b.data.date).localeCompare(completionFor(a)?.data.date ?? a.data.date))
     : [...pendingPlans].sort((a, b) => a.data.date.localeCompare(b.data.date));
+  const followAlongPlans = planStatus === "pending" ? visiblePlans.filter(({ data }) => isFollowAlong(data)) : [];
   const drafts = useMemo(() => {
     const ownDrafts = entries.filter(draftsOrLogs).filter((entry) => entry.kind === "draft" && entry.owner === me.id);
     return [...Object.entries(pendingDrafts), ...ownDrafts.filter((item) => !pendingDrafts[item.id]).map((item) => [item.id, item.data] as const)]
@@ -894,8 +896,12 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
             <button type="button" aria-pressed={planStatus === "pending"} onClick={() => setPlanStatus("pending")}>待训练</button>
             <button type="button" aria-pressed={planStatus === "completed"} onClick={() => setPlanStatus("completed")}>已完成</button>
           </div>
-          {visiblePlans.length ? visiblePlans.map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span>
+          {visiblePlans.length ? visiblePlans.filter(({ data }) => planStatus === "completed" || !isFollowAlong(data)).map(renderPlan) : <div className="empty-state"><span className="tile mint"><ClipboardList size={22} /></span>
             <h3>{planStatus === "completed" ? "还没有已完成的计划" : plans.length ? "没有待训练的计划" : "还没有训练计划"}</h3></div>}
+          {followAlongPlans.length > 0 && <section className="feature-stack" aria-label="跟练视频">
+            <h3>跟练视频</h3>
+            {followAlongPlans.map(renderPlan)}
+          </section>}
         </section></PlanSections>}
         {view === "plans" && library.error && <button className="button outline small" onClick={() => void library.load()}>{library.error}</button>}
         {view === "nutrition" && <NutritionView key={viewer?.id ?? "guest"} enabled={Boolean(viewer)} owner={viewer?.id} today={today}
