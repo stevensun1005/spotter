@@ -4,7 +4,7 @@ import type { LibraryItem, LibraryRow } from "./model";
 import { libraryDay, libraryKey } from "@/features/data/model";
 import { nextRevision } from "@/features/plans/schedule";
 import { withoutTemplateLink } from "@/features/plans/template-link";
-import { freezeTemplatePlans } from "@/features/plans/template-server";
+import { freezeTemplatePlans, type TemplateWriteGuard } from "@/features/plans/template-server";
 import type { RecentMealFood } from "@/features/nutrition/recent-foods";
 
 function database() {
@@ -37,6 +37,24 @@ export async function readRecentMealFoods(owner: string, day: string): Promise<R
 
 const staleLibraryItem = () => new HttpError(409, "模板或计划设置已在另一处变更，请关闭此窗口，刷新后重新编辑。");
 
+type TemplateItem = Extract<LibraryItem, { kind: "template" }>;
+
+export function updateTemplateRevision(db: D1Database, owner: string, item: TemplateItem, revision: string, updated: string, guard?: TemplateWriteGuard) {
+  const payload = JSON.stringify({ ...item, plan: withoutTemplateLink(item.plan) });
+  return db.prepare(
+    "UPDATE personal_library SET day=?, payload=?, updated=? WHERE owner=? AND kind='template' AND id=? AND updated=?" +
+    (guard ? " AND " + guard.condition : "")
+  ).bind(libraryDay(item), payload, updated, owner, item.id, revision, ...(guard?.values ?? []));
+}
+
+export function removeTemplateRevision(db: D1Database, owner: string, id: string, revision: string, updated: string, guard?: TemplateWriteGuard) {
+  return [
+    freezeTemplatePlans(db, owner, id, updated, revision, guard),
+    db.prepare("DELETE FROM personal_library WHERE owner=? AND kind='template' AND id=? AND updated=?" + (guard ? " AND " + guard.condition : ""))
+      .bind(owner, id, revision, ...(guard?.values ?? [])),
+  ];
+}
+
 export async function saveLibrary(owner: string, item: LibraryItem, revision?: string | null) {
   if (item.kind === "nutrition" && item.sourceWorkoutId) throw new HttpError(400, "在对应的训练记录中编辑蛋白粉打卡。");
   const id = libraryKey(item);
@@ -47,7 +65,8 @@ export async function saveLibrary(owner: string, item: LibraryItem, revision?: s
   const editMeal = item.kind === "nutrition" && Boolean(revision);
   const updated = nextRevision(new Date().toISOString(), protectedWrite || editMeal ? [revision] : []);
   const db = database();
-  const result = (protectedWrite || editMeal) && revision ? await db.prepare(
+  const result = item.kind === "template" && revision ? await updateTemplateRevision(db, owner, item, revision, updated).run()
+    : (protectedWrite || editMeal) && revision ? await db.prepare(
     "UPDATE personal_library SET day=?, payload=?, updated=? WHERE owner=? AND kind=? AND id=? AND updated=?" +
     (editMeal ? " AND json_extract(payload, '$.sourceWorkoutId') IS NULL" : "")
   ).bind(day, payload, updated, owner, item.kind, id, revision).run() : await db.prepare(
@@ -79,11 +98,7 @@ export async function removeLibrary(owner: string, kind: "template" | "nutrition
   const db = database();
   if (kind === "template") {
     if (!revision) throw staleLibraryItem();
-    const [, removed] = await db.batch([
-      freezeTemplatePlans(db, owner, id, nextRevision(new Date().toISOString(), [revision]), revision),
-      db.prepare("DELETE FROM personal_library WHERE owner=? AND kind='template' AND id=? AND updated=?")
-        .bind(owner, id, revision),
-    ]);
+    const [, removed] = await db.batch(removeTemplateRevision(db, owner, id, revision, nextRevision(new Date().toISOString(), [revision])));
     if (!removed?.meta.changes) throw staleLibraryItem();
   } else {
     const removed = await db.prepare("DELETE FROM personal_library WHERE owner = ? AND kind = ? AND id = ? " +

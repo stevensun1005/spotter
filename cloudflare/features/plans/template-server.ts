@@ -3,7 +3,9 @@ export const ownTemplateJoin =
   " LEFT JOIN personal_library t ON e.kind = 'plan' AND e.owner = ? AND t.owner = e.owner AND t.kind = 'template'" +
   " AND t.id = json_extract(e.payload, '$.templateId') ";
 
-export function freezeTemplatePlans(db: D1Database, owner: string, templateId: string, now: string, revision?: string) {
+export type TemplateWriteGuard = { condition: string; values: string[] };
+
+export function freezeTemplatePlans(db: D1Database, owner: string, templateId: string, now: string, revision?: string, guard?: TemplateWriteGuard) {
   return db.prepare(
     "UPDATE entries AS e SET payload = json_patch(" +
     "json_remove(e.payload, '$.templateId', '$.ownExercises', '$.category', '$.minutes', '$.durationNote', '$.defaultRestSeconds', '$.video'), " +
@@ -13,6 +15,7 @@ export function freezeTemplatePlans(db: D1Database, owner: string, templateId: s
     "), updated = CASE WHEN julianday(e.updated) >= julianday(?) THEN strftime('%Y-%m-%dT%H:%M:%fZ', e.updated, '+0.001 seconds') ELSE ? END " +
     "FROM personal_library t " +
     "WHERE e.owner = ? AND e.kind = 'plan' AND t.owner = e.owner AND t.kind = 'template' AND t.id = ? " +
-    "AND t.id = json_extract(e.payload, '$.templateId')" + (revision ? " AND t.updated=?" : "")
-  ).bind(now, now, owner, templateId, ...(revision ? [revision] : []));
+    "AND t.id = json_extract(e.payload, '$.templateId')" + (revision ? " AND t.updated=?" : "") +
+    (guard ? " AND " + guard.condition : "")
+  ).bind(now, now, owner, templateId, ...(revision ? [revision] : []), ...(guard?.values ?? []));
 }

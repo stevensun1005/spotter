@@ -170,6 +170,18 @@ export const agentDraftItems = sqliteTable("agent_draft_items", {
   foreignKey({ columns: [table.owner, table.draftId], foreignColumns: [agentPlanDrafts.owner, agentPlanDrafts.id] }).onDelete("cascade"),
 ]);
 
+export const agentTemplateChanges = sqliteTable("agent_template_changes", {
+  id: text().primaryKey().notNull(),
+  owner: text().notNull(),
+  connectionId: text("connection_id").notNull().references(() => agentConnections.id, { onDelete: "cascade" }),
+  templateId: text("template_id").notNull(),
+  templateRevision: text("template_revision").notNull(),
+  nextPayload: text("next_payload"),
+  expiresAt: text("expires_at").notNull(),
+  commitKey: text("commit_key"),
+  result: text(),
+}, (table) => [index("agent_template_changes_expiry").on(table.connectionId, table.expiresAt)]);
+
 export const trainingPrograms = sqliteTable("training_programs", {
   owner: text().notNull(),
   id: text().notNull(),
@@ -292,6 +304,15 @@ export const spotterAccessAccounts = sqliteTable("spotter_access_accounts", {
 }, (table) => [
   check("spotter_access_email_lowercase", sql`lower(${table.email}) = ${table.email}`),
   check("spotter_access_hash_hex", sql`length(${table.accessHash}) = 64 AND ${table.accessHash} NOT GLOB '*[^0-9a-f]*'`),
+]);
+
+export const exerciseDemonstrations = sqliteTable("exercise_demonstrations", {
+  owner: text().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  exerciseKey: text("exercise_key").notNull(),
+  gif: text().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.owner, table.exerciseKey] }),
+  check("exercise_demo_gif_size", sql`length(${table.gif}) BETWEEN 4 AND 1048576`),
 ]);
 
 export const spotterAccountAvatars = sqliteTable("spotter_account_avatars", {

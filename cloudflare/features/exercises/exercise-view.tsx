@@ -34,6 +34,15 @@ type ExerciseDetailProps = {
   maxFormula?: MaxFormula; sex?: AnatomyVariant | null;
 };
 
+function PersonalExerciseDemo({ name }: { name: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const src = "/api/exercises/demo?" + new URLSearchParams({ name });
+  return <section className={loaded ? "card padded feature-stack" : undefined} hidden={!loaded}>
+    {loaded && <h3>个人演示动图</h3>}
+    <img className="exercise-cover" src={src} alt={name + "演示动图"} onLoad={() => setLoaded(true)} />
+  </section>;
+}
+
 export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
   const { choice, profiles } = props;
   const [variantId, setVariantId] = useState<string>();
@@ -123,6 +132,7 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
     <div className="dialog-body feature-stack">
       {error && <p className="inline-error" role="alert">{error}</p>}
       {tab === "guide" && <>
+        {customMove && <PersonalExerciseDemo key={name} name={name} />}
         {media && (media.video || media.id || media.illustration || media.poseSlug) ? <ExerciseAnimation key={demo?.id ?? referenceName}
           {...media} name={referenceName} /> :
           guide?.photos ? <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} /> :

@@ -5,6 +5,11 @@ import { agentIdentity, callPlanningTool, isPlanningTool, toolsFor } from "@/fea
 import { callRecordTool, isRecordTool, recordToolsFor } from "@/features/agent-access/records";
 import { readAgentRecords, recordReadInput, recordReaderTools, recordReadToolName } from "@/features/agent-access/record-read";
 import { addAgentMeals, mealWriteInput, mealWriteTool } from "@/features/agent-access/meal-write";
+import { changeAgentExerciseDemo, exerciseDemoInput, exerciseDemoTool } from "@/features/agent-access/exercise-demos";
+import {
+  commitAgentTemplateChange, previewAgentTemplateChange, templateChangeCommitInput, templateChangeCommitTool,
+  templateChangePreviewInput, templateChangePreviewTool,
+} from "@/features/agent-access/template-change";
 
 export const dynamic = "force-dynamic";
 const rpcSchema = z.object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number(), z.null()]).optional(), method: z.string(), params: z.record(z.unknown()).optional(), _meta: z.record(z.unknown()).optional() });
@@ -26,7 +31,9 @@ export const POST = agentApi(async (request) => {
   }
   if (rpc.method === "ping") return json({ ...envelope, result: {} });
   if (rpc.method === "tools/list") return json({ ...envelope, result: { tools: [{ name: "get_spotter_agent_profile", description: "Read the account reference and granted scopes for this connection.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, destructiveHint: false } }, ...toolsFor(principal), ...recordReaderTools(principal),
-    ...recordToolsFor(principal), ...(principal.scopes.includes("nutrition:write") ? [mealWriteTool] : [])] } });
+    ...recordToolsFor(principal), ...(principal.scopes.includes("nutrition:write") ? [mealWriteTool] : []),
+    ...(principal.scopes.includes("templates:manage") ? [templateChangePreviewTool, templateChangeCommitTool] : []),
+    ...(principal.scopes.includes("exercise-demos:write") ? [exerciseDemoTool] : [])] } });
   if (rpc.method === "tools/call") {
     try {
       const name = rpc.params?.name;
@@ -36,6 +43,15 @@ export const POST = agentApi(async (request) => {
       }
       if (name === mealWriteTool.name) {
         return json({ ...envelope, result: toolResult(await addAgentMeals(principal, mealWriteInput.parse(rpc.params?.arguments))) });
+      }
+      if (name === exerciseDemoTool.name) {
+        return json({ ...envelope, result: toolResult(await changeAgentExerciseDemo(agentDatabase(), principal, exerciseDemoInput.parse(rpc.params?.arguments))) });
+      }
+      if (name === templateChangePreviewTool.name) {
+        return json({ ...envelope, result: toolResult(await previewAgentTemplateChange(agentDatabase(), principal, templateChangePreviewInput.parse(rpc.params?.arguments))) });
+      }
+      if (name === templateChangeCommitTool.name) {
+        return json({ ...envelope, result: toolResult(await commitAgentTemplateChange(agentDatabase(), principal, templateChangeCommitInput.parse(rpc.params?.arguments))) });
       }
       if (isRecordTool(name)) return json({ ...envelope, result: toolResult(await callRecordTool(principal, name, rpc.params?.arguments)) });
       if (!isPlanningTool(name)) return json({ ...envelope, error: { code: -32602, message: "Unknown tool" } });

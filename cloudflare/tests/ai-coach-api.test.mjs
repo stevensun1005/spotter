@@ -384,6 +384,16 @@ test("product help uses verified web or iPhone navigation without spending messa
   for (const question of ["怎么找搭子？", "好友怎么加？"]) {
     assert.match((await checked(ask(question))).reply, /设置 → 账号 → 搭子空间/u);
   }
+  for (const [question, answer] of [
+    ["怎么复制提示词？", /MCP、OpenAPI/u],
+    ["怎么删除个人模板？", /确认删除/u],
+    ["怎么改个人模板的名字？", /编辑模板/u],
+    ["跟练链接在哪？", /待训练/u],
+    ["怎么用外部 Agent 改模板？", /核对变更预览/u],
+    ["怎么上传动作 GIF？", /添加或移除个人演示动图/u],
+  ]) {
+    assert.match((await checked(ask(question))).reply, answer);
+  }
   const unknown = await checked(ask("训练搭子里在哪里看睡眠评分？"));
   assert.match(unknown.reply, /还没找到这个功能/u);
 

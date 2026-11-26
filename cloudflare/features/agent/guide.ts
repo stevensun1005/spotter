@@ -19,7 +19,7 @@ const guideDetails: Record<AgentScope, readonly string[]> = {
     "## 饮食",
     "- 包装食品或常用食物用 add_spotter_foods 保存到个人食物库，每批 1–20 项。foods 数组每项提供 name 和 per100g，其中 calories 为千卡，protein、carbs、fat 为克。",
     "- 使用包装可读的营养值。标签按份标注时，只有给了每份重量才能换成每 100 克；仅标每 100 毫升时，先核对对应重量。看不清的营养值先询问。",
-    "- 保存常用食物与记录一餐分别处理。实际早餐、午餐、晚餐、加餐用 import_spotter_records 的 nutrition 类别，在 backup.library 中使用 kind 为 nutrition、entry.type 为 meal 的记录，包含明确日期、餐次、名称、营养和已知克数。",
+    "- 记餐优先用 add_spotter_meals（POST /api/agent/meals），每餐提供 UUID id、date、meal、name、calories、protein、carbs、fat，可选 grams。也可用 import_spotter_records 的 nutrition 类别，backup.library 中使用 kind 为 nutrition、entry.type 为 meal 的记录。",
     "- 一份食谱可按食材拆成多条同日期、同餐次的饮食记录。饮水使用 entry.type 为 water，填写 ml。营养目标、营养规划和运动消耗按站点备份里的 targets、nutrition-plan、nutrition-energy 结构追加。",
     "- 站内可从首页饮食卡打开「AI 识别」，拍摄后核对食物、份量和营养再保存。搜索常用食物后也可以直接按克数记餐。",
   ],
@@ -33,6 +33,7 @@ const guideDetails: Record<AgentScope, readonly string[]> = {
     "## 模板",
     "- 用 import_spotter_records 的 templates 类别写入 backup.library。每条 kind 为 template，包含 UUID id 和完整的 plan；动作、组次、单位及休息时间沿用确认过的计划。",
     "- 浏览器里从「训练 → 个人模板」创建和编辑模板。",
+    "- 改名、编辑动作或删除个人模板需要 templates:manage。先用 templates:read 读出模板 id 和 revision。用 preview_spotter_template_change（POST /api/agent/templates）预览，向用户说明对已安排训练的影响。用户确认后用 commit_spotter_template_change 提交该 previewToken，遇到版本冲突重新读取。",
   ],
 };
 
@@ -43,6 +44,11 @@ function jsonBlock(value: unknown) {
 
 export function createAgentGuide({ scope, profileRef, origin }: { scope: DataScope; profileRef: string; origin: string }) {
   const trainingGuide = agentPlanningGuide(origin, profileRef) + "\n## 已完成的训练记录\n确认用户确实完成后，使用 import_spotter_records 的 training 类别和有效 spotter-backup 中的 log。个人令牌需要 training:write，也可提交到 POST /api/agent/records。计划继续用上面的草稿流程。\n";
+  const demos = [
+    "## 自定义动作动图",
+    "- 加入包含动作库没有的动作的计划或模板时，列出自定义动作，先询问用户要不要为它们加演示动图。只在确认后，使用用户提供或许可使用的 GIF。",
+    "- 个人连接具备 exercise-demos:write 时，调用 manage_spotter_exercise_demo 或 POST /api/agent/exercise-demos。保存时传 action:save、profileRef、准确动作名称 name、gifBase64（纯 base64，不含 data: 前缀）和 confirmed:true。GIF 最大 768 KiB，最长边 480 像素，2–90 帧。替换或移除同样只在用户确认后执行。没有 GIF 时可照常保存计划。",
+  ];
   if (scope === "training") return trainingGuide;
   const scopes = scope === "all" ? agentGuideScopes.slice(1).map(([item]) => item as AgentScope) : [scope];
   const title = agentGuideScopes.find(([item]) => item === scope)?.[1];
@@ -77,7 +83,7 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     "站点 " + origin + "/",
     "个人账号标识 " + profileRef,
     "## 开始前",
-    "1. 在支持本站授权的 MCP 客户端连接 /mcp。自定义 HTTP 工具可使用用户授予对应类别权限的个人 Bearer 令牌，连接 /api/agent/mcp 或 POST /api/agent/records。仍须满足站点的访问权限。",
+    "1. 个人连接使用远程 MCP " + origin + "/api/agent/mcp（Streamable HTTP），或从 " + origin + "/api/agent/schema 导入 OpenAPI。把个人令牌填入工具凭据栏，Authorization: Bearer；令牌只放在你信任的工具凭据中。支持站点授权的客户端也可用本站 /mcp，仍须满足站点访问权限。",
     "2. 先调用 get_spotter_agent_profile，或者请求 GET /api/agent/profile，核对 profileRef 与本页一致。随后读取或写入时都传本页的 profileRef。若登录账号不匹配，请用户切换到正确账号。",
     "3. 按本说明列出的类别和用户授权的日期操作。写入前给出简短预览；用户明确说「导入」「加进去」即授权对应内容。只发材料时问是否导入，确认后才传 confirmed: true。",
     "4. 成功后报告实际新增、跳过数量和有关日期。如果工具返回失败，请说明状态。示例里的名称、日期和数值仅用于展示结构。",
@@ -91,5 +97,6 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     "- 训练计划从「设置 → 计划与日程 → 粘贴已有内容」预览。起草计划或连接 Agent 时使用「添加计划 → 用自己的 AI」。备份从「设置 → 数据与备份 → 恢复备份」上传并确认。",
     "- 个人账号 Sites 的网站邀请仅提供网站访问权限。训练搭子插件的连接由客户端和账号的权限单独管理。只有文本工具的 AI 可先准备可导入材料，并向用户说明保存状态。",
   ];
-  return [...connection, ...scopes.flatMap((item) => item === "training" ? ["", trainingGuide] : ["", ...guideDetails[item], "", ...examples[item].flatMap((part) => ["", part])])].join("\n") + "\n";
+  return [...connection, ...scopes.flatMap((item) => item === "training" ? ["", trainingGuide] : ["", ...guideDetails[item], "", ...examples[item].flatMap((part) => ["", part])]),
+    ...(scope === "all" || scope === "templates" ? ["", ...demos] : [])].join("\n") + "\n";
 }

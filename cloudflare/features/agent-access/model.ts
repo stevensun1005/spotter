@@ -9,7 +9,7 @@ export const recordWriteScopes = {
 export const recordReadScopes = {
   training: "training:read", nutrition: "nutrition:read", templates: "templates:read",
 } as const;
-export const agentScopes = ["read:context", "plans:draft", "plans:write", ...Object.values(recordReadScopes), ...Object.values(recordWriteScopes)] as const;
+export const agentScopes = ["read:context", "plans:draft", "plans:write", "templates:manage", "exercise-demos:write", ...Object.values(recordReadScopes), ...Object.values(recordWriteScopes)] as const;
 export type AgentScope = typeof agentScopes[number];
 export const connectionCreate = z.object({
   action: z.literal("create"), name: z.string().trim().min(1).max(60),

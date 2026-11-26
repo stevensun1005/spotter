@@ -48,7 +48,7 @@ export function recordReaderTools(principal: AgentPrincipal) {
   } } }] : [];
 }
 
-type Row = { id: string; kind: string; payload: string };
+type Row = { id: string; kind: string; payload: string; updated?: string };
 
 function project(row: Row, scope: Category) {
   const payload = JSON.parse(row.payload);
@@ -64,7 +64,7 @@ function project(row: Row, scope: Category) {
   }
   const record = libraryItem.safeParse(payload);
   if (!record.success) return null;
-  if (scope === "templates" && record.data.kind === "template") return record.data;
+  if (scope === "templates" && record.data.kind === "template") return { ...record.data, revision: row.updated };
   if (record.data.kind !== "nutrition") return null;
   const { kind, id, date, entry } = record.data;
   if (entry.type !== "meal" && entry.type !== "water") return null;
@@ -84,7 +84,7 @@ export async function readAgentRecords(db: D1Database, principal: AgentPrincipal
       "AND json_extract(payload, '$.date') BETWEEN ? AND ? ORDER BY json_extract(payload, '$.date') DESC, id LIMIT ? OFFSET ?")
       .bind(owner, from, to, limit + 1, offset)
     : scope === "templates"
-      ? db.prepare("SELECT id, kind, payload FROM personal_library WHERE owner = ? AND kind = 'template' ORDER BY updated DESC, id LIMIT ? OFFSET ?")
+      ? db.prepare("SELECT id, kind, payload, updated FROM personal_library WHERE owner = ? AND kind = 'template' ORDER BY updated DESC, id LIMIT ? OFFSET ?")
         .bind(owner, limit + 1, offset)
       : db.prepare("SELECT id, kind, payload FROM personal_library WHERE owner = ? AND kind = 'nutrition' " +
         "AND day BETWEEN ? AND ? AND json_extract(payload, '$.entry.type') IN (?, ?) ORDER BY day DESC, id LIMIT ? OFFSET ?")
