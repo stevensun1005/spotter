@@ -39,7 +39,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 训练 → 我的计划 | 「新建计划」填写日期、类型、动作和组次。「添加计划」含「AI 教练起草」「粘贴已有内容」「训练周期」。可以导入训练文字、计划 JSON 或受支持的跟练链接，先核对再保存。「待训练」列表在底部集中展示已排期的「跟练视频」。 | [训练视图](../ios/SpotterHealth/NativeWorkouts.swift) · [计划导入](../ios/SpotterHealth/NativePlanImport.swift) |
 | 训练 → 个人模板 | 可新建、从计划或打卡另存，也可用模板「安排训练」。iPhone 用「改名」「编辑动作」或「编辑模板」更新，网页点「编辑」进入「编辑模板」。两端删除均需确认，已保存的跟练链接均列于底部「跟练视频」。 | [原生训练与模板](../ios/SpotterHealth/NativeWorkouts.swift) · [个人模板服务](../cloudflare/features/library/server.ts) |
 | 训练 → 官方模板 | 官方模板默认可见，可到「设置 → 功能模块」关闭。按「增肌」「减脂」「减肥」「功能性训练」及初级、中级或高级筛选。打开模板查看每周运动日与休息日，设「周期开始日」后点「使用这个模板」，经排期预览和确认才加入日历。 | [官方模板](../ios/SpotterHealth/NativeOfficialTemplates.swift) · [模板资源](../ios/SpotterHealth/Resources/official-training-templates.json) · [周期编排](../ios/SpotterHealth/NativePrograms.swift) |
-| 训练 → 动作库 | 按名称、肌群、器械等查找。支持可用器械筛选、动作详情和加入训练。媒体和动作识别保留目录 ID，动作目录与用户记录分开维护。 | [动作库浏览](../ios/SpotterHealth/NativeCatalogueView.swift) · [目录资源读取](../ios/SpotterHealth/NativeCatalogueData.swift) · [网页动作库](../cloudflare/features/exercises/) |
+| 训练 → 动作库 | 按名称、肌群、器械等查找。支持可用器械筛选、动作详情和加入训练。标准动作详情可离线播放或暂停演示，列表用静态封面。媒体和动作识别保留目录 ID，动作目录与用户记录分开维护。 | [动作库浏览](../ios/SpotterHealth/NativeCatalogueView.swift) · [目录资源读取](../ios/SpotterHealth/NativeCatalogueData.swift) · [网页动作库](../cloudflare/features/exercises/) |
 | 中央开始训练 | 继续进行中的训练，或选计划、临时训练及有氧等入口。有氧可选跑步、跑步机、户外/室内骑车、划船机、椭圆机、步行、爬楼、游泳、跳绳等。实际训练保存计时，支持的项目可填距离或速度。 | [训练入口及逐组记录](../ios/SpotterHealth/NativeWorkouts.swift) · [训练模型](../ios/SpotterHealth/NativeWorkoutModels.swift) · [服务端有氧字段](../cloudflare/features/training/cardio.ts) |
 | 统计 → 训练统计 / 打卡历史 | 按周、月、季、年、最近或自定义日期回顾训练容量、次数/天数、时长和完成组数。历史以月历显示自己的训练及对方允许共享的记录。点日期或打卡看详情。 | [统计与月历](../ios/SpotterHealth/NativeWebSecondary.swift) · [网页统计](../cloudflare/features/stats/) · [网页历史](../cloudflare/features/history/) |
 | 好友 → 联系人 / 朋友圈 / 权限设置 | 「添加好友」「找搭子」通过账号用户名搜索，普通好友也可用邀请链接。联系人详情按日查看共享训练和饮食，可为对方设置私人备注，并设定本人给对方的权限。朋友圈显示自己和好友近期可见的打卡及加油。 | [好友界面](../ios/SpotterHealth/NativeWebSecondary.swift) · [好友规则](../cloudflare/features/friends/) · [搭子模型](../cloudflare/features/pair/) |
@@ -72,6 +72,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 - iPhone 首页「今日搭子打卡」上排只显示本人和搭子的头像、名称与状态，打卡后保持原高度。下方「搭子最近打卡」显示最近一条可见训练的标题并可点开。当日多次打卡时，从同一位置打开当天的训练列表。[首页打卡](../ios/SpotterHealth/NativeWorkouts.swift)
 - iPhone 的「好友 → 联系人 → 找搭子」介绍一对一绑定、搭子的训练与可选饮食共享、普通好友的训练可见范围，并把睡眠和恢复分析标为后续规划。页末的「添加好友」切到普通好友申请。打开训练搭子资料后可点「约下次训练」，发出、接受、婉拒或取消邀约。邀约继续用 `/api/friends/engagement`，服务端校验当前账号和有效搭子关系，详情只显示这两人的邀约。[原生界面](../ios/SpotterHealth/NativeWebSecondary.swift) · [邀约服务](../cloudflare/features/friends/appointments.ts)
 - 在「好友 → 联系人」打开已连接的好友或训练搭子，点「添加备注」或「编辑备注」。保存最多 40 个字符，资料页同时保留对方昵称。备注仅设置者可见，联系人、朋友圈、首页及统计中的对应姓名会优先显示它。移除后恢复显示昵称。系统推送和公开分享继续使用账号昵称。[原生好友详情](../ios/SpotterHealth/NativeWebSecondary.swift) · [网页联系人](../cloudflare/features/friends/friends-view.tsx)
+- iPhone 普通好友详情右上角「⋯」提供「删除好友」。确认框显示对方名称与分享影响，点「确认删除」才提交现有好友移除请求，成功后返回上一页。点「取消」关闭确认框。[原生好友详情](../ios/SpotterHealth/NativeWebSecondary.swift)
 - 「设置 → 功能模块」开启「教练与学员入口」后，入口显示在「好友 → 联系人 → 找搭子」旁，默认隐藏。教练可下发训练计划或多周周期，学员预览确认后导入自己的计划。反馈、完成进度和可见的实际组记录由教练系统自己的权限管理。[教练系统](../cloudflare/docs/coaching.md)
 - 「设置 → 通知」管理搭子提醒、好友打卡和系统通知权限。好友页铃铛打开站内通知中心。受支持的账号在联系人详情可提醒搭子训练。线上推送同时受服务端开通范围、接收偏好、提醒间隔、APNs 及设备权限约束。训练提醒和组间休息提醒也可由系统本地通知运行。
 
@@ -87,6 +88,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 - 外部 Agent 在生成或导入含动作的计划、周期和个人模板前，用 `read:context` 查当前账号的个人动作和内置目录。标准目录 ID 一致、明确登记为同一动作的别名或规范化后完全相同的名称可用于复用。相近变式各自保留。两端的复制提示词说明这个规则，iPhone 的使用教学同时提示开启「读取编排资料」。[编排资料接口](../cloudflare/features/agent-access/context.ts) · [网页提示词](../cloudflare/features/agent/guide.ts) · [原生提示词与教学](../ios/SpotterHealth/NativeAgentAccess.swift)
 - 外部 Agent 管理个人模板时，用 `templates:read` 读取模板 ID 和版本，用 `templates:manage` 预览改名、替换整份动作列表或删除。预览展示对关联计划的影响，用户确认后提交同一个预览令牌。版本已变或预览到期时需重新核对。[模板修改服务](../cloudflare/features/agent-access/template-change.ts)
 - 连接获得 `exercise-demos:write` 后，外部 Agent 可针对用户确认的动作上传、替换或移除私人演示 GIF。GIF 上限 768 KiB，宽高各不超过 480 像素，限 2–90 帧，并限制解码总像素。动作详情只向登录的所有者展示该附件。App 回到前台或刷新训练时同步动作资料。现有 JSON 备份包含动作资料，GIF 文件随账号保存在 Cloudflare。[演示校验和存储](../cloudflare/features/exercises/personal-demo.ts) · [原生动作详情](../ios/SpotterHealth/NativeCatalogueView.swift) · [网页动作详情](../cloudflare/features/exercises/exercise-view.tsx)
+- iPhone 标准动作演示由资源生成工具按网页版的动作 ID 选用现有绘制动画、Flow／姿势图或 MP4。演示随 App 安装，可离线使用。详情按需读取当前动作，离开或切后台时暂停。开启减少动态效果时，可手动点「播放」。个人 GIF 继续使用账号授权读取。[资源生成](../tools/build-ios-catalogue.mjs) · [原生播放](../ios/SpotterHealth/NativeCatalogueView.swift)
 - 在教练点「怎么用训练搭子？」或输入「怎么拍照记餐」「外部 Agent 在哪」等操作问题，会按当前端列出入口和按钮。iPhone 可继续追问「那饮食呢？」。已收录的问答由客户端直接回答，即使一般 AI 对话额度用完也可使用。导航回答只指导操作。明确记餐、生成计划和训练咨询继续走各自流程。
 - 共用的 [产品帮助资料](../cloudflare/shared/product-help.json) 按主题 ID、别名和 iPhone / 网页步骤维护。[iPhone 查询](../ios/SpotterHealth/NativeProductHelp.swift) 在本机读取打包资源。[网页查询](../cloudflare/features/ai-coach/product-help.ts) 复用于浏览器和服务端，API 在验证账号后优先处理操作问答。
 
@@ -176,6 +178,8 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 1.0 Build 44 | 训练详情和统计使用当前记录者的体型，分享卡默认用本人档案。读取现有训练接口的体型标识。本人保存身体档案后立即生效，搭子体型随共享训练刷新。 | Swift 语法、15 项原生体型归属及兼容检查、17 项好友接口测试通过。 |
 | 1.0 Build 44 | 找搭子页增加关系及分享说明和普通好友入口。训练邀约入口移入搭子详情。 | Swift 语法检查、6 项入口核对、4 项教练帮助检查和 17 项好友接口测试通过。 |
 | 1.0 Build 44 | 首页搭子打卡小卡片统一使用头像、名称和状态。训练详情集中在下方的最近打卡入口。 | Swift 语法及 8 项卡片布局、详情入口和帮助资料的源码检查通过。 |
+| Build 44 后 iPhone 源码 | 普通好友的删除入口移到详情页右上角菜单。由确认框提交现有关系移除请求。 | Xcode 模拟器构建、确认入口和教练帮助的源码检查、17 项好友接口测试通过。尚未发布。 |
+| Build 44 后 iPhone 源码 | 补齐 SwiftUI 标准动作详情的离线演示和播放／暂停，按目录 ID 对应已有动作素材。 | Xcode 模拟器构建通过，包内 5,630 个标准动作的资源映射与源码一致。原生冒烟测试核对绘制、动图、本地视频和个人动作隔离。尚未发布。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
 

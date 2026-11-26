@@ -4664,13 +4664,25 @@ private struct SecondaryFriendDetail: View {
                 activityCard
                 if let sharing { sharingCard(sharing) }
                 if let actionError { SecondaryNotice(message: actionError, warning: true) }
-                if !friend.buddy {
-                    Button("移除好友", role: .destructive) { showRemove = true }
-                        .buttonStyle(.spotterPress).foregroundStyle(.red).disabled(busy).frame(minHeight: 44)
-                }
             }.secondaryPage()
         }.background(SpotterPalette.background)
             .navigationTitle(friend.buddy ? "训练搭子" : "好友").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            .toolbar {
+                if !friend.buddy {
+                    ToolbarItem(placement: .primaryAction) {
+                        SpotterMenu {
+                            Button("删除好友", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
+                                showRemove = true
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis").font(.subheadline.weight(.semibold))
+                        }
+                        .accessibilityLabel("好友选项")
+                        .accessibilityIdentifier("friend-options")
+                        .disabled(busy)
+                    }
+                }
+            }
             .task(id: "\(spotterDay(date)):\(loadRevision)") { await load() }
             .sheet(isPresented: $showDatePicker) {
                 SecondaryFriendDateSheet(day: date, firstDay: Self.firstDay, apply: selectDay)
@@ -4681,10 +4693,10 @@ private struct SecondaryFriendDetail: View {
             .sheet(isPresented: $showAppointments) {
                 SecondaryBuddyAppointments(api: api, owner: owner, buddyID: friend.id, buddyName: displayName)
             }
-            .confirmationDialog("移除好友", isPresented: $showRemove, titleVisibility: .visible) {
-                Button("确认移除", role: .destructive) { Task { await mutate(["action": "remove", "id": friend.id], remove: true) } }
+            .alert("删除好友？", isPresented: $showRemove) {
+                Button("确认删除", role: .destructive) { Task { await mutate(["action": "remove", "id": friend.id], remove: true) } }
                 Button("取消", role: .cancel) {}
-            } message: { Text("移除后，你和\(displayName)在好友页的分享会停止。") }
+            } message: { Text("删除后，你和\(displayName)的好友关系会解除，好友页的分享也会停止。") }
     }
 
     private var profileCard: some View {

@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 @main
 struct NativeCatalogueSmoke {
@@ -27,12 +28,31 @@ struct NativeCatalogueSmoke {
         precondition(index.family(for: cable.sections[0].rows[0])?.id == "cable-triceps")
         let guide = try index.details(for: barbell.rows[0])
         precondition(guide?.steps.isEmpty == false)
+        verifyDemos(index)
         try verifyGymEquipment(index)
         for activity in NativeWorkoutSession.CardioActivity.planPresets {
             let id = activity.planMove?["catalogueId"].string ?? ""
             precondition(index.entry(withID: id)?.type == "cardio", "Cardio preset must resolve to an actual bundled item: " + id)
         }
-        print("native catalogue smoke: 5,272 grouped entries, correct 447 barbell sequence, 61 personal entries, exact covers")
+        print("native catalogue smoke: grouping, covers, vector motion, Flow/pose GIFs, bundled video and personal isolation")
+    }
+
+    private static func verifyDemos(_ index: NativeCatalogIndex) {
+        let drawn = index.entry(withID: "5965")!
+        let drawing = index.drawing(for: drawn)!
+        precondition(drawing.frames.count > 2 && drawing.frameDuration > 0)
+        let initial = drawing.frame(at: 0).flatMap(\.points)
+        precondition(drawing.frames.dropFirst().contains { $0.flatMap(\.points) != initial })
+        for id in ["0001", "4455"] {
+            let entry = index.entry(withID: id)!
+            let gif = index.animationData(for: entry)!
+            let source = CGImageSourceCreateWithData(gif as CFData, nil)!
+            precondition(CGImageSourceGetCount(source) > 1 && CGImageSourceCreateImageAtIndex(source, 1, nil) != nil)
+        }
+        let video = index.entry(withID: "0047")!
+        precondition(index.bundledVideoURL(for: video)?.isFileURL == true)
+        let personal = index.makePersonal(name: "私人的测试动作")
+        precondition(index.drawing(for: personal) == nil && index.animationData(for: personal) == nil && index.bundledVideoURL(for: personal) == nil)
     }
 
     private static func verifyGymEquipment(_ index: NativeCatalogIndex) throws {

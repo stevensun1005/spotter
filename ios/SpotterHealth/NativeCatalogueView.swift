@@ -1,3 +1,4 @@
+import AVFoundation
 import Charts
 import ImageIO
 import SwiftUI
@@ -958,7 +959,7 @@ struct NativeCatalogueExerciseDetail: View {
                             NativeCatalogueCover(index: index, entry: entry, ratio: 5.0 / 3.0)
                         }
                     } else {
-                        NativeCatalogueCover(index: index, entry: entry, ratio: 5.0 / 3.0)
+                        NativeCatalogueExerciseDemo(index: index, entry: entry).id(entry.id)
                     }
                     Text(entry.name).font(.title2.bold()).accessibilityAddTraits(.isHeader)
                     let subtitle = [entry.en, catalogueMetadata(for: entry, index: index), index.label(entry.type)]
@@ -1050,82 +1051,273 @@ struct NativeCatalogueExerciseDetail: View {
     }
 }
 
+private struct NativeCatalogueExerciseDemo: View {
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    let index: NativeCatalogIndex
+    let entry: NativeCatalogEntry
+    @State private var media: Media?
+    @State private var preferredPlayback: Bool?
+    @State private var visible = false
+
+    private enum Media: Sendable {
+        case video(URL)
+        case gif(NativeExerciseGIFFrames)
+        case drawing(NativeCatalogDrawing)
+
+        var isReference: Bool {
+            if case .drawing(let drawing) = self { return drawing.isReference }
+            return false
+        }
+    }
+
+    private var reducedMotion: Bool { reduceMotion || systemReduceMotion }
+    private var wantsPlayback: Bool { preferredPlayback ?? !reducedMotion }
+    private var playing: Bool { wantsPlayback && visible && scenePhase == .active }
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            if let media {
+                stage(media)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .aspectRatio(5.0 / 3.0, contentMode: .fit)
+                    .background(SpotterPalette.color(0x314839))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .accessibilityLabel("\(entry.name)动作示意")
+                    .accessibilityAddTraits(.isImage)
+                HStack {
+                    if media.isReference {
+                        Text("参考练法").font(.caption).foregroundStyle(SpotterPalette.muted)
+                    }
+                    Spacer(minLength: 6)
+                    Button { preferredPlayback = !wantsPlayback } label: {
+                        Label(wantsPlayback ? "暂停" : "播放", systemImage: wantsPlayback ? "pause.fill" : "play.fill")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.spotterControl)
+                    .accessibilityLabel(wantsPlayback ? "暂停动作示意" : "播放动作示意")
+                    .accessibilityIdentifier("catalogue-demo-playback")
+                }
+            } else {
+                NativeCatalogueCover(index: index, entry: entry, ratio: 5.0 / 3.0)
+            }
+        }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+        .onChange(of: reducedMotion) { enabled in if enabled { preferredPlayback = false } }
+        .task {
+            let resolved = await Task.detached(priority: .userInitiated) { () -> Media? in
+                if let url = index.bundledVideoURL(for: entry) { return .video(url) }
+                if let bytes = index.animationData(for: entry), let gif = NativeExerciseGIFFrames.decode(bytes) { return .gif(gif) }
+                if let drawing = index.drawing(for: entry) { return .drawing(drawing) }
+                return nil
+            }.value
+            if !Task.isCancelled { media = resolved }
+        }
+    }
+
+    @ViewBuilder private func stage(_ media: Media) -> some View {
+        switch media {
+        case .video(let url):
+            ZStack {
+                NativeCatalogueCover(index: index, entry: entry, ratio: 5.0 / 3.0)
+                NativeExerciseVideoPlayer(url: url, playing: playing)
+            }
+        case .gif(let frames):
+            NativeExerciseGIFPlayer(frames: frames, playing: playing)
+        case .drawing(let drawing):
+            NativeCatalogueDrawingPlayer(drawing: drawing, playing: playing)
+        }
+    }
+}
+
+private struct NativeCatalogueDrawingPlayer: View {
+    let drawing: NativeCatalogDrawing
+    let playing: Bool
+    @State private var start: Date?
+    @State private var elapsed: TimeInterval = 0
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: drawing.frameDuration, paused: !playing)) { timeline in
+            let current = elapsed + (start.map { max(0, timeline.date.timeIntervalSince($0)) } ?? 0)
+            Canvas { context, size in
+                let scale = min(size.width / 320, size.height / 180)
+                var canvas = context
+                canvas.translateBy(x: (size.width - 320 * scale) / 2, y: (size.height - 180 * scale) / 2)
+                canvas.scaleBy(x: scale, y: scale)
+                for mark in drawing.frame(at: current) {
+                    let ink = SpotterPalette.color(mark.color)
+                    if mark.width < 0 {
+                        let center = mark.points[0]
+                        let radius = CGFloat(-mark.width)
+                        canvas.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius,
+                                                           width: radius * 2, height: radius * 2)), with: .color(ink))
+                    } else {
+                        let path = Path { path in path.addLines(mark.points) }
+                        canvas.stroke(path, with: .color(ink), style: StrokeStyle(lineWidth: CGFloat(mark.width), lineCap: .round, lineJoin: .round))
+                    }
+                }
+            }
+        }
+        .onAppear { if playing { start = .now } }
+        .onChange(of: playing) { active in
+            if active { start = .now }
+            else if let start {
+                elapsed += max(0, Date.now.timeIntervalSince(start))
+                self.start = nil
+            }
+        }
+    }
+}
+
+private struct NativeExerciseVideoPlayer: UIViewRepresentable {
+    let url: URL
+    let playing: Bool
+
+    final class Surface: UIView {
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    }
+
+    final class Coordinator {
+        let player: AVQueuePlayer
+        private let looper: AVPlayerLooper
+
+        init(url: URL) {
+            let player = AVQueuePlayer()
+            player.isMuted = true
+            looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+            self.player = player
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+
+    func makeUIView(context: Context) -> Surface {
+        let view = Surface()
+        view.playerLayer.player = context.coordinator.player
+        view.playerLayer.videoGravity = .resizeAspect
+        return view
+    }
+
+    func updateUIView(_ view: Surface, context: Context) {
+        let player = context.coordinator.player
+        if playing {
+            if player.rate == 0 { player.playImmediately(atRate: 0.75) }
+        } else { player.pause() }
+    }
+
+    static func dismantleUIView(_ view: Surface, coordinator: Coordinator) {
+        coordinator.player.pause()
+        view.playerLayer.player = nil
+    }
+}
+
+private struct NativeExerciseGIFFrames: Sendable {
+    let id = UUID()
+    let images: [CGImage]
+    let durations: [Double]
+
+    nonisolated static func decode(_ data: Data) -> Self? {
+        guard data.count <= 768 * 1024,
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let count = CGImageSourceGetCount(source)
+        guard (2...90).contains(count) else { return nil }
+        var images: [CGImage] = []
+        var durations: [Double] = []
+        var pixels = 0
+        for index in 0..<count {
+            guard let image = CGImageSourceCreateImageAtIndex(source, index,
+                [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
+                  image.width <= 480, image.height <= 480 else { return nil }
+            pixels += image.width * image.height
+            guard pixels <= 9_000_000 else { return nil }
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+            let gif = properties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+            let delay = (gif?[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
+                ?? (gif?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+            images.append(image)
+            durations.append(max(0.05, min(delay, 10)))
+        }
+        return Self(images: images, durations: durations)
+    }
+}
+
+private struct NativeExerciseGIFPlayer: UIViewRepresentable {
+    let frames: NativeExerciseGIFFrames
+    let playing: Bool
+
+    final class Coordinator { var framesID: UUID? }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView()
+        view.contentMode = .scaleAspectFit
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        return view
+    }
+
+    func updateUIView(_ view: UIImageView, context: Context) {
+        let layer = view.layer
+        let key = "exercise-demo"
+        let poster = frames.images[0]
+        if context.coordinator.framesID != frames.id {
+            layer.removeAnimation(forKey: key)
+            layer.speed = 1
+            layer.timeOffset = 0
+            layer.beginTime = 0
+            view.image = UIImage(cgImage: poster)
+            context.coordinator.framesID = frames.id
+        }
+        if layer.animation(forKey: key) != nil {
+            if playing && layer.speed == 0 {
+                let paused = layer.timeOffset
+                layer.speed = 1
+                layer.timeOffset = 0
+                layer.beginTime = 0
+                layer.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - paused
+            } else if !playing && layer.speed != 0 {
+                let paused = layer.convertTime(CACurrentMediaTime(), from: nil)
+                layer.speed = 0
+                layer.timeOffset = paused
+            }
+            return
+        }
+        guard playing else { return }
+        let time = frames.durations.reduce(0, +)
+        var elapsed = 0.0
+        let keyTimes = frames.durations.map { duration in
+            defer { elapsed += duration }
+            return NSNumber(value: elapsed / time)
+        }
+        let animation = CAKeyframeAnimation(keyPath: "contents")
+        animation.values = frames.images + [poster]
+        animation.keyTimes = keyTimes + [1]
+        animation.calculationMode = .discrete
+        animation.duration = time
+        animation.repeatCount = .infinity
+        layer.add(animation, forKey: key)
+    }
+}
+
 private struct NativePersonalExerciseDemo<Fallback: View>: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     let store: NativeWorkoutStore
     let name: String
     @ViewBuilder var fallback: () -> Fallback
-    @State private var frames: Frames?
-
-    private struct Frames: Sendable {
-        let images: [CGImage]
-        let durations: [Double]
-
-        nonisolated static func decode(_ data: Data) -> Self? {
-            guard data.count <= 768 * 1024,
-                  let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-            let count = CGImageSourceGetCount(source)
-            guard (2...90).contains(count) else { return nil }
-            var images: [CGImage] = []
-            var durations: [Double] = []
-            var pixels = 0
-            for index in 0..<count {
-                guard let image = CGImageSourceCreateImageAtIndex(source, index,
-                    [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
-                      image.width <= 480, image.height <= 480 else { return nil }
-                pixels += image.width * image.height
-                guard pixels <= 9_000_000 else { return nil }
-                let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
-                let gif = properties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
-                let delay = (gif?[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
-                    ?? (gif?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
-                images.append(image)
-                durations.append(max(0.05, min(delay, 10)))
-            }
-            return Self(images: images, durations: durations)
-        }
-    }
-
-    private struct Playback: UIViewRepresentable {
-        let frames: Frames
-        let playing: Bool
-
-        func makeUIView(context: Context) -> UIImageView {
-            let view = UIImageView()
-            view.contentMode = .scaleAspectFit
-            view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            view.setContentHuggingPriority(.defaultLow, for: .vertical)
-            return view
-        }
-
-        func updateUIView(_ view: UIImageView, context: Context) {
-            let time = frames.durations.reduce(0, +)
-            let poster = frames.images[0]
-            view.image = UIImage(cgImage: poster)
-            view.layer.removeAnimation(forKey: "exercise-demo")
-            guard playing else { return }
-            var elapsed = 0.0
-            let keyTimes = frames.durations.map { duration in
-                defer { elapsed += duration }
-                return NSNumber(value: elapsed / time)
-            }
-            let animation = CAKeyframeAnimation(keyPath: "contents")
-            animation.values = frames.images + [poster]
-            animation.keyTimes = keyTimes + [1]
-            animation.calculationMode = .discrete
-            animation.duration = time
-            animation.repeatCount = .infinity
-            view.layer.add(animation, forKey: "exercise-demo")
-        }
-    }
+    @State private var frames: NativeExerciseGIFFrames?
 
     var body: some View {
         Group {
             if let frames {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("个人演示动图").font(.headline)
-                    Playback(frames: frames, playing: !reduceMotion && !systemReduceMotion)
+                    NativeExerciseGIFPlayer(frames: frames, playing: !reduceMotion && !systemReduceMotion && scenePhase == .active)
                         .frame(height: 205)
                         .frame(maxWidth: .infinity)
                         .accessibilityLabel("\(name)演示动图")
@@ -1142,7 +1334,7 @@ private struct NativePersonalExerciseDemo<Fallback: View>: View {
             guard !name.isEmpty, let encoded = query.percentEncodedQuery,
                   let data = try? await store.api.request("/api/exercises/demo?" + encoded, method: "GET", json: nil, for: store.owner),
                   !Task.isCancelled else { return }
-            let decoded = await Task.detached(priority: .utility) { Frames.decode(data) }.value
+            let decoded = await Task.detached(priority: .utility) { NativeExerciseGIFFrames.decode(data) }.value
             if !Task.isCancelled { frames = decoded }
         }
     }

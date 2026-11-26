@@ -184,6 +184,50 @@ struct NativeCatalogDetailText: Decodable, Sendable {
     let language: String?
 }
 
+struct NativeCatalogDrawing: Sendable {
+    struct Mark: Sendable {
+        let color: UInt32
+        let width: Double
+        let points: [CGPoint]
+
+        init?(_ values: [Double]) {
+            guard values.count >= 4, values.count.isMultiple(of: 2),
+                  let color = UInt32(exactly: values[0]), color <= 0xffffff,
+                  values[1].isFinite, values[1] != 0,
+                  values[1] < 0 ? values.count == 4 : values.count >= 6 else { return nil }
+            self.color = color
+            width = values[1]
+            points = stride(from: 2, to: values.count, by: 2).map { CGPoint(x: values[$0], y: values[$0 + 1]) }
+        }
+    }
+
+    let frameDuration: TimeInterval
+    let frames: [[Mark]]
+    let isReference: Bool
+
+    private struct FrameData: Decodable {
+        let ms: Double
+        let frames: [[[Double]]]
+    }
+
+    init?(compressed: Data, isReference: Bool) {
+        guard let expanded = try? (compressed as NSData).decompressed(using: .zlib),
+              let data = try? JSONDecoder().decode(FrameData.self, from: expanded as Data),
+              (30...10_000).contains(data.ms), (2...90).contains(data.frames.count) else { return nil }
+        let frames = data.frames.map { $0.compactMap(Mark.init) }
+        guard zip(frames, data.frames).allSatisfy({ !$0.0.isEmpty && $0.0.count == $0.1.count }) else { return nil }
+        self.frames = frames
+        self.frameDuration = data.ms / 1000
+        self.isReference = isReference
+    }
+
+    func frame(at elapsed: TimeInterval) -> [Mark] {
+        let cycle = frameDuration * Double(frames.count)
+        let position = max(0, elapsed).truncatingRemainder(dividingBy: cycle)
+        return frames[min(frames.count - 1, Int(position / frameDuration))]
+    }
+}
+
 enum NativeCatalogScope: Equatable, Sendable {
     case all, pinned, frequent
 }
@@ -224,6 +268,9 @@ struct NativeCatalogIndex: Sendable {
         let classifications: [String: Classification]
         let covers: [String: [Int]]
         let videos: [String: String]
+        let animations: [String: [Int]]?
+        let drawings: [String: [Int]]?
+        let referenceDrawings: [String]?
         let details: [String: [Int]]
     }
 
@@ -235,6 +282,7 @@ struct NativeCatalogIndex: Sendable {
     private let knownNames: Set<String>
     private let sectionsByEquipment: [String: String]
     private let searchContextByID: [String: String]
+    private let assetsURL: URL
     private let covers: Data
     private let details: Data
 
@@ -261,6 +309,7 @@ struct NativeCatalogIndex: Sendable {
                                hasCover: metadata.covers[row.id] != nil, hold: row.hold ?? false, distance: row.distance ?? false)
         }
         self.metadata = metadata
+        self.assetsURL = assetsURL
         self.rows = rows
         rowsByID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         familiesByRow = Dictionary(metadata.families.flatMap { family in family.variants.map { ($0.id, family) } },
@@ -321,6 +370,26 @@ struct NativeCatalogIndex: Sendable {
     func variant(for entry: NativeCatalogEntry) -> NativeCatalogVariant? { variantsByRow[entry.id] }
 
     func coverData(for entry: NativeCatalogEntry) -> Data? { asset(in: covers, range: metadata.covers[entry.id]) }
+
+    func animationData(for entry: NativeCatalogEntry) -> Data? {
+        mediaData(in: "motion", at: metadata.animations?[entry.id])
+    }
+
+    func drawing(for entry: NativeCatalogEntry) -> NativeCatalogDrawing? {
+        guard let data = mediaData(in: "drawing", at: metadata.drawings?[entry.id]) else { return nil }
+        return NativeCatalogDrawing(compressed: data, isReference: metadata.referenceDrawings?.contains(entry.id) == true)
+    }
+
+    func bundledVideoURL(for entry: NativeCatalogEntry) -> URL? {
+        let prefix = "/open-gym/demo-video/"
+        guard let path = metadata.videos[entry.id], path.hasPrefix(prefix) else { return nil }
+        let components = path.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: false)
+        guard components.count > 0, components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        let video = components.reduce(assetsURL.appendingPathComponent("video", isDirectory: true)) { url, component in
+            url.appendingPathComponent(String(component))
+        }
+        return FileManager.default.isReadableFile(atPath: video.path) ? video : nil
+    }
 
     func videoURL(for entry: NativeCatalogEntry) -> URL? {
         guard let path = metadata.videos[entry.id] else { return nil }
@@ -502,6 +571,13 @@ struct NativeCatalogIndex: Sendable {
         guard let range, range.count == 2, range[0] >= 0, range[0] <= data.count,
               range[1] > 0, range[1] <= data.count - range[0] else { return nil }
         return data.subdata(in: range[0]..<(range[0] + range[1]))
+    }
+
+    private func mediaData(in prefix: String, at location: [Int]?) -> Data? {
+        guard let location, location.count == 3, location[0] >= 0,
+              let data = try? Data(contentsOf: assetsURL.appendingPathComponent("\(prefix)-\(location[0]).bin"), options: .mappedIfSafe)
+        else { return nil }
+        return asset(in: data, range: [location[1], location[2]])
     }
 
     private func nonempty(_ value: String?) -> String? {
