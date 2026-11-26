@@ -206,4 +206,4 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 
 2026-11-25 发布记录。1.0 Build 45 的 App 构建提交为 `ea4f94e`，Cloudflare 96 对应 `8033dc8`。源码基线、模拟器打包和 iPhone 17e 启动、原生冒烟测试、根目录构建与 24 项测试、17 项好友接口测试通过。iPhone、Watch 与小组件分发签名通过校验，归档包含全部 5,630 个动作演示及素材授权说明。合成界面自动化看到了「删除好友」菜单项，系统菜单点按未能完成确认弹窗验证。TestFlight 训练搭子内测和公开外测均显示 Build 45 为 Testing。本次发布范围为 TestFlight。
 
-2026-11-26 发布记录。正式 App Store 执行「Remove App From Sale」，App Store Connect 可用国家或地区从 175 个变为 0 个。应用记录和 TestFlight 继续保留。当前 App 连接 Cloudflare 96，新增渲染技能 API 和下载包已合入源码。
+2026-11-26 发布记录。1.0.1 Build 46 的 App 源码为 `f701001`。远端源码基线、模拟器打包、iPhone、Watch 与小组件分发签名通过核对，归档包含 171 个原创 3D 示范。App Store Connect 中「训练搭子内测」显示 Testing，「训练搭子公开外测」已提交 Beta 审核并显示 Waiting for Review。正式 App Store 执行「Remove App From Sale」，App Store Connect 显示全部 175 个国家和地区均不可用。当前 App 连接 Cloudflare 96，新增渲染技能 API 和下载包已合入源码，待单独部署。
