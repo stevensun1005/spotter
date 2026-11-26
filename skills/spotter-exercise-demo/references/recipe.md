@@ -7,7 +7,7 @@ See [the dumbbell squat sample](example-squat.json) for a complete recipe. The m
 | `version` | `1` |
 | `durationMs` | 1200–6500. Choose a deliberate tempo for the movement. |
 | `camera` | Optional `yaw` and `elevation` in degrees, `focus` as `[x,y,z]`, and `height` in metres. Frame the athlete and full equipment travel. |
-| `equipment` | `none`, `mat`, `step`, `dumbbell`, `dumbbells`, `mat-dumbbells`, `cable`, `dual-cable`, `rope` `band` or `landmine`. Additional presets include `bench`, `neutral-pull-up`, `band-ankle`, `cable-lat-bar` and `leg-curl`. The flat bench surface is 0.46 m high at `x=0.10, z=0.98`. The pull-up grips face along Z at `x=±0.193, y=2.144, z=0.097`. The mat is centered near `[0,0,-0.30]` and the step top is 0.31 m at `z=0.51`. |
+| `equipment` | `none`, `mat`, `step`, `dumbbell`, `dumbbells`, `mat-dumbbells`, `cable`, `dual-cable`, `rope` `band` or `landmine`. Additional presets include `bench`, `neutral-pull-up`, `band-ankle`, `cable-lat-bar` and `leg-curl`. `barbell` provides a plate-loaded barbell and `bench-barbell` adds the flat bench. `trap-bar` uses a hexagonal frame with handles 0.084 m above the loaded axis. `bench-dumbbell` and `bench-dumbbells` combine the flat bench with one or two dumbbells. `chest-bench-dumbbells` provides a chest support tilted 45 degrees with the two dumbbells. The flat bench surface is 0.46 m high at `x=0.10, z=0.98`. `pull-up` has a transverse overhand bar. The neutral pull-up grips face along Z at `x=±0.193, y=2.144, z=0.097`. The mat is centered near `[0,0,-0.30]` and the step top is 0.31 m at `z=0.51`. |
 | `muscles` | Optional names from `lat`, `quad`, `glute`, `pec`, `core`, `shoulder`, `rearShoulder`, `forearm`, `triceps`. Use `l:` or `r:` for unilateral highlights. |
 | `keyframes` | 3–65 keyframes. `at` increases from 0 to 1. Supply enough samples to control the path and contact timing. |
 
@@ -17,6 +17,9 @@ Optional per-frame fields:
 
 - `planted: {"l": 0, "r": 0}` identifies support surfaces by height. Omit a side while its foot is moving through the air.
 - `lGrip` and `rGrip` specify the direction of a handle through the grasp. For dumbbells, set `dumbbells` to an array of `{center, axis}` objects in a stable order. Match the corresponding grasp and grip direction on every frame.
+- For an open planted hand, `lFingers` or `rFingers` points from wrist toward fingertips and the matching `lPalmSide` / `rPalmSide` sets the lateral direction across the palm. Use two perpendicular world directions. Omit the grip for that hand.
+- `stretch-band`, `mat-stretch-band` and `high-stretch-band` use a continuous `bandPath` of 2–8 world positions. The high preset uses three knots and keeps the middle one fixed.
+- `barbell` and `trap-bar` use a per-frame `barbell: {center, axis}`. Keep the athlete’s grips on the same axis.
 - `cables` uses `{anchor, end, grip}` objects. Anchors remain fixed. Match the end and grip to the athlete's hand. For a rope, provide two ends and one shared anchor.
 - `band` uses a fixed `anchor` and a moving `end`, each an `[x,y,z]` coordinate. Place the end between the hands when both hold the loop.
 - `cable-lat-bar` uses a single `cables` entry with the bar center as its end. `leg-curl` uses a per-frame `roller` center.

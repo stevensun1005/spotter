@@ -1,5 +1,6 @@
 import { canonicalCatalogueId, exerciseIdentityNameKey, parsePlanMove } from "./move-name";
 import type { Catalog, CatalogEntry, ExerciseChoice } from "./open-gym";
+import exactAliasData from "./catalogue-exact-aliases.json" with { type: "json" };
 
 export const searchable = (value: string) => value.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
@@ -258,6 +259,7 @@ const originalIds: Record<string, string> = {
 };
 
 const idsByCatalogue = new WeakMap<Catalog, Map<string, CatalogEntry>>();
+const exactAliases = new Map(Object.entries(exactAliasData));
 const namesByCatalogue = new WeakMap<Catalog, Map<string, CatalogEntry | null>>();
 const exactNamesByCatalogue = new WeakMap<Catalog, Map<string, CatalogEntry | null>>();
 
@@ -285,6 +287,8 @@ export function catalogueExerciseById(data: Catalog, value: string) {
 }
 
 function catalogueExerciseByName(data: Catalog, value: string) {
+  const alias = exactAliases.get(exerciseIdentityNameKey(parsePlanMove(value, { preserveQualifiers: true }).name));
+  if (alias) return catalogueExerciseById(data, alias);
   const name = searchable(parsePlanMove(value).name);
   const id = Object.hasOwn(originalIds, name) ? originalIds[name] : undefined;
   return id ? catalogueExerciseById(data, id) : catalogueNameLookup(data, searchable, namesByCatalogue).get(name);
@@ -292,7 +296,7 @@ function catalogueExerciseByName(data: Catalog, value: string) {
 
 export function catalogueExerciseByExactName(data: Catalog, value: string) {
   const name = exerciseIdentityNameKey(parsePlanMove(value, { preserveQualifiers: true }).name);
-  const id = Object.hasOwn(originalIds, name) ? originalIds[name] : undefined;
+  const id = exactAliases.get(name) ?? (Object.hasOwn(originalIds, name) ? originalIds[name] : undefined);
   return id ? catalogueExerciseById(data, id) : catalogueNameLookup(data, exerciseIdentityNameKey, exactNamesByCatalogue).get(name);
 }
 

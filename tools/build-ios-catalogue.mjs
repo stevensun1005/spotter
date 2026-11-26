@@ -20,6 +20,7 @@ const output = new URL("../ios/SpotterHealth/NativeCatalogueAssets/", import.met
 const resource = new URL("public/open-gym/", root);
 const index = JSON.parse(await readFile(new URL("index.json", resource), "utf8"));
 const corrections = JSON.parse(await readFile(new URL("features/exercises/catalog-corrections.json", root), "utf8"));
+const exactAliases = JSON.parse(await readFile(new URL("features/exercises/catalogue-exact-aliases.json", root), "utf8"));
 const { catalogueAreas } = await import("../cloudflare/features/exercises/catalogue-areas.ts");
 const { catalogFamilies, preferredFamilyForQuery, variantDetails } = await import("../cloudflare/features/exercises/catalog-families.ts");
 const { catalogueSections, collapseCatalogueRows } = await import("../cloudflare/features/exercises/catalog-sections.ts");
@@ -235,6 +236,7 @@ const metadata = {
   preferredFamilies: Object.fromEntries(preferred),
   corrections: Object.fromEntries(Object.values(corrections).flatMap(({ aliases }) =>
     aliases.map((alias) => [alias.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " "), canonicalMoveName(alias)]))),
+  exactAliases,
   classifications: Object.fromEntries(Object.entries(guideClassifications).map(([name, details]) =>
     [normalizeSearch(canonicalMoveName(name)).replace(/\s+/g, ""), details])),
   covers: Object.fromEntries([...demos].flatMap(([id, demo]) => {

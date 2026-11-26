@@ -1,7 +1,7 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
-import { chromium } from 'playwright-core';
+import { launchRenderer, openRenderer } from './browser.mjs';
 
 const [input, output, browserPath = process.env.SPOTTER_DEMO_CHROME] = process.argv.slice(2);
 if (!input || !output || !browserPath) {
@@ -9,15 +9,9 @@ if (!input || !output || !browserPath) {
 }
 if ((await stat(input)).size > 384 * 1024) throw new Error('Motion recipe exceeds 384 KiB.');
 const recipe = JSON.parse(await readFile(input, 'utf8'));
-const browser = await chromium.launch({
-  executablePath: resolve(browserPath),
-  headless: true,
-  args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
-});
+const browser = await launchRenderer(browserPath);
 try {
-  const page = await browser.newPage();
-  await page.goto(new URL('../renderer.html', import.meta.url).href);
-  await page.waitForFunction(() => Boolean(window.spotterDemoRenderer));
+  const page = await openRenderer(browser, new URL('../renderer.html', import.meta.url));
   const data = await page.evaluate((value) => window.spotterDemoRenderer.renderBase64(value), recipe);
   const bytes = Buffer.from(data, 'base64');
   await writeFile(pathToFileURL(resolve(output)), bytes, {flag: 'wx', mode: 0o600});

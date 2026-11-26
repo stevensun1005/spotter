@@ -259,6 +259,7 @@ struct NativeCatalogIndex: Sendable {
         let families: [Family]
         let preferredFamilies: [String: String]
         let corrections: [String: String]
+        let exactAliases: [String: String]?
         let classifications: [String: Classification]
         let covers: [String: [Int]]
         let videos: [String: String]
@@ -333,7 +334,8 @@ struct NativeCatalogIndex: Sendable {
     func entry(withID id: String) -> NativeCatalogEntry? { rowsByID[id] }
 
     func entry(exactName name: String, catalogueID: String = "") -> NativeCatalogEntry? {
-        let named = rowsByExactName[exactNameKey(name)]
+        let key = exactNameKey(name)
+        let named = metadata.exactAliases?[key].flatMap(entry(withID:)) ?? rowsByExactName[key]
         if catalogueID.isEmpty { return named }
         guard named == nil || named?.id == catalogueID else { return nil }
         return entry(withID: catalogueID)

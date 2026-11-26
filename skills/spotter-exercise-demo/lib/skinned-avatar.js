@@ -199,9 +199,12 @@ export function createSkinnedAvatar() {
       place('ball_'+s,foot);
 
       const shoulder = vec(pose[s+'s']), elbow=vec(pose[s+'e']), grasp=vec(pose[s+'w']);
-      const fingerDirection = grasp.clone().sub(elbow).normalize();
+      const authoredFingers = pose[s+'Fingers'];
+      const authoredPalmSide = pose[s+'PalmSide'];
+      const fingerDirection = authoredFingers ? vec(authoredFingers).normalize() : grasp.clone().sub(elbow).normalize();
       const gripping=Boolean(pose[s+'Grip']);
-      const grip = gripping ? vec(pose[s+'Grip']).normalize() : side.clone();
+      const grip = gripping ? vec(pose[s+'Grip']).normalize()
+        : authoredPalmSide ? vec(authoredPalmSide).normalize() : side.clone();
       if (s==='l') grip.negate();
       if (gripping) {
         const axial=fingerDirection.dot(grip);

@@ -1,9 +1,9 @@
 const joints = ['hips', 'chest', 'neck', 'head', 'ls', 'le', 'lw', 'rs', 're', 'rw',
   'lh', 'lk', 'la', 'lt', 'rh', 'rk', 'ra', 'rt'];
-const optionalVectors = ['lGrip', 'rGrip'];
+const optionalVectors = ['lGrip', 'rGrip', 'lFingers', 'rFingers', 'lPalmSide', 'rPalmSide'];
 const musclePattern = /^(?:(?:l|r):)?(?:lat|quad|glute|pec|core|shoulder|rearShoulder|forearm|triceps)$/;
 const validEquipment = new Set(['none', 'mat', 'step', 'dumbbell', 'dumbbells',
-  'mat-dumbbells', 'band', 'band-ankle', 'bench', 'neutral-pull-up', 'cable', 'dual-cable', 'cable-lat-bar', 'leg-curl', 'rope', 'landmine']);
+  'mat-dumbbells', 'chest-bench-dumbbells', 'band', 'band-ankle', 'stretch-band', 'mat-stretch-band', 'high-stretch-band', 'barbell', 'trap-bar', 'bench', 'bench-barbell', 'bench-dumbbell', 'bench-dumbbells', 'neutral-pull-up', 'pull-up', 'cable', 'dual-cable', 'cable-lat-bar', 'leg-curl', 'rope', 'landmine']);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -36,17 +36,22 @@ export function prepareRecipe(input) {
   const equipment = input.equipment ?? 'none';
   assert(validEquipment.has(equipment), 'Unknown equipment preset.');
   const options = {
-    bells: ({dumbbell: 1, dumbbells: 2, 'mat-dumbbells': 2})[equipment] ?? 0,
+    bells: ({dumbbell: 1, dumbbells: 2, 'mat-dumbbells': 2, 'chest-bench-dumbbells': 2, 'bench-dumbbell': 1, 'bench-dumbbells': 2})[equipment] ?? 0,
     cableCount: ({cable: 1, 'cable-lat-bar': 1, 'dual-cable': 2, rope: 2})[equipment] ?? 0,
     rope: equipment === 'rope',
     band: equipment === 'band' || equipment === 'band-ankle',
     ankleCuff: equipment === 'band-ankle',
-    bench: equipment === 'bench',
-    pullUp: equipment === 'neutral-pull-up',
+    bench: equipment === 'bench' || equipment === 'bench-barbell' || equipment === 'bench-dumbbell' || equipment === 'bench-dumbbells',
+    chestBench: equipment === 'chest-bench-dumbbells',
+    barbell: equipment === 'barbell' || equipment === 'bench-barbell',
+    trapBar: equipment === 'trap-bar',
+    stretchBand: equipment.endsWith('stretch-band'),
+    highMount: equipment === 'high-stretch-band',
+    pullUp: equipment === 'neutral-pull-up' ? 'neutral' : equipment === 'pull-up' ? 'bar' : undefined,
     latBar: equipment === 'cable-lat-bar',
     legCurl: equipment === 'leg-curl',
     landmine: equipment === 'landmine',
-    mat: equipment === 'mat' || equipment === 'mat-dumbbells',
+    mat: equipment === 'mat' || equipment === 'mat-dumbbells' || equipment === 'mat-stretch-band',
     step: equipment === 'step',
   };
   const muscles = input.muscles ?? [];
@@ -80,6 +85,17 @@ export function prepareRecipe(input) {
     const bells = frame.dumbbells ?? [];
     assert(Array.isArray(bells) && bells.length === options.bells, 'Match dumbbells to the equipment preset.');
     pose.dumbbells = bells.map((bell) => ({center: vector(bell?.center, 'dumbbell center'), axis: axis(bell?.axis, 'dumbbell axis')}));
+    if (options.barbell || options.trapBar) pose.barbell = {center: vector(frame.barbell?.center, 'barbell center'), axis: axis(frame.barbell?.axis, 'barbell axis')};
+    if (options.stretchBand) {
+      const path = frame.bandPath;
+      assert(Array.isArray(path) && path.length >= 2 && path.length <= 8 &&
+        path.length === source[0].bandPath.length, 'Use a stable 2–8 point band path.');
+      pose.bandPath = path.map((joint) => vector(joint, 'band path point'));
+      if (options.highMount) {
+        assert(path.length === 3 && equal(path[1], source[0].bandPath[1]), 'The overhead band mount must stay fixed.');
+        number(path[1][1], 1.4, 2.7, 'high band mount height');
+      }
+    }
     const cables = frame.cables ?? [];
     assert(Array.isArray(cables) && cables.length === options.cableCount, 'Match cables to the equipment preset.');
     pose.cables = cables.map((cable, cableIndex) => {
@@ -133,6 +149,10 @@ export function prepareRecipe(input) {
       center: blend(bell.center, b.dumbbells[index].center, weight),
       axis: blend(bell.axis, b.dumbbells[index].axis, weight),
     }));
+    if (options.barbell || options.trapBar) {
+      pose.barbell = {center: blend(a.barbell.center, b.barbell.center, weight), axis: blend(a.barbell.axis, b.barbell.axis, weight)};
+    }
+    if (options.stretchBand) pose.bandPath = a.bandPath.map((point,index)=>blend(point,b.bandPath[index],weight));
     pose.cables = a.cables.map((cable, index) => ({
       ...cable,
       end: blend(cable.end, b.cables[index].end, weight),

@@ -16,7 +16,7 @@ try {
   await mkdir(join(dir, 'scripts'), {recursive: true});
   await mkdir(join(dir, 'references'));
   await mkdir(join(dir, 'licenses'));
-  for (const file of ['SKILL.md', 'references/recipe.md', 'scripts/render.mjs', 'package.json', 'package-lock.json']) {
+  for (const file of ['SKILL.md', 'references/recipe.md', 'scripts/render.mjs', 'scripts/browser.mjs', 'package.json', 'package-lock.json']) {
     await copyFile(join(skill, file), join(dir, file));
   }
   for (const [source, target] of [

@@ -60,6 +60,9 @@ struct NativeCatalogueSmoke {
             precondition(index.bundledVideoURL(for: entry)?.path.hasSuffix("/video/spotter-3d/" + id + ".mp4") == true)
             precondition(index.videoURL(for: entry)?.path == path)
         }
+        precondition(index.entry(exactName: "A1 跪姿绳索三头下压")?.id == "0176")
+        precondition(index.entry(exactName: "A2 跪姿绳索三头下压（反握）") == nil)
+        precondition(index.entry(exactName: "上斜俯卧哑铃展臂")?.id == "0326")
         let personal = index.makePersonal(name: "私人的测试动作")
         precondition(index.drawing(for: personal) == nil && index.animationData(for: personal) == nil && index.bundledVideoURL(for: personal) == nil)
     }

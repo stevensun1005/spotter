@@ -368,6 +368,82 @@ function createFlatBench(group) {
   }
 }
 
+function createBarbell(parent) {
+  const group = new THREE.Group();
+  parent.add(group);
+  cylinder(group, .0132, 2.14, steel, 0, 0, 0, 26);
+  for (const side of [-1, 1]) {
+    cylinder(group, .021, .421, bright, 0, side*.849, 0, 28);
+    cylinder(group, .030, .041, edge, 0, side*.648, 0, 28);
+    for (let index=0; index<16; index++) {
+      cylinder(group, .0136, .0019, edge, 0, side*(.231+index*.010), 18);
+    }
+    const y = side*.704;
+    cylinder(group, .197, .055, rubber, 0, y, 0, 40);
+    for (const face of [-1, 1]) {
+      cylinder(group, .168, .004, edge, 0, y+face*.029, 0, 42);
+      cylinder(group, .037, .007, bright, 0, y+face*.033, 0, 28);
+    }
+    cylinder(group, .028, .052, accent, 0, side*.758, 0, 18);
+  }
+  return group;
+}
+
+function createTrapBar(parent) {
+  const group = new THREE.Group();
+  parent.add(group);
+  const rim = [
+    [-.557,0,0],[-.354,0,-.287],[.354,0,-.287],[.557,0,0],[.354,0,.287],[-.354,0,.287],
+  ];
+  for (const [index, start] of rim.entries()) {
+    connect(bar(group,.019,edge,20),world(start),world(rim[(index+1)%rim.length]));
+  }
+  for (const side of [-1,1]) {
+    for (const z of [-.092,.092]) box(group,.049,.085,.044,steel,side*.315,.042,z);
+    cylinder(group,.017,.253,rubber,side*.315,.084,0,20).rotateX(Math.PI/2);
+    cylinder(group,.028,.423,steel,side*.753,0,0,26).rotateZ(Math.PI/2);
+    cylinder(group,.194,.097,rubber,side*.723,0,0,36).rotateZ(Math.PI/2);
+    cylinder(group,.171,.004,edge,side*.774,0,0,38).rotateZ(Math.PI/2);
+    cylinder(group,.039,.019,steel,side*.778,0,0,24).rotateZ(Math.PI/2);
+  }
+  return group;
+}
+
+function createStretchBand(group, initial, highMount) {
+  const nodes = initial.bandPath;
+  const segments = Array.from({length:nodes.length-1},()=>bar(group,.009,accent,14));
+  const joints = nodes.slice(1,-1).map(()=>mesh(group,new THREE.SphereGeometry(.009,12,8),accent));
+  if (highMount) {
+    const [x,y,z]=nodes[1];
+    roundSlab(group,.38,.37,.041,.031,rubber,x,.001,z);
+    box(group,.077,y,.076,frame,x,y/2,z,.009);
+    cylinder(group,.028,.079,steel,x,y,z,20).rotateZ(Math.PI/2);
+  }
+  return (points) => {
+    const knots = points.map(world);
+    segments.forEach((strand, index) => connect(strand,knots[index],knots[index+1]));
+    joints.forEach((joint,index) => joint.position.copy(knots[index+1]));
+  };
+}
+
+function createChestSupportBench(group) {
+  const pad = box(group, .435, .069, .782, rubber, 0, .697, -.069, .026);
+  pad.rotation.x = Math.PI / 4;
+  const rail = box(group, .094, .042, .715, edge, 0, .648, -.110);
+  rail.rotation.x = Math.PI / 4;
+  for (const z of [-.357, .401]) {
+    box(group, .565, .047, .085, frame, 0, .031, z);
+    for (const x of [-.25, .25]) roundSlab(group, .108, .119, .019, .013, rubber, x, .001, z);
+  }
+  box(group, .087, .752, .087, frame, 0, .410, -.357);
+  box(group, .087, .358, .087, frame, 0, .214, .401);
+  box(group, .073, .081, .751, edge, 0, .113, .014);
+  const seat = box(group, .397, .060, .259, rubber, 0, .405, .339, .021);
+  seat.rotation.x = -.10;
+  bolt(group, .048, .410, -.317);
+  bolt(group, -.049, .267, .440);
+}
+
 function createPulldownBar(group, sample) {
   const source = sample(0).cables[0];
   const anchor = world(source.anchor);
@@ -421,13 +497,19 @@ function createProneCurlMachine(group) {
   };
 }
 
-function createNeutralPullUpRack(group) {
+function createPullUpRack(group, variant) {
   for (const x of [-.70, .70]) {
     roundSlab(group, .23, .87, .045, .031, rubber, x, .001, -.05);
     box(group, .082, 2.29, .075, frame, x, 1.17, -.21);
     for (const y of [.18, .29, 2.10, 2.22]) bolt(group, x, y, -.165);
   }
   box(group, 1.48, .074, .087, edge, 0, 2.266, -.21, .013);
+  if (variant === 'bar') {
+    for (const x of [-.65,.65]) box(group, .047, .049, .334, frame, x, 2.144, -.071);
+    cylinder(group,.018,1.34,steel,0,2.144,.097,28).rotateZ(Math.PI/2);
+    for (const x of [-.305,.305]) cylinder(group,.021,.22,rubber,x,2.144,.097,24).rotateZ(Math.PI/2);
+    return;
+  }
   for (const x of [-.193, .193]) {
     box(group, .048, .151, .059, frame, x, 2.24, -.16);
     cylinder(group, .017, .54, steel, x, 2.144, .049, 22).rotateX(Math.PI / 2);
@@ -462,10 +544,13 @@ function createResistanceBand(group, anchor, ankleCuff = false) {
 }
 
 export function createEquipment(options, sample) {
-  const {bells = 0, cableCount = 0, rope = false, mat = false, step = false, bench = false, pullUp = false, latBar = false, legCurl = false, band: hasBand = false, ankleCuff = false, landmine: hasLandmine = false} = options;
+  const {bells = 0, cableCount = 0, rope = false, mat = false, step = false, bench = false, chestBench = false, barbell: hasBarbell = false, trapBar: hasTrapBar = false, stretchBand = false, highMount = false, pullUp = false, latBar = false, legCurl = false, band: hasBand = false, ankleCuff = false, landmine: hasLandmine = false} = options;
   const group = new THREE.Group();
   group.name = 'Original Spotter exercise equipment';
   const dumbbells = Array.from({ length: bells }, () => createDumbbell(group));
+  const barbell = hasBarbell ? createBarbell(group) : null;
+  const trapBar = hasTrapBar ? createTrapBar(group) : null;
+  const stretch = stretchBand ? createStretchBand(group,sample(0),highMount) : null;
   const lines = createCableHandles(group, latBar ? 0 : cableCount, rope, cableCount === 1);
   const towers = new Map();
   const baseLengths = lines.length ? restingLengths(sample) : new Map();
@@ -475,7 +560,8 @@ export function createEquipment(options, sample) {
   if (mat) createMat(group);
   if (step) createStep(group);
   if (bench) createFlatBench(group);
-  if (pullUp) createNeutralPullUpRack(group);
+  if (chestBench) createChestSupportBench(group);
+  if (pullUp) createPullUpRack(group, pullUp);
   const updatePulldownBar = latBar ? createPulldownBar(group, sample) : null;
   const updateLegCurl = legCurl ? createProneCurlMachine(group) : null;
   if (ankleCuff) createBalancePost(group);
@@ -488,6 +574,13 @@ export function createEquipment(options, sample) {
       bell.visible = Boolean(source);
       if (source) aligned(bell, world(source.center), world(source.axis));
     });
+
+    if (barbell) aligned(barbell, world(pose.barbell.center), world(pose.barbell.axis));
+    if (trapBar) {
+      trapBar.position.copy(world(pose.barbell.center));
+      trapBar.rotation.y = Math.atan2(-pose.barbell.axis[2], pose.barbell.axis[0]);
+    }
+    if (stretch) stretch(pose.bandPath);
 
     const cables = pose.cables ?? [];
     const ropeEnds = cables.filter((cable) => cable.kind === 'rope');
