@@ -219,6 +219,7 @@ enum NativeWidgetStatsRequest: Equatable {
 struct NativeSpotterStats: View {
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterAccent) private var accent
+    @Environment(\.dynamicTypeSize) private var textSize
     @EnvironmentObject private var remarks: NativeSocialRemarks
     @ObservedObject var store: NativeWorkoutStore
     let api: NativeAPI
@@ -315,13 +316,19 @@ struct NativeSpotterStats: View {
         case .year: return "\(year) 年"
         case .quarter: return "\(year) 年第 \((month - 1) / 3 + 1) 季度"
         case .month: return "\(year) 年 \(month) 月"
-        default: return label(range, short: true)
+        default:
+            // One line: drop the years inside the current year, keep the end year when the range crosses one.
+            let current = calendar.component(.year, from: SecondaryDate.today)
+            let endYear = calendar.component(.year, from: range.upperBound)
+            guard year != current || endYear != current else { return label(range, short: true) }
+            let end = spotterDay(range.upperBound)
+            return "\(spotterDay(range.lowerBound)) 至 \(year == endYear ? String(end.suffix(5)) : end)"
         }
     }
 
     var body: some View {
-        VStack(spacing: 9) {
-            SpotterGlassSegments(options: Page.allCases, value: $page, title: \.rawValue)
+        VStack(spacing: 6) {
+            SpotterGlassSegments(options: Page.allCases, value: $page, dense: true, title: \.rawValue)
                 .padding(.horizontal, 14)
             if page == .overview {
                 ScrollView {
@@ -340,7 +347,7 @@ struct NativeSpotterStats: View {
                     .transition(.opacity)
             }
         }
-        .padding(.top, 8)
+        .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(SpotterPalette.ink)
         .background(SpotterPalette.background)
@@ -445,52 +452,86 @@ struct NativeSpotterStats: View {
         }
     }
 
+    /// Period, date and subject controls share one compact card: the period row on top, then the
+    /// date stepper with the 我 / 搭子 switch beside it. The switch keeps a fixed width so the title
+    /// gets at least its full width in the side-by-side row; otherwise it moves under the stepper.
+    /// Accessibility text sizes stack everything at 44 pt.
     private var rangePicker: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            VStack(spacing: 4) {
-                if let partner, !sharedLogs.isEmpty {
-                    let name = remarks.name(for: partner.id, fallback: partner.name)
-                    SpotterGlassSegments(options: [false, true], value: $partnerSelected, glass: false, compact: true) {
-                        $0 ? "搭子 · \(name)" : "我"
-                    }
+        let large = textSize.isAccessibilitySize
+        return VStack(alignment: .leading, spacing: 5) {
+            SpotterGlassSegments(options: Period.allCases, value: $period, compact: true, dense: true, title: \.rawValue)
+                .onChange(of: period) { value in
+                    step = 0
+                    if value == .custom { editingDates = true }
                 }
-                SpotterGlassSegments(options: Period.allCases, value: $period, compact: true, title: \.rawValue)
-                    .onChange(of: period) { value in
-                        step = 0
-                        if value == .custom { editingDates = true }
-                    }
-            }
             if period == .recent {
                 SpotterMenuPicker("最近天数", selection: $recent, options: [7, 30, 90, 365].map { ($0, "\($0) 天") })
                     .onChange(of: recent) { _ in step = 0 }
                     .transition(.opacity)
             }
-            HStack(spacing: 5) {
-                stepButton("上一周期", symbol: "chevron.left") { withAnimation(motion) { shiftPeriod(-1) } }
-                    .disabled(!canStepBack)
-                if period == .custom {
-                    Button { editingDates = true } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "calendar").foregroundStyle(accent.tint)
-                            rangeTitle
-                            Image(systemName: "chevron.down").font(.caption2).foregroundStyle(SpotterPalette.muted)
-                        }.frame(maxWidth: .infinity)
-                    }.buttonStyle(.spotterControl).accessibilityLabel("编辑自定义日期")
-                } else {
-                    rangeTitle.frame(maxWidth: .infinity)
+            if large {
+                if showsPartner { partnerSwitch }
+                rangeStepper(compact: false)
+            } else if showsPartner {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        rangeStepper(compact: true)
+                        partnerSwitch.frame(width: 132)
+                    }
+                    VStack(spacing: 5) {
+                        rangeStepper(compact: true)
+                        partnerSwitch
+                    }
                 }
-                stepButton("下一周期", symbol: "chevron.right") { withAnimation(motion) { shiftPeriod(1) } }.disabled(!canStepForward)
+            } else {
+                rangeStepper(compact: true)
             }
+        }.padding(6).secondaryCard().animation(motion, value: period)
+    }
 
-        }.padding(9).secondaryCard().animation(motion, value: period)
+    private var showsPartner: Bool { partner != nil && !sharedLogs.isEmpty }
+
+    @ViewBuilder private var partnerSwitch: some View {
+        if let partner {
+            let name = remarks.name(for: partner.id, fallback: partner.name)
+            SpotterGlassSegments(options: [false, true], value: $partnerSelected, glass: false, compact: true, dense: true,
+                                 accessibilityTitle: { $0 ? "搭子 \(name)" : "我" }) {
+                $0 ? name : "我"
+            }
+        }
+    }
+
+    private func rangeStepper(compact: Bool) -> some View {
+        HStack(spacing: compact ? 0 : 5) {
+            stepButton("上一周期", symbol: "chevron.left", compact: compact) { withAnimation(motion) { shiftPeriod(-1) } }
+                .disabled(!canStepBack)
+            if period == .custom {
+                Button { editingDates = true } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "calendar").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+                        rangeTitle
+                    }
+                    .frame(maxWidth: .infinity, minHeight: compact ? 30 : 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.spotterPress)
+                .accessibilityLabel("编辑自定义日期")
+                .accessibilityValue(label(range))
+            } else {
+                rangeTitle.frame(maxWidth: .infinity)
+            }
+            stepButton("下一周期", symbol: "chevron.right", compact: compact) { withAnimation(motion) { shiftPeriod(1) } }
+                .disabled(!canStepForward)
+        }
+        .background(compact ? SpotterPalette.background : .clear, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var rangeTitle: some View {
-        VStack(spacing: 2) {
-            Text(periodTitle).font(.subheadline.weight(.bold)).foregroundStyle(SpotterPalette.ink)
-            Text(label(range)).font(.caption2.monospacedDigit()).foregroundStyle(SpotterPalette.muted)
-        }
-        .lineLimit(1).minimumScaleFactor(0.70)
+        Text(periodTitle)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(SpotterPalette.ink)
+            .lineLimit(1).minimumScaleFactor(0.70)
+            .accessibilityValue(label(range))
     }
 
     private var weekPlans: [NativeWorkoutEntry] {
@@ -691,10 +732,19 @@ struct NativeSpotterStats: View {
 
 private func statNumber(_ value: Double) -> String { value.formatted(.number.precision(.fractionLength(0...1))) }
 
-private func stepButton(_ name: String, symbol: String, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
-        Image(systemName: symbol).font(.subheadline.weight(.semibold)).frame(width: 22)
-    }.buttonStyle(.spotterControl).accessibilityLabel(name)
+@ViewBuilder
+private func stepButton(_ name: String, symbol: String, compact: Bool = false, action: @escaping () -> Void) -> some View {
+    if compact {
+        Button(action: action) {
+            Image(systemName: symbol).font(.footnote.weight(.semibold))
+                .frame(width: 34, height: 30)
+                .contentShape(Rectangle())
+        }.buttonStyle(.spotterPress).accessibilityLabel(name)
+    } else {
+        Button(action: action) {
+            Image(systemName: symbol).font(.subheadline.weight(.semibold)).frame(width: 22)
+        }.buttonStyle(.spotterControl).accessibilityLabel(name)
+    }
 }
 
 private struct SecondaryDateRangeSheet: View {
@@ -4071,26 +4121,21 @@ struct NativeFriends: View {
         if workout.sets > 0 { Label("\(workout.sets) 组", systemImage: "checklist") }
     }
 
+    /// Only the account-wide 朋友圈 switches live here. What each friend or buddy can see is set from
+    /// that person's profile under 联系人, so this page no longer repeats the contact list.
     private var privacy: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack { SecondaryTile(icon: "lock", color: secondaryLilac); Text("朋友圈权限").font(.headline) }
-                if let social {
-                    privacySwitch("关闭朋友圈", detail: "向普通好友隐藏训练和饮食记录。搭子的共享设置照常生效。", value: social.preferences.closed, key: \.closed)
-                    privacySwitch("允许通过用户名找到我", detail: "其他用户可输入你的用户名或完整的用户名#编号。", value: social.preferences.discoverable, key: \.discoverable)
-                    privacySwitch("仅显示最近 3 天", detail: "你与搭子、好友互相查看最近 3 天的活动。", value: social.preferences.recentOnly, key: \.recentOnly)
-                } else if !error { ProgressView("正在读取朋友圈权限…") }
-                else { Button("重新读取") { Task { await load() } }.buttonStyle(SecondaryButtonStyle()) }
-            }.padding(12).frame(maxWidth: .infinity, alignment: .leading).secondaryCard()
-            if let data, !data.friends.isEmpty {
-                SecondaryGroup(title: "好友分享范围") {
-                    ForEach(data.friends) { friend in
-                        if friend.id != data.friends.first?.id { Divider().padding(.horizontal, 12) }
-                        friendLink(friend)
-                    }
-                }
-            }
-        }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack { SecondaryTile(icon: "lock", color: secondaryLilac); Text("朋友圈权限").font(.headline) }
+            if let social {
+                privacySwitch("关闭朋友圈", detail: "向普通好友隐藏训练和饮食记录。搭子的共享设置照常生效。", value: social.preferences.closed, key: \.closed)
+                privacySwitch("允许通过用户名找到我", detail: "其他用户可输入你的用户名或完整的用户名#编号。", value: social.preferences.discoverable, key: \.discoverable)
+                privacySwitch("仅显示最近 3 天", detail: "你与搭子、好友互相查看最近 3 天的活动。", value: social.preferences.recentOnly, key: \.recentOnly)
+                Text("要单独调整对某个人的分享，在「联系人」打开对方资料。")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !error { ProgressView("正在读取朋友圈权限…") }
+            else { Button("重新读取") { Task { await load() } }.buttonStyle(SecondaryButtonStyle()) }
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading).secondaryCard()
     }
 
     private func privacySwitch(_ title: String, detail: String, value: Bool, key: WritableKeyPath<SecondarySocial.Preferences, Bool>) -> some View {

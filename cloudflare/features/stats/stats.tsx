@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState, type CSSProperties } from "react";
-import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Dumbbell, Settings2, UserRound } from "lucide-react";
+import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Dumbbell, Settings2 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Anatomy, type AnatomyVariant } from "@/features/exercises/anatomy";
 import { muscleBlues, neutralMuscle } from "@/features/exercises/muscle-colors";
@@ -164,19 +164,15 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
   const scoreUnit = metrics[metric].unit + (metric === "volume" ? "/天" : "");
   const shiftCustom = (n: number) => setCustom({ from: offsetDate(custom.from, n * rangeDays(custom)), to: offsetDate(custom.to, n * rangeDays(custom)) });
   const navigate = (n: number) => period === "custom" ? shiftCustom(n) : setStepping(stepping + n);
+  // One-line range title. Week, recent and custom ranges show years only outside the current year,
+  // and keep the end year when the range crosses one.
+  const thisYear = today.slice(0, 4);
+  const rangeTitle = period === "year" || period === "quarter" || period === "month" ||
+    (range.from.slice(0, 4) === thisYear && range.to.slice(0, 4) === thisYear)
+    ? periodLabel(period, range)
+    : range.from + " 至 " + (range.from.slice(0, 4) === range.to.slice(0, 4) ? range.to.slice(5) : range.to);
   return <div className="stats-page stats-dashboard">
     <div className="stats-top card padded">
-      {partner && <div className="stats-people" role="group" aria-label="统计对象">
-        <button type="button" aria-pressed={subject === self} onClick={() => setPerson(self)}>
-          <span className="stats-person-avatar" aria-hidden="true"><UserRound size={17} /></span>
-          <strong>我</strong>{subject === self && <Check size={17} aria-hidden="true" />}
-        </button>
-        <button type="button" aria-pressed={subject === partner.id} onClick={() => setPerson(partner.id)}>
-          <span className="stats-person-avatar stats-partner-avatar" aria-hidden="true">{Array.from(partner.name.trim())[0] ?? "搭"}</span>
-          <span className="stats-person-name"><small>搭子</small><strong>{partner.name}</strong></span>
-          {subject === partner.id && <Check size={17} aria-hidden="true" />}
-        </button>
-      </div>}
       <div className="stats-periods" role="group" aria-label="统计周期">{periods.map(([value, title]) => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setStepping(0); }}>{title}</button>)}</div>
       {period === "recent" && <label className="stats-compare-select">最近天数<select value={recent} onChange={(event) => { setRecent(Number(event.target.value)); setStepping(0); }}>
         {[7, 30, 90, 365].map((days) => <option key={days} value={days}>{days} 天</option>)}
@@ -185,10 +181,17 @@ export function Stats({ today, logs, self, partner, onExercise, pinned, savePins
         <label>开始日期<input type="date" min="1900-01-01" max={today} value={custom.from} onChange={(e) => { if (e.target.value) setCustom({ ...custom, from: e.target.value }); }} /></label>
         <label>结束日期<input type="date" min={custom.from} max={today} value={custom.to} onChange={(e) => { if (e.target.value) setCustom({ ...custom, to: e.target.value }); }} /></label>
       </div>}
-      <div className="period-stepper">
-        <button className="icon-button" aria-label="上一周期" disabled={!customValid || range.from < "1901-01-01"} onClick={() => navigate(-1)}><ChevronLeft size={21} /></button>
-        <div><strong>{periodLabel(period, range)}</strong><span>{range.from} — {range.to}</span></div>
-        <button className="icon-button" aria-label="下一周期" disabled={!customValid || (period === "custom" ? offsetDate(range.to, rangeDays(range)) > today : stepping >= 0)} onClick={() => navigate(1)}><ChevronRight size={21} /></button>
+      <div className="stats-range-row">
+        <div className="period-stepper">
+          <button className="icon-button" aria-label="上一周期" disabled={!customValid || range.from < "1901-01-01"} onClick={() => navigate(-1)}><ChevronLeft size={19} /></button>
+          <div><strong>{rangeTitle}</strong><span>{range.from} — {range.to}</span></div>
+          <button className="icon-button" aria-label="下一周期" disabled={!customValid || (period === "custom" ? offsetDate(range.to, rangeDays(range)) > today : stepping >= 0)} onClick={() => navigate(1)}><ChevronRight size={19} /></button>
+        </div>
+        {partner && <div className="stats-people" role="group" aria-label="统计对象">
+          <button type="button" aria-pressed={subject === self} onClick={() => setPerson(self)}>我</button>
+          <button type="button" aria-pressed={subject === partner.id} aria-label={"搭子 " + partner.name} title={"搭子 · " + partner.name}
+            onClick={() => setPerson(partner.id)}><span>{partner.name}</span></button>
+        </div>}
       </div>
     </div>
     {!customValid ? <p className="card padded" role="alert">请选择有效日期，范围最长 10 年。</p> : <>
