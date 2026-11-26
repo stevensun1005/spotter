@@ -12,6 +12,8 @@ struct NativeWorkoutShareView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @EnvironmentObject private var avatars: NativeAvatarStore
     @State private var showDetails = true
     @State private var merge = false
@@ -49,6 +51,7 @@ struct NativeWorkoutShareView: View {
     }
     private var requestedHeart: [String] { includeHeart ? displayedLogs.map(\.id) : [] }
     private var selectedHeart: HeartSelection? { includeHeart && heart?.ids == requestedHeart ? heart : nil }
+    private var scrollsOptions: Bool { textSize.isAccessibilitySize || verticalSizeClass == .compact }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,7 +72,16 @@ struct NativeWorkoutShareView: View {
                 Text("只有本人可以生成这条训练记录的分享卡。").frame(maxHeight: .infinity).padding()
             } else {
                 ScrollView {
-                    poster.padding(10)
+                    VStack(spacing: 10) {
+                        if scrollsOptions {
+                            shareOptions
+                                .padding(12)
+                                .background(theme.tile, in: RoundedRectangle(cornerRadius: 12))
+                                .environment(\.colorScheme, .light)
+                        }
+                        poster
+                    }
+                    .padding(10)
                 }
                 .accessibilityIdentifier("workout-share-preview")
                 .safeAreaInset(edge: .bottom, spacing: 0) { footer }
@@ -101,9 +113,13 @@ struct NativeWorkoutShareView: View {
                            details: showDetails, heart: selectedHeart?.readings ?? [:])
     }
 
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 6) {
+    private var shareOptions: some View {
+        let optionsLayout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
+        let settingsLayout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 12))
+        return VStack(alignment: .leading, spacing: 9) {
+            optionsLayout {
                 Button(showDetails ? "隐藏明细" : "显示明细") {
                     withAnimation(motion) { showDetails.toggle() }
                     message = nil
@@ -120,12 +136,12 @@ struct NativeWorkoutShareView: View {
                         Text(theme.rawValue).fontWeight(.semibold)
                         Image(systemName: "chevron.down").font(.caption2)
                     }
-                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .lineLimit(textSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(0.8)
                     .frame(maxWidth: .infinity)
                 }
             }
 
-            HStack(spacing: 12) {
+            settingsLayout {
                 Button {
                     withAnimation(motion) { includeHeart.toggle() }
                     message = nil
@@ -136,7 +152,7 @@ struct NativeWorkoutShareView: View {
                 .buttonStyle(SpotterChoiceStyle(selected: includeHeart))
                 .accessibilityAddTraits(includeHeart ? .isSelected : [])
                 .disabled(api == nil)
-                Spacer(minLength: 5)
+                if !textSize.isAccessibilitySize { Spacer(minLength: 5) }
                 if artwork?.isEmpty == false {
                     SpotterMenuPicker("肌群图体型", selection: $figure, options: SecondaryAnatomy.Figure.allCases.map { ($0, $0.title) }) {
                         Label(figure.title, systemImage: "figure.stand")
@@ -145,13 +161,25 @@ struct NativeWorkoutShareView: View {
             }
 
             .font(.subheadline.weight(.semibold)).foregroundStyle(theme.quiet)
-            if let message { Text(message).font(.footnote).foregroundStyle(theme.quiet) }
+            if !scrollsOptions, let message { Text(message).font(.footnote).foregroundStyle(theme.quiet) }
             else if includeHeart {
                 if selectedHeart == nil { ProgressView("正在读取训练心率…").font(.footnote) }
                 else if selectedHeart?.hadError == true { Text("部分训练心率读取失败。仅分享已读取的心率。").font(.footnote) }
                 else if selectedHeart?.readings.isEmpty == true { Text("所选训练暂无心率记录。").font(.footnote) }
             }
-            Divider().overlay(theme.line)
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            if !scrollsOptions {
+                shareOptions
+                Divider().overlay(theme.line)
+            } else if let message {
+                Text(message).font(.footnote).foregroundStyle(theme.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("workout-share-output-status")
+            }
             HStack(spacing: 9) {
                 Button {
                     Task { await saveImage() }
@@ -269,13 +297,14 @@ private enum ShareTheme: String, CaseIterable {
 private struct ShareControlStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.dynamicTypeSize) private var textSize
     let theme: ShareTheme
     var isOutput = false
     var highlighted = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.subheadline.weight(.semibold))
-            .lineLimit(1).minimumScaleFactor(0.8)
+            .lineLimit(textSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity, minHeight: isOutput ? 46 : 44)
             .padding(.horizontal, 4)
             .foregroundStyle(theme.ink.opacity(enabled ? 1 : 0.44))

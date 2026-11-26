@@ -331,6 +331,7 @@ struct NativeCoachView: View {
         let busy: Bool
         let error: String?
         let hasDraft: Bool
+        let expandedOptions: Bool?
     }
 
     let api: NativeAPI
@@ -451,6 +452,12 @@ struct NativeCoachView: View {
         .environment(\.colorScheme, .dark)
         .nativeGuideLayer(.coachPanel)
         .interactiveDismissDisabled(isNutritionPhoto && session.busy)
+        .onChange(of: editingMessage) { focused in
+            if focused && compact { onExpand?() }
+        }
+        .onChange(of: showsOptions) { expanded in
+            if expanded && compact { onExpand?() }
+        }
         .task(id: owner) {
             if initialTrainingGoal != nil, !startedWelcomeGuide, !Task.isCancelled {
                 startedWelcomeGuide = true
@@ -663,7 +670,8 @@ struct NativeCoachView: View {
 
     private var conversation: some View {
         let layout = ConversationLayout(lineCount: session.lines.count, trailingReceipt: session.lines.last?.proteinReceipt,
-                                        busy: session.busy, error: error, hasDraft: session.mealDraft != nil || !session.planDrafts.isEmpty)
+                                        busy: session.busy, error: error, hasDraft: session.mealDraft != nil || !session.planDrafts.isEmpty,
+                                        expandedOptions: showsOptions ? includePlans : nil)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -684,8 +692,10 @@ struct NativeCoachView: View {
                             ProgressView("教练正在回复").font(.footnote).tint(accent.fill)
                                 .padding(.vertical, 6).transition(.opacity)
                         }
+                        if showsOptions { conversationOptions.transition(panelTransition) }
                         Color.clear.frame(height: 1).id("latest")
                     }
+                    .animation(controlMotion, value: showsOptions)
                     .padding(.horizontal, 20).padding(.top, compact ? 10 : 24).padding(.bottom, 10)
                 }
                 .scrollDismissesKeyboard(.interactively)
@@ -1073,26 +1083,26 @@ struct NativeCoachView: View {
         }
     }
 
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if showsOptions {
+    private var conversationOptions: some View {
+        VStack {
+            Toggle("附上个人训练安排", isOn: $includePlans)
+            if includePlans {
                 VStack {
-                    Toggle("附上个人训练安排", isOn: $includePlans)
-                    if includePlans {
-                        VStack {
-                            DatePicker("计划日期", selection: $contextDate, displayedComponents: .date)
-                            SpotterMenuPicker("安排范围", selection: $contextRange, options: [("day", "所选日期"), ("week", "所在周")])
-                        }
-                        .transition(panelTransition)
-                    }
-                    Button("问答定制训练计划") { openGuide() }
-                        .buttonStyle(.spotterPress).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .disabled(hasReachedLimit)
+                    DatePicker("计划日期", selection: $contextDate, displayedComponents: .date)
+                    SpotterMenuPicker("安排范围", selection: $contextRange, options: [("day", "所选日期"), ("week", "所在周")])
                 }
-                .font(.footnote).padding(11).coachPanel()
-                .animation(controlMotion, value: includePlans)
                 .transition(panelTransition)
             }
+            Button("问答定制训练计划") { openGuide() }
+                .buttonStyle(.spotterPress).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .disabled(hasReachedLimit)
+        }
+        .font(.footnote).padding(11).coachPanel()
+        .animation(controlMotion, value: includePlans)
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 6) {
             if showsSuggestions {
                 suggestedReplies.transition(panelTransition)
             }

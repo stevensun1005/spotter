@@ -2515,6 +2515,7 @@ struct NativeActiveWorkoutView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @AppStorage(NativePreferenceKey.showNext) private var showNext = true
     @AppStorage(NativePreferenceKey.showTempo) private var showTempo = true
     @AppStorage(NativePreferenceKey.showEffort) private var showEffort = true
@@ -2609,11 +2610,13 @@ struct NativeActiveWorkoutView: View {
     }
 
     private func workout(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
-        VStack(spacing: 0) {
-            editorHeader(entry, session: session)
+        let compactHeight = verticalSizeClass == .compact
+        return VStack(spacing: 0) {
+            if !compactHeight { editorHeader(entry, session: session) }
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        if compactHeight { editorHeader(entry, session: session) }
                         let total = session.rows.flatMap { $0 }.count + (session.plan.video.isEmpty ? 0 : 1)
                         if total > 0 { ProgressView(value: Double(session.completedSets + (session.raw["finishedVideo"].bool ? 1 : 0)), total: Double(total)).tint(SpotterPalette.accent).padding(.horizontal, 2) }
                         if !session.plan.raw["durationNote"].string.isEmpty { Text(session.plan.raw["durationNote"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
@@ -3426,6 +3429,8 @@ struct NativeWorkoutDetailView: View {
     let entry: NativeWorkoutEntry
     var showsClose = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @EnvironmentObject private var remarks: NativeSocialRemarks
     @State private var action: Action?
     @State private var savingProtein = false
@@ -3441,6 +3446,7 @@ struct NativeWorkoutDetailView: View {
         (own ? store.logs : store.partnerLogs).first { $0.key == entry.key }
     }
     private var pending: Bool { own && store.pendingCheckins.contains { $0.id == entry.id } }
+    private var scrollsActions: Bool { textSize.isAccessibilitySize || verticalSizeClass == .compact }
 
     var body: some View {
         Group {
@@ -3482,10 +3488,11 @@ struct NativeWorkoutDetailView: View {
                                 SecondaryMusclePanel(entries: [current]).padding(.top, 8)
                             }.font(.subheadline.weight(.semibold)).padding(14).spotterCard()
                         }
+                        if own && scrollsActions { actions(session, inset: false) }
                     }.padding(14)
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if own { actions(session) }
+                    if own && !scrollsActions { actions(session) }
                 }
             } else {
                 VStack(spacing: 12) {
@@ -3522,30 +3529,37 @@ struct NativeWorkoutDetailView: View {
 
     private func actionSaved() { notice = "已另存为个人模板" }
 
-    private func actions(_ session: NativeWorkoutSession) -> some View {
+    private func actions(_ session: NativeWorkoutSession, inset: Bool = true) -> some View {
         VStack(spacing: 7) {
             if let notice { Text(notice).font(.footnote).foregroundStyle(SpotterPalette.muted) }
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 5) { actionButtons(session) }
-                VStack(alignment: .leading, spacing: 6) { actionButtons(session) }
+                HStack(spacing: 5) { actionButtons(session, singleLine: true) }
+                VStack(alignment: .leading, spacing: 6) { actionButtons(session, singleLine: false) }
             }
             .spotterGlassToolbar()
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, inset ? 14 : 0)
         .padding(.vertical, 9)
     }
 
-    @ViewBuilder private func actionButtons(_ session: NativeWorkoutSession) -> some View {
+    @ViewBuilder private func actionButtons(_ session: NativeWorkoutSession, singleLine: Bool) -> some View {
         if !pending {
-            Button { action = .edit } label: { Label("编辑记录", systemImage: "pencil").fixedSize() }
+            Button { action = .edit } label: {
+                Label("编辑记录", systemImage: "pencil").fixedSize(horizontal: singleLine, vertical: true)
+            }
                 .buttonStyle(.spotterControl)
             if session.raw["cardio"] == .null && (!session.plan.exercises.isEmpty || !session.plan.video.isEmpty) {
-                Button { action = .template } label: { Label("另存为模板", systemImage: "bookmark").fixedSize() }
+                Button { action = .template } label: {
+                    Label("另存为模板", systemImage: "bookmark").fixedSize(horizontal: singleLine, vertical: true)
+                }
                     .buttonStyle(.spotterControl)
             }
         }
-        Button { action = .share } label: { Label("分享训练", systemImage: "square.and.arrow.up").font(.subheadline.weight(.bold)).fixedSize() }
+        Button { action = .share } label: {
+            Label("分享训练", systemImage: "square.and.arrow.up").font(.subheadline.weight(.bold))
+                .fixedSize(horizontal: singleLine, vertical: true)
+        }
             .buttonStyle(.spotterPrimaryControl)
     }
 

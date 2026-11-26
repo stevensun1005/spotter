@@ -610,12 +610,10 @@ struct NativeNutritionDetail: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            header
+        VStack(spacing: 0) {
+            header.padding(.bottom, 12)
             nutritionScroll
-                .safeAreaInset(edge: .bottom, spacing: 6) {
-                    toolbar
-                }
+            toolbar.padding(.top, 6)
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)

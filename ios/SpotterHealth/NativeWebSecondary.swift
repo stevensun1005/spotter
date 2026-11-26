@@ -223,7 +223,6 @@ struct NativeSpotterStats: View {
     @ObservedObject var store: NativeWorkoutStore
     let api: NativeAPI
     let owner: String
-    var dockTop: CGFloat? = nil
     var widgetStatsRequest: Binding<NativeWidgetStatsRequest?>? = nil
 
     private enum Page: String, CaseIterable { case overview = "训练统计", history = "打卡历史" }
@@ -334,15 +333,11 @@ struct NativeSpotterStats: View {
                 .refreshable { await store.load(); await loadStatsHistory(); await loadPartner() }
                 .transition(.opacity)
             } else {
-                GeometryReader { viewport in
-                    let bottom = viewport.frame(in: .global).maxY
-                    let dockOverlap = max(0, bottom - (dockTop ?? bottom))
-                    SecondaryHistory(store: store)
-                        .frame(maxWidth: 680)
-                        .padding(.horizontal, 14).padding(.bottom, 5 + dockOverlap)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .transition(.opacity)
+                SecondaryHistory(store: store)
+                    .frame(maxWidth: 680)
+                    .padding(.horizontal, 14).padding(.bottom, 5)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
             }
         }
         .padding(.top, 8)
@@ -1646,29 +1641,17 @@ private struct SecondaryHistory: View {
         return GeometryReader { size in
             let chrome = navigationButtonSize + weekdayHeight + legendHeight + cardInset * 2
                 + sectionSpacing * 3 + CGFloat(weeks - 1) * weekSpacing
-            let rowHeight = max(0, floor((size.size.height - chrome) / CGFloat(weeks)))
-            VStack(alignment: .leading, spacing: sectionSpacing) {
-                monthHeader.frame(height: navigationButtonSize)
-                LazyVGrid(columns: columns, spacing: 0) {
-                    ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) {
-                        Text($0).font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
-                            .lineLimit(1).minimumScaleFactor(0.65)
-                            .frame(height: weekdayHeight)
-                            .accessibilityLabel("星期\($0)")
-                    }
+            let minimumRowHeight = min(dateHeight, 38) + 4
+            let minimumHeight = chrome + minimumRowHeight * CGFloat(weeks)
+            let rowHeight = floor((max(size.size.height, minimumHeight) - chrome) / CGFloat(weeks))
+            if size.size.height < minimumHeight {
+                ScrollView {
+                    calendarCard(records, rowHeight: rowHeight)
+                        .frame(minHeight: minimumHeight)
                 }
-                LazyVGrid(columns: columns, spacing: weekSpacing) {
-                    ForEach(0..<(weeks * 7), id: \.self) { index in
-                        let date = SecondaryDate.shift(gridStart, index)
-                        calendarCell(date, records: records[spotterDay(date), default: []],
-                                     inside: date >= month && date < nextMonth, rowHeight: rowHeight)
-                    }
-                }
-                monthFooter(records)
+            } else {
+                calendarCard(records, rowHeight: rowHeight)
             }
-            .padding(cardInset)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .secondaryCard(radius: 20)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("训练月历")
@@ -1692,6 +1675,31 @@ private struct SecondaryHistory: View {
             .presentationDetents(selection.id == .monthPicker ? [.medium, .large] : [.large])
             .interactiveDismissDisabled(savingOrder)
         }
+    }
+
+    private func calendarCard(_ records: [String: [NativeWorkoutEntry]], rowHeight: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: sectionSpacing) {
+            monthHeader.frame(height: navigationButtonSize)
+            LazyVGrid(columns: columns, spacing: 0) {
+                ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) {
+                    Text($0).font(.caption.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                        .lineLimit(1).minimumScaleFactor(0.65)
+                        .frame(height: weekdayHeight)
+                        .accessibilityLabel("星期\($0)")
+                }
+            }
+            LazyVGrid(columns: columns, spacing: weekSpacing) {
+                ForEach(0..<(weeks * 7), id: \.self) { index in
+                    let date = SecondaryDate.shift(gridStart, index)
+                    calendarCell(date, records: records[spotterDay(date), default: []],
+                                 inside: date >= month && date < nextMonth, rowHeight: rowHeight)
+                }
+            }
+            monthFooter(records)
+        }
+        .padding(cardInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .secondaryCard(radius: 20)
     }
 
     private var monthHeader: some View {

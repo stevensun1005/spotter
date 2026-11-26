@@ -779,7 +779,6 @@ private struct NativeSpotterTabs: View {
     @Environment(\.spotterAccent) private var accent
     @EnvironmentObject private var socialNotifications: NativeSocialNotifications
     @State private var selected: NativeSpotterSection = .today
-    @State private var dockPosition = NativeDockPosition()
     @State private var showCoach = false
     @State private var coachDetent = Self.compactCoachDetent
     @State private var showSettings = false
@@ -1411,10 +1410,14 @@ private struct NativeSpotterTabs: View {
     }
 
     private var navigationTabs: some View {
-        TabView(selection: $selected) {
-            ForEach(contentSections, id: \.self) { section in tabScene(section).tag(section) }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        // Give every navigation destination a viewport ending above the dock.
+        VStack(spacing: 0) {
+            TabView(selection: $selected) {
+                ForEach(contentSections, id: \.self) { section in tabScene(section).tag(section) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+
             VStack(spacing: 0) {
                 if let active = workouts.active, let session = active.session, !showActiveWorkout {
                     NativeWorkoutStatusStrip(title: active.displayTitle, session: session, open: openActiveWorkout)
@@ -1422,18 +1425,9 @@ private struct NativeSpotterTabs: View {
                 }
                 dock
             }
-            .animation(allowsMotion ? .spring(response: 0.34, dampingFraction: 0.85) : nil,
-                       value: workouts.active != nil && !showActiveWorkout)
-            .background {
-                GeometryReader { geometry in
-                    let top = geometry.frame(in: .global).minY
-                    Color.clear
-                        .onAppear { dockPosition.update(top) }
-                        .onChange(of: top) { dockPosition.update($0) }
-                        .accessibilityHidden(true)
-                }
-            }
         }
+        .animation(allowsMotion ? .spring(response: 0.34, dampingFraction: 0.85) : nil,
+                   value: workouts.active != nil && !showActiveWorkout)
     }
 
     private func tabScene(_ section: NativeSpotterSection) -> some View {
@@ -1452,8 +1446,7 @@ private struct NativeSpotterTabs: View {
             NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: { openCoach() },
                               openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
         case .stats:
-            NativeStatsTab(store: workouts, api: account.api, owner: owner, dockPosition: dockPosition,
-                           widgetStatsRequest: $widgetStatsRequest)
+            NativeSpotterStats(store: workouts, api: account.api, owner: owner, widgetStatsRequest: $widgetStatsRequest)
         case .friends:
             NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest,
                           notificationRequest: selected == .friends && isAvailableForWidget && socialNotifications.belongs(to: owner)
@@ -1502,29 +1495,6 @@ private struct NativeSpotterTabs: View {
         .accessibilityLabel(workouts.active == nil ? "开始训练" : "继续训练")
         .accessibilityIdentifier("spotter-dock-play")
         .disabled(workouts.active == nil && workouts.isBusy)
-    }
-}
-
-@MainActor
-private final class NativeDockPosition: ObservableObject {
-    @Published private(set) var top: CGFloat?
-
-    func update(_ position: CGFloat) {
-        if top != position { top = position }
-    }
-}
-
-@MainActor
-private struct NativeStatsTab: View {
-    let store: NativeWorkoutStore
-    let api: NativeAPI
-    let owner: String
-    @ObservedObject var dockPosition: NativeDockPosition
-    let widgetStatsRequest: Binding<NativeWidgetStatsRequest?>
-
-    var body: some View {
-        NativeSpotterStats(store: store, api: api, owner: owner, dockTop: dockPosition.top,
-                           widgetStatsRequest: widgetStatsRequest)
     }
 }
 
