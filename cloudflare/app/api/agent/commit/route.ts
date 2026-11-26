@@ -9,5 +9,5 @@ export const POST = agentApi(async (request) => {
   requireScope(principal, "plans:write");
   const input = await agentBody(request, commitDraftInput, principal, 2000);
   await verifyProfile(principal.owner, input.profileRef);
-  return json(await commitDraft(agentDatabase(), principal.owner, input.draftId, input.revision));
+  return json(await commitDraft(agentDatabase(), principal.owner, input.draftId, input.revision, principal));
 });

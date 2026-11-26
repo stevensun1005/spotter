@@ -18,8 +18,8 @@ export const POST = agentApi(async (request) => {
   await verifyProfile(principal.owner, input.profileRef);
   if ("action" in input) {
     if (principal.tokenId) throw new HttpError(403, "请在网页编辑已有草稿；Agent 可用新 requestId 提交修改后的草稿。");
-    return json(await reviseDraft(agentDatabase(), principal.owner, input));
+    return json(await reviseDraft(agentDatabase(), principal.owner, input, principal));
   }
-  const saved = await stageDraft(agentDatabase(), principal.owner, input);
+  const saved = await stageDraft(agentDatabase(), principal.owner, input, principal);
   return json(await previewDraft(agentDatabase(), principal.owner, saved.id));
 });

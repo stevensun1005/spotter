@@ -1,12 +1,13 @@
 import { HttpError } from "@/server/http";
 import { blankProfile } from "@/features/library/model";
-import { parsePlanMove } from "./move-name";
+import { exerciseIdentityNameKey, parsePlanMove } from "./move-name";
 
 export const demoMaxBytes = 768 * 1024;
 export const demoMaxBase64 = Math.ceil(demoMaxBytes / 3) * 4;
 
 const gifError = () => new HttpError(400, "请选择 768 KB 以内的 GIF 动图，最长边不超过 480 像素。");
-const nameKey = (name: string) => parsePlanMove(name).name.normalize("NFKC").trim().toLowerCase().replace(/\s+/gu, " ");
+const demoName = (name: string) => parsePlanMove(name, { preserveQualifiers: true }).name;
+const nameKey = (name: string) => exerciseIdentityNameKey(demoName(name));
 
 export function gifData(image: string): Uint8Array<ArrayBuffer> {
   try { return Uint8Array.from(atob(image), (character) => character.charCodeAt(0)); }
@@ -84,7 +85,7 @@ export async function readPersonalDemo(db: D1Database, owner: string, name: stri
 }
 
 export async function savePersonalDemo(db: D1Database, owner: string, givenName: string, image: string) {
-  const name = parsePlanMove(givenName).name;
+  const name = demoName(givenName);
   const key = nameKey(name);
   if (!key || name.length > 100) throw new HttpError(400, "请提供对应动作的名称。");
   const { gif, ...dimensions } = cleanGif(image);

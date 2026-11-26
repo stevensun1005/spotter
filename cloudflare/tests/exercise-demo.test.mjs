@@ -64,7 +64,7 @@ function post(path, body, token) {
   return new Request(origin + path, { method: "POST", headers: { Origin: origin, "Content-Type": "application/json",
     ...(token && { Authorization: "Bearer " + token }) }, body: JSON.stringify(body) });
 }
-const issue = (db, owner, scopes = ["exercise-demos:write"]) => createConnection(db, owner, { scopes, name: "Synthetic GIF agent", expiresInDays: 1 });
+const issue = (db, owner, scopes = ["read:context", "exercise-demos:write"]) => createConnection(db, owner, { scopes, name: "Synthetic GIF agent", expiresInDays: 1 });
 const save = (profileRef, bytes, move = name) => ({ action: "save", profileRef, name: move, confirmed: true, gifBase64: bytes.toString("base64") });
 const write = (body, token) => writeDemo(post("/api/agent/exercise-demos", body, token));
 async function rpc(method, token, params) {
@@ -82,6 +82,7 @@ function read(owner, move = name, token) {
 test("Agent GIFs are scope- and account-bound, sanitized, idempotent, and private to each browser account", async (t) => {
   const db = database(t);
   const { token } = await issue(db, "one");
+  const { token: removeOnly } = await issue(db, "one", ["exercise-demos:write"]);
   const { token: appendOnly } = await issue(db, "one", ["templates:write"]);
   const { token: other } = await issue(db, "two");
   const one = await agentProfileRef("one"), two = await agentProfileRef("two");
@@ -97,8 +98,10 @@ test("Agent GIFs are scope- and account-bound, sanitized, idempotent, and privat
   assert.equal((await rpc("tools/call", appendOnly, { name: toolName, arguments: input })).isError, true);
   assert.equal((await write(input)).status, 401);
   assert.equal((await write(input, appendOnly)).status, 403);
+  assert.equal((await write(input, removeOnly)).status, 403);
   assert.equal((await write(input, other)).status, 403);
   assert.equal((await write({ ...input, confirmed: false }, token)).status, 400);
+  assert.equal((await write(save(one, redAndBlue, "A1 Dumbbell Bench Press"), token)).status, 400);
 
   const created = await write(input, token);
   assert.equal(created.status, 200);
@@ -141,7 +144,7 @@ test("Agent GIFs are scope- and account-bound, sanitized, idempotent, and privat
 
   const remove = { action: "remove", profileRef: one, name, confirmed: true };
   assert.equal((await write(remove, other)).status, 403);
-  const deleted = await rpc("tools/call", token, { name: toolName, arguments: remove });
+  const deleted = await rpc("tools/call", removeOnly, { name: toolName, arguments: remove });
   assert.equal(deleted.isError, false);
   assert.deepEqual(JSON.parse(deleted.content[0].text), { action: "remove", name });
   assert.deepEqual(await (await write(remove, token)).json(), { action: "remove", name });
@@ -150,6 +153,19 @@ test("Agent GIFs are scope- and account-bound, sanitized, idempotent, and privat
   assert.deepEqual(Buffer.from(await (await read("two")).arrayBuffer()), yellowAndGreen);
   db.sqlite.prepare("DELETE FROM spotter_access_accounts WHERE id=?").run("two");
   assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM exercise_demonstrations").get().n, 0);
+});
+
+test("a new exercise variant keeps its distinguishing name when attaching a GIF", async (t) => {
+  const db = database(t);
+  const { token } = await issue(db, "one");
+  const profileRef = await agentProfileRef("one");
+  const variant = "哑铃卧推（窄握）";
+  const response = await write(save(profileRef, redAndBlue, "A1 " + variant), token);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).name, variant);
+  assert.equal((await read("one", variant)).status, 200);
+  assert.equal((await read("one", "哑铃卧推")).status, 404);
+  assert.equal(db.sqlite.prepare("SELECT id FROM personal_library WHERE kind='exercise'").get().id, variant);
 });
 
 test("non-GIFs, static GIFs and malformed animated GIFs do not create exercises", async (t) => {

@@ -37,6 +37,12 @@ const guideDetails: Record<AgentScope, readonly string[]> = {
   ],
 };
 
+const exerciseIdentity = [
+  "## 核对动作库",
+  "- 生成或导入有动作的训练计划、周期或个人模板前，使用 read:context 调用 read_spotter_planning_context（GET /api/agent/context），查询当前账号的个人动作库和内置动作。按两部分各自的 nextOffset 翻页。缺少读取权限时向用户说明，再请用户打开「读取编排资料」。",
+  "- 只有标准目录 ID 一致、已有明确对应的别名或规范化后完全相同的名称才表示同一动作。沿用已有动作的名称和目录 ID（如有）。器械、握法或姿势不同等相近变式各自保留。遇到多个可能结果时请用户核对。",
+] as const;
+
 function jsonBlock(value: unknown) {
   const fence = String.fromCharCode(96).repeat(3);
   return fence + "json\n" + JSON.stringify(value, null, 2) + "\n" + fence;
@@ -46,10 +52,10 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
   const trainingGuide = agentPlanningGuide(origin, profileRef) + "\n## 已完成的训练记录\n确认用户确实完成后，使用 import_spotter_records 的 training 类别和有效 spotter-backup 中的 log。个人令牌需要 training:write，也可提交到 POST /api/agent/records。计划继续用上面的草稿流程。\n";
   const demos = [
     "## 自定义动作动图",
-    "- 加入包含动作库没有的动作的计划或模板时，列出自定义动作，先询问用户要不要为它们加演示动图。只在确认后，使用用户提供或许可使用的 GIF。",
+    "- 完成动作库核对后，只为确认没有同一动作的新增项询问是否添加演示动图。用户确认后，使用用户提供或许可使用的 GIF。",
     "- 个人连接具备 exercise-demos:write 时，调用 manage_spotter_exercise_demo 或 POST /api/agent/exercise-demos。保存时传 action:save、profileRef、准确动作名称 name、gifBase64（纯 base64，不含 data: 前缀）和 confirmed:true。GIF 最大 768 KiB，最长边 480 像素，2–90 帧。替换或移除同样只在用户确认后执行。没有 GIF 时可照常保存计划。",
   ];
-  if (scope === "training") return trainingGuide;
+  if (scope === "training") return [trainingGuide, ...exerciseIdentity, ""].join("\n");
   const scopes = scope === "all" ? agentGuideScopes.slice(1).map(([item]) => item as AgentScope) : [scope];
   const title = agentGuideScopes.find(([item]) => item === scope)?.[1];
   const exampleDate = "2026-01-01";
@@ -97,6 +103,7 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     "- 训练计划从「设置 → 计划与日程 → 粘贴已有内容」预览。起草计划或连接 Agent 时使用「添加计划 → 用自己的 AI」。备份从「设置 → 数据与备份 → 恢复备份」上传并确认。",
     "- 个人账号 Sites 的网站邀请仅提供网站访问权限。训练搭子插件的连接由客户端和账号的权限单独管理。只有文本工具的 AI 可先准备可导入材料，并向用户说明保存状态。",
   ];
-  return [...connection, ...scopes.flatMap((item) => item === "training" ? ["", trainingGuide] : ["", ...guideDetails[item], "", ...examples[item].flatMap((part) => ["", part])]),
-    ...(scope === "all" || scope === "templates" ? ["", ...demos] : [])].join("\n") + "\n";
+  const includesExercises = scope === "all" || scope === "templates";
+  return [...connection, ...(includesExercises ? ["", ...exerciseIdentity] : []), ...scopes.flatMap((item) => item === "training" ? ["", trainingGuide] : ["", ...guideDetails[item], "", ...examples[item].flatMap((part) => ["", part])]),
+    ...(includesExercises ? ["", ...demos] : [])].join("\n") + "\n";
 }

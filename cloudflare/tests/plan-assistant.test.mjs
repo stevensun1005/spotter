@@ -54,9 +54,16 @@ test("legacy training guides reuse the staged workflow without changing data-cat
   assert.match(training, /364/);
   assert.match(training, /账号说明编号只用于核对账号/);
   assert.ok(!training.includes('"per100g"'));
+  for (const exerciseGuide of [training, ...["all", "templates"].map((scope) => createAgentGuide({ origin, profileRef, scope }))]) {
+    assert.match(exerciseGuide, /read:context.*read_spotter_planning_context/u);
+    assert.match(exerciseGuide, /标准目录 ID 一致.*规范化后完全相同的名称/u);
+    assert.match(exerciseGuide, /相近变式各自保留/u);
+    assert.equal(exerciseGuide.match(/## 核对动作库/gu)?.length, 1);
+  }
   const food = createAgentGuide({ origin, profileRef, scope: "nutrition" });
   assert.match(food, /add_spotter_foods/);
   assert.match(food, /per100g/);
+  assert.doesNotMatch(food, /## 核对动作库/u);
   assert.ok(!food.includes("## 同一条起草流程"), "other data guides must not duplicate the plan workflow");
 });
 

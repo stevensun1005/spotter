@@ -123,7 +123,7 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
     if (!preview || !profileRef) return;
     setBusy(true); setDialogError("");
     try {
-      const checked = plans.map(cleanPlan);
+      const checked = plans.map((plan) => cleanPlan(plan, { preserveQualifiers: true }));
       if (checked.some((plan) => !plan.success)) throw new Error("请检查每堂训练的名称、日期、动作与数值。");
       const next = await request<Preview>("/api/agent/drafts", { action: "revise", profileRef, draftId: preview.id, revision: preview.revision, plans: checked.flatMap((plan) => plan.success ? [plan.data] : []) });
       if (!isCurrent()) return;

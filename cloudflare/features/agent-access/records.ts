@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { backupSchema, libraryScope, scopeNames, scopeSchema } from "@/features/data/model";
+import { backupSchema, libraryScope, scopeNames, scopeSchema, type Backup } from "@/features/data/model";
 import { importBackup } from "@/features/data/server";
 import { profileRefSchema } from "@/features/agent/profile";
 import { agentFoodWrite, agentWriteTools } from "@/features/agent/write-model";
 import { writeAgentData } from "@/features/agent/writes";
 import { HttpError } from "@/server/http";
+import { agentExerciseNameKey, loadAgentExerciseLibrary } from "./exercise-library";
+import { agentDatabase } from "./http";
 import { recordWriteScopes, type AgentPrincipal } from "./model";
 import { requireScope, verifyProfile } from "./store";
 
@@ -23,7 +25,7 @@ export const recordImportInput = z.object({
 export const recordImportTool = {
   name: "import_spotter_records",
   title: "追加个人记录",
-  description: "一次追加 1–20 条同类别的个人记录。训练类收已完成的打卡与个人动作设置；新计划走草稿及确认。饮食类收餐食、饮水、常用食物及目标设置，身体类收测量和身体档案，模板类收训练模板。沿用原 UUID 重试，已有记录跳过。",
+  description: "一次追加 1–20 条同类别的个人记录。训练类收已完成的打卡与个人动作设置；新计划走草稿及确认。写入个人动作或有动作的模板前，用 read_spotter_planning_context 查找完全相同的已有动作并复用。饮食类收餐食、饮水、常用食物及目标设置，身体类收测量和身体档案。重试沿用原 UUID，已有记录跳过。",
   inputSchema: {
     type: "object", additionalProperties: false, required: ["profileRef", "scope", "confirmed", "backup"],
     properties: {
@@ -65,7 +67,33 @@ export async function importAgentRecords(principal: AgentPrincipal, input: z.inf
   }
   const count = backup.training.length + backup.library.length;
   if (count < 1 || count > maxRecords) throw new HttpError(400, "每次可追加 1–20 条记录。");
-  return { scope: scopeNames[scope], ...await importBackup(principal.owner, backup) };
+  return { scope: scopeNames[scope], ...await importAgentBackup(principal, backup) };
+}
+
+export async function importAgentBackup(principal: AgentPrincipal, backup: Backup) {
+  let library = backup.library;
+  let training = backup.training;
+  const hasExerciseWrites = library.some((item) => item.kind === "exercise" || item.kind === "template" && item.plan.exercises.length > 0) ||
+    training.some((item) => item.kind === "plan" && item.data.exercises.length > 0);
+  if (hasExerciseWrites) {
+    requireScope(principal, "read:context");
+    const exercises = await loadAgentExerciseLibrary(agentDatabase(), principal.owner);
+    const newNames = new Set<string>();
+    library = library.flatMap((item): typeof library => {
+      if (item.kind === "template") return [{ ...item, plan: { ...item.plan, exercises: exercises.moves(item.plan.exercises) } }];
+      if (item.kind !== "exercise") return [item];
+      const resolved = exercises.resolve(item.item.name);
+      const key = agentExerciseNameKey(resolved.name);
+      if (resolved.source !== "new" || newNames.has(key)) return [];
+      newNames.add(key);
+      return [{ ...item, item: { ...item.item, name: resolved.name } }];
+    });
+    training = training.map((item) => item.kind === "plan"
+      ? { ...item, data: { ...item.data, exercises: exercises.moves(item.data.exercises) } }
+      : item);
+  }
+  const { added, skipped } = await importBackup(principal.owner, { ...backup, library, training });
+  return { added, skipped: skipped + backup.library.length - library.length };
 }
 
 export function isRecordTool(name: unknown): name is typeof recordImportTool.name | typeof foodTool.name {
