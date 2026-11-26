@@ -40,7 +40,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 训练 → 动作库 | 按名称、肌群、器械等查找。支持可用器械筛选、动作详情和加入训练。媒体和动作识别保留目录 ID，动作目录与用户记录分开维护。 | [动作库浏览](../ios/SpotterHealth/NativeCatalogueView.swift) · [目录资源读取](../ios/SpotterHealth/NativeCatalogueData.swift) · [网页动作库](../cloudflare/features/exercises/) |
 | 中央开始训练 | 继续进行中的训练，或选计划、临时训练及有氧等入口。有氧可选跑步、跑步机、户外/室内骑车、划船机、椭圆机、步行、爬楼、游泳、跳绳等。实际训练保存计时，支持的项目可填距离或速度。 | [训练入口及逐组记录](../ios/SpotterHealth/NativeWorkouts.swift) · [训练模型](../ios/SpotterHealth/NativeWorkoutModels.swift) · [服务端有氧字段](../cloudflare/features/training/cardio.ts) |
 | 统计 → 训练统计 / 打卡历史 | 按周、月、季、年、最近或自定义日期回顾训练容量、次数/天数、时长和完成组数。历史以月历显示自己的训练及对方允许共享的记录。点日期或打卡看详情。 | [统计与月历](../ios/SpotterHealth/NativeWebSecondary.swift) · [网页统计](../cloudflare/features/stats/) · [网页历史](../cloudflare/features/history/) |
-| 好友 → 联系人 / 朋友圈 / 权限设置 | 「添加好友」「找搭子」通过账号用户名搜索，普通好友也可用邀请链接。联系人详情按日查看共享训练和饮食、设定本人给对方的权限。朋友圈显示自己和好友近期可见的打卡及加油。 | [好友界面](../ios/SpotterHealth/NativeWebSecondary.swift) · [好友规则](../cloudflare/features/friends/) · [搭子模型](../cloudflare/features/pair/) |
+| 好友 → 联系人 / 朋友圈 / 权限设置 | 「添加好友」「找搭子」通过账号用户名搜索，普通好友也可用邀请链接。联系人详情按日查看共享训练和饮食，可为对方设置私人备注，并设定本人给对方的权限。朋友圈显示自己和好友近期可见的打卡及加油。 | [好友界面](../ios/SpotterHealth/NativeWebSecondary.swift) · [好友规则](../cloudflare/features/friends/) · [搭子模型](../cloudflare/features/pair/) |
 | 底栏星形按钮 → Spotter 教练 | 可自由对话、点推荐操作、用计划问答生成草稿、拍照或从相册附图。向上展开可进入大面板。App 进程运行期间保持当前对话，完全退出后重新打开时从新对话开始。 | [原生教练](../ios/SpotterHealth/NativeCoach.swift) · [推荐卡片](../ios/SpotterHealth/NativeCoachRecommendations.swift) · [网页教练](../cloudflare/features/ai-coach/) |
 
 ### 训练、计划与详情
@@ -65,6 +65,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 ### 搭子、教练与通知
 
 - 好友与搭子依关系各自授权。好友主页的「权限设置」管理朋友圈范围，个人详情管理定向分享。新关系的饮食默认值及搭子确认表单由当前后端返回的 `betaSocialDefaults` 决定。已有关系使用已保存的开关。原始心率、身体测量和活动数据保持私密。
+- 在「好友 → 联系人」打开已连接的好友或训练搭子，点「添加备注」或「编辑备注」。保存最多 40 个字符，资料页同时保留对方昵称。备注仅设置者可见，联系人、朋友圈、首页及统计中的对应姓名会优先显示它。移除后恢复显示昵称。系统推送和公开分享继续使用账号昵称。[原生好友详情](../ios/SpotterHealth/NativeWebSecondary.swift) · [网页联系人](../cloudflare/features/friends/friends-view.tsx)
 - 「设置 → 功能模块」开启「教练与学员入口」后，入口显示在「好友 → 联系人 → 找搭子」旁，默认隐藏。教练可下发训练计划或多周周期，学员预览确认后导入自己的计划。反馈、完成进度和可见的实际组记录由教练系统自己的权限管理。[教练系统](../cloudflare/docs/coaching.md)
 - 「设置 → 通知」管理搭子提醒、好友打卡和系统通知权限。好友页铃铛打开站内通知中心。受支持的账号在联系人详情可提醒搭子训练。线上推送同时受服务端开通范围、接收偏好、提醒间隔、APNs 及设备权限约束。训练提醒和组间休息提醒也可由系统本地通知运行。
 
@@ -130,6 +131,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 饮食、常用食物、身体档案、模板和备份 | `/api/library`、`/api/data`。按账号和记录种类存储。复用 UUID 的写入可区分已处理和新增，避免从不同入口重复记。 |
 | 心率和私密手表摘要 | `/api/health`、`/api/health/workout-summary`。摘要用独立表，保留来源和训练时窗。删除日志时数据库级联删除手表摘要；摘要形状遵循同一段能量及心率统计。 |
 | 社交、教练及通知 | `/api/friends`、`/api/friends/engagement`、`/api/coaching`、`/api/notifications`。按当前关系和可见字段构建响应，通知发送按服务端开通范围和防重复规则执行。 |
+| 联系人私人备注 | `/api/social/remarks` 按当前账号和有效好友或搭子关系读写。GET 只返回自己的备注，PATCH 用空字符串清除。客户端发送预期账号，切号时由接口拒绝。个人备注和对方昵称分别保存。 |
 | 私人动作演示 | 登录后通过 `/api/exercises/demo` 读取。外部 Agent 用 `/api/agent/exercise-demos` 或对应 MCP 工具写入，按账号及规范化动作名称关联 GIF。 |
 | AI 及外部 Agent | `/api/ai-coach`、`/api/food-photo`、`/api/coach-protein`、`/api/agent/*`。站内 AI 另计账号额度；Agent 请求各自认证、授权并校验身份。 |
 
@@ -161,5 +163,6 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 1.0 Build 40 | 使用引导用 SwiftUI 锚点聚焦真实按钮。扩充有氧选项，Watch 用镜像和 WatchConnectivity 补传完训摘要。Agent API 增加按权限读取和记餐。AI 教练在两端使用共用帮助资料回答导航问题。 | Xcode 模拟器以合成账号验证 14 步引导及用量为零时的操作问答。服务端测试覆盖训练匹配、权限、账号隔离与写入去重。实际心率及断连恢复待配对设备验证。 |
 | 1.0 Build 41 | `NativeAvatarStore` 统一当前会话中的头像。本人保存或移除后立即更新，其他头像在切页、回到前台、恢复网络或前台每 60 秒刷新。新增外部 Agent 四步教学、真实入口引导、统一提示词及连接创建回执。待训练和个人模板都提供跟练视频分区。App 和网页提供模板改名、修改动作及确认删除。Cloudflare 提供模板变更预览与提交，以及个人动作 GIF 的写入与读取。 | iPhone 模拟器通过头像刷新、四步教学及模板管理验证。Cloudflare 测试覆盖 GIF 权限与账号隔离、去重及模板事务回滚。 |
 | 1.0 Build 41 动作复用 | 外部 Agent 写入计划、周期、模板、个人动作和 GIF 前查本账号动作库。只按标准目录 ID、已登记别名或规范化名称复用同一动作。保留握法等独立变式和原组次处方。iPhone 与网页提示词及教学使用同样的规则。 | Cloudflare 95 源码为 `91b476a`。服务端 362 项测试通过，覆盖原始记录保护、账号隔离、重试与动作变式。 |
+| 1.0 Build 42 候选 | 在「好友 → 联系人」打开对方资料，可添加、修改或移除好友与搭子的私人备注。App 和 Cloudflare 网页按账号和关系授权，备注与昵称分别存储。 | Cloudflare 静态类型检查通过。iPhone 与网页的 AI 教练操作路径测试通过。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。

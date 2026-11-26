@@ -1185,6 +1185,7 @@ struct NativeWorkoutView: View {
     @ObservedObject var store: NativeWorkoutStore
     var openWorkout: () -> Void
     @Environment(\.spotterAccent) private var accent
+    @EnvironmentObject private var remarks: NativeSocialRemarks
     var showsAllPlans = false
     var openSettings: (() -> Void)? = nil
     var openNutrition: (() -> Void)? = nil
@@ -1243,6 +1244,7 @@ struct NativeWorkoutView: View {
     }
 
     private var selectedDay: String { NativeWorkoutSession.day(selectedDate) }
+    private var partnerDisplayName: String { remarks.name(for: store.partnerID, fallback: store.partnerName) }
     private var visibleLogs: [NativeWorkoutEntry] { store.logs + store.partnerLogs }
     private var completions: [NativeWorkoutEntry.Key: [NativeWorkoutEntry]] {
         Dictionary(grouping: visibleLogs.filter { $0.planKey != nil }, by: { $0.planKey ?? $0.key })
@@ -1551,7 +1553,7 @@ struct NativeWorkoutView: View {
             }
             HStack(spacing: 12) {
                 member("我", avatarName: store.viewerName, id: store.owner, checked: todayMine, connected: true, purple: false, records: mine)
-                member(store.partnerName, avatarName: store.partnerName, id: connected ? store.partnerID : nil, checked: todayPartner,
+                member(partnerDisplayName, avatarName: partnerDisplayName, id: connected ? store.partnerID : nil, checked: todayPartner,
                        connected: connected, purple: true, statusOverride: canSeePartner ? nil : "打卡未公开", records: partnerToday)
             }
             if canSeePartner, let latest, latest.day >= (lastDay ?? "") {
@@ -1814,7 +1816,7 @@ struct NativeWorkoutView: View {
                     store.libraryRows.contains { $0["kind"].string == "template" && $0["id"].string == templateID }
                 let subtitle = [shortDay(entry.day), plan.weekDay, plan.category,
                                 entry.durationMinutes > 0 ? "\(entry.durationMinutes) 分钟" : "",
-                                fromTemplate ? "模板" : "", entry.owner != store.owner ? store.partnerName : "", "已完成"]
+                                fromTemplate ? "模板" : "", entry.owner != store.owner ? partnerDisplayName : "", "已完成"]
                     .filter { !$0.isEmpty }.joined(separator: " · ")
                 HStack(spacing: 8) {
                     tile("checkmark", size: 38)
@@ -1896,7 +1898,7 @@ struct NativeWorkoutView: View {
             }
             checkinRow("我", days: days, records: own)
             if openFriends != nil, !store.partnerID.isEmpty, store.room["partnerTrainingShared"] != .bool(false) {
-                checkinRow(store.partnerName, days: days, records: shared, partnerDays: partnerDays,
+                checkinRow(partnerDisplayName, days: days, records: shared, partnerDays: partnerDays,
                            visibleFrom: store.room["partnerCheckinsFrom"].string)
             }
         }.padding(14).spotterCard()
@@ -3424,6 +3426,7 @@ struct NativeWorkoutDetailView: View {
     let entry: NativeWorkoutEntry
     var showsClose = false
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var remarks: NativeSocialRemarks
     @State private var action: Action?
     @State private var savingProtein = false
     @State private var notice: String?
@@ -3549,7 +3552,8 @@ struct NativeWorkoutDetailView: View {
     private func overview(_ current: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(current.displayTitle).font(.system(.title, weight: .heavy)).accessibilityAddTraits(.isHeader)
-            Text([shortDay(current.day), session.plan.weekDay, session.plan.category, own ? "" : store.partnerName]
+            Text([shortDay(current.day), session.plan.weekDay, session.plan.category,
+                  own ? "" : remarks.name(for: current.owner, fallback: store.partnerName)]
                 .filter { !$0.isEmpty }.joined(separator: " · "))
                 .font(.subheadline).foregroundStyle(SpotterPalette.muted)
             if !own {

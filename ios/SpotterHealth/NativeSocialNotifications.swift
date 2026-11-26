@@ -17,10 +17,10 @@ struct NativeSocialNotification: Decodable, Identifiable, Equatable {
     let workoutId: String?
     let date: String?
 
-    var title: String {
+    func title(displayName: String) -> String {
         switch kind {
-        case .buddyReminder: return "\(actorName) 提醒你训练"
-        case .friendWorkout: return "\(actorName) 完成了训练"
+        case .buddyReminder: return "\(displayName) 提醒你训练"
+        case .friendWorkout: return "\(displayName) 完成了训练"
         }
     }
 
@@ -377,6 +377,7 @@ final class SpotterNotificationDelegate: NSObject, UIApplicationDelegate, UNUser
 struct NativeNotificationInbox: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var notifications: NativeSocialNotifications
+    @EnvironmentObject private var remarks: NativeSocialRemarks
     let owner: String
     var onOpen: (NativeSocialNotification) -> Void = { _ in }
 
@@ -407,7 +408,8 @@ struct NativeNotificationInbox: View {
                                     .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 9))
                                     .accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.title).font(.subheadline.weight(item.read ? .medium : .semibold))
+                                    Text(item.title(displayName: remarks.name(for: item.actorId, fallback: item.actorName)))
+                                        .font(.subheadline.weight(item.read ? .medium : .semibold))
                                     if !item.timeLabel.isEmpty {
                                         Text(item.timeLabel).font(.caption).foregroundStyle(SpotterPalette.muted)
                                     }
@@ -444,6 +446,7 @@ struct NativeNotificationInbox: View {
 
 @MainActor
 struct NativeSocialNotificationBanner: View {
+    @EnvironmentObject private var remarks: NativeSocialRemarks
     let item: NativeSocialNotification
     let open: () -> Void
     let dismiss: () -> Void
@@ -451,7 +454,7 @@ struct NativeSocialNotificationBanner: View {
     var body: some View {
         HStack(spacing: 1) {
             Button(action: open) {
-                Label(item.title, systemImage: item.symbol)
+                Label(item.title(displayName: remarks.name(for: item.actorId, fallback: item.actorName)), systemImage: item.symbol)
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     .contentShape(Rectangle())

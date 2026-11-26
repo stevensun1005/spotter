@@ -219,6 +219,7 @@ enum NativeWidgetStatsRequest: Equatable {
 struct NativeSpotterStats: View {
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterAccent) private var accent
+    @EnvironmentObject private var remarks: NativeSocialRemarks
     @ObservedObject var store: NativeWorkoutStore
     let api: NativeAPI
     let owner: String
@@ -450,7 +451,8 @@ struct NativeSpotterStats: View {
     private var rangePicker: some View {
         VStack(alignment: .leading, spacing: 7) {
             if let partner, !sharedLogs.isEmpty {
-                SpotterGlassSegments(options: [false, true], value: $partnerSelected, glass: false, title: { $0 ? "搭子 · \(partner.name)" : "我" })
+                let name = remarks.name(for: partner.id, fallback: partner.name)
+                SpotterGlassSegments(options: [false, true], value: $partnerSelected, glass: false, title: { $0 ? "搭子 · \(name)" : "我" })
             }
             SpotterGlassSegments(options: Period.allCases, value: $period, title: \.rawValue)
                 .onChange(of: period) { value in
@@ -1570,6 +1572,7 @@ private struct SecondaryPerformance: View {
 private struct SecondaryHistory: View {
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.spotterInteractionMotion) private var motion
+    @EnvironmentObject private var remarks: NativeSocialRemarks
     @ScaledMetric(relativeTo: .caption) private var dateHeight: CGFloat = 29
     @ScaledMetric(relativeTo: .caption2) private var chipHeight: CGFloat = 25
     @State private var month = SecondaryDate.monthStart(SecondaryDate.today)
@@ -1612,7 +1615,7 @@ private struct SecondaryHistory: View {
         guard !id.isEmpty, id != owner, store.room["partnerTrainingShared"] != .bool(false) else { return nil }
         return id
     }
-    private var partnerName: String { store.partnerName }
+    private var partnerName: String { remarks.name(for: partnerID, fallback: store.partnerName) }
     private var visibleScope: Scope { partnerID == nil ? .mine : scope }
 
     private var grouped: [String: [NativeWorkoutEntry]] {
@@ -3365,6 +3368,72 @@ private func friendPath(_ query: [URLQueryItem]) -> String {
     return parts.string ?? "/api/friends"
 }
 
+@MainActor
+final class NativeSocialRemarks: ObservableObject {
+    static let maximumLength = 40
+    private static let path = "/api/social/remarks"
+
+    let owner: String
+    private let api: NativeAPI
+    @Published private var values: [String: String] = [:]
+    private var revision = 0
+    private var refreshing = false
+    private var closed = false
+
+    private struct List: Decodable { let remarks: [String: String] }
+    private struct Update: Encodable { let id: String; let remark: String; let expectedOwner: String }
+    private struct Receipt: Decodable { let id: String; let remark: String? }
+
+    init(api: NativeAPI, owner: String) {
+        self.api = api
+        self.owner = owner
+    }
+
+    func remark(for id: String) -> String? { id == owner ? nil : values[id] }
+
+    func name(for id: String?, fallback: String) -> String {
+        id.flatMap { remark(for: $0) } ?? fallback
+    }
+
+    func refresh() async {
+        guard !closed, !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
+        let startedAt = revision
+        var endpoint = URLComponents()
+        endpoint.path = Self.path
+        endpoint.queryItems = [URLQueryItem(name: "expectedOwner", value: owner)]
+        guard let path = endpoint.string else { return }
+        do {
+            let data = try await api.request(path, method: "GET", json: nil, for: owner)
+            let next = try JSONDecoder().decode(List.self, from: data).remarks
+            guard !Task.isCancelled, !closed, startedAt == revision else { return }
+            if next != values { values = next }
+        } catch { }
+    }
+
+    func save(_ remark: String, for id: String) async throws {
+        guard !closed else { throw NativeAPIError.accountChanged }
+        let body = try JSONEncoder().encode(Update(id: id, remark: remark, expectedOwner: owner))
+        let data = try await api.request(Self.path, method: "PATCH", json: body, for: owner)
+        guard !closed else { throw NativeAPIError.accountChanged }
+        let receipt = try JSONDecoder().decode(Receipt.self, from: data)
+        guard receipt.id == id else { throw NativeAPIError.invalidResponse }
+        revision &+= 1
+        if values[id] != receipt.remark { values[id] = receipt.remark }
+    }
+
+    func forget(_ id: String) {
+        revision &+= 1
+        if values[id] != nil { values.removeValue(forKey: id) }
+    }
+
+    func clear() {
+        closed = true
+        values.removeAll()
+    }
+}
+
 enum NativeFriendsPage: String, CaseIterable { case contacts = "联系人", feed = "朋友圈", privacy = "权限设置" }
 
 @MainActor
@@ -3381,6 +3450,7 @@ struct NativeFriends: View {
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterGuide) private var guide
     @EnvironmentObject private var notifications: NativeSocialNotifications
+    @EnvironmentObject private var remarks: NativeSocialRemarks
 
     @State private var page: NativeFriendsPage
     @State private var data: SecondaryFriendList?
@@ -3487,7 +3557,12 @@ struct NativeFriends: View {
         .task(id: guide?.step) {
             if guide?.step == .findBuddy { page = .contacts }
         }
-        .refreshable { await load(); if page == .feed { await loadFeed() } }
+        .refreshable {
+            async let refreshRemarks: Void = remarks.refresh()
+            await load()
+            if page == .feed { await loadFeed() }
+            await refreshRemarks
+        }
         .navigationDestination(isPresented: Binding(get: { notificationDestination != nil }, set: { if !$0 { notificationDestination = nil } })) {
             if let destination = notificationDestination { friendDetail(destination.friend, day: destination.day) }
         }
@@ -3585,7 +3660,7 @@ struct NativeFriends: View {
                 if !buddies.isEmpty { contactGroup("训练搭子", friends: buddies) }
                 if let buddy {
                     Button { open(.appointments) } label: {
-                        SecondaryRow(title: "约下次训练", detail: "与 \(buddy.name) 确认时间",
+                        SecondaryRow(title: "约下次训练", detail: "与 \(displayName(buddy)) 确认时间",
                                      icon: "calendar.badge.plus", color: accent.selection)
                             .secondaryCard()
                     }.buttonStyle(.spotterPress)
@@ -3638,12 +3713,16 @@ struct NativeFriends: View {
         }
     }
 
+    private func displayName(_ friend: SecondaryFriend) -> String {
+        remarks.name(for: friend.id, fallback: friend.name)
+    }
+
     private func friendLink(_ friend: SecondaryFriend) -> some View {
         NavigationLink { friendDetail(friend) } label: {
             HStack(spacing: 10) {
-                avatar(friend.name, id: friend.id, buddy: friend.buddy)
+                avatar(displayName(friend), id: friend.id, buddy: friend.buddy)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(friend.name).font(.subheadline.weight(.semibold))
+                    Text(displayName(friend)).font(.subheadline.weight(.semibold))
                     Text(friend.buddy ? "训练搭子" : "查看每日记录").font(.caption).foregroundStyle(SpotterPalette.muted)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 if friend.checkedIn == true { SecondaryBadge(text: "已打卡", green: true) }
@@ -3719,7 +3798,7 @@ struct NativeFriends: View {
     @ViewBuilder private var appointments: some View {
         if let buddy {
             VStack(alignment: .leading, spacing: 10) {
-                Label("邀请 \(buddy.name) 一起训练", systemImage: "person.2.fill").font(.headline)
+                Label("邀请 \(displayName(buddy)) 一起训练", systemImage: "person.2.fill").font(.headline)
                 DatePicker("训练时间", selection: $appointmentTime, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
                     .tint(accent.tint).font(.subheadline)
                 TextField("地点或备注（选填）", text: $appointmentNote)
@@ -3922,9 +4001,9 @@ struct NativeFriends: View {
 
     private func feedHeader(_ item: SecondaryFriendFeed.Day.Item) -> some View {
         HStack(spacing: 11) {
-            avatar(item.friend.name, id: item.friend.id, buddy: isOwn(item) || item.friend.buddy, size: 44, circular: true)
+            avatar(displayName(item.friend), id: item.friend.id, buddy: isOwn(item) || item.friend.buddy, size: 44, circular: true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.friend.name).font(.headline)
+                Text(displayName(item.friend)).font(.headline)
                 if isOwn(item) || item.friend.buddy {
                     Text(isOwn(item) ? "我的打卡" : "训练搭子").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
                 }
@@ -3958,7 +4037,7 @@ struct NativeFriends: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.spotterPress).disabled(pendingCheer != nil)
-            .accessibilityLabel(shown.given ? "取消给\(item.friend.name)加油" : "给\(item.friend.name)加油")
+            .accessibilityLabel(shown.given ? "取消给\(displayName(item.friend))加油" : "给\(displayName(item.friend))加油")
             .accessibilityValue("\(shown.count) 次加油")
             .accessibilityIdentifier("feed-cheer-\(item.id)-\(day)")
         }
@@ -4354,6 +4433,7 @@ private struct SecondaryFriendDetail: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var avatars: NativeAvatarStore
+    @EnvironmentObject private var remarks: NativeSocialRemarks
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterAccent) private var accent
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -4365,6 +4445,7 @@ private struct SecondaryFriendDetail: View {
     @State private var busy = false
     @State private var showRemove = false
     @State private var showDatePicker = false
+    @State private var showRemarkEditor = false
     @State private var loadError: String?
     @State private var actionError: String?
     @State private var loadRevision = 0
@@ -4373,6 +4454,8 @@ private struct SecondaryFriendDetail: View {
     @State private var reminderSent = false
 
     private static let firstDay = SecondaryDate.parse("1900-01-01") ?? .distantPast
+    private var remark: String? { remarks.remark(for: friend.id) }
+    private var displayName: String { remark ?? friend.name }
 
     private struct Record: Decodable {
         let restricted: Bool?
@@ -4414,10 +4497,13 @@ private struct SecondaryFriendDetail: View {
             .sheet(isPresented: $showDatePicker) {
                 SecondaryFriendDateSheet(day: date, firstDay: Self.firstDay, apply: selectDay)
             }
+            .sheet(isPresented: $showRemarkEditor) {
+                SecondaryFriendRemarkEditor(remarks: remarks, friendID: friend.id, nickname: friend.name)
+            }
             .confirmationDialog("移除好友", isPresented: $showRemove, titleVisibility: .visible) {
                 Button("确认移除", role: .destructive) { Task { await mutate(["action": "remove", "id": friend.id], remove: true) } }
                 Button("取消", role: .cancel) {}
-            } message: { Text("移除后，你和\(friend.name)在好友页的分享会停止。") }
+            } message: { Text("移除后，你和\(displayName)在好友页的分享会停止。") }
     }
 
     private var profileCard: some View {
@@ -4426,17 +4512,34 @@ private struct SecondaryFriendDetail: View {
         return VStack(alignment: .leading, spacing: 10) {
             layout {
                 HStack(spacing: 12) {
-                    avatar(friend.name, id: friend.id, buddy: friend.buddy, size: 47, circular: true)
+                    avatar(displayName, id: friend.id, buddy: friend.buddy, size: 47, circular: true)
                         .overlay { Circle().strokeBorder(accent.tint.opacity(0.18)).allowsHitTesting(false) }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(friend.name).font(.title2.weight(.bold)).foregroundStyle(SpotterPalette.ink)
+                        Text(displayName).font(.title2.weight(.bold)).foregroundStyle(SpotterPalette.ink)
                             .accessibilityAddTraits(.isHeader)
+                        if remark != nil {
+                            Text("昵称 · \(friend.name)").font(.footnote).foregroundStyle(SpotterPalette.muted)
+                        }
                         Text(friend.buddy ? "训练搭子" : "好友").font(.footnote.weight(.medium))
                             .foregroundStyle(accent.tint)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 if friend.buddy { reminderButton }
             }
+            Button { showRemarkEditor = true } label: {
+                HStack(spacing: 8) {
+                    Label(remark == nil ? "添加备注" : "编辑备注", systemImage: "pencil.line")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        .foregroundStyle(SpotterPalette.muted).accessibilityHidden(true)
+                }
+                .padding(.horizontal, 11).frame(minHeight: 44)
+                .background(SpotterPalette.card.opacity(0.65), in: RoundedRectangle(cornerRadius: 11))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityIdentifier("friend-remark-edit")
             if let reminderError { SecondaryNotice(message: reminderError, warning: true) }
         }
         .padding(14)
@@ -4692,10 +4795,92 @@ private struct SecondaryFriendDetail: View {
                 saved = refreshed.sharing
                 sharing = refreshed.sharing
             }
-            if remove { avatars.forgetPeer(friend.id) }
+            if remove {
+                avatars.forgetPeer(friend.id)
+                remarks.forget(friend.id)
+            }
             await changed()
             if remove { dismiss() }
         } catch { actionError = error.localizedDescription }
+    }
+}
+
+@MainActor
+private struct SecondaryFriendRemarkEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let remarks: NativeSocialRemarks
+    let friendID: String
+    let nickname: String
+    private let previous: String
+    @State private var draft: String
+    @State private var busy = false
+    @State private var problem: String?
+
+    init(remarks: NativeSocialRemarks, friendID: String, nickname: String) {
+        self.remarks = remarks
+        self.friendID = friendID
+        self.nickname = nickname
+        let previous = remarks.remark(for: friendID) ?? ""
+        self.previous = previous
+        self._draft = State(initialValue: previous)
+    }
+
+    private var title: String { previous.isEmpty ? "添加备注" : "编辑备注" }
+    private var candidate: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var length: Int { candidate.unicodeScalars.count }
+    private var validLength: Bool { length <= NativeSocialRemarks.maximumLength }
+    private var singleLine: Bool { candidate.rangeOfCharacter(from: .newlines) == nil }
+    private var canSave: Bool { !busy && validLength && singleLine && candidate != previous }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("昵称 · \(nickname)").font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    TextField("姓名或称呼", text: $draft)
+                        .textFieldStyle(.roundedBorder)
+                        .submitLabel(.done)
+                        .onSubmit { if canSave { Task { await save(candidate) } } }
+                        .accessibilityIdentifier("friend-remark-name")
+                        .disabled(busy)
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("备注仅你可见。清空后显示对方昵称。")
+                        Spacer(minLength: 4)
+                        Text("\(length)/\(NativeSocialRemarks.maximumLength)").monospacedDigit()
+                            .foregroundStyle(validLength ? SpotterPalette.muted : .red)
+                    }.font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    if !singleLine { SecondaryNotice(message: "备注请写在一行内。", warning: true) }
+                    if let problem { SecondaryNotice(message: problem, warning: true) }
+                    if !previous.isEmpty {
+                        Button("移除备注", role: .destructive) { Task { await save("") } }
+                            .buttonStyle(.spotterPress).foregroundStyle(.red).frame(minHeight: 44).disabled(busy)
+                    }
+                }.padding(14).secondaryCard().padding(14)
+            }
+            .background(SpotterPalette.background.ignoresSafeArea())
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(busy ? "保存中" : "保存") { Task { await save(candidate) } }.disabled(!canSave)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(busy)
+    }
+
+    private func save(_ value: String) async {
+        guard !busy else { return }
+        busy = true
+        problem = nil
+        defer { busy = false }
+        do {
+            try await remarks.save(value, for: friendID)
+            dismiss()
+        } catch { problem = error.localizedDescription }
     }
 }
 

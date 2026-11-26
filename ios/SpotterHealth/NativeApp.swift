@@ -774,6 +774,7 @@ private struct NativeSpotterTabs: View {
     @ObservedObject var account: NativeAccount
     @StateObject private var workouts: NativeWorkoutStore
     @StateObject private var avatars: NativeAvatarStore
+    @StateObject private var remarks: NativeSocialRemarks
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
     @EnvironmentObject private var socialNotifications: NativeSocialNotifications
@@ -847,6 +848,7 @@ private struct NativeSpotterTabs: View {
         _widgetDestination = widgetDestination
         _workouts = StateObject(wrappedValue: NativeWorkoutStore(api: account.api, owner: owner))
         _avatars = StateObject(wrappedValue: NativeAvatarStore(api: account.api, owner: owner))
+        _remarks = StateObject(wrappedValue: NativeSocialRemarks(api: account.api, owner: owner))
         _trainingPreferences = StateObject(wrappedValue: NativeAccountPreferences(api: account.api, owner: owner))
         _reminderEnabled = AppStorage(wrappedValue: false, NativePreferenceKey.reminderKey(owner, field: "enabled"))
         _reminderMinute = AppStorage(wrappedValue: 18 * 60, NativePreferenceKey.reminderKey(owner, field: "minute"))
@@ -868,9 +870,15 @@ private struct NativeSpotterTabs: View {
                 avatars.refreshVisible()
             }
         }
-        .onChange(of: selected) { _ in avatars.refreshVisible() }
+        .onChange(of: selected) { section in
+            avatars.refreshVisible()
+            if section == .friends { Task { await remarks.refresh() } }
+        }
         .onChange(of: workouts.networkAvailable) { available in
-            if available == true { avatars.refreshVisible() }
+            if available == true {
+                avatars.refreshVisible()
+                Task { await remarks.refresh() }
+            }
         }
         .onAppear {
             if !didFinishWelcome && guideStep == nil && !beginGuideAfterWelcome {
@@ -961,6 +969,7 @@ private struct NativeSpotterTabs: View {
                 NativeSettings(account: account, owner: owner, onDeleted: {
                                    workouts.clearLocalData()
                                    avatars.clear()
+                                   remarks.clear()
                                    NativeTrainingWidgetBridge.useAccount(nil, origin: account.api.origin)
                                    refreshLiveActivity()
                                    NativeCoachView.removeSavedConversation(api: account.api, owner: owner)
@@ -1066,6 +1075,7 @@ private struct NativeSpotterTabs: View {
         .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
         .environment(\.spotterAccountPreferences, trainingPreferences)
         .environmentObject(avatars)
+        .environmentObject(remarks)
         .environment(\.spotterReduceMotion, reduceMotion)
         .environment(\.spotterGuide, guideContext)
         .transaction {
@@ -1175,6 +1185,7 @@ private struct NativeSpotterTabs: View {
         trainingPreferences.activate()
         async let preferences: Void = trainingPreferences.sync()
         async let nutrition: Void = workouts.refreshWidgetNutrition()
+        async let contactNames: Void = remarks.refresh()
         await workouts.load()
         refreshWidget()
         async let history: Void = workouts.refreshWidgetHistory()
@@ -1182,6 +1193,7 @@ private struct NativeSpotterTabs: View {
         await preferences
         await nutrition
         await history
+        await contactNames
         refreshWidget()
     }
 

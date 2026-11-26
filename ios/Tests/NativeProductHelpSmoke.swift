@@ -18,6 +18,8 @@ struct NativeProductHelpSmoke {
         precondition(help.reply(to: "那网页版呢？", previousQuestion: "那饮食呢？")?.contains("· 网页版") == true)
         precondition(help.reply(to: "那饮食呢？") == nil)
         precondition(help.reply(to: "好友怎么加？")?.contains("联系人") == true)
+        precondition(help.reply(to: "怎么给好友加备注？")?.contains("备注仅自己可见") == true)
+        precondition(help.reply(to: "怎么移除搭子备注？")?.contains("移除备注") == true)
         precondition(help.reply(to: "怎么提高平均心率？", previousQuestion: "官方模板在哪？") == nil)
         precondition(help.reply(to: "午餐该吃多少？", previousQuestion: "官方模板在哪？") == nil)
         precondition(help.reply(to: "如何连接自己的 ＡＩ Agent？")?.contains("新建 Agent 连接") == true)
