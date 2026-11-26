@@ -90,6 +90,8 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 - 外部 Agent 按当前账号的 `profileRef` 与连接权限校验归属。权限区分编排资料、训练草稿、排期、分类读取和写入。健康原始读数、身体数据与搭子或好友的记录均在外部 Agent 读取范围之外。明确授权后才记餐，重试同一餐食复用原 UUID。[Agent 权限](../cloudflare/features/agent-access/model.ts)
 - 外部 Agent 在生成或导入含动作的计划、周期和个人模板前，用 `read:context` 查当前账号的个人动作和内置目录。标准目录 ID 一致、明确登记为同一动作的别名或规范化后完全相同的名称可用于复用。相近变式各自保留。两端的复制提示词说明这个规则，iPhone 的使用教学同时提示开启「读取编排资料」。[编排资料接口](../cloudflare/features/agent-access/context.ts) · [网页提示词](../cloudflare/features/agent/guide.ts) · [原生提示词与教学](../ios/SpotterHealth/NativeAgentAccess.swift)
 - 外部 Agent 管理个人模板时，用 `templates:read` 读取模板 ID 和版本，用 `templates:manage` 预览改名、替换整份动作列表或删除。预览展示对关联计划的影响，用户确认后提交同一个预览令牌。版本已变或预览到期时需重新核对。[模板修改服务](../cloudflare/features/agent-access/template-change.ts)
+- 外部 Agent 收到附带演示的请求时，通过 `read:context` 查询同一动作，再调用 `get_spotter_exercise_demo_skill`。标准动作沿用目录 ID，已有的 Spotter 3D 示范可直接复用。新的个人动作可由 Agent 使用 [Spotter 动作渲染技能](../skills/spotter-exercise-demo/) 在本地生成并核对 GIF，再按现有确认流程保存。技能独立运行，只接收动作配方。选用一个相近动作时仍需保留其不同器械、握法和单侧等信息。[Agent 查询及写入规则](../cloudflare/docs/agent-api.md#用-spotter-技能生成动作示范)
+- Spotter 3D 标准示范由 [已核准的目录 ID](../cloudflare/features/exercises/spotter-demo-assets.json) 统一选择，iPhone 离线视频和 Cloudflare 网页使用同一对应关系，其他动作继续显示已有演示。个人计划及其编辑页、训练过程和训练动作详情都可打开演示。旧计划只有名称时先匹配同一标准动作；同名歧义和个人变式保持独立。私有 GIF 只为当前账号的动作读取。扩充时用 [离线盘点工具](../tools/plan-exercise-demo-rollout.mjs) 依次整理个人计划、官方模板和整库。个人盘点报告留在本地，跨范围对同一目录 ID 去重，个人动作和同名歧义分别核对。
 - 连接获得 `exercise-demos:write` 后，外部 Agent 可针对用户确认的动作上传、替换或移除私人演示 GIF。GIF 上限 768 KiB，宽高各不超过 480 像素，限 2–90 帧，并限制解码总像素。动作详情只向登录的所有者展示该附件。App 回到前台或刷新训练时同步动作资料。现有 JSON 备份包含动作资料，GIF 文件随账号保存在 Cloudflare。[演示校验和存储](../cloudflare/features/exercises/personal-demo.ts) · [原生动作详情](../ios/SpotterHealth/NativeCatalogueView.swift) · [网页动作详情](../cloudflare/features/exercises/exercise-view.tsx)
 - iPhone 标准动作演示由资源生成工具按网页版的动作 ID 选用现有绘制动画、Flow／姿势图或 MP4。演示随 App 安装，可离线使用。打开详情后，演示加载完成即自动播放，暂停后再播放会从当前帧继续。离开或切后台时暂停。开启减少动态效果时，可手动点「播放」。个人 GIF 继续使用账号授权读取。[资源生成](../tools/build-ios-catalogue.mjs) · [原生播放](../ios/SpotterHealth/NativeCatalogueView.swift)
 - 在教练点「怎么用训练搭子？」或输入「怎么拍照记餐」「外部 Agent 在哪」等操作问题，会按当前端列出入口和按钮。iPhone 可继续追问「那饮食呢？」。已收录的问答由客户端直接回答，即使一般 AI 对话额度用完也可使用。导航回答只指导操作。明确记餐、生成计划和训练咨询继续走各自流程。
@@ -185,6 +187,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 1.0 Build 45 | 补齐 SwiftUI 标准动作详情的离线演示和播放／暂停，按目录 ID 对应已有动作素材。 | Xcode 模拟器构建通过，包内 5,630 个标准动作的资源映射与源码一致。原生冒烟测试核对绘制、动图、本地视频和个人动作隔离。 |
 | Build 45 后的 iPhone 源码 | 「训练 → 动作库」的绘制和 GIF 从详情挂载后按素材帧间隔播放，本地视频在播放器进入窗口时应用播放状态。暂停保留画面，按钮按前台播放状态显示。沿用已打包素材和个人动图的账号权限。 | Xcode 模拟器构建、原生冒烟测试、独立版网页构建和 24 项根目录测试通过。以合成账号比较演示区域截图，验证绘制动画、GIF 和本地视频首次打开即播放，暂停静止且恢复后继续播放。旧版卡帧在这三个模拟器样本上未复现，待真机确认。 |
 | Build 45 后的 iPhone 源码 | 原生训练添加「退出」「重新开始」和暂停时的「删除本次训练」。草稿移除走账号限定的现有同步队列。首页训练草稿和常用餐提供右滑删除。 | Xcode 模拟器构建通过。以合成账号验证退出后计时冻结、重新打开、重开清空组次、删除草稿后从原计划开练、空训练结束和有效打卡。右滑草稿后再点按确认可删除草稿，删除常用餐后已记饮食仍保留。原生冒烟测试、独立版 24 项和 Cloudflare 17 项训练测试通过。 |
+| Spotter 3D 演示开发分支 | 增加外部 Agent 渲染技能入口、配置提示、离线渲染和按目录 ID 复用。首批接入 20 段标准演示并补齐个人计划和训练的演示入口。 | Xcode 模拟器构建和原生冒烟通过，包内包含 20 段原创视频。Cloudflare 构建与 374 项测试、独立版构建与 25 项测试通过。已把生成的 5 个原创自定义 GIF 通过合成账号写入、读取和隔离检查。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
 

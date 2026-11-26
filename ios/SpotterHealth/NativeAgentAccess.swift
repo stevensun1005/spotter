@@ -113,7 +113,9 @@ private func nativeAgentPrompt(origin: String, profileRef: String) -> String {
     安排训练：按目标、器械、每周天数和开始日期，用核对过的动作和模板起草。保留组次、节奏、单位和分侧。只有跟练链接时保留 video，放进「跟练视频」。用 stage_spotter_plans 提交私人草稿，调用 preview_spotter_draft 核对最新预览。我确认后才用 commit_spotter_draft 排日历。完整周期用 stage_spotter_program、preview_spotter_program、commit_spotter_program。重复提交同一草稿沿用 requestId。
     新增记录：餐食用 add_spotter_meals，按实际日期、餐次、份量和营养写入，估算项标明。常用食物可用 add_spotter_foods。已完成训练、身体测量、饮水及个人模板用 import_spotter_records，选对应类别并使用同一条记录 ID 重试。只写我确认的实际内容。
     编辑个人模板：先读 templates，获取 templateId（记录 id）和 revision。用 preview_spotter_template_change（POST /api/agent/templates）预览改名、动作编辑或删除。修改动作时保留其余组次和动作元数据。拿到我的确认后才用 commit_spotter_template_change 提交本次 previewToken。遇到版本冲突重新读取。
-    自定义动作示范：完成动作库核对后，只为确认没有同一动作的新增项询问我是否添加演示动图。收到明确同意和可使用的 GIF 后，再用 manage_spotter_exercise_demo（POST /api/agent/exercise-demos）按准确动作名称上传 raw base64。每个 GIF 不超过 768 KiB 和 480×480，至少两帧。需要替换或移除时也先让我确认。只保存视频链接或没有动图时照常保存计划或模板。
+    动作示范。在我要求为计划或模板添加示范后，先核对动作库，再用 read:context 调用 get_spotter_exercise_demo_skill（POST /api/agent/exercise-demo-skill），传 profileRef、准确 name 和已有的 catalogueId。只加新动作时，可以问我是否需要制作示范。
+    收到 reuse_catalogue 或 reuse_personal 时沿用已有动作和示范。收到 render_personal 时，从 Spotter 站点打开返回的 skill.downloadUrl，按包内 SKILL.md 本地生成 GIF。渲染器只需要动作说明。
+    我确认该动图后，使用 exercise-demos:write 调用 manage_spotter_exercise_demo（POST /api/agent/exercise-demos），传 action:save、profileRef、准确 name、纯 base64 的 gifBase64 及 confirmed:true。GIF 最大 768 KiB，最长边 480 像素，2–90 帧，总画面像素不超过 900 万。替换或移除也须先确认。无法制作时照常保存计划或模板，并告诉我示范还未添加。
 
     我会告诉你要做哪件事。完成后用实际回执告诉我新增、修改、删除或跳过的记录和日期。
     """
@@ -212,7 +214,7 @@ struct NativeAgentTutorialView: View {
         case .permission:
             tip("分析记录", icon: "chart.xyaxis.line", detail: "只打开要分析的读取项，例如「读取训练计划与打卡」或「读取饮食与饮水」。")
             tip("训练计划", icon: "calendar", detail: "打开「读取编排资料」，让 AI 先核对你的动作库并沿用同一动作。创建草稿需打开「保存训练草稿」，排入日历还需打开「将确认的计划加入日历」。")
-            tip("模板与动图", icon: "film.stack", detail: "需要管理模板时，开启「读取个人模板」和「改名、编辑或删除个人模板」。需要为自定义动作添加 GIF 时，再开启「添加或移除个人演示动图」。")
+            tip("模板与动作示范", icon: "film.stack", detail: "管理模板时，开启「读取个人模板」和「改名、编辑或删除个人模板」。让 Agent 用 Spotter 技能为新动作做示范时，开启「读取编排资料」和「添加或移除个人演示动图」。")
             tip("记饮食", icon: "fork.knife", detail: "打开「新增饮食与饮水」。需要在记餐前核对当天已有记录时，也可打开「读取饮食与饮水」。")
         case .configuration:
             tip("MCP 客户端", icon: "point.3.connected.trianglepath.dotted", detail: "在自己 AI 的工具或连接器设置里，添加远程 MCP 工具，传输方式选 Streamable HTTP，使用复制的提示词里的 MCP 地址。把令牌放进凭据栏，或设置 Authorization 请求头，值为 Bearer 后接空格和令牌。")

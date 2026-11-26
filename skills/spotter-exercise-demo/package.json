@@ -1,0 +1,14 @@
+{
+  "name": "spotter-exercise-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "package": "node scripts/package.mjs" },
+  "dependencies": { "playwright-core": "1.56.1" },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "gifenc": "1.0.3",
+    "three": "0.181.1"
+  }
+}

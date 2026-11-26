@@ -146,7 +146,7 @@ test("external MCP scope-filtered discovery cannot be bypassed by naming a forbi
   const { token } = await createConnection(db, owner, { name: "Synthetic reader", scopes: ["read:context"], expiresInDays: 1 });
   globalThis.__spotterAgentUser = null;
   const tools = await value(await external.POST(request("/api/agent/mcp", rpc("tools/list"), token)));
-  assert.deepEqual(tools.tools.map((tool) => tool.name), ["get_spotter_agent_profile", "read_spotter_planning_context"]);
+  assert.deepEqual(tools.tools.map((tool) => tool.name), ["get_spotter_agent_profile", "read_spotter_planning_context", "get_spotter_exercise_demo_skill"]);
   const denied = await value(await external.POST(request("/api/agent/mcp", rpc("tools/call", { name: "stage_spotter_plans", arguments: { profileRef: await agentProfileRef(owner), requestId: crypto.randomUUID(), plans: [plan] } }), token)));
   assert.equal(denied.isError, true);
   assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM agent_plan_drafts").get().n, 0);

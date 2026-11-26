@@ -3,7 +3,7 @@ import { recordImportTool } from "./records";
 import { recordReadProperties } from "./record-read";
 import { mealWriteTool } from "./meal-write";
 import { templateChangeRequestSchema } from "./template-change";
-import { exerciseDemoTool } from "./exercise-demos";
+import { exerciseDemoSkillTool, exerciseDemoTool } from "./exercise-demos";
 
 const readRecordParameters = Object.entries(recordReadProperties).map(([name, schema]) => ({
   in: "query", name, required: name === "profileRef" || name === "scope", schema,
@@ -37,6 +37,8 @@ export function agentApiSchema(origin: string) {
       "/api/agent/exercise-demos": { post: { operationId: "changePersonalExerciseDemo",
         description: "Requires exercise-demos:write and confirmation of the attachment or removal for this exact exercise. The private GIF is displayed in the signed-in owner's exercise details.",
         requestBody: { required: true, content: { "application/json": { schema: exerciseDemoTool.inputSchema } } }, responses: response } },
+      "/api/agent/exercise-demo-skill": { post: { operationId: "getExerciseDemoSkill", description: exerciseDemoSkillTool.description,
+        requestBody: { required: true, content: { "application/json": { schema: exerciseDemoSkillTool.inputSchema } } }, responses: response } },
       "/api/agent/mcp": { post: { operationId: "callMcpTool", description: "JSON Streamable HTTP subset: server/discover, initialize, tools/list, tools/call; explicit Bearer scopes apply. Standard clients need HTTP/MCP support and access through the hosting platform.", responses: response } },
       "/api/agent/programs": { post: { operationId: "stagePreviewOrCommitProgram", description: "Stage/preview a complete multiweek program, then commit only with the user's authorization of that preview. Content is bounded to52 weeks/364 sessions; partial/duplicate/mismatched dates are rejected.", requestBody: { required: true, content: { "application/json": { schema: { oneOf: [
         { type: "object", additionalProperties: false, required: ["action", "profileRef", "program", "revision"], properties: { action: { const: "stage" }, profileRef: { type: "string" }, program: { $ref: "#/components/schemas/Program" }, revision: { type: ["string", "null"] } } },

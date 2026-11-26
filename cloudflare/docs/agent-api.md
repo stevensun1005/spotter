@@ -88,13 +88,16 @@
 
 向用户展示变更和已安排训练受影响的情况。用户确认后提交 `{action:"commit",profileRef,previewToken,confirmed:true}`。预览有效 15 分钟，成功回执可重试 24 小时。其他客户端改过模板时重新预览。删除会保留并解除已排训练的模板关联，已打卡历史仍可查看。对应 MCP 工具为 `preview_spotter_template_change` 和 `commit_spotter_template_change`。
 
-## 为自定义动作附上演示动图
+## 用 Spotter 技能生成动作示范
 
-从视频或其他材料整理计划、周期或模板时，用 `read:context` 调用 `read_spotter_planning_context` 或 `GET /api/agent/context`，先查当前账号的个人动作及内置目录。只对核对后确认没有同一动作的新增项询问是否附上 GIF。原始跟练链接继续写在计划的 `video`，待训练和个人模板中的跟练内容会列在底部的「跟练视频」。没有动图也可保存计划。
+从视频或其他材料整理计划、周期或模板时，先调用 `read_spotter_planning_context` 或 `GET /api/agent/context`。确认用户要动作示范后，使用同一个连接调用 `get_spotter_exercise_demo_skill` 或 `POST /api/agent/exercise-demo-skill`，请求包含 `profileRef`、`name` 和已核准动作的可选 `catalogueId`。查询需要 `read:context`。
 
-- 用户明确同意后，通过 `POST /api/agent/exercise-demos` 或 `manage_spotter_exercise_demo` 传 `{action:"save",profileRef,name,gifBase64,confirmed:true}`。使用用户提供或授权使用的动图。取原始 GIF 字节编码为 base64，最长边 480 像素、体积不超过 768 KiB、有 2–90 帧且总画面像素不超过 900 万。
-- 服务去除常见扩展元数据，按账号和动作名保存一份演示。同名再次保存会替换当前演示。调用 `{action:"remove",profileRef,name,confirmed:true}` 移除演示。
-- App 和 Cloudflare 网页在本人动作详情中读取演示。接口不接收其他账号的编号。
+- `reuse_catalogue` 返回同一标准动作的 ID。已升级的动作还返回原创 3D 媒体路径，直接用该 ID。其他标准动作继续显示原示范，也可在本地做单独的预览。
+- `reuse_personal` 表示当前账号已有同名个人示范。要替换时，经用户确认后渲染并上传。
+- `render_personal` 返回 [Spotter 渲染技能](../../skills/spotter-exercise-demo/SKILL.md) 的下载地址和保存权限。Agent 在自己可执行的工具环境运行技能，按实际动作编制人体与器械关键帧，用浏览器本地生成并核对 GIF。包内有离线渲染页面和命令行入口。训练记录、用户照片和账号凭据不进渲染配方。
+- 用户明确要求保存该动作的示范且令牌具备 `exercise-demos:write` 时，通过 `POST /api/agent/exercise-demos` 或 `manage_spotter_exercise_demo` 提交 `{action:"save",profileRef,name,gifBase64,confirmed:true}`。使用原始 GIF 的 base64，最长边 480 像素、大小不超过 768 KiB、有 2–90 帧且总画面像素不超过 900 万。服务按账号和动作名保存，原样重试使用同一个名字。移除用 `{action:"remove",profileRef,name,confirmed:true}`。
+
+iPhone 和 Cloudflare 网页在本人动作详情中读取已保存的演示。没有示范也可保存计划。原始跟练链接仍保存在计划的 `video`，在「跟练视频」显示。
 
 ## 完整多周周期
 
@@ -118,7 +121,7 @@
 
 新增工具的输入均要求核对 `profileRef`。旧站点连接由已认证的 Sites 账号确定 owner；API 令牌连接的 owner 由令牌确定，不接收调用者传入 owner。
 
-`/api/agent/mcp` 按令牌权限提供编排及记录工具，并在调用时再次检查权限。按需提供 `read_spotter_records` 和 `add_spotter_meals`。支持 JSON Streamable HTTP 的请求、响应和通知。发现、初始化和工具调用兼容相应协议版本。 [MCP 官方协议版本说明](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)
+`/api/agent/mcp` 按令牌权限提供编排及记录工具，并在调用时再次检查权限。按需提供 `read_spotter_records`、`add_spotter_meals`、`get_spotter_exercise_demo_skill` 和 `manage_spotter_exercise_demo`。支持 JSON Streamable HTTP 的请求、响应和通知。发现、初始化和工具调用兼容相应协议版本。 [MCP 官方协议版本说明](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)
 
 ### 直接添加记录
 

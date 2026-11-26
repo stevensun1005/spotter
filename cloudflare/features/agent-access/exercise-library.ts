@@ -48,13 +48,19 @@ export async function loadAgentExerciseLibrary(db: D1Database, owner: string) {
     if (!personalByName.has(key)) personalByName.set(key, { name, source: "personal" });
   }
 
-  function resolve(name: string, catalogueId?: string): Match {
+  function resolve(name: string, catalogueId?: string, { requireExactName = false } = {}): Match {
     const personal = personalByName.get(agentExerciseNameKey(name));
     const named = catalogueExerciseByExactName(catalogue, name);
     const chosen = catalogueId ? catalogueExerciseById(catalogue, catalogueId) : named;
     if (catalogueId && !chosen) throw new HttpError(400, "动作 ID 在 Spotter 动作库里不存在。请先读取动作库并使用实际 ID。");
     if (catalogueId && chosen && ((named && named.id !== chosen.id) || (personal && personal.catalogueId !== chosen.id))) {
       throw new HttpError(409, "动作名称与动作 ID 指向不同动作。请先读取动作库并核对。");
+    }
+    if (requireExactName && catalogueId && chosen && !named && !personal) {
+      const key = agentExerciseNameKey(name);
+      if (key !== agentExerciseNameKey(chosen.name) && key !== agentExerciseNameKey(chosen.en)) {
+        throw new HttpError(409, "动作名称与动作 ID 指向不同动作。请先读取动作库并核对。");
+      }
     }
     if (personal) return personal;
     if (chosen === null) throw new HttpError(409, "动作库有多个同名动作。请核对器械及动作要求，再提交准确的动作 ID。");

@@ -18,6 +18,7 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 
 const { POST: writeDemo } = await import("../app/api/agent/exercise-demos/route.ts");
+const { POST: readDemoSkill } = await import("../app/api/agent/exercise-demo-skill/route.ts");
 const { POST: mcp } = await import("../app/api/agent/mcp/route.ts");
 const { GET: exerciseMedia } = await import("../app/api/exercises/demo/route.ts");
 const { createConnection } = await import("../features/agent-access/store.ts");
@@ -30,6 +31,8 @@ const yellowAndGreen = Buffer.from("R0lGODlhAgACAIEAAP//AAAAAAAAAAAAACH/C05FVFND
 const name = "Fixture Row";
 const origin = "https://demo.example.invalid";
 const toolName = "manage_spotter_exercise_demo";
+const skillToolName = "get_spotter_exercise_demo_skill";
+const skillPath = "/api/agent/exercise-demo-skill";
 
 function database(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -67,6 +70,7 @@ function post(path, body, token) {
 const issue = (db, owner, scopes = ["read:context", "exercise-demos:write"]) => createConnection(db, owner, { scopes, name: "Synthetic GIF agent", expiresInDays: 1 });
 const save = (profileRef, bytes, move = name) => ({ action: "save", profileRef, name: move, confirmed: true, gifBase64: bytes.toString("base64") });
 const write = (body, token) => writeDemo(post("/api/agent/exercise-demos", body, token));
+const skill = (body, token) => readDemoSkill(post(skillPath, body, token));
 async function rpc(method, token, params) {
   const response = await mcp(post("/api/agent/mcp", { jsonrpc: "2.0", id: 1, method, params }, token));
   return (await response.json()).result;
@@ -166,6 +170,61 @@ test("a new exercise variant keeps its distinguishing name when attaching a GIF"
   assert.equal((await read("one", variant)).status, 200);
   assert.equal((await read("one", "哑铃卧推")).status, 404);
   assert.equal(db.sqlite.prepare("SELECT id FROM personal_library WHERE kind='exercise'").get().id, variant);
+});
+
+test("the read-only demo skill resolves exact catalogue media and routes personal previews without sharing GIFs", async (t) => {
+  const db = database(t);
+  const { token } = await issue(db, "one");
+  const { token: reader } = await issue(db, "one", ["read:context"]);
+  const { token: writer } = await issue(db, "one", ["exercise-demos:write"]);
+  const { token: other } = await issue(db, "two");
+  const profileRef = await agentProfileRef("one");
+  const catalogue = { profileRef, name: "Cable Pulldown", catalogueId: "0198" };
+  const custom = { profileRef, name: "Cable Pulldown（Fixture Variant）" };
+
+  assert.ok(agentApiSchema(origin).paths[skillPath].post);
+  assert.equal((await rpc("tools/list", reader)).tools.find(({ name }) => name === skillToolName).annotations.readOnlyHint, true);
+  assert.ok(!(await rpc("tools/list", writer)).tools.some(({ name }) => name === skillToolName));
+  assert.equal((await rpc("tools/call", writer, { name: skillToolName, arguments: catalogue })).isError, true);
+  assert.equal((await skill(catalogue)).status, 401);
+  assert.equal((await skill(catalogue, writer)).status, 403);
+  assert.equal((await skill(catalogue, other)).status, 403);
+  assert.equal((await skill({ ...catalogue, name: custom.name }, reader)).status, 409);
+  assert.equal((await skill({ ...catalogue, name: "1 2 stick drill" }, reader)).status, 409);
+  assert.equal((await skill({ ...catalogue, catalogueId: "999999" }, reader)).status, 400);
+
+  const receipt = await rpc("tools/call", reader, { name: skillToolName, arguments: catalogue });
+  assert.equal(receipt.isError, false);
+  const approved = JSON.parse(receipt.content[0].text);
+  assert.equal(approved.action, "reuse_catalogue");
+  assert.deepEqual(approved.exercise, { name: "绳索下拉", catalogueId: "0198", source: "catalogue" });
+  assert.equal(approved.mediaUrl, "/open-gym/spotter-3d/0198.mp4");
+  assert.equal(approved.upload, undefined);
+  assert.deepEqual(await (await skill(catalogue, reader)).json(), approved);
+
+  const render = await (await skill(custom, reader)).json();
+  assert.equal(render.action, "render_personal");
+  assert.equal(render.exercise.name, custom.name);
+  assert.equal(render.skill.downloadUrl, "/spotter-demo-skill/spotter-exercise-demo.zip");
+  assert.equal(render.skill.instructionsPath, "spotter-exercise-demo/SKILL.md");
+  assert.deepEqual(render.upload, { tool: toolName, path: "/api/agent/exercise-demos", action: "save",
+    scope: "exercise-demos:write", authorized: false, requireConfirmation: true, inputEncoding: "base64",
+    maxBytes: 768 * 1024, maxDimensionPixels: 480, minFrames: 2, maxFrames: 90, maxFramePixels: 9_000_000 });
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM exercise_demonstrations").get().n, 0);
+  assert.equal((await (await skill(custom, token)).json()).upload.authorized, true);
+  assert.equal((await write(save(profileRef, redAndBlue, custom.name), token)).status, 200);
+
+  const saved = await (await skill(custom, reader)).json();
+  assert.equal(saved.action, "reuse_personal");
+  assert.equal(saved.exercise.name, custom.name);
+  assert.equal(JSON.stringify(saved).includes(redAndBlue.toString("base64")), false);
+  const otherProfileRef = await agentProfileRef("two");
+  assert.equal((await (await skill({ ...custom, profileRef: otherProfileRef }, other)).json()).action, "render_personal");
+
+  db.sqlite.prepare("INSERT INTO personal_library(owner,kind,id,payload,updated) VALUES (?, 'exercise', ?, ?, ?)")
+    .run("one", "绳索下拉", JSON.stringify({ item: { name: "绳索下拉", pinned: true } }), "2026-11-26T00:00:00.000Z");
+  assert.equal((await write(save(profileRef, redAndBlue, "绳索下拉"), token)).status, 400);
+  assert.equal((await (await skill(catalogue, reader)).json()).mediaUrl, approved.mediaUrl);
 });
 
 test("non-GIFs, static GIFs and malformed animated GIFs do not create exercises", async (t) => {

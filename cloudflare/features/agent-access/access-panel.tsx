@@ -155,6 +155,7 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
       <div className="feature-stack agent-settings-body">
         <p className="agent-privacy"><ShieldCheck size={18} /> 每个个人连接只对应你的账号。默认读取编排资料与提交草稿，可按类别另行授予追加权限。</p>
         <p className="muted">支持本站授权的 MCP 客户端可继续使用站点连接；支持自定义 HTTP 工具的 Agent 可创建个人令牌。普通聊天生成 JSON 时，无需配置这里。</p>
+        <p className="muted">想让 Agent 为新动作制作 Spotter 示范时，开启「添加或移除个人演示动图」，再对 Agent 说「为这个新动作做示范」。内置动作会沿用动作库里的示范。</p>
         {enabled && profileRef ? <>
           {secret && <p className="agent-feedback" role="status"><Check size={17} />连接创建成功</p>}
           <p className="muted">复制后粘贴到自己的 AI 对话。连接地址和全部用法都在提示词里。</p>

@@ -5,7 +5,9 @@ import { agentIdentity, callPlanningTool, isPlanningTool, toolsFor } from "@/fea
 import { callRecordTool, isRecordTool, recordToolsFor } from "@/features/agent-access/records";
 import { readAgentRecords, recordReadInput, recordReaderTools, recordReadToolName } from "@/features/agent-access/record-read";
 import { addAgentMeals, mealWriteInput, mealWriteTool } from "@/features/agent-access/meal-write";
-import { changeAgentExerciseDemo, exerciseDemoInput, exerciseDemoTool } from "@/features/agent-access/exercise-demos";
+import {
+  changeAgentExerciseDemo, exerciseDemoInput, exerciseDemoTool, exerciseDemoSkillInput, exerciseDemoSkillTool, getAgentExerciseDemoSkill,
+} from "@/features/agent-access/exercise-demos";
 import {
   commitAgentTemplateChange, previewAgentTemplateChange, templateChangeCommitInput, templateChangeCommitTool,
   templateChangePreviewInput, templateChangePreviewTool,
@@ -33,6 +35,7 @@ export const POST = agentApi(async (request) => {
   if (rpc.method === "tools/list") return json({ ...envelope, result: { tools: [{ name: "get_spotter_agent_profile", description: "Read the account reference and granted scopes for this connection.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, destructiveHint: false } }, ...toolsFor(principal), ...recordReaderTools(principal),
     ...recordToolsFor(principal), ...(principal.scopes.includes("nutrition:write") ? [mealWriteTool] : []),
     ...(principal.scopes.includes("templates:manage") ? [templateChangePreviewTool, templateChangeCommitTool] : []),
+    ...(principal.scopes.includes("read:context") ? [exerciseDemoSkillTool] : []),
     ...(principal.scopes.includes("exercise-demos:write") ? [exerciseDemoTool] : [])] } });
   if (rpc.method === "tools/call") {
     try {
@@ -46,6 +49,9 @@ export const POST = agentApi(async (request) => {
       }
       if (name === exerciseDemoTool.name) {
         return json({ ...envelope, result: toolResult(await changeAgentExerciseDemo(agentDatabase(), principal, exerciseDemoInput.parse(rpc.params?.arguments))) });
+      }
+      if (name === exerciseDemoSkillTool.name) {
+        return json({ ...envelope, result: toolResult(await getAgentExerciseDemoSkill(agentDatabase(), principal, exerciseDemoSkillInput.parse(rpc.params?.arguments))) });
       }
       if (name === templateChangePreviewTool.name) {
         return json({ ...envelope, result: toolResult(await previewAgentTemplateChange(agentDatabase(), principal, templateChangePreviewInput.parse(rpc.params?.arguments))) });
