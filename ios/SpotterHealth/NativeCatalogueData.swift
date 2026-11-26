@@ -463,16 +463,9 @@ struct NativeCatalogIndex: Sendable {
 
     func bundledVideoURL(for entry: NativeCatalogEntry) -> URL? {
         guard let path = metadata.videos[entry.id] else { return nil }
-        let oldPrefix = "/open-gym/demo-video/"
         let prefix = "/open-gym/"
-        let relativePath: Substring
-        if path.hasPrefix(oldPrefix) {
-            relativePath = path.dropFirst(oldPrefix.count)
-        } else if path == prefix + "spotter-3d/" + entry.id + ".mp4" {
-            relativePath = path.dropFirst(prefix.count)
-        } else {
-            return nil
-        }
+        guard path == prefix + "spotter-3d/" + entry.id + ".mp4" else { return nil }
+        let relativePath = path.dropFirst(prefix.count)
         let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
         guard components.count > 0, components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
         let video = components.reduce(assetsURL.appendingPathComponent("video", isDirectory: true)) { url, component in

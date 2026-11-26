@@ -139,7 +139,6 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
         {canSeePersonalDemo && customMove && !approved && <PersonalExerciseDemo key={name} name={name} />}
         {media && (media.video || media.id || media.illustration || media.poseSlug) ? <ExerciseAnimation key={demo?.id ?? referenceName}
           {...media} name={approved?.name ?? referenceName} /> :
-          guide?.photos ? <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} /> :
           item && <p className="muted catalogue-detail-label">此动作暂无已核对的动画。</p>}
         {referenceName !== base && <p className="muted catalogue-detail-label">{referenceName}</p>}
         <div className="exercise-toolbar"><span>{equipmentText}</span><div>
@@ -160,9 +159,6 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
           {steps?.length ? <ol className="exercise-steps">{steps.map((step, index) => <li key={index}>{step}</li>)}</ol> :
             <p className="muted">{detail?.error ? "暂时无法读取动作步骤，请重新打开详情。" :
               item && !detail ? "正在加载动作步骤…" : "这个动作还没有步骤。你可以补充自己的做法。"}</p>}
-          {(reference?.source || guide?.source) && <a className="text-button" href={reference?.source || guide?.source} target="_blank" rel="noreferrer">
-            {reference?.sourceLabel || (reference ? "动作参考" : "动作参考 · NASM")} <ExternalLink size={14} />
-          </a>}
         </section>
         <MuscleBreakdown weights={weights} sex={sex} emptyLabel={reference && !Object.keys(reference.muscles).length
           ? "此动作以放松和呼吸练习为主。" : undefined} />
@@ -185,11 +181,6 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
             <button className="button primary small" disabled={busy}>保存视频</button>
           </form>}
         </section>
-        {!!guide?.demonstrations?.length && <section className="card padded feature-stack"><h3>视频讲解与真人示范</h3>
-          {guide.demonstrations.map((video) => <a key={video.url} className="list-line demonstration" href={video.url} target="_blank" rel="noreferrer">
-            <span className="tile lilac"><Film size={17} /></span><span><strong>{video.label}</strong><small>{video.source}</small></span><ExternalLink size={16} />
-          </a>)}
-        </section>}
       </>}
       {tab === "history" && (history.length ? history.map((item) => <section className="card padded feature-stack" key={item.id}>
         <div className="section-head"><h3>{item.title}</h3><span className="muted">{item.date}</span></div>

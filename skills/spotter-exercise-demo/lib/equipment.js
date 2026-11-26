@@ -369,6 +369,26 @@ function createFlatBench(group) {
   }
 }
 
+function createInclinePressBench(group) {
+  const pad = box(group, .467, .069, .807, rubber, 0, .695, -.04, .027);
+  pad.rotation.x = Math.PI / 4;
+  const rail = box(group, .091, .054, .795, edge, 0, .643, -.061, .008);
+  rail.rotation.x = Math.PI / 4;
+  roundSlab(group, .425, .284, .062, .022, rubber, 0, .437, .327);
+  for (const z of [-.48, .34]) {
+    box(group, .623, .063, .097, edge, 0, .038, z);
+    const height = z < 0 ? .72 : .38;
+    box(group, .076, height, .085, frame, 0, height / 2 + .034, z);
+    for (const x of [-.269, .269]) box(group, .111, .022, .116, rubber, x, .016, z);
+  }
+  for (const x of [-.60, .60]) {
+    box(group, .069, 1.33, .077, frame, x, .685, -.46);
+    box(group, .149, .064, .56, edge, x, .039, -.40);
+    for (let y = .84; y <= 1.29; y += .082) bolt(group, x, y, -.411);
+    box(group, .075, .036, .095, edge, x, 1.237, -.396);
+  }
+}
+
 function createBarbell(parent) {
   const group = new THREE.Group();
   parent.add(group);
@@ -386,6 +406,22 @@ function createBarbell(parent) {
       cylinder(group, .037, .007, bright, 0, y+face*.033, 0, 28);
     }
     cylinder(group, .028, .052, accent, 0, side*.758, 0, 18);
+  }
+  return group;
+}
+
+function createEZBar(parent) {
+  const group = new THREE.Group();
+  group.name = 'EZ curl bar';
+  parent.add(group);
+  const bends = [[0,-.565,0], [0,-.313,0], [-.034,-.249,0], [0,-.173,0], [0,-.092,0],
+    [.026,0,0], [0,.092,0], [0,.173,0], [-.034,.249,0], [0,.313,0], [0,.565,0]];
+  for (const [index, bend] of bends.slice(0, -1).entries()) {
+    connect(bar(group, .013, steel, 18), world(bend), world(bends[index + 1]));
+  }
+  for (const y of [-.417, .417]) {
+    cylinder(group, .087, .047, rubber, 0, y, 0, 28);
+    cylinder(group, .027, .072, edge, 0, y, 0, 18);
   }
   return group;
 }
@@ -498,6 +534,30 @@ function createProneCurlMachine(group) {
   };
 }
 
+function createStandingCurlMachine(group) {
+  const pivot = new THREE.Vector3(.375, .503, .045);
+  for (const x of [-.35, .35]) {
+    box(group, .089, .041, .731, frame, x, .031, .189);
+    box(group, .066, 1.10, .066, frame, x, .574, .345);
+    const grip = cylinder(group, .024, .152, rubber, x, 1.127, .235, 20);
+    grip.rotateX(Math.PI / 2);
+  }
+  box(group, .682, .054, .330, rubber, 0, .028, .183);
+  box(group, .342, .202, .098, rubber, 0, .651, .153, .018);
+  box(group, .074, .499, .091, edge, pivot.x, .269, pivot.z);
+  cylinder(group, .051, .084, steel, pivot.x, pivot.y, pivot.z).rotateZ(Math.PI / 2);
+  const lever = bar(group, .025, frame, 20);
+  const axle = bar(group, .017, steel, 20);
+  const cushion = cylinder(group, .061, .211, rubber, 0, 0, 0, 28);
+  cushion.rotateZ(Math.PI / 2);
+  return ([x, y, z]) => {
+    const tip = new THREE.Vector3(pivot.x, y, z);
+    connect(lever, pivot, tip);
+    connect(axle, tip, new THREE.Vector3(x, y, z));
+    cushion.position.set(x, y, z);
+  };
+}
+
 function createPullUpRack(group, variant) {
   for (const x of [-.70, .70]) {
     roundSlab(group, .23, .87, .045, .031, rubber, x, .001, -.05);
@@ -505,10 +565,11 @@ function createPullUpRack(group, variant) {
     for (const y of [.18, .29, 2.10, 2.22]) bolt(group, x, y, -.165);
   }
   box(group, 1.48, .074, .087, edge, 0, 2.266, -.21, .013);
-  if (variant === 'bar') {
+  if (variant !== 'neutral') {
     for (const x of [-.65,.65]) box(group, .047, .049, .334, frame, x, 2.144, -.071);
     cylinder(group,.018,1.34,steel,0,2.144,.097,28).rotateZ(Math.PI/2);
-    for (const x of [-.305,.305]) cylinder(group,.021,.22,rubber,x,2.144,.097,24).rotateZ(Math.PI/2);
+    const gripOffset = variant === 'wide' ? .472 : .305;
+    for (const x of [-gripOffset, gripOffset]) cylinder(group,.021,.22,rubber,x,2.144,.097,24).rotateZ(Math.PI/2);
     return;
   }
   for (const x of [-.193, .193]) {
@@ -522,6 +583,59 @@ function createBalancePost(group) {
   roundSlab(group, .24, .30, .028, .019, rubber, -.51, .002, .26);
   box(group, .066, 1.1, .063, frame, -.51, .56, .26);
   cylinder(group, .022, .275, rubber, -.51, 1.108, .30).rotateX(Math.PI / 2);
+}
+
+function createAnkleCable(group, sample) {
+  const anchor = world(sample(0).cables[0].anchor);
+  const tower = createCableTower(group, anchor);
+  const line = bar(group, .004, cableMaterial, 12);
+  const cuff = cylinder(group, .052, .071, rubber, 0, 0, 0, 22);
+  const shortest = Math.min(...Array.from({length: 65}, (_, index) =>
+    anchor.distanceTo(world(sample(index / 64).cables[0].end))));
+  createBalancePost(group);
+  return ({ end, grip }) => {
+    const center = world(end);
+    aligned(cuff, center, world(grip));
+    const delta = anchor.clone().sub(center).normalize();
+    connect(line, anchor, center.clone().addScaledVector(delta, .048));
+    tower.move(anchor.distanceTo(center) - shortest);
+  };
+}
+
+function createStabilityBall(group) {
+  const ball = new THREE.Group();
+  ball.name = 'Stability ball';
+  group.add(ball);
+  mesh(ball, new THREE.SphereGeometry(.285, 48, 32), accent);
+  for (let index = -4; index <= 4; index++) {
+    const y = index * .049;
+    const ring = collar(ball, Math.sqrt(.285 ** 2 - y ** 2), .0019, matTop, 0, y, 0);
+    ring.rotateX(Math.PI / 2);
+  }
+  return (center) => {
+    ball.position.copy(world(center));
+    ball.rotation.x = center[2] / .285;
+  };
+}
+
+function createNordicAnchor(group) {
+  for (const x of [-.31, .31]) {
+    box(group, .15, .035, .37, rubber, x, .026, -.40);
+    box(group, .056, .139, .066, frame, x, .086, -.27);
+  }
+  cylinder(group, .059, .59, rubber, 0, .167, -.279, 30).rotateZ(Math.PI / 2);
+  cylinder(group, .016, .659, steel, 0, .167, -.279, 22).rotateZ(Math.PI / 2);
+}
+
+function createHandRoller(parent) {
+  const group = new THREE.Group();
+  group.name = 'Handheld textured massage roller';
+  parent.add(group);
+  for (const y of [-.244, .244]) cylinder(group, .019, .139, rubber, 0, y, 0, 24);
+  cylinder(group, .013, .63, steel, 0, 0, 0, 20);
+  cylinder(group, .028, .337, accent, 0, 0, 0, 30);
+  for (let y = -.162; y <= .162; y += .018) cylinder(group, .033, .007, matTop, 0, y, 0, 30);
+  return group;
 }
 
 function createResistanceBand(group, anchor, ankleCuff = false) {
@@ -545,27 +659,38 @@ function createResistanceBand(group, anchor, ankleCuff = false) {
 }
 
 export function createEquipment(options, sample) {
-  const {bells = 0, cableCount = 0, rope = false, mat = false, step = false, bench = false, chestBench = false, barbell: hasBarbell = false, trapBar: hasTrapBar = false, stretchBand = false, highMount = false, pullUp = false, latBar = false, legCurl = false, band: hasBand = false, ankleCuff = false, landmine: hasLandmine = false} = options;
+  const {bells = 0, cableCount = 0, rope = false, mat = false, step = false, lowStep = false, bench = false, chestBench = false, barbell: hasBarbell = false, trapBar: hasTrapBar = false, stretchBand = false, highMount = false, pullUp = false, latBar = false, legCurl = false, band: hasBand = false, ankleCuff = false, landmine: hasLandmine = false,
+    inclineBench, ezBar, cableAnkle, standingLegCurl, stabilityBall, nordicAnchor, handRoller} = options;
   const group = new THREE.Group();
   group.name = 'Original Spotter exercise equipment';
   const updateCardio = buildCardio(group, options);
   const dumbbells = Array.from({ length: bells }, () => createDumbbell(group));
-  const barbell = hasBarbell ? createBarbell(group) : null;
+  const barbell = hasBarbell ? (ezBar ? createEZBar(group) : createBarbell(group)) : null;
   const trapBar = hasTrapBar ? createTrapBar(group) : null;
   const stretch = stretchBand ? createStretchBand(group,sample(0),highMount) : null;
-  const lines = createCableHandles(group, latBar ? 0 : cableCount, rope, cableCount === 1);
+  const lines = createCableHandles(group, latBar || cableAnkle ? 0 : cableCount, rope, cableCount === 1);
   const towers = new Map();
   const baseLengths = lines.length ? restingLengths(sample) : new Map();
   const ropeMain = rope ? bar(group, .004, cableMaterial, 10) : null;
   const ropeClip = rope ? bar(group, .012, steel) : null;
   const landmine = hasLandmine ? createLandmine(group) : null;
   if (mat) createMat(group);
-  if (step) createStep(group);
+  if (step) {
+    const platform = new THREE.Group();
+    platform.scale.y = lowStep ? .4 : 1;
+    group.add(platform);
+    createStep(platform);
+  }
   if (bench) createFlatBench(group);
   if (chestBench) createChestSupportBench(group);
+  if (inclineBench) createInclinePressBench(group);
+  if (nordicAnchor) createNordicAnchor(group);
   if (pullUp) createPullUpRack(group, pullUp);
   const updatePulldownBar = latBar ? createPulldownBar(group, sample) : null;
-  const updateLegCurl = legCurl ? createProneCurlMachine(group) : null;
+  const updateLegCurl = legCurl ? (standingLegCurl ? createStandingCurlMachine(group) : createProneCurlMachine(group)) : null;
+  const updateAnkleCable = cableAnkle ? createAnkleCable(group, sample) : null;
+  const updateBall = stabilityBall ? createStabilityBall(group) : null;
+  const roller = handRoller ? createHandRoller(group) : null;
   if (ankleCuff) createBalancePost(group);
   const updateBand = hasBand ? createResistanceBand(group, world(sample(0).band.anchor), ankleCuff) : null;
 
@@ -611,6 +736,9 @@ export function createEquipment(options, sample) {
 
     if (updatePulldownBar) updatePulldownBar(cables[0]);
     if (updateLegCurl) updateLegCurl(pose.roller);
+    if (updateAnkleCable) updateAnkleCable(cables[0]);
+    if (updateBall) updateBall(pose.ballCenter);
+    if (roller) aligned(roller, world(pose.handRoller.center), world(pose.handRoller.axis));
     if (updateBand) updateBand(pose.band);
 
     if (landmine && pose.landmine) {

@@ -502,8 +502,8 @@ test("catalogue cards use the same reviewed media as the selected exercise", asy
   }
   assert.equal(cover("0288"), "/open-gym/thumb/0288.svg");
   assert.match(decodeURIComponent(cover("6813")), /^data:image\/svg\+xml,<svg/);
-  assert.equal(cover("0047"), "/open-gym/demo-video/incline-bench-press.jpg");
-  assert.equal(cover("3905"), "/open-gym/workout-guide/arm-circles/01.svg");
+  assert.equal(cover("0047"), "/open-gym/spotter-3d/0047.jpg");
+  assert.equal(cover("3905"), "/open-gym/spotter-3d/3905.jpg");
   for (const id of ["2204", "2571", "2790"]) {
     assert.match(decodeURIComponent(cover(id)), /^data:image\/svg\+xml,<svg/);
   }

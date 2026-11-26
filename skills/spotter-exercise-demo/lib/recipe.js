@@ -5,8 +5,11 @@ const musclePattern = /^(?:(?:l|r):)?(?:lat|quad|glute|pec|core|shoulder|rearSho
 const cardioEquipment = [
   'rig-contact-wall', 'rig-suitcase-bar', 'rig-goblet-plates', 'rig-single-carry', 'rig-single-kettlebell', 'rig-pass-ball', 'rig-slam-ball', 'rig-bike', 'rig-treadmill', 'rig-run-belt', 'rig-elliptical', 'rig-stepmill', 'rig-rower', 'rig-kettles-carry', 'rig-trap-carry', 'rig-jump-rope',
 ];
-const validEquipment = new Set([...cardioEquipment, 'none', 'mat', 'step', 'dumbbell', 'dumbbells',
+const validEquipment = new Set([...cardioEquipment, 'none', 'mat', 'step', 'step-dumbbells', 'dumbbell', 'dumbbells',
   'mat-dumbbells', 'chest-bench-dumbbells', 'band', 'band-ankle', 'stretch-band', 'mat-stretch-band', 'high-stretch-band', 'barbell', 'trap-bar', 'bench', 'bench-barbell', 'bench-dumbbell', 'bench-dumbbells', 'neutral-pull-up', 'pull-up', 'cable', 'dual-cable', 'cable-lat-bar', 'leg-curl', 'rope', 'landmine']);
+for (const preset of ['incline-bench-barbell', 'bench-ez-bar', 'cable-ankle', 'stability-ball', 'standing-leg-curl', 'nordic-mat', 'hand-roller', 'wide-pull-up']) {
+  validEquipment.add(preset);
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -39,8 +42,9 @@ export function prepareRecipe(input) {
   const equipment = input.equipment ?? 'none';
   assert(validEquipment.has(equipment), 'Unknown equipment preset.');
   const options = {
-    bells: ({dumbbell: 1, dumbbells: 2, 'mat-dumbbells': 2, 'chest-bench-dumbbells': 2, 'bench-dumbbell': 1, 'bench-dumbbells': 2})[equipment] ?? 0,
-    cableCount: ({cable: 1, 'cable-lat-bar': 1, 'dual-cable': 2, rope: 2})[equipment] ?? 0,
+    bells: ({dumbbell: 1, dumbbells: 2, 'step-dumbbells': 2, 'mat-dumbbells': 2, 'chest-bench-dumbbells': 2,
+      'bench-dumbbell': 1, 'bench-dumbbells': 2})[equipment] ?? 0,
+    cableCount: ({cable: 1, 'cable-lat-bar': 1, 'cable-ankle': 1, 'dual-cable': 2, rope: 2})[equipment] ?? 0,
     indoorBike: equipment === 'rig-bike',
     treadmill: equipment === 'rig-treadmill' || equipment === 'rig-run-belt',
     runningClip: equipment === 'rig-run-belt',
@@ -60,18 +64,26 @@ export function prepareRecipe(input) {
     rope: equipment === 'rope',
     band: equipment === 'band' || equipment === 'band-ankle',
     ankleCuff: equipment === 'band-ankle',
-    bench: equipment === 'bench' || equipment === 'bench-barbell' || equipment === 'bench-dumbbell' || equipment === 'bench-dumbbells',
+    bench: ['bench', 'bench-barbell', 'bench-dumbbell', 'bench-dumbbells', 'bench-ez-bar'].includes(equipment),
     chestBench: equipment === 'chest-bench-dumbbells',
-    barbell: equipment === 'barbell' || equipment === 'bench-barbell',
+    inclineBench: equipment === 'incline-bench-barbell',
+    barbell: ['barbell', 'bench-barbell', 'incline-bench-barbell', 'bench-ez-bar'].includes(equipment),
+    ezBar: equipment === 'bench-ez-bar',
     trapBar: equipment === 'trap-bar',
     stretchBand: equipment.endsWith('stretch-band'),
     highMount: equipment === 'high-stretch-band',
-    pullUp: equipment === 'neutral-pull-up' ? 'neutral' : equipment === 'pull-up' ? 'bar' : undefined,
+    pullUp: ({ 'neutral-pull-up': 'neutral', 'pull-up': 'bar', 'wide-pull-up': 'wide' })[equipment],
     latBar: equipment === 'cable-lat-bar',
-    legCurl: equipment === 'leg-curl',
+    cableAnkle: equipment === 'cable-ankle',
+    legCurl: equipment === 'leg-curl' || equipment === 'standing-leg-curl',
+    standingLegCurl: equipment === 'standing-leg-curl',
+    stabilityBall: equipment === 'stability-ball',
+    nordicAnchor: equipment === 'nordic-mat',
+    handRoller: equipment === 'hand-roller',
     landmine: equipment === 'landmine',
-    mat: equipment === 'mat' || equipment === 'mat-dumbbells' || equipment === 'mat-stretch-band',
-    step: equipment === 'step',
+    mat: ['mat', 'mat-dumbbells', 'mat-stretch-band', 'nordic-mat', 'stability-ball'].includes(equipment),
+    step: equipment === 'step' || equipment === 'step-dumbbells',
+    lowStep: equipment === 'step-dumbbells',
   };
   const muscles = input.muscles ?? [];
   assert(Array.isArray(muscles) && muscles.length <= 12 &&
@@ -103,7 +115,7 @@ export function prepareRecipe(input) {
       pose.bellCenter = vector(frame.bellCenter, 'bellCenter');
       pose.bellTilt = number(frame.bellTilt ?? 0, -2, 2, 'bellTilt');
     }
-    if (options.projectile) pose.ballCenter = vector(frame.ballCenter, 'ballCenter');
+    if (options.projectile || options.stabilityBall) pose.ballCenter = vector(frame.ballCenter, 'ballCenter');
     pose.machineTravel = number(frame.machineTravel ?? 0, 0, 12, 'machineTravel');
     pose.headDrop = number(frame.headDrop ?? 0, -.09, .09, 'headDrop');
     pose.followZ = number(frame.followZ ?? 0, -2, 2, 'followZ');
@@ -132,6 +144,8 @@ export function prepareRecipe(input) {
     });
     if (options.rope) assert(equal(pose.cables[0].anchor, pose.cables[1].anchor), 'Both rope ends must use the same anchor.');
     if (options.legCurl) pose.roller = vector(frame.roller, 'leg curl roller');
+    if (options.handRoller) pose.handRoller = {center: vector(frame.handRoller?.center, 'hand roller center'),
+      axis: axis(frame.handRoller?.axis, 'hand roller axis')};
     if (options.band) {
       const anchor = vector(frame.band?.anchor, 'band anchor');
       number(anchor[1], .12, 2.6, 'band anchor height');
@@ -172,7 +186,7 @@ export function prepareRecipe(input) {
       pose.bellCenter = blend(a.bellCenter, b.bellCenter, weight);
       pose.bellTilt = mix(a.bellTilt, b.bellTilt, weight);
     }
-    if (options.projectile) pose.ballCenter = blend(a.ballCenter, b.ballCenter, weight);
+    if (options.projectile || options.stabilityBall) pose.ballCenter = blend(a.ballCenter, b.ballCenter, weight);
     pose.machineTravel = mix(a.machineTravel, b.machineTravel, weight);
     pose.headDrop = mix(a.headDrop, b.headDrop, weight);
     pose.followZ = mix(a.followZ, b.followZ, weight);
@@ -190,6 +204,8 @@ export function prepareRecipe(input) {
       grip: blend(cable.grip, b.cables[index].grip, weight),
     }));
     if (options.legCurl) pose.roller = blend(a.roller, b.roller, weight);
+    if (options.handRoller) pose.handRoller = {center: blend(a.handRoller.center, b.handRoller.center, weight),
+      axis: blend(a.handRoller.axis, b.handRoller.axis, weight)};
     if (options.band) pose.band = {anchor: a.band.anchor, end: blend(a.band.end, b.band.end, weight)};
     if (options.landmine) pose.landmine = {pivot: a.landmine.pivot, end: blend(a.landmine.end, b.landmine.end, weight)};
     return pose;

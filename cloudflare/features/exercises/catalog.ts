@@ -4,22 +4,12 @@ type Guide = {
   primary: Muscle[];
   secondary: Muscle[];
   steps: string[];
-  source?: string;
-  photos?: { cover: string; label: string };
-  demonstrations?: { label: string; source: string; url: string }[];
 };
 
 export const guides: Record<string, Guide> = {
   "杠铃卧推": {
     equipment: "杠铃 · 平板卧推凳",
     primary: ["胸肌"], secondary: ["肩部", "肱三头肌"],
-    photos: { cover: "/bench-press.webp", label: "杠铃卧推插图" },
-    source: "https://www.nasm.org/resource-center/exercise-library/barbell-bench-press",
-    demonstrations: [
-      { label: "五步卧推技巧", source: "Jeff Nippard · YouTube", url: "https://www.youtube.com/watch?v=hWbUlkb5Ms4" },
-      { label: "侧向完整动作", source: "Wikimedia Commons · 真人示范", url: "https://commons.wikimedia.org/wiki/File:Bench_press_-_exercise_demonstration_video.webm" },
-      { label: "动作教学示范", source: "NASM · YouTube", url: "https://www.youtube.com/watch?v=CayG6UYqL8g" },
-    ],
     steps: ["仰卧在平凳上，双脚踩稳地面。握住杠铃，拇指绕过杠杆，让手腕保持稳定。", "收稳肩胛，出杠后将杠铃举稳在上身上方。", "控制下放，向胸部靠近，肘部沿自然方向屈曲。", "持续踩稳地面，将杠铃推回起点。完成后把杠铃放回两侧挂钩。"],
   },
   "哑铃卧推": { equipment: "哑铃 · 平凳", primary: ["胸肌"], secondary: ["肩部", "肱三头肌"], steps: ["躺稳，双脚踩地，哑铃放在胸部两侧上方。", "屈肘控制下放，保持手腕在前臂上方。", "平稳推起，避免用两只哑铃互相碰撞。"] },

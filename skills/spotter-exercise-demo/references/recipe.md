@@ -1,5 +1,7 @@
 # Spotter 3D motion recipe, version 1
 
+Use the bundled Spotter scene for each exercise. It renders a continuously skinned pale-grey athlete in dark workout clothing, realistic equipment and soft shadows against neutral light grey. Highlight the muscles that perform the movement. Choose an angle that clearly shows the apparatus and range of motion. Use a frame from the full animation for the cover.
+
 See [the dumbbell squat sample](example-squat.json) for a complete recipe. The model is about 1.75 m tall. World coordinates are metres. +Y is up, +Z is forward, +X is the athlete's left in the neutral pose. Coordinates are world-space throughout, even when the model turns. Provide sampled frames from a specific movement, including both endpoints. The last frame should match the first for a seamless loop. Use a cycle of walking, pedalling or rowing for repeating cardio where the correct equipment is available.
 
 | Field | Value |

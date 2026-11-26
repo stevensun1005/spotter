@@ -26,7 +26,6 @@ struct NativeOfficialTemplates: View {
                             .accessibilityHint("查看每周安排和动作")
                             .accessibilityIdentifier("official-template-card-" + template.id)
                     }
-                    references
                 case .failure:
                     Label("官方模板暂时不可用。", systemImage: "exclamationmark.circle")
                         .font(.subheadline)
@@ -109,25 +108,6 @@ struct NativeOfficialTemplates: View {
         .padding(14)
         .spotterCard()
     }
-
-    private var references: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("编排参考").font(.caption.weight(.semibold))
-            ForEach(Self.sources, id: \.name) { source in
-                Link(source.name, destination: source.url)
-                    .font(.caption)
-                    .frame(minHeight: 32, alignment: .leading)
-            }
-        }
-        .foregroundStyle(accent.tint)
-        .padding(.horizontal, 4)
-    }
-
-    private static let sources = [
-        ("ACSM 阻力训练指南", "https://doi.org/10.1249/MSS.0000000000003897"),
-        ("CDC 成人身体活动指南", "https://www.cdc.gov/physical-activity-basics/guidelines/adults.html"),
-        ("NHS 力量与柔韧训练指南", "https://www.nhs.uk/live-well/exercise/how-to-improve-strength-flexibility/"),
-    ].compactMap { name, address in URL(string: address).map { (name: name, url: $0) } }
 }
 
 struct NativeOfficialTemplatePreview: View {

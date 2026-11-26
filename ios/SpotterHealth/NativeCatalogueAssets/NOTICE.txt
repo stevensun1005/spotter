@@ -19,12 +19,5 @@ https://github.com/bryllim/workout-guide/tree/aac599224bb9780305239607ef98540b7e
 
 原版 Gym visual 媒体需要独立许可。
 
-少量本地 MP4 动作示意来自 Workout Free Videos v2.0.0（CC0 1.0），按器械和训练动作匹配。
-https://github.com/namnq/workout-free-videos/tree/v2.0.0
-完整许可见 demo-video/LICENSE.txt。
-
-另有少量实拍示范来自 wger，由 Goulart 贡献，按 CC BY-SA 4.0 许可剪辑和转换。
-原始视频和许可链接见 demo-video/wger/CREDITS.txt。
-
 Spotter 自制的 3D 动作循环和封面位于 spotter-3d/。
 人体底模与骨架的 CC0 1.0 来源见 spotter-3d/CREDITS.txt。

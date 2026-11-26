@@ -1,5 +1,4 @@
 import type { ExerciseProfile } from "@/features/library/model";
-import { guides } from "./catalog";
 import { normalizeSearch } from "./catalog-search";
 import { catalogueCover, exerciseDemo } from "./catalogue-demo";
 import { exerciseAreaOptions, matchesCatalogueArea } from "./catalogue-areas";
@@ -50,7 +49,7 @@ export function customCatalogueEntry(name: string, profile: ExerciseProfile | un
 }
 
 export type CustomCatalogueEntry = ReturnType<typeof customCatalogueEntry>;
-export const customCover = (item: CustomCatalogueEntry) => catalogueCover(item.demo) ?? guides[item.name]?.photos?.cover;
+export const customCover = (item: CustomCatalogueEntry) => catalogueCover(item.demo);
 
 export function matchesCustomArea(item: CustomCatalogueEntry, area: string) {
   if (area === "custom") return true;

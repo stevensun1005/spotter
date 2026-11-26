@@ -115,6 +115,7 @@ private func nativeAgentPrompt(origin: String, profileRef: String) -> String {
     编辑个人模板：先读 templates，获取 templateId（记录 id）和 revision。用 preview_spotter_template_change（POST /api/agent/templates）预览改名、动作编辑或删除。修改动作时保留其余组次和动作元数据。拿到我的确认后才用 commit_spotter_template_change 提交本次 previewToken。遇到版本冲突重新读取。
     动作示范。在我要求为计划或模板添加示范后，先核对动作库，再用 read:context 调用 get_spotter_exercise_demo_skill（POST /api/agent/exercise-demo-skill），传 profileRef、准确 name 和已有的 catalogueId。只加新动作时，可以问我是否需要制作示范。
     收到 reuse_catalogue 或 reuse_personal 时沿用已有动作和示范。收到 render_personal 时，从 Spotter 站点打开返回的 skill.downloadUrl，按包内 SKILL.md 本地生成 GIF。渲染器只需要动作说明。
+    所有新做或重做的示范默认使用 Spotter 原创 3D 风格。用连续蒙皮的浅灰人体、深色运动服、浅灰背景、柔和阴影、目标肌肉高亮和准确器械，渲染完整动作循环。封面从成片取帧。不要以线条人、静帧或外部现成素材代替。
     我确认该动图后，使用 exercise-demos:write 调用 manage_spotter_exercise_demo（POST /api/agent/exercise-demos），传 action:save、profileRef、准确 name、纯 base64 的 gifBase64 及 confirmed:true。GIF 最大 768 KiB，最长边 480 像素，2–90 帧，总画面像素不超过 900 万。替换或移除也须先确认。无法制作时照常保存计划或模板，并告诉我示范还未添加。
 
     我会告诉你要做哪件事。完成后用实际回执告诉我新增、修改、删除或跳过的记录和日期。

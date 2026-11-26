@@ -21,7 +21,7 @@ const demoSkill = {
   downloadUrl: "/spotter-demo-skill/spotter-exercise-demo.zip",
   instructionsPath: "spotter-exercise-demo/SKILL.md",
   rendererPath: "spotter-exercise-demo/renderer.html",
-  instructions: "Resolve the download URL against the configured Spotter origin. Read SKILL.md and run the renderer in your tool runtime or browser. The renderer needs only exercise instructions, never credentials or private records.",
+  instructions: "Resolve the download URL against the configured Spotter origin. Read SKILL.md and use the bundled Spotter 3D renderer for new or replacement demonstrations. Render a full cycle with the skinned pale-grey athlete, neutral grey scene, muscle highlights and exact equipment. Take the cover from a rendered frame. The renderer needs only movement instructions and equipment details.",
 };
 const uploadLimits = { maxBytes: demoMaxBytes, maxDimensionPixels: 480, minFrames: 2, maxFrames: 90, maxFramePixels: 9_000_000 };
 

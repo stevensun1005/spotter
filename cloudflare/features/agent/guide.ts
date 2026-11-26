@@ -54,7 +54,8 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     "## 用 Spotter 技能制作动作示范",
     "- 先核对动作库。用户要求为计划或模板加入示范时，使用具备 read:context 的个人连接调用 get_spotter_exercise_demo_skill，或 POST /api/agent/exercise-demo-skill。传 profileRef、准确 name，以及已有的 catalogueId。只加新动作但没提示范时，可以问一次是否需要制作。",
     "- 返回 reuse_catalogue 或 reuse_personal 时，沿用这个动作和它已有的示范。内置动作提供的 mediaUrl 可直接预览，其他内置示范在 Spotter 内显示。返回 render_personal 时，从 Spotter 站点打开 skill.downloadUrl，阅读包内的 SKILL.md 并本地生成 GIF。渲染器只需要动作说明。",
-    "- 用户确认这个动作的动图后，使用具备 exercise-demos:write 的个人连接调用 manage_spotter_exercise_demo，或 POST /api/agent/exercise-demos。传 action:save、profileRef、准确 name、gifBase64（纯 base64）及 confirmed:true。GIF 最大 768 KiB，最长边 480 像素，2–90 帧，总画面像素不超过 900 万。替换或移除也须确认。无法运行渲染器时，可用用户提供或许可使用的 GIF；也可照常保存计划并说明示范还未添加。",
+    "- 所有新做或重做的示范默认使用 Spotter 原创 3D 风格。用连续蒙皮的浅灰人体、深色运动服、浅灰背景、柔和阴影、目标肌肉高亮和准确器械，渲染完整动作循环。封面从成片取帧。不要以线条人、静帧或外部现成素材代替。",
+    "- 用户确认这个动作的动图后，使用具备 exercise-demos:write 的个人连接调用 manage_spotter_exercise_demo，或 POST /api/agent/exercise-demos。传 action:save、profileRef、准确 name、gifBase64（纯 base64）及 confirmed:true。GIF 最大 768 KiB，最长边 480 像素，2–90 帧，总画面像素不超过 900 万。替换或移除也须确认。无法完成准确示范时，可以照常保存计划并说明示范还未添加。",
   ];
   if (scope === "training") return [trainingGuide, ...exerciseIdentity, "", ...demos, ""].join("\n");
   const scopes = scope === "all" ? agentGuideScopes.slice(1).map(([item]) => item as AgentScope) : [scope];

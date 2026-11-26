@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import { deflateRawSync } from "node:zlib";
 import sharp from "sharp";
@@ -163,11 +163,11 @@ async function buildMotion() {
 function videoAsset(path) {
   const prefix = "/open-gym/";
   const relativePath = path.slice(prefix.length);
-  const supported = /^demo-video\/(?:[a-z0-9-]+\/)*[a-z0-9-]+\.mp4$|^spotter-3d\/\d+\.mp4$/;
+  const supported = /^spotter-3d\/\d+\.mp4$/;
   if (!path.startsWith(prefix) || !supported.test(relativePath)) {
     throw new Error("Unexpected catalogue video path: " + path);
   }
-  return ["video/" + relativePath.replace(/^demo-video\//, ""), new URL("public" + path, root)];
+  return ["video/" + relativePath, new URL("public" + path, root)];
 }
 
 // Render the same cover the website uses, once, rather than embed a browser in the App.
@@ -256,13 +256,14 @@ const metadata = {
 };
 
 await mkdir(output, { recursive: true });
+const videoFiles = new Map([...new Set(Object.values(metadata.videos))].map(videoAsset));
 const mediaFiles = new Map([
   ...motion.animations.shards.map((bytes, index) => ["motion-" + index + ".bin", bytes]),
   ...motion.drawings.shards.map((bytes, index) => ["drawing-" + index + ".bin", bytes]),
 ]);
 await Promise.all([
   ...[...mediaFiles].map(([name, bytes]) => writeFile(new URL(name, output), bytes)),
-  ...[...new Set(Object.values(metadata.videos))].map(videoAsset).map(async ([name, source]) => {
+  ...[...videoFiles].map(async ([name, source]) => {
     const destination = new URL(name, output);
     await mkdir(new URL("./", destination), { recursive: true });
     await copyFile(source, destination);
@@ -275,15 +276,23 @@ await Promise.all([
   ...["NOTICE.txt", "FLOW-ARTWORK-LICENSE.txt", "FLOW-NOTICE.txt"].map((file) =>
     copyFile(new URL(file, resource), new URL(file, output))),
   copyFile(new URL("workout-guide/attribution.json", resource), new URL("WORKOUT-GUIDE-ATTRIBUTION.json", output)),
-  copyFile(new URL("demo-video/LICENSE.txt", resource), new URL("DEMO-VIDEO-LICENSE.txt", output)),
-  copyFile(new URL("demo-video/wger/CREDITS.txt", resource), new URL("WGER-DEMO-CREDITS.txt", output)),
   copyFile(new URL("spotter-3d/CREDITS.txt", resource), new URL("SPOTTER-3D-CREDITS.txt", output)),
   writeFile(new URL("NATIVE-COVERS-NOTICE.txt", output),
-    "Spotter iPhone catalogue thumbnails are proportionally resized and rasterized JPEGs of the existing web covers. iPhone exercise demos resize and rasterize Flow and Workout Guide frames into timed GIF sequences. Workout Guide frames by Bryl Lim and credited Everkinetic artwork retain CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). See WORKOUT-GUIDE-ATTRIBUTION.json for individual frame sources and credits. Bundled MP4s are copied unchanged from the Spotter repository; see DEMO-VIDEO-LICENSE.txt, WGER-DEMO-CREDITS.txt and SPOTTER-3D-CREDITS.txt. Regenerate the bundle with node tools/build-ios-catalogue.mjs.\n"),
+    "Spotter iPhone catalogue thumbnails are proportionally resized and rasterized JPEGs of the web covers. iPhone exercise demos resize and rasterize Flow and Workout Guide frames into timed GIF sequences. Workout Guide frames by Bryl Lim and credited Everkinetic artwork retain CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). See WORKOUT-GUIDE-ATTRIBUTION.json for individual frame sources and credits. Bundled Spotter MP4s are copied unchanged from the repository. The rig and mesh credits are in SPOTTER-3D-CREDITS.txt. Regenerate the bundle with node tools/build-ios-catalogue.mjs.\n"),
 ]);
 await Promise.all((await readdir(output))
   .filter((name) => /^(?:motion|drawing)-\d+\.bin$/.test(name) && !mediaFiles.has(name))
   .map((name) => unlink(new URL(name, output))));
+const videoFolder = new URL("video/", output);
+const spotterVideos = new URL("spotter-3d/", videoFolder);
+const retiredVideos = (await readdir(videoFolder)).filter((name) => name === "wger" || /^[a-z0-9-]+\.mp4$/.test(name));
+const staleSpotterVideos = (await readdir(spotterVideos))
+  .filter((name) => /^\d+\.mp4$/.test(name) && !videoFiles.has("video/spotter-3d/" + name));
+await Promise.all([
+  ...retiredVideos.map((name) => rm(new URL(name, videoFolder), { recursive: name === "wger", force: true })),
+  ...staleSpotterVideos.map((name) => unlink(new URL(name, spotterVideos))),
+  ...["DEMO-VIDEO-LICENSE.txt", "WGER-DEMO-CREDITS.txt"].map((name) => rm(new URL(name, output), { force: true })),
+]);
 console.log(`Catalogue: ${index.rows.length} variants, ${defaultRows.length} grouped results, ${Object.keys(metadata.covers).length} illustrated entries.`);
 console.log(`Offline demonstrations: ${Object.keys(metadata.drawings).length} drawings, ${Object.keys(metadata.animations).length} GIFs, ${Object.keys(metadata.videos).length} videos.`);
 const barbell = catalogueSections(defaultRows).find(({ id }) => id === "barbell");
