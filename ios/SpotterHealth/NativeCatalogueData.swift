@@ -234,6 +234,7 @@ struct NativeCatalogIndex: Sendable {
             let hold, distance: Bool?
         }
         let rows: [Row]
+        let variants: [String: String]?
     }
 
     private struct Metadata: Decodable, Sendable {
@@ -273,6 +274,7 @@ struct NativeCatalogIndex: Sendable {
     private let metadata: Metadata
     private let rows: [NativeCatalogEntry]
     private let rowsByID: [String: NativeCatalogEntry]
+    private let legacyIDs: [String: String]
     private let rowsByExactName: [String: NativeCatalogEntry]
     private let familiesByRow: [String: Metadata.Family]
     private let variantsByRow: [String: NativeCatalogVariant]
@@ -312,6 +314,7 @@ struct NativeCatalogIndex: Sendable {
         self.assetsURL = assetsURL
         self.rows = rows
         rowsByID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        legacyIDs = base.variants ?? [:]
         let namedRows = rows.flatMap { row in
             Set([Self.identityKey(row.name), Self.identityKey(row.en)]).map { (key: $0, row: row) }
         }
@@ -341,22 +344,30 @@ struct NativeCatalogIndex: Sendable {
         details = try Data(contentsOf: assetsURL.appendingPathComponent("details.bin"), options: .mappedIfSafe)
     }
 
-    func entry(withID id: String) -> NativeCatalogEntry? { rowsByID[id] }
+    func entry(withID id: String) -> NativeCatalogEntry? { rowsByID[legacyIDs[id] ?? id] }
 
-    func entry(exactName name: String, catalogueID: String = "") -> NativeCatalogEntry? {
+    func entry(exactName name: String) -> NativeCatalogEntry? {
         let key = exactNameKey(name)
-        let named = metadata.exactAliases?[key].flatMap(entry(withID:)) ?? rowsByExactName[key]
-        if catalogueID.isEmpty { return named }
-        guard named == nil || named?.id == catalogueID else { return nil }
-        return entry(withID: catalogueID)
+        return metadata.exactAliases?[key].flatMap(entry(withID:)) ?? rowsByExactName[key]
     }
 
-    func isPersonalVariant(named name: String, library: [NativeJSON]) -> Bool {
-        let key = exactNameKey(name)
-        return library.contains { row in
-            row["kind"].string == "exercise" && !row["item"]["versionOf"].string.isEmpty
-                && exactNameKey(row["item"]["name"].string) == key
+    func plannedExercise(_ move: NativeJSON, library: [NativeJSON]) -> NativeCatalogEntry? {
+        let name = exerciseName(move["name"].string, preservingQualifiers: true)
+        let key = Self.identityKey(name)
+        guard !key.isEmpty else { return nil }
+        let profile = library.first { row in
+            row["kind"].string == "exercise" && exactNameKey(row["item"]["name"].string) == key
+        }?["item"]
+        if (profile?["versionOf"].string ?? "").isEmpty {
+            let named = entry(exactName: name)
+            if let linked = entry(withID: move["catalogueId"].string) {
+                let reference = named ?? entry(exactName: move["sourceName"].string)
+                if reference == nil || reference?.id == linked.id { return linked }
+            } else if let named {
+                return named
+            }
         }
+        return makePersonal(name: name, classification: profile?["classification"])
     }
 
     private func exactNameKey(_ name: String) -> String {

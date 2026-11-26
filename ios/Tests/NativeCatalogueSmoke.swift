@@ -29,12 +29,13 @@ struct NativeCatalogueSmoke {
         let guide = try index.details(for: barbell.rows[0])
         precondition(guide?.steps.isEmpty == false)
         try verifyDemos(index, root: root)
+        verifyPlannedExerciseIdentity(index)
         try verifyGymEquipment(index)
         for activity in NativeWorkoutSession.CardioActivity.planPresets {
             let id = activity.planMove?["catalogueId"].string ?? ""
             precondition(index.entry(withID: id)?.type == "cardio", "Cardio preset must resolve to an actual bundled item: " + id)
         }
-        print("native catalogue smoke: grouping, covers, vector motion, Flow/pose GIFs, bundled video and personal isolation")
+        print("native catalogue smoke: grouping, media, exact planned exercise identity and personal isolation")
     }
 
     private static func verifyDemos(_ index: NativeCatalogIndex, root: URL) throws {
@@ -70,6 +71,33 @@ struct NativeCatalogueSmoke {
         precondition(index.entry(exactName: "上斜俯卧哑铃展臂")?.id == "0326")
         let personal = index.makePersonal(name: "私人的测试动作")
         precondition(index.drawing(for: personal) == nil && index.animationData(for: personal) == nil && index.bundledVideoURL(for: personal) == nil)
+    }
+
+    private static func verifyPlannedExerciseIdentity(_ index: NativeCatalogIndex) {
+        let prefixed: NativeJSON = .object(["name": .string("A1 杠铃卧推 · 慢速放下")])
+        let standard = index.plannedExercise(prefixed, library: [])!
+        precondition(standard.id == "0025" && index.bundledVideoURL(for: standard)?.isFileURL == true)
+
+        let oldID: NativeJSON = .object(["name": .string("杠铃交替二头弯举"), "catalogueId": .string("0023")])
+        precondition(index.plannedExercise(oldID, library: [])?.id == "0285")
+        let missingID: NativeJSON = .object(["name": .string("杠铃卧推"), "catalogueId": .string("999999")])
+        precondition(index.plannedExercise(missingID, library: [])?.id == "0025")
+
+        let custom: NativeJSON = .object(["name": .string("A2 跪姿绳索三头下压（反握）"),
+                                          "sourceName": .string("跪姿绳索三头下压")])
+        let variant = index.plannedExercise(custom, library: [])!
+        precondition(variant.isPersonal && variant.name == "跪姿绳索三头下压（反握）")
+        precondition(index.bundledVideoURL(for: variant) == nil)
+
+        let conflict: NativeJSON = .object(["name": .string("杠铃卧推"), "catalogueId": .string("0285")])
+        precondition(index.plannedExercise(conflict, library: [])?.isPersonal == true)
+        let sourceConflict: NativeJSON = .object(["name": .string("私人测试动作"), "catalogueId": .string("0285"),
+                                                  "sourceName": .string("杠铃卧推")])
+        precondition(index.plannedExercise(sourceConflict, library: [])?.isPersonal == true)
+        let privateVariant: NativeJSON = .object(["kind": .string("exercise"), "item": .object([
+            "name": .string("杠铃卧推"), "versionOf": .string("私人测试动作"),
+        ])])
+        precondition(index.plannedExercise(prefixed, library: [privateVariant])?.isPersonal == true)
     }
 
     private static func verifyGymEquipment(_ index: NativeCatalogIndex) throws {

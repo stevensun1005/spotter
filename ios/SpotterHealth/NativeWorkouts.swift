@@ -1290,13 +1290,14 @@ struct NativeWorkoutView: View {
 
     private enum RecordSheet: Identifiable {
         case record(NativeWorkoutEntry), share(NativeWorkoutEntry), day(String, [NativeWorkoutEntry])
-        case planExercise(NativeJSON, id: String)
+        case planMoves(NativeWorkoutEntry), planExercise(NativeJSON, id: String)
 
         var id: String {
             switch self {
             case .record(let entry): return "record:\(entry.owner):\(entry.id)"
             case .share(let entry): return "share:\(entry.owner):\(entry.id)"
             case .day(let day, _): return "day:\(day)"
+            case .planMoves(let entry): return "planMoves:" + entry.id
             case .planExercise(_, let id): return "planExercise:" + id
             }
         }
@@ -1357,6 +1358,9 @@ struct NativeWorkoutView: View {
                 }
             case .day(let day, let records):
                 NavigationStack { dayDetails(day, records: records) }
+                    .presentationDragIndicator(.visible)
+            case .planMoves(let entry):
+                NavigationStack { plannedDemonstrations(entry) }
                     .presentationDragIndicator(.visible)
             case .planExercise(let move, _):
                 NavigationStack { NativeExerciseProgressView(store: store, move: move, showsClose: true) }
@@ -1747,9 +1751,20 @@ struct NativeWorkoutView: View {
                     if !entry.data["exercises"].array.isEmpty { Label("\(entry.data["exercises"].array.count) 个动作", systemImage: "dumbbell") }
                     if !entry.data["video"].string.isEmpty { Label("跟练视频", systemImage: "play") }
                 }.font(.system(size: 13)).foregroundStyle(.white.opacity(0.88))
-                Button { store.start(plan: NativePlan(raw: entry.data), id: entry.id); openWorkout() } label: {
-                    Label("开始计划训练", systemImage: "play.fill").font(.system(size: 15, weight: .bold))
-                }.buttonStyle(SpotterNativeButtonStyle(primary: true)).padding(.top, 6).disabled(store.active != nil || store.isBusy)
+                HStack(spacing: 8) {
+                    Button { store.start(plan: plan, id: entry.id); openWorkout() } label: {
+                        Label("开始计划训练", systemImage: "play.fill")
+                    }
+                    .buttonStyle(SpotterNativeButtonStyle(primary: true))
+                    .disabled(store.active != nil || store.isBusy)
+                    if entry.owner == store.owner, !plan.exercises.isEmpty {
+                        Button("动作演示", systemImage: "play.rectangle") { recordSheet = .planMoves(entry) }
+                            .buttonStyle(SpotterNativeButtonStyle(primary: false))
+                            .accessibilityIdentifier("plan-exercise-demonstrations")
+                    }
+                }
+                .font(.system(size: 15, weight: .bold))
+                .padding(.top, 6)
             }
             .padding(18).frame(maxWidth: .infinity, minHeight: 232, alignment: .leading)
             .foregroundStyle(.white)
@@ -1785,33 +1800,85 @@ struct NativeWorkoutView: View {
             }.buttonStyle(.spotterPress)
                 .accessibilityValue(showsMoves ? "已展开" : "已收起")
             if showsMoves {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(entry.data["exercises"].array.enumerated()), id: \.offset) { index, move in
-                        HStack(alignment: .top, spacing: 10) {
-                            Text(move["sourceSlot"].string.isEmpty ? "\(index + 1)" : move["sourceSlot"].string)
-                                .font(.system(size: 13, weight: .bold)).frame(width: 34, height: 30).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 8))
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(move["name"].string).font(.system(size: 15, weight: .bold))
-                                Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
-                                if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
-                            }
-                            Spacer(minLength: 0)
-                            if entry.owner == store.owner {
-                                Button { recordSheet = .planExercise(move, id: entry.id + ":\(index)") } label: {
-                                    Image(systemName: "play.rectangle")
-                                        .foregroundStyle(accent.tint)
-                                        .frame(width: 44, height: 44)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.spotterPress)
-                                .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作演示")
-                            }
-                        }.padding(.horizontal, 14).padding(.vertical, 10)
-                        if index < entry.data["exercises"].array.count - 1 { Divider().overlay(SpotterPalette.line).padding(.horizontal, 14) }
+                planMovementRows(entry) { index, move in
+                    if entry.owner == store.owner {
+                        Button { recordSheet = .planExercise(move, id: entry.id + ":\(index)") } label: {
+                            planMovementRow(index, move: move, showsDemo: true)
+                        }
+                        .buttonStyle(.spotterPress)
+                        .accessibilityHint("打开动作详情，查看可用演示")
+                    } else {
+                        planMovementRow(index, move: move, showsDemo: false)
                     }
                 }.transition(.offset(y: -6).combined(with: .opacity))
             }
         }.spotterCard()
+    }
+
+    private func plannedDemonstrations(_ entry: NativeWorkoutEntry) -> some View {
+        ScrollView {
+            planMovementRows(entry) { index, move in
+                NavigationLink {
+                    NativeExerciseProgressView(store: store, move: move)
+                } label: {
+                    planMovementRow(index, move: move, showsDemo: true)
+                }
+                .buttonStyle(.spotterPress)
+                .accessibilityHint("打开动作详情，查看可用演示")
+                .accessibilityIdentifier("plan-exercise-demo-\(index)")
+            }
+            .spotterCard()
+            .padding(14)
+        }
+        .background(SpotterPalette.background)
+        .foregroundStyle(SpotterPalette.ink)
+        .navigationTitle("动作演示")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("关闭") { recordSheet = nil } }
+        }
+    }
+
+    private func planMovementRows<Row: View>(_ entry: NativeWorkoutEntry,
+                                             @ViewBuilder row: @escaping (Int, NativeJSON) -> Row) -> some View {
+        let exercises = entry.data["exercises"].array
+        return LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(exercises.enumerated()), id: \.offset) { index, move in
+                row(index, move)
+                if index < exercises.count - 1 {
+                    Divider().overlay(SpotterPalette.line).padding(.horizontal, 14)
+                }
+            }
+        }
+    }
+
+    private func planMovementRow(_ index: Int, move: NativeJSON, showsDemo: Bool) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(move["sourceSlot"].string.isEmpty ? "\(index + 1)" : move["sourceSlot"].string)
+                .font(.system(size: 13, weight: .bold))
+                .frame(width: 34, height: 30)
+                .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(move["name"].string).font(.system(size: 15, weight: .bold))
+                Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
+                if !move["cue"].string.isEmpty {
+                    Text(move["cue"].string).font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
+                }
+            }
+            Spacer(minLength: 0)
+            if showsDemo {
+                Label("演示", systemImage: "play.rectangle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(accent.tint)
+                    .fixedSize()
+                    .frame(minHeight: 30)
+            }
+        }
+        .frame(minHeight: 44, alignment: .topLeading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
     }
 
     private func draftRow(_ entry: NativeWorkoutEntry, current: Bool) -> some View {
@@ -1877,6 +1944,9 @@ struct NativeWorkoutView: View {
     }
 
     @ViewBuilder private func planActions(_ entry: NativeWorkoutEntry) -> some View {
+        if entry.owner == store.owner, !entry.data["exercises"].array.isEmpty {
+            Button("动作演示", systemImage: "play.rectangle") { recordSheet = .planMoves(entry) }
+        }
         Button("编辑计划", systemImage: "pencil") { planEditor = NativePlanDraft(entry: entry) }
         if store.canMovePlan(entry) {
             Button(entry.day < NativeWorkoutSession.day() ? "预览调整日期" : "移动或顺延",
@@ -2586,7 +2656,11 @@ private struct NativeSetTarget: Equatable {
     var right = false
 }
 
-private enum NativeEditorPanel: String, Identifiable { case settings, note, add, finish, progress; var id: String { rawValue } }
+private enum NativeEditorPanel: String, Identifiable {
+    case settings, note, add, finish, progress, demonstration
+
+    var id: String { rawValue }
+}
 
 struct NativeActiveWorkoutView: View {
     private enum WorkoutPrompt {
@@ -2621,7 +2695,7 @@ struct NativeActiveWorkoutView: View {
     @State private var pristine = true
     @State private var panel: NativeEditorPanel?
     @State private var workoutPrompt: (kind: WorkoutPrompt, draft: NativeWorkoutEntry)?
-    @State private var progressMove: NativeJSON?
+    @State private var panelMove: NativeJSON?
     @State private var exerciseHistory = NativeExerciseHistory()
     @State private var hasIndexedExerciseHistory = false
     @State private var lookedUpOlderHistory = false
@@ -2703,9 +2777,10 @@ struct NativeActiveWorkoutView: View {
                 case .add: NativeWorkoutAddPanel(store: store) {
                     openedMove = max(0, (store.active?.session?.plan.exercises.count ?? 1) - 1)
                 }
-                case .progress:
-                    if let progressMove {
-                        NativeExerciseProgressView(store: store, move: progressMove, showsClose: true, startsWithStats: true)
+                case .progress, .demonstration:
+                    if let panelMove {
+                        NativeExerciseProgressView(store: store, move: panelMove, showsClose: true,
+                                                   startsWithStats: item == .progress)
                     }
                 case .finish:
                     NativeWorkoutFinishPanel(store: store) { record in
@@ -2715,7 +2790,7 @@ struct NativeActiveWorkoutView: View {
                     }
                 }
             }
-            .presentationDetents(item == .progress ? [.large] : [.medium, .large])
+            .presentationDetents(item == .progress || item == .demonstration ? [.large] : [.medium, .large])
             .presentationDragIndicator(.visible)
             .interactiveDismissDisabled(item == .finish && store.isBusy)
         }
@@ -2977,7 +3052,7 @@ struct NativeActiveWorkoutView: View {
                                         record: NativeExerciseHistory.Record?, reference: [NativeJSON?]?) -> some View {
         let action = Button {
             edit = nil
-            progressMove = move
+            panelMove = move
             panel = .progress
         } label: {
             Label("动作进步", systemImage: "chart.line.uptrend.xyaxis")
@@ -2988,6 +3063,15 @@ struct NativeActiveWorkoutView: View {
                 source.map { NativeExerciseHistory.copied(row, from: $0, record: previous, move: move) != row } ?? false
             }
         } ?? false
+        let demonstration = Button {
+            edit = nil
+            panelMove = move
+            panel = .demonstration
+        } label: {
+            Label("动作演示", systemImage: "play.rectangle")
+                .font(.caption.weight(.semibold))
+        }
+        .accessibilityIdentifier("workout-exercise-demonstration-\(index)")
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
                 if let record {
@@ -2995,12 +3079,14 @@ struct NativeActiveWorkoutView: View {
                 }
                 Spacer(minLength: 0)
                 if canCopy, let record { reuseButton(index, move: move, record: record) }
+                demonstration
                 action
             }
             VStack(alignment: .leading, spacing: 5) {
                 if let record { Text("上次 · " + record.day).font(.caption).foregroundStyle(SpotterPalette.muted) }
-                HStack {
-                    if canCopy, let record { reuseButton(index, move: move, record: record) }
+                if canCopy, let record { reuseButton(index, move: move, record: record) }
+                HStack(spacing: 8) {
+                    demonstration
                     action
                 }
             }

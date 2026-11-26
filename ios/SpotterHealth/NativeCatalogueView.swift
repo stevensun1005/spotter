@@ -1174,8 +1174,8 @@ private struct NativeCatalogueExercisePage: View {
     private var demonstration: some View {
         if let index, let entry, !entry.isPersonal {
             NativeCatalogueExerciseDemo(index: index, entry: entry).id(entry.id)
-        } else if !name.isEmpty, move["catalogueId"].string.isEmpty || entry?.isPersonal == true {
-            NativePersonalExerciseDemo(store: store, name: name) { EmptyView() }
+        } else if !name.isEmpty {
+            NativePersonalExerciseDemo(store: store, name: name)
                 .id(store.owner + "\n" + name)
         }
     }
@@ -1612,18 +1612,24 @@ private struct NativeExerciseGIFPlayer: View {
     }
 }
 
-private struct NativePersonalExerciseDemo<Fallback: View>: View {
+private struct NativePersonalExerciseDemo: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     let store: NativeWorkoutStore
     let name: String
-    @ViewBuilder var fallback: () -> Fallback
-    @State private var frames: NativeExerciseGIFFrames?
+    @State private var state = LoadState.loading
+    @State private var retry = 0
+
+    private enum LoadState {
+        case loading, missing, failed
+        case loaded(NativeExerciseGIFFrames)
+    }
 
     var body: some View {
         Group {
-            if let frames {
+            switch state {
+            case .loaded(let frames):
                 VStack(alignment: .leading, spacing: 8) {
                     Text("个人演示动图").font(.headline)
                     NativeExerciseGIFPlayer(frames: frames, playing: !reduceMotion && !systemReduceMotion && scenePhase == .active)
@@ -1632,19 +1638,40 @@ private struct NativePersonalExerciseDemo<Fallback: View>: View {
                         .accessibilityLabel("\(name)演示动图")
                 }
                 .padding(14).spotterCard()
-            } else {
-                fallback()
+            case .loading:
+                ProgressView("正在读取动作演示…")
+                    .accessibilityIdentifier("personal-exercise-demo-loading")
+            case .missing:
+                Label("此动作暂时没有演示动图", systemImage: "play.rectangle")
+                    .accessibilityIdentifier("personal-exercise-demo-missing")
+            case .failed:
+                HStack {
+                    Label("暂时无法载入动作演示", systemImage: "exclamationmark.circle")
+                    Spacer()
+                    Button("重试") { retry += 1 }.buttonStyle(.spotterControl)
+                }
+                .accessibilityIdentifier("personal-exercise-demo-failed")
             }
         }
-        .task(id: name) {
-            frames = nil
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .font(.subheadline)
+        .foregroundStyle(SpotterPalette.muted)
+        .task(id: retry) {
+            state = .loading
             var query = URLComponents()
             query.queryItems = [URLQueryItem(name: "name", value: name)]
-            guard !name.isEmpty, let encoded = query.percentEncodedQuery,
-                  let data = try? await store.api.request("/api/exercises/demo?" + encoded, method: "GET", json: nil, for: store.owner),
-                  !Task.isCancelled else { return }
-            let decoded = await Task.detached(priority: .utility) { NativeExerciseGIFFrames.decode(data) }.value
-            if !Task.isCancelled { frames = decoded }
+            let owner = store.owner
+            guard let encoded = query.percentEncodedQuery else { state = .failed; return }
+            do {
+                let data = try await store.api.request("/api/exercises/demo?" + encoded, method: "GET", json: nil, for: owner)
+                guard !Task.isCancelled, store.owner == owner else { return }
+                let decoded = await Task.detached(priority: .utility) { NativeExerciseGIFFrames.decode(data) }.value
+                guard !Task.isCancelled, store.owner == owner else { return }
+                state = decoded.map(LoadState.loaded) ?? .failed
+            } catch {
+                guard !Task.isCancelled, store.owner == owner else { return }
+                state = (error as? NativeAPIError)?.statusCode == 404 ? .missing : .failed
+            }
         }
     }
 }
@@ -1659,16 +1686,7 @@ struct NativeExerciseProgressView: View {
     @State private var loadedCatalogue = false
 
     private var entry: NativeCatalogEntry? {
-        guard let catalogue else { return nil }
-        let name = move["name"].string
-        let id = move["catalogueId"].string
-        let personal = catalogue.isPersonalVariant(named: name, library: store.libraryRows)
-        if personal || id.isEmpty {
-            if !personal, let exact = catalogue.entry(exactName: name) { return exact }
-            let qualified = NativeExerciseLabel(move, preservingNameQualifiers: true).name
-            return catalogue.makePersonal(name: qualified)
-        }
-        return catalogue.entry(exactName: name, catalogueID: id)
+        catalogue?.plannedExercise(move, library: store.libraryRows)
     }
 
     var body: some View {
