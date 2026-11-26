@@ -1,0 +1,8 @@
+Spotter 3D 动作示意
+
+姿势与器械动画、镜头、材质及成片由 Spotter 制作。文件名是动作目录编号。
+底模与体型数据基于 MakeHuman 提交 a8bc2d54ff0ac92e78ff71431b1023eda42bf482 的 CC0 1.0 素材。
+https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/LICENSE.md#c-the-license-for-the-bundled-assets
+蒙皮数据和骨架基于 MPFB 提交 650c5c53bd6989a8ac264f31fa1d11d4a0c7bd8a 的 CC0 1.0 素材。
+https://github.com/makehumancommunity/mpfb2/blob/650c5c53bd6989a8ac264f31fa1d11d4a0c7bd8a/LICENSE.md#c-the-license-for-the-bundled-assets
+https://creativecommons.org/publicdomain/zero/1.0/

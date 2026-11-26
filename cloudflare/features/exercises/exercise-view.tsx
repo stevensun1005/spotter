@@ -11,7 +11,9 @@ import { exerciseHistory, type MaxFormula } from "./history";
 import { ExerciseProgress } from "./progress";
 import { MuscleBreakdown, type AnatomyVariant } from "./anatomy";
 import { ExerciseAnimation } from "./exercise-animation";
-import { exerciseDemo } from "./catalogue-demo";
+import { catalogueDemo, exerciseDemo } from "./catalogue-demo";
+import { catalogueExerciseByExactName } from "./catalogue-identity";
+import { spotterCatalogueVideo } from "./catalogue-video";
 import { fromCatalogue, useCatalogue, useCatalogDetail, type CatalogEntry, type ExerciseChoice } from "./open-gym";
 import { label as translate } from "./labels";
 import { exerciseMuscles, researchedGuide } from "./guidance";
@@ -31,7 +33,7 @@ const sections = [
 type ExerciseDetailProps = {
   choice: ExerciseChoice; close: () => void; select: (choice: ExerciseChoice) => void; profiles: ExerciseProfile[]; names: string[];
   logs: TrainingEntry[]; owner: string; save: (profile: ExerciseProfile) => Promise<void>; addToPlan?: (choice: ExerciseChoice, row?: CatalogEntry) => void;
-  maxFormula?: MaxFormula; sex?: AnatomyVariant | null;
+  maxFormula?: MaxFormula; sex?: AnatomyVariant | null; canSeePersonalDemo: boolean;
 };
 
 function PersonalExerciseDemo({ name }: { name: string }) {
@@ -73,7 +75,7 @@ export function ExerciseDetail({ close, ...props }: ExerciseDetailProps) {
   </Dialog>;
 }
 
-function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data, maxFormula, sex }: Omit<ExerciseDetailProps, "close"> & {
+function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, save, addToPlan, item, data, maxFormula, sex, canSeePersonalDemo }: Omit<ExerciseDetailProps, "close"> & {
   item: CatalogEntry | undefined; data: ReturnType<typeof useCatalogue>["data"];
 }) {
   const { name, catalogueId } = choice;
@@ -89,10 +91,13 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
   const guide = customMove ? guides[name] : undefined;
   const referenceName = exact?.name ?? plannedName;
   const reference = customMove ? plannedGuide : undefined;
-  const demo = reference?.demoCatalogueId
+  const nameMatch = data && catalogueExerciseByExactName(data, name);
+  const approved = item && !profile.versionOf && spotterCatalogueVideo(item.id)
+    && (nameMatch ? nameMatch.id === item.id : Boolean(catalogueId && !choice.sourceName)) ? item : undefined;
+  const demo = approved ?? (reference?.demoCatalogueId
     ? fromCatalogue(data, { name: referenceName, catalogueId: reference.demoCatalogueId })
-    : item;
-  const media = exerciseDemo(name, referenceName, demo, customMove);
+    : item);
+  const media = approved ? catalogueDemo(approved) : exerciseDemo(name, referenceName, demo, customMove);
   const classification = customMove ? customCatalogueEntry(name, profile, data) : undefined;
   const weights = exact && !Object.keys(personal?.muscles ?? {}).length && Object.keys(exact.muscles).length
     ? exact.muscles : exerciseMuscles(referenceName, item, personal);
@@ -132,9 +137,9 @@ function ExerciseVariantContent({ choice, select, profiles, names, logs, owner, 
     <div className="dialog-body feature-stack">
       {error && <p className="inline-error" role="alert">{error}</p>}
       {tab === "guide" && <>
-        {customMove && <PersonalExerciseDemo key={name} name={name} />}
+        {canSeePersonalDemo && customMove && !approved && <PersonalExerciseDemo key={name} name={name} />}
         {media && (media.video || media.id || media.illustration || media.poseSlug) ? <ExerciseAnimation key={demo?.id ?? referenceName}
-          {...media} name={referenceName} /> :
+          {...media} name={approved?.name ?? referenceName} /> :
           guide?.photos ? <img className="exercise-cover" src={guide.photos.cover} alt={guide.photos.label} /> :
           item && <p className="muted catalogue-detail-label">此动作暂无已核对的动画。</p>}
         {referenceName !== base && <p className="muted catalogue-detail-label">{referenceName}</p>}

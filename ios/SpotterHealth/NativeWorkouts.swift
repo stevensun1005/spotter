@@ -1290,12 +1290,14 @@ struct NativeWorkoutView: View {
 
     private enum RecordSheet: Identifiable {
         case record(NativeWorkoutEntry), share(NativeWorkoutEntry), day(String, [NativeWorkoutEntry])
+        case planExercise(NativeJSON, id: String)
 
         var id: String {
             switch self {
             case .record(let entry): return "record:\(entry.owner):\(entry.id)"
             case .share(let entry): return "share:\(entry.owner):\(entry.id)"
             case .day(let day, _): return "day:\(day)"
+            case .planExercise(_, let id): return "planExercise:" + id
             }
         }
     }
@@ -1355,6 +1357,9 @@ struct NativeWorkoutView: View {
                 }
             case .day(let day, let records):
                 NavigationStack { dayDetails(day, records: records) }
+                    .presentationDragIndicator(.visible)
+            case .planExercise(let move, _):
+                NavigationStack { NativeExerciseProgressView(store: store, move: move, showsClose: true) }
                     .presentationDragIndicator(.visible)
             }
         }
@@ -1791,6 +1796,16 @@ struct NativeWorkoutView: View {
                                 if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
                             }
                             Spacer(minLength: 0)
+                            if entry.owner == store.owner {
+                                Button { recordSheet = .planExercise(move, id: entry.id + ":\(index)") } label: {
+                                    Image(systemName: "play.rectangle")
+                                        .foregroundStyle(accent.tint)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.spotterPress)
+                                .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作演示")
+                            }
                         }.padding(.horizontal, 14).padding(.vertical, 10)
                         if index < entry.data["exercises"].array.count - 1 { Divider().overlay(SpotterPalette.line).padding(.horizontal, 14) }
                     }
@@ -3360,8 +3375,6 @@ private struct NativeWorkoutAddPanel: View {
     private var configuredGear: Set<String> { NativeGymPreferences.read(gyms, legacy: legacyGear).catalogueGear }
     private var searchKey: String { query + "\n" + (availableOnly ? configuredGear.sorted().joined(separator: "|") : "") }
 
-    private static let catalogue = Task.detached(priority: .userInitiated) { try NativeCatalogIndex.load() }
-
     var body: some View {
         List {
             Section {
@@ -3425,7 +3438,7 @@ private struct NativeWorkoutAddPanel: View {
         .task {
             let recent = Array(store.logs.prefix(60))
             histories = await Task.detached(priority: .userInitiated) { Self.prepareHistory(recent) }.value
-            do { index = try await Self.catalogue.value }
+            do { index = try await NativeCatalogIndex.bundled.value }
             catch { catalogueFailed = true }
         }
         .task(id: searchKey + (index == nil ? "" : "#")) { await search() }
@@ -4142,8 +4155,22 @@ struct NativePlanEditorPanel: View {
             Section("动作") {
                 ForEach(Array(draft.plan["exercises"].array.enumerated()), id: \.offset) { index, move in
                     VStack(alignment: .leading, spacing: 10) {
-                        TextField("动作名称", text: Binding(get: { move["name"].string }, set: { setMove(index, key: "name", value: .string(String($0.prefix(100)))) }))
-                            .font(.system(size: 15, weight: .semibold))
+                        HStack {
+                            TextField("动作名称", text: Binding(get: { move["name"].string }, set: { setMove(index, key: "name", value: .string(String($0.prefix(100)))) }))
+                                .font(.system(size: 15, weight: .semibold))
+                            if let store, !NativeExerciseLabel(move).name.isEmpty {
+                                NavigationLink {
+                                    NativeExerciseProgressView(store: store, move: move)
+                                } label: {
+                                    Image(systemName: "play.rectangle")
+                                        .foregroundStyle(SpotterPalette.accent)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.spotterPress)
+                                .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作演示")
+                            }
+                        }
                         HStack(spacing: 12) {
                             moveNumber("组", index: index, key: "sets", value: move["sets"].number, maximum: 30)
                             moveNumber("次", index: index, key: "reps", value: move["reps"].number, maximum: 999)

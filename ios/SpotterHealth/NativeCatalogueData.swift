@@ -271,6 +271,7 @@ struct NativeCatalogIndex: Sendable {
     private let metadata: Metadata
     private let rows: [NativeCatalogEntry]
     private let rowsByID: [String: NativeCatalogEntry]
+    private let rowsByExactName: [String: NativeCatalogEntry]
     private let familiesByRow: [String: Metadata.Family]
     private let variantsByRow: [String: NativeCatalogVariant]
     private let knownNames: Set<String>
@@ -284,6 +285,8 @@ struct NativeCatalogIndex: Sendable {
     var areas: [NativeCatalogArea] { metadata.areas }
     var types: [String] { metadata.types }
     var groups: [NativeCatalogGroup] { metadata.groups }
+
+    static let bundled = Task.detached(priority: .userInitiated) { try load() }
 
     static func load() throws -> Self {
         guard let index = Bundle.main.url(forResource: "index", withExtension: "json"),
@@ -306,6 +309,11 @@ struct NativeCatalogIndex: Sendable {
         self.assetsURL = assetsURL
         self.rows = rows
         rowsByID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let namedRows = rows.flatMap { row in
+            Set([Self.identityKey(row.name), Self.identityKey(row.en)]).map { (key: $0, row: row) }
+        }
+        rowsByExactName = Dictionary(grouping: namedRows.filter { !$0.key.isEmpty }, by: { $0.key })
+            .compactMapValues { $0.count == 1 ? $0[0].row : nil }
         familiesByRow = Dictionary(metadata.families.flatMap { family in family.variants.map { ($0.id, family) } },
                                    uniquingKeysWith: { first, _ in first })
         variantsByRow = Dictionary(metadata.families.flatMap(\.variants).map { ($0.id, $0) },
@@ -324,6 +332,25 @@ struct NativeCatalogIndex: Sendable {
 
     func entry(withID id: String) -> NativeCatalogEntry? { rowsByID[id] }
 
+    func entry(exactName name: String, catalogueID: String = "") -> NativeCatalogEntry? {
+        let named = rowsByExactName[exactNameKey(name)]
+        if catalogueID.isEmpty { return named }
+        guard named == nil || named?.id == catalogueID else { return nil }
+        return entry(withID: catalogueID)
+    }
+
+    func isPersonalVariant(named name: String, library: [NativeJSON]) -> Bool {
+        let key = exactNameKey(name)
+        return library.contains { row in
+            row["kind"].string == "exercise" && !row["item"]["versionOf"].string.isEmpty
+                && exactNameKey(row["item"]["name"].string) == key
+        }
+    }
+
+    private func exactNameKey(_ name: String) -> String {
+        Self.identityKey(exerciseName(name, preservingQualifiers: true))
+    }
+
     func label(_ value: String) -> String { metadata.labels[value] ?? value }
     func muscleLabel(_ value: String) -> String { metadata.muscleLabels[value] ?? label(value) }
 
@@ -331,13 +358,16 @@ struct NativeCatalogIndex: Sendable {
 
     func nameKey(_ name: String) -> String { catalogSearchKey(exerciseName(name)) }
 
-    func exerciseName(_ raw: String) -> String {
+    func exerciseName(_ raw: String) -> String { exerciseName(raw, preservingQualifiers: false) }
+
+    private func exerciseName(_ raw: String, preservingQualifiers: Bool) -> String {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let slot = name.range(of: #"^(?:[A-Z]\d+\s+|[A-Z]\s+热身组\s*·\s*|E\s+(?![A-Za-z]))"#, options: .regularExpression) else {
             return canonicalName(name)
         }
         let remainder = String(name[slot.upperBound...])
-        let value = remainder.replacingOccurrences(of: #"(?:（[^（）]+）)?(?:\s*·\s*.+)?$"#, with: "", options: .regularExpression)
+        let suffix = preservingQualifiers ? #"(?:\s*·\s*.+)?$"# : #"(?:（[^（）]+）)?(?:\s*·\s*.+)?$"#
+        let value = remainder.replacingOccurrences(of: suffix, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return canonicalName(value.isEmpty ? name : value)
     }
@@ -375,9 +405,18 @@ struct NativeCatalogIndex: Sendable {
     }
 
     func bundledVideoURL(for entry: NativeCatalogEntry) -> URL? {
-        let prefix = "/open-gym/demo-video/"
-        guard let path = metadata.videos[entry.id], path.hasPrefix(prefix) else { return nil }
-        let components = path.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: false)
+        guard let path = metadata.videos[entry.id] else { return nil }
+        let oldPrefix = "/open-gym/demo-video/"
+        let prefix = "/open-gym/"
+        let relativePath: Substring
+        if path.hasPrefix(oldPrefix) {
+            relativePath = path.dropFirst(oldPrefix.count)
+        } else if path == prefix + "spotter-3d/" + entry.id + ".mp4" {
+            relativePath = path.dropFirst(prefix.count)
+        } else {
+            return nil
+        }
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
         guard components.count > 0, components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
         let video = components.reduce(assetsURL.appendingPathComponent("video", isDirectory: true)) { url, component in
             url.appendingPathComponent(String(component))
@@ -480,9 +519,12 @@ struct NativeCatalogIndex: Sendable {
     }
 
     private func canonicalName(_ raw: String) -> String {
-        let value = raw.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased().replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-        return metadata.corrections[value] ?? raw
+        metadata.corrections[Self.identityKey(raw)] ?? raw
+    }
+
+    private static func identityKey(_ raw: String) -> String {
+        raw.precomposedStringWithCompatibilityMapping.lowercased()
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     func matchesArea(_ row: NativeCatalogEntry, _ area: String) -> Bool {

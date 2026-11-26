@@ -1333,6 +1333,8 @@ struct NativeExerciseProgressView: View {
     @State private var olderAnchor: String?
     @State private var loadingMore = false
     @State private var loadFailed = false
+    @State private var catalogue: NativeCatalogIndex?
+    @State private var catalogueLoaded = false
 
     private enum Metric: String, CaseIterable {
         case weight, reps, seconds
@@ -1390,9 +1392,7 @@ struct NativeExerciseProgressView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 heading
-                if move["catalogueId"].string.isEmpty {
-                    NativePersonalExerciseDemo(store: store, name: name) { EmptyView() }
-                }
+                demonstration
                 if records.isEmpty { empty }
                 if !metrics.isEmpty {
                     recordsCard
@@ -1413,6 +1413,13 @@ struct NativeExerciseProgressView: View {
         .toolbar {
             if showsClose { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
         }
+        .task {
+            let index = try? await NativeCatalogIndex.bundled.value
+            if !Task.isCancelled {
+                catalogue = index
+                catalogueLoaded = true
+            }
+        }
         .task(id: store.logs) {
             let logs = store.logs
             let owner = store.owner
@@ -1425,6 +1432,18 @@ struct NativeExerciseProgressView: View {
         .task(id: store.recentHistoryStart) {
             guard olderAnchor == nil, let start = store.recentHistoryStart else { return }
             await readOlder(before: start)
+        }
+    }
+
+    @ViewBuilder private var demonstration: some View {
+        let id = move["catalogueId"].string
+        let originalName = move["name"].string
+        let isPersonalVariant = catalogue?.isPersonalVariant(named: originalName, library: store.libraryRows) == true
+        if let catalogue, !isPersonalVariant, let entry = catalogue.entry(exactName: originalName, catalogueID: id) {
+            NativeCatalogueExerciseDemo(index: catalogue, entry: entry).id(entry.id)
+        } else if catalogueLoaded && (id.isEmpty || isPersonalVariant) && !originalName.isEmpty {
+            NativePersonalExerciseDemo(store: store, name: originalName) { EmptyView() }
+                .id(store.owner + "\n" + originalName)
         }
     }
 

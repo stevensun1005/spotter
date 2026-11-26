@@ -159,11 +159,13 @@ async function buildMotion() {
 }
 
 function videoAsset(path) {
-  const prefix = "/open-gym/demo-video/";
-  if (!path.startsWith(prefix) || !/^(?:[a-z0-9-]+\/)*[a-z0-9-]+\.mp4$/.test(path.slice(prefix.length))) {
+  const prefix = "/open-gym/";
+  const relativePath = path.slice(prefix.length);
+  const supported = /^demo-video\/(?:[a-z0-9-]+\/)*[a-z0-9-]+\.mp4$|^spotter-3d\/\d+\.mp4$/;
+  if (!path.startsWith(prefix) || !supported.test(relativePath)) {
     throw new Error("Unexpected catalogue video path: " + path);
   }
-  return ["video/" + path.slice(prefix.length), new URL("public" + path, root)];
+  return ["video/" + relativePath.replace(/^demo-video\//, ""), new URL("public" + path, root)];
 }
 
 // Render the same cover the website uses, once, rather than embed a browser in the App.
@@ -268,8 +270,9 @@ await Promise.all([
   copyFile(new URL("workout-guide/attribution.json", resource), new URL("WORKOUT-GUIDE-ATTRIBUTION.json", output)),
   copyFile(new URL("demo-video/LICENSE.txt", resource), new URL("DEMO-VIDEO-LICENSE.txt", output)),
   copyFile(new URL("demo-video/wger/CREDITS.txt", resource), new URL("WGER-DEMO-CREDITS.txt", output)),
+  copyFile(new URL("spotter-3d/CREDITS.txt", resource), new URL("SPOTTER-3D-CREDITS.txt", output)),
   writeFile(new URL("NATIVE-COVERS-NOTICE.txt", output),
-    "Spotter iPhone catalogue thumbnails are proportionally resized and rasterized JPEGs of the existing web covers. iPhone exercise demos resize and rasterize Flow and Workout Guide frames into timed GIF sequences. Workout Guide frames by Bryl Lim and credited Everkinetic artwork retain CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). See WORKOUT-GUIDE-ATTRIBUTION.json for individual frame sources and credits. Bundled MP4s are copied unchanged from the Spotter repository; see DEMO-VIDEO-LICENSE.txt and WGER-DEMO-CREDITS.txt. Regenerate the bundle with node tools/build-ios-catalogue.mjs.\n"),
+    "Spotter iPhone catalogue thumbnails are proportionally resized and rasterized JPEGs of the existing web covers. iPhone exercise demos resize and rasterize Flow and Workout Guide frames into timed GIF sequences. Workout Guide frames by Bryl Lim and credited Everkinetic artwork retain CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). See WORKOUT-GUIDE-ATTRIBUTION.json for individual frame sources and credits. Bundled MP4s are copied unchanged from the Spotter repository; see DEMO-VIDEO-LICENSE.txt, WGER-DEMO-CREDITS.txt and SPOTTER-3D-CREDITS.txt. Regenerate the bundle with node tools/build-ios-catalogue.mjs.\n"),
 ]);
 await Promise.all((await readdir(output))
   .filter((name) => /^(?:motion|drawing)-\d+\.bin$/.test(name) && !mediaFiles.has(name))

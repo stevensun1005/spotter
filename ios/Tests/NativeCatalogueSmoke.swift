@@ -28,7 +28,7 @@ struct NativeCatalogueSmoke {
         precondition(index.family(for: cable.sections[0].rows[0])?.id == "cable-triceps")
         let guide = try index.details(for: barbell.rows[0])
         precondition(guide?.steps.isEmpty == false)
-        verifyDemos(index)
+        try verifyDemos(index, root: root)
         try verifyGymEquipment(index)
         for activity in NativeWorkoutSession.CardioActivity.planPresets {
             let id = activity.planMove?["catalogueId"].string ?? ""
@@ -37,7 +37,7 @@ struct NativeCatalogueSmoke {
         print("native catalogue smoke: grouping, covers, vector motion, Flow/pose GIFs, bundled video and personal isolation")
     }
 
-    private static func verifyDemos(_ index: NativeCatalogIndex) {
+    private static func verifyDemos(_ index: NativeCatalogIndex, root: URL) throws {
         let drawn = index.entry(withID: "5965")!
         let drawing = index.drawing(for: drawn)!
         precondition(drawing.frames.count > 2 && drawing.frameDuration > 0)
@@ -51,6 +51,15 @@ struct NativeCatalogueSmoke {
         }
         let video = index.entry(withID: "0047")!
         precondition(index.bundledVideoURL(for: video)?.isFileURL == true)
+        let registry = root.appendingPathComponent("cloudflare/features/exercises/spotter-demo-assets.json")
+        let spotterDemos = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: registry))
+        precondition(spotterDemos["0198"] == "/open-gym/spotter-3d/0198.mp4")
+        for (id, path) in spotterDemos {
+            let entry = index.entry(withID: id)!
+            precondition(entry.hasCover && index.coverData(for: entry)?.prefix(2) == Data([0xff, 0xd8]))
+            precondition(index.bundledVideoURL(for: entry)?.path.hasSuffix("/video/spotter-3d/" + id + ".mp4") == true)
+            precondition(index.videoURL(for: entry)?.path == path)
+        }
         let personal = index.makePersonal(name: "私人的测试动作")
         precondition(index.drawing(for: personal) == nil && index.animationData(for: personal) == nil && index.bundledVideoURL(for: personal) == nil)
     }

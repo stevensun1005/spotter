@@ -1,3 +1,7 @@
+import spotterDemoAssets from "./spotter-demo-assets.json" with { type: "json" };
+
+const spotterDemos: Record<string, string> = spotterDemoAssets;
+
 // Exact movement and equipment matches. Licenses are listed in public/open-gym/NOTICE.txt.
 const demos: Record<string, string> = {
   "1557": "wger/dumbbell-walking-lunge",
@@ -16,7 +20,11 @@ const demos: Record<string, string> = {
   "0736": "sit-up",
 };
 
+export function spotterCatalogueVideo(id: string) {
+  return Object.hasOwn(spotterDemos, id) ? spotterDemos[id] : undefined;
+}
+
 export function catalogueVideo(id: string) {
   const demo = Object.hasOwn(demos, id) && demos[id];
-  return demo ? "/open-gym/demo-video/" + demo + ".mp4" : undefined;
+  return spotterCatalogueVideo(id) ?? (demo ? "/open-gym/demo-video/" + demo + ".mp4" : undefined);
 }

@@ -755,6 +755,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
     : exerciseSelection.owner === partnerWithDetails?.id ? partnerWithDetails : undefined;
   const exerciseDialog = exercise && exerciseOwner && <ExerciseDetail key={exerciseOwner.id + ":" + (exercise.catalogueId ?? exercise.name)}
     choice={exercise} close={() => setExercise(undefined)} maxFormula={display.maxFormula} sex={exerciseOwner.anatomyVariant ?? null}
+    canSeePersonalDemo={viewer?.id === exerciseOwner.id}
     select={(choice) => setExerciseSelection({ choice, owner: exerciseOwner.id })} profiles={profiles} names={exerciseNames} logs={logs} owner={exerciseOwner.id}
     save={(item) => library.save({ kind: "exercise", item })} addToPlan={trainingNav.id ? undefined : planExercise} />;
 
