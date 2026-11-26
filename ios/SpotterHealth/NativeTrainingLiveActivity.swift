@@ -1,15 +1,28 @@
 import ActivityKit
 import Foundation
+import OSLog
+import UIKit
 
 @available(iOS 16.1, *)
 @MainActor
-final class NativeTrainingLiveActivity {
+final class NativeTrainingLiveActivity: ObservableObject {
     static let shared = NativeTrainingLiveActivity()
+
+    /// The per-app switch in iPhone Settings → 训练搭子 → 实时活动.
+    @Published private(set) var systemEnabled: Bool
+    /// The person swiped this workout's activity off the Lock Screen.
+    @Published private(set) var dismissedCurrentWorkout = false
+    /// Why ActivityKit refused the last start, shown in 设置 → 计时提醒.
+    @Published private(set) var requestProblem: String?
 
     private typealias Training = Activity<SpotterTrainingActivityAttributes>
     private typealias State = SpotterTrainingActivityAttributes.ContentState
-    private static let lastStartedKey = "spotter.native.training.live-activity.started"
+    /// Builds 26 to 50 stored every started workout here and never started it again,
+    /// even after iOS ended the activity or the Settings switch was turned off and on.
+    private static let legacyStartedKey = "spotter.native.training.live-activity.started"
+    private static let dismissedKey = "spotter.native.training.live-activity.dismissed"
     private static let heartRefreshInterval: TimeInterval = 10
+    private static let log = Logger(subsystem: "app.spotter.health", category: "LiveActivity")
 
     private struct Update: Equatable {
         let workoutKey: String?
@@ -18,39 +31,83 @@ final class NativeTrainingLiveActivity {
     }
 
     private var pending: Update?
+    private var latest: Update?
     private var isUpdating = false
+    private var observed = Set<String>()
+    private var endingByApp = Set<String>()
+
+    private init() {
+        systemEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
+        UserDefaults.standard.removeObject(forKey: Self.legacyStartedKey)
+        Task { await self.watchEnablement() }
+    }
 
     func sync(workoutKey: String?, state: SpotterTrainingActivityAttributes.ContentState?, foreground: Bool) {
-        pending = Update(workoutKey: workoutKey, state: state, foreground: foreground)
+        let update = Update(workoutKey: workoutKey, state: state, foreground: foreground)
+        latest = update
+        pending = update
         guard !isUpdating else { return }
         isUpdating = true
         Task {
-            while let update = pending {
+            while let next = pending {
                 pending = nil
-                await apply(update)
+                await apply(next)
             }
             isUpdating = false
         }
     }
 
+    /// Starts the current workout's activity again after it was swiped off the Lock Screen.
+    func showCurrentWorkoutAgain() {
+        UserDefaults.standard.removeObject(forKey: Self.dismissedKey)
+        dismissedCurrentWorkout = false
+        retryLatest()
+    }
+
+    private func retryLatest() {
+        guard let latest, latest.workoutKey != nil else { return }
+        sync(workoutKey: latest.workoutKey, state: latest.state,
+             foreground: UIApplication.shared.applicationState == .active)
+    }
+
+    private func watchEnablement() async {
+        for await enabled in ActivityAuthorizationInfo().activityEnablementUpdates {
+            Self.log.notice("Live Activities switch in Settings: \(enabled, privacy: .public)")
+            systemEnabled = enabled
+            guard enabled else { continue }
+            // Turning the switch back on brings the running workout back.
+            UserDefaults.standard.removeObject(forKey: Self.dismissedKey)
+            dismissedCurrentWorkout = false
+            retryLatest()
+        }
+    }
+
     private func apply(_ update: Update) async {
-        let authorized = ActivityAuthorizationInfo().areActivitiesEnabled
+        let enabled = ActivityAuthorizationInfo().areActivitiesEnabled
+        if systemEnabled != enabled { systemEnabled = enabled }
         let activities = Training.activities
-        for activity in activities where !authorized || activity.attributes.workoutKey != update.workoutKey {
-            if #available(iOS 16.2, *) {
-                await activity.end(nil, dismissalPolicy: .immediate)
-            } else {
-                await activity.end(dismissalPolicy: .immediate)
-            }
+        for activity in activities { observe(activity) }
+        // Ended activities stay listed until they leave the Lock Screen. They no longer update,
+        // so clear them and request a new one for the same workout.
+        for activity in activities where !enabled || activity.attributes.workoutKey != update.workoutKey || !Self.isLive(activity) {
+            await end(activity)
         }
         guard pending == nil else { return }
         guard let workoutKey = update.workoutKey, let state = update.state else {
-            UserDefaults.standard.removeObject(forKey: Self.lastStartedKey)
+            UserDefaults.standard.removeObject(forKey: Self.dismissedKey)
+            dismissedCurrentWorkout = false
+            requestProblem = nil
             return
         }
-        guard authorized else { return }
+        guard enabled else {
+            Self.log.notice("Not started: Live Activities are off in iPhone Settings")
+            return
+        }
 
-        if let activity = activities.first(where: { $0.attributes.workoutKey == workoutKey }) {
+        if let activity = activities.first(where: { $0.attributes.workoutKey == workoutKey && Self.isLive($0) }) {
+            UserDefaults.standard.removeObject(forKey: Self.dismissedKey)
+            dismissedCurrentWorkout = false
+            if requestProblem != nil { requestProblem = nil }
             if #available(iOS 16.2, *) {
                 let current = activity.content.state
                 let next = activityState(state, preservingRecentHeartFrom: current)
@@ -62,21 +119,90 @@ final class NativeTrainingLiveActivity {
             return
         }
 
-        // A user-dismissed activity stays dismissed for this workout.
+        // An activity the person swiped away stays away for this workout.
         let defaults = UserDefaults.standard
-        guard update.foreground, defaults.string(forKey: Self.lastStartedKey) != workoutKey else { return }
+        if let dismissed = defaults.string(forKey: Self.dismissedKey) {
+            if dismissed == workoutKey {
+                dismissedCurrentWorkout = true
+                return
+            }
+            defaults.removeObject(forKey: Self.dismissedKey)
+        }
+        dismissedCurrentWorkout = false
+        // ActivityKit only starts activities for a foreground app. The next foreground refresh retries.
+        guard update.foreground else { return }
         let attributes = SpotterTrainingActivityAttributes(workoutKey: workoutKey)
         do {
+            let activity: Training
             if #available(iOS 16.2, *) {
                 let next = activityState(state, preservingRecentHeartFrom: nil)
-                _ = try Training.request(attributes: attributes, content: ActivityContent(state: next, staleDate: next.staleHeartDate))
+                activity = try Training.request(attributes: attributes, content: ActivityContent(state: next, staleDate: next.staleHeartDate))
             } else {
-                _ = try Training.request(attributes: attributes, contentState: stateWithoutHeart(state))
+                activity = try Training.request(attributes: attributes, contentState: stateWithoutHeart(state))
             }
-            defaults.set(workoutKey, forKey: Self.lastStartedKey)
+            observe(activity)
+            requestProblem = nil
+            Self.log.notice("Started activity \(activity.id, privacy: .public)")
         } catch {
-            // ActivityKit can decline a request while the foreground state is changing.
+            requestProblem = Self.describe(error)
+            Self.log.error("ActivityKit refused the request: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    private func end(_ activity: Training) async {
+        endingByApp.insert(activity.id)
+        if #available(iOS 16.2, *) {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        } else {
+            await activity.end(dismissalPolicy: .immediate)
+        }
+    }
+
+    private func observe(_ activity: Training) {
+        guard activity.activityState != .dismissed, observed.insert(activity.id).inserted else { return }
+        Task { await self.follow(activity) }
+    }
+
+    private func follow(_ activity: Training) async {
+        var previous = activity.activityState
+        for await state in activity.activityStateUpdates {
+            stateChanged(activity, from: previous, to: state)
+            previous = state
+            if state == .dismissed { break }
+        }
+        observed.remove(activity.id)
+    }
+
+    private func stateChanged(_ activity: Training, from previous: ActivityState, to state: ActivityState) {
+        let id = activity.id
+        Self.log.info("Activity \(id, privacy: .public) is now \(String(describing: state), privacy: .public)")
+        guard state == .dismissed else { return }
+        let endedByApp = endingByApp.remove(id) != nil
+        // Only a swipe on the Lock Screen takes a running activity straight to dismissed.
+        // iOS ends an activity first when it times out, and turning off the Settings switch disables activities.
+        let key = activity.attributes.workoutKey
+        guard !endedByApp, Self.isLiveState(previous), ActivityAuthorizationInfo().areActivitiesEnabled,
+              latest?.workoutKey == key,
+              !Training.activities.contains(where: { $0.id != id && $0.attributes.workoutKey == key && Self.isLive($0) })
+        else { return }
+        UserDefaults.standard.set(key, forKey: Self.dismissedKey)
+        dismissedCurrentWorkout = true
+        Self.log.notice("Activity \(id, privacy: .public) was removed from the Lock Screen")
+    }
+
+    private static func isLive(_ activity: Training) -> Bool {
+        isLiveState(activity.activityState)
+    }
+
+    private static func isLiveState(_ state: ActivityState) -> Bool {
+        if state == .active { return true }
+        if #available(iOS 16.2, *) { return state == .stale }
+        return false
+    }
+
+    private static func describe(_ error: Error) -> String {
+        let reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        return "iOS 没有开始本次训练的实时活动（\(reason)）。回到训练页面时会再试一次。"
     }
 
     private func activityState(_ state: State, preservingRecentHeartFrom previous: State?) -> State {

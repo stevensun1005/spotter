@@ -345,6 +345,8 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
     @Published private(set) var providerStatus = NativeProviderStatus()
     @Published private(set) var isBusy = false
     @Published private(set) var isRestoring = true
+    /// The saved session could not be read, usually because iOS woke the app while the phone was locked.
+    @Published private(set) var isSessionLocked = false
     @Published private(set) var errorMessage: String?
 
     private var provisionedHandleOwner: String?
@@ -363,9 +365,18 @@ final class NativeAccount: NSObject, ObservableObject, ASWebAuthenticationPresen
                 self?.clearProfile()
                 self?.errorMessage = "登录已过期，请重新登录。"
             }
-            if profile == nil, let cached = try await api.loadCachedProfile() {
-                profile = cached
-                isRestoring = false
+            if profile == nil {
+                do {
+                    if let cached = try await api.loadCachedProfile() {
+                        profile = cached
+                        isRestoring = false
+                    }
+                    isSessionLocked = false
+                } catch NativeAPIError.keychain {
+                    // Keychain items are unreadable until the phone is unlocked. This is not a sign-out.
+                    isSessionLocked = true
+                    throw NativeAPIError.keychain
+                }
             }
             do {
                 let refreshed = try await api.loadProfile()

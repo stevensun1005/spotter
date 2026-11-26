@@ -285,10 +285,18 @@ struct NativeSpotterApp: View {
             if let owner = activeAccountID { await account.ensureAccountHandle(for: owner) }
         }
         .onChange(of: account.isRestoring) { restoring in
-            if !restoring {
+            // A locked phone hides the saved session. Keep the widget account and the running
+            // Live Activity until the restore can read it again.
+            if !restoring && !account.isSessionLocked {
                 NativeTrainingWidgetBridge.useAccount(account.profile?.id, origin: account.api.origin)
                 if account.profile == nil { clearTrainingLiveActivity() }
             }
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { retryLockedRestore() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)) { _ in
+            retryLockedRestore()
         }
         .onChange(of: account.profile?.id) { owner in
             NativeTrainingWidgetBridge.useAccount(owner, origin: account.api.origin)
@@ -322,6 +330,11 @@ struct NativeSpotterApp: View {
         } else {
             acceptInviteURL(url)
         }
+    }
+
+    private func retryLockedRestore() {
+        guard account.isSessionLocked, account.profile == nil, !account.isBusy else { return }
+        Task { await account.restore() }
     }
 
     private func clearTrainingLiveActivity() {
