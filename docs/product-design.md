@@ -227,3 +227,5 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 2026-11-26 发布记录。1.0.1 Build 48 的 App 源码为 `3421383`。独立版和 Cloudflare 构建及测试、原生测试、模拟器打包与分发签名均通过。模拟器核对个人模板与官方模板动作弹窗、默认筛选和独立周次。iPhone 生成的 48 节周期通过 Cloudflare 排期数据校验。Cloudflare 97 对应 `784cbe4`，线上核对计划所用 80 个官方动作对应的 160 个视频及封面响应。Build 48 通过 TestFlight Internal Only 上传，加入「训练搭子内测」后显示 Testing。私密 Sites、外测及正式商店沿用原发布。当前归档仍包含第三方授权的旧库数据、人体图及 11 段视频，App Store Connect 的内容权利声明予以保留。
 
 2026-11-26 发布记录。Cloudflare 98 对应 `12d9856`，Worker 版本 `749a3af2-6596-4a92-9692-e731f6a48292` 承载 100% 流量，保留原数据库和生产 APNs 配置。现有 TestFlight 内测和外测构建通过同一个 HTTPS 通知接口生效。本次发布范围为 Cloudflare，Sites 和正式 App Store 沿用原发布状态。
+
+2026-11-26 发布记录。1.0.1 Build 51 从 `91337f8` 归档，运行时使用 Cloudflare 98。源码基线、模拟器打包、原生冒烟测试和 iPhone、Watch、小组件签名均通过核对。归档保留生产 APNs、HealthKit、Live Activities 和 1,148 段动作视频。Xcode 以 TestFlight Internal Only 上传，Apple 处理完成后加入「训练搭子内测」，组内状态为 Testing。测试说明列出 A1/A2 轮换、手表实时心率和灵动岛。发布范围为 TestFlight 内测。
