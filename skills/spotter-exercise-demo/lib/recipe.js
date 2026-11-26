@@ -39,6 +39,9 @@ const bodyweightProps = new Set([
 ]);
 for (const preset of bodyweightProps) validEquipment.add(preset);
 
+const calfRails = new Map([['calf-step-rail', 'step'], ['calf-stair-rail', 'stairs']]);
+for (const preset of calfRails.keys()) validEquipment.add(preset);
+
 const bandSupports = new Map([['seat-stretch-band', 'seat'], ['high-seat-stretch-band', 'seat'], ['bench-stretch-band', 'flat'], ['post-stretch-band', 'post'], ['post-seat-stretch-band', 'post-seat']]);
 for (const preset of bandSupports.keys()) validEquipment.add(preset);
 
@@ -68,7 +71,7 @@ const barbellSupports = {
   'barbell-rack': 'rack', 'barbell-pins': 'pull-pins', 'barbell-bench-pins': 'press-pins',
   'barbell-decline': 'decline', 'ez-decline': 'decline', 'ez-incline': 'incline',
   'barbell-seat': 'seat', 'ez-seat': 'seat', 'barbell-preacher': 'preacher', 'ez-preacher': 'preacher',
-  'barbell-chest-bench': 'chest-bench', 'ez-chest-bench': 'chest-bench',
+  'barbell-chest-bench': 'chest-bench', 'ez-chest-bench': 'chest-bench', 'barbell-chest-support-row': 'chest-row-bench',
   'barbell-onearm-bench': 'onearm-bench', 'barbell-rear-bench': 'rear-bench', 'barbell-plyo-box': 'plyo-box', 'smith-rear-bench': 'smith-rear-bench',
   'barbell-low-step': 'low-step', 'barbell-seat-step': 'seat-step', 'barbell-bench-elevated-feet': 'bridge-bench',
   'smith-standing': 'smith', 'smith-flat': 'smith-flat', 'smith-decline': 'smith-decline',
@@ -101,12 +104,15 @@ const catalogueCablePresets = {
   'cable-seat-ball': { support: 'ball' },
   'cable-ball-bar': { support: 'ball', attachment: 'medium' },
   'cable-row-bar': { attachment: 'straight', support: 'row' },
+  'cable-row-v': { attachment: 'v', support: 'row' },
   'cable-row-wide': { attachment: 'wide', support: 'row' },
   'cable-row-rope': { rope: true, support: 'row' },
   'cable-elevated-row': { rope: true, support: 'high-row' },
   'cable-decline-row': { attachment: 'wide', support: 'decline-row' },
   'cable-floor-row': { attachment: 'wide', support: 'floor-row' },
   'cable-flat-bench': { dual: true, support: 'flat' },
+  'cable-mat-short': { attachment: 'narrow', mat: true },
+  'cable-flat-bench-short': { attachment: 'narrow', support: 'flat' },
   'cable-flat-bench-medium': { attachment: 'medium', support: 'flat' },
   'cable-flat-bench-rope': { rope: true, support: 'flat' },
   'cable-decline-bench': { support: 'decline' },
@@ -228,10 +234,11 @@ export function prepareRecipe(input) {
     nordicAnchor: equipment === 'nordic-mat',
     handRoller: equipment === 'hand-roller' || ['foam', 'wheel', 'wheel-band'].includes(catalogueSmallProp),
     landmine: equipment === 'landmine',
-    mat: ['mat', 'mat-dumbbell', 'mat-dumbbells', 'mat-stretch-band', 'nordic-mat', 'stability-ball', 'stability-ball-wall',
+    mat: catalogueCable?.mat === true || ['mat', 'mat-dumbbell', 'mat-dumbbells', 'mat-stretch-band', 'nordic-mat', 'stability-ball', 'stability-ball-wall',
       'spotter-med-ball-mat', 'spotter-foam-roller', 'spotter-ab-wheel-stretch-band'].includes(equipment),
-    step: equipment === 'step' || equipment === 'step-dumbbells',
+    step: equipment === 'step' || equipment === 'step-dumbbells' || calfRails.has(equipment),
     lowStep: equipment === 'step-dumbbells',
+    calfRail: calfRails.get(equipment),
   };
   const muscles = input.muscles ?? [];
   assert(Array.isArray(muscles) && muscles.length <= 12 &&

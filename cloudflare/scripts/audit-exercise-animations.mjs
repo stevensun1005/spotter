@@ -119,6 +119,8 @@ const coverIssues = [];
 const missingSteps = [];
 const needsVisualReview = [];
 const legacy = [];
+const illustrations = [];
+let exact3d = 0;
 let reviewed = 0;
 const shards = new Map();
 for (const row of rows) {
@@ -136,6 +138,8 @@ for (const row of rows) {
   }
   total[type]++;
   if (type === "flow" || type === "poses") legacy.push({ ...entry, type });
+  if (type === "illustration") illustrations.push(entry);
+  if (type === "video" && motion.video === "/open-gym/spotter-3d/" + row.id + ".mp4") exact3d++;
   const hasCover = matchingCover(type, motion);
   if (!hasCover) coverIssues.push(entry);
   if (hasCover && hasSteps && (reviews[row.id] || reviewIds.has(row.id))) {
@@ -158,11 +162,13 @@ if (reviewInput) writeFileSync(reviewFile, JSON.stringify({ ...reviews, ...recor
 
 const summary = { catalogue: rows.length, aliases: Object.keys(variants).length, aliasIssues: aliasIssues.length,
   playable: rows.length - missing.length, missing: missing.length,
-  coverIssues: coverIssues.length, missingSteps: missingSteps.length, reviewed, needsVisualReview: needsVisualReview.length, ...total };
+  coverIssues: coverIssues.length, missingSteps: missingSteps.length, reviewed, needsVisualReview: needsVisualReview.length, exact3d, ...total };
 if (process.argv.includes("--list-missing")) Object.assign(summary, { missingRows: missing, coverIssueRows: coverIssues,
   missingStepRows: missingSteps, aliasIssueRows: aliasIssues });
 if (process.argv.includes("--list-unreviewed")) Object.assign(summary, { unreviewedRows: needsVisualReview });
 if (process.argv.includes("--list-legacy")) Object.assign(summary, { legacyRows: legacy });
+if (process.argv.includes("--list-illustrations")) Object.assign(summary, { illustrationRows: illustrations });
 console.log(JSON.stringify(summary, null, 2));
 if (process.argv.includes("--require-complete") && (aliasIssues.length || missing.length || coverIssues.length || missingSteps.length || needsVisualReview.length)) process.exitCode = 1;
 if (process.argv.includes("--require-original-replacements") && (legacy.length || missing.length || coverIssues.length)) process.exitCode = 1;
+if (process.argv.includes("--require-all-3d") && (exact3d !== rows.length || coverIssues.length || aliasIssues.length)) process.exitCode = 1;

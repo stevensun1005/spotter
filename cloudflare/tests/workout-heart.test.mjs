@@ -501,7 +501,7 @@ test("catalogue cards use the same reviewed media as the selected exercise", asy
     assert.equal(cover(id), path.replace(/\.mp4$/, ".jpg"), id);
   }
   assert.equal(cover("0288"), "/open-gym/spotter-3d/0288.jpg");
-  assert.match(decodeURIComponent(cover("6813")), /^data:image\/svg\+xml,<svg/);
+  assert.equal(cover("6813"), "/open-gym/spotter-3d/6813.jpg");
   assert.equal(cover("0047"), "/open-gym/spotter-3d/0047.jpg");
   assert.equal(cover("3905"), "/open-gym/spotter-3d/3905.jpg");
   for (const id of ["2204", "2571", "2790"]) {

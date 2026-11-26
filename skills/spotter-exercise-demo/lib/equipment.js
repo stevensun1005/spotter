@@ -527,7 +527,7 @@ function createStretchBand(group, initial, highMount) {
   };
 }
 
-function createChestSupportBench(group) {
+function createChestSupportBench(group, withSeat = true) {
   const pad = box(group, .435, .069, .782, rubber, 0, .697, -.069, .026);
   pad.rotation.x = Math.PI / 4;
   const rail = box(group, .094, .042, .715, edge, 0, .648, -.110);
@@ -537,12 +537,15 @@ function createChestSupportBench(group) {
     for (const x of [-.25, .25]) roundSlab(group, .108, .119, .019, .013, rubber, x, .001, z);
   }
   box(group, .087, .752, .087, frame, 0, .410, -.357);
-  box(group, .087, .358, .087, frame, 0, .214, .401);
+  if (withSeat) box(group, .087, .358, .087, frame, 0, .214, .401);
+  else box(group, .087, .378, .087, frame, 0, .226, .164);
   box(group, .073, .081, .751, edge, 0, .113, .014);
-  const seat = box(group, .397, .060, .259, rubber, 0, .405, .339, .021);
-  seat.rotation.x = -.10;
+  if (withSeat) {
+    const seat = box(group, .397, .060, .259, rubber, 0, .405, .339, .021);
+    seat.rotation.x = -.10;
+  }
   bolt(group, .048, .410, -.317);
-  bolt(group, -.049, .267, .440);
+  if (withSeat) bolt(group, -.049, .267, .440);
 }
 
 function createCatalogueCableTower(group, anchor, support) {
@@ -749,6 +752,22 @@ function createBalancePost(group, x = -.51) {
   cylinder(group, .022, .275, rubber, x, 1.108, .30).rotateX(Math.PI / 2);
 }
 
+function createCalfRail(group, stairs) {
+  for (const x of [-.415, .415]) {
+    for (const z of [.319, .615]) {
+      box(group, .126, .031, .151, rubber, x, .017, z);
+      box(group, .044, 1.348, .046, frame, x, .694, z);
+    }
+    cylinder(group, .024, .362, steel, x, 1.362, .467).rotateX(Math.PI / 2);
+    cylinder(group, .027, .249, rubber, x, 1.362, .467).rotateX(Math.PI / 2);
+  }
+  if (!stairs) return;
+  box(group, .590, .505, .345, frame, 0, .254, .965);
+  roundSlab(group, .618, .370, .042, .025, rubber, 0, .509, .964);
+  box(group, .590, .729, .312, frame, 0, .368, 1.269);
+  roundSlab(group, .618, .338, .042, .025, rubber, 0, .737, 1.269);
+}
+
 function createAnkleCable(group, sample, catalogueCable) {
   const initial = sample(0).cables;
   const anchor = world(initial[0].anchor);
@@ -863,7 +882,9 @@ function createCatalogueBarbellSupport(group, support, initial) {
     for (const y of [.598, .722]) cylinder(group, .05, .56, rubber, .10, y, 1.44).rotation.z = Math.PI / 2;
     box(group, .068, .28, .069, frame, .10, .57, 1.44);
   }
-  if (support === 'chest-bench') createChestSupportBench(group);
+  if (support === 'chest-bench' || support === 'chest-row-bench') {
+    createChestSupportBench(group, support === 'chest-bench');
+  }
   if (support === 'onearm-bench') {
     roundSlab(group,.409,.98,.074,.027,rubber,.062,.466,.263);
     for(const z of [-.094,.618]) {
@@ -957,6 +978,7 @@ export function createEquipment(options, sample) {
     group.add(platform);
     createStep(platform);
   }
+  if (options.calfRail) createCalfRail(group, options.calfRail === 'stairs');
   if (bench || options.bandSupport === 'flat') createFlatBench(group);
   if (options.bandSupport === 'seat' || options.bandSupport === 'post-seat' || options.kettleSupport?.seat) {
     roundSlab(group, .45, .40, .065, .027, rubber, 0, .425, 0);

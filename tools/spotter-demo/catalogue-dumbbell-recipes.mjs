@@ -77,22 +77,39 @@ const support = {
   inclineBrace: { point: [.198, .843, -.613], pitch: .465, feet: [.159, floor, -.624], camera: [58, 15, [.04,.85,-.34], 1.82], bench: "incline-bench" },
   incline: { point: [0, .563, .245], pitch: -Math.PI / 4, feet: [.223, floor, .655], camera: [59, 15, [0, .78, .09], 1.83], bench: "incline-bench" },
   flat: { point: [.1, .551, 1.26], pitch: -Math.PI / 2, feet: [.258, floor, 1.530], camera: [67, 17, [.1, .58, 1.00], 1.65], bench: "bench" },
+  supineMat: { point: [0, .140, -.027], pitch: -Math.PI / 2, feet: [.210, floor, .561],
+    camera: [65, 26, [0, .31, -.10], 1.65], bench: "mat" },
+  bridgeMat: { point: [0, .371, .094], pitch: -2.020, feet: [.218, floor, .677],
+    camera: [64, 25, [0, .35, -.08], 1.69], bench: "mat" },
   decline: { point: [0, .825, .247], pitch: -1.839, feet: [.163, .521, .815], camera: [66, 17, [0, .66, .135], 1.62], bench: "decline-bench" },
   preacher: { point: [0, .552, -.091], pitch: .238, feet: [.253, floor, .248], camera: [49, 15, [0, .75, .14], 1.70], bench: "preacher-bench" },
   preacherStanding: { point: [0, .758, -.411], pitch: .72, feet: [.260, floor, -.405], camera: [62, 15, [0, .78, .05], 1.78], bench: "preacher-bench" },
   ball: { point: [0, .660, .027], pitch: .035, feet: [.229, floor, .381], camera: [54, 14, [0, .85, .12], 1.95], radius: .285, bench: "stability-ball" },
+  zSeat: { point: [0, .148, -.337], pitch: .03, feet: [.18, .090, .493],
+    camera: [61, 19, [0, .55, .05], 1.95], bench: "mat" },
+  tallKneel: { point: [0, .506, -.045], pitch: .025, feet: [.149, .087, -.477],
+    camera: [59, 14, [0, .80, -.07], 1.98] },
+  halfKneel: { point: [0, .506, -.045], pitch: .025, feet: [.149, .087, -.477],
+    camera: [59, 14, [0, .80, -.01], 2.02] },
   bridge: { point: [0, .562, .307], pitch: -1.445, feet: [.219, floor, .659], camera: [66, 16, [0, .67, .23], 1.72], radius: .285, bench: "stability-ball" },
   kneelingBall: { point: [0, .368, -.178], pitch: .846, feet: [.148, .082, -.628], camera: [57, 16, [0, .66, -.13], 1.57], radius: .285, bench: "stability-ball" },
+  kickbackBall: { point: [0, .507, -.178], pitch: 1.02, feet: [.148, .082, -.628],
+    camera: [57, 16, [0, .61, -.15], 1.57], radius: .285, ballDepth: .115, bench: "stability-ball" },
   prone: { point: [0, .518, .255], pitch: Math.PI / 4, yaw: Math.PI, feet: [.301, floor, .565], camera: [96, 18, [0, .74, .13], 1.73], bench: "chest-bench" },
+  proneStanding: { point: [0, .518, .255], pitch: Math.PI / 4, yaw: Math.PI, feet: [.184, floor, .944],
+    camera: [135, 20, [0, .67, .255], 1.89], bench: "chest-bench" },
   proneFlat: { point: [.10, .553, 1.25], pitch: Math.PI / 2, yaw: Math.PI, feet: [.123, .55, 1.89], camera: [138, 17, [.1, .62, 1.02], 1.62], bench: "bench" },
   hinge: { point: [0, .819, -.195], pitch: 1.105, feet: [.161, floor, .058], camera: [55, 14, [0, .70, .03], 1.73] },
   hingeSeat: { point: [.1, .550, 1.208], pitch: 1.172, feet: [.217, floor, 1.545], camera: [62, 15, [.1, .55, 1.39], 1.54], bench: "bench" },
   raiseBrace: { point: [-.028, .894, .012], pitch: .015, feet: [.140, floor, .057], camera: [49, 12, [-.13,.93,.09], 2.10], bench: "raise-brace" },
   headBrace: { point: [0, .807, -.227], pitch: 1.285, feet: [.164, floor, -.069], camera: [60, 16, [0,.67,.20], 1.73], bench: "head-brace" },
   inclineBall: { point: [0, .654, .24], pitch: -.828, feet: [.224, floor, .602], camera: [57, 15, [0, .80, .12], 1.85], radius: .285, bench: "incline-ball" },
+  inclineOnBall: { point: [0, .503, .310], pitch: -1.155, feet: [.224, floor, .642],
+    camera: [65, 18, [0, .73, .22], 1.84], radius: .285, ballDepth: -.065, bench: "stability-ball" },
   proneGround: { point: [0, .149, .214], pitch: Math.PI / 2, yaw: Math.PI, feet: [.132, .107, 1.000],
     camera: [142, 24, [0,.34,.14], 1.30], bench: "mat" },
   benchSquat: { camera: [57, 14, [.1,.91,1.28], 2.06], bench: "bench" },
+  rearBench: { camera: [71, 14, [.08,.84,1.77], 2.08], bench: "bench" },
   deadliftStep: { camera: [63, 13, [0,.84,-.12], 1.94], bench: "rear-step" },
   frontStep: { camera: [56, 13, [0,1.03,.32], 2.16], bench: "step" },
   seatCalfFloor: { camera: [53, 17, [.1,.65,1.44], 1.47], bench: "bench" },
@@ -116,7 +133,7 @@ function fromSupport(setting, options = {}) {
     const target = [pose.hips[0] + reversed * x, y, z];
     const pole = [reversed * .10, 0, base.yaw ? -.97 : .97];
     const toes = [reversed * .021, -.071, base.yaw ? -.146 : .146];
-    if (setting === "flat" || setting === "bridge") pole[1] = .75;
+    if (setting === "flat" || setting === "bridge" || setting === "inclineOnBall") pole[1] = .75;
     if (setting === "decline") {
       pole[1] = 1;
       toes[1] = -.115;
@@ -125,9 +142,26 @@ function fromSupport(setting, options = {}) {
       pole[1] = -.7;
       toes[1] = -.105;
     }
-    if (setting === "kneelingBall") {
+    if (setting === "kneelingBall" || setting === "kickbackBall") {
       pole[1] = -1;
       toes[2] = -.145;
+      delete pose.planted[side];
+    }
+    if (setting === "zSeat") {
+      pole[1] = .81;
+      toes.splice(1, 2, .131, .047);
+      delete pose.planted[side];
+    }
+    if (setting === "tallKneel" || setting === "halfKneel") {
+      if (setting === "halfKneel" && side === "l") {
+        target[1] = floor;
+        target[2] = .374;
+        pole[1] = .63;
+      } else {
+        pole[1] = -1;
+        toes[2] = -.146;
+        delete pose.planted[side];
+      }
     }
     if (setting === "floor" && options.stork && side === "r") {
       target[1] = .132;
@@ -135,16 +169,17 @@ function fromSupport(setting, options = {}) {
       toes[1] = -.128;
     }
     if ((setting === "ball" || setting === "bridge") && options.oneLeg && side === "r") {
-      target[1] = setting === "ball" ? .395 : .447;
-      target[2] = setting === "ball" ? .661 : .877;
+      target[1] = options.extendLeg ? .637 : setting === "ball" ? .395 : .447;
+      target[2] = options.extendLeg ? .852 : setting === "ball" ? .661 : .877;
       toes[1] = .053;
       delete pose.planted.r;
     }
-    if (setting === "decline" || setting === "proneFlat" || setting === "kneelingBall") delete pose.planted[side];
+    if (setting === "decline" || setting === "proneFlat") delete pose.planted[side];
     foot(pose, side, reversed, target, pole, toes);
   }
   if (base.radius) {
-    const z = setting === "bridge" ? -.090 : setting === "kneelingBall" ? .333 : setting === "inclineBall" ? .24 : .003;
+    const z = base.ballDepth ?? (setting === "bridge" ? -.090 : setting === "kneelingBall" ? .333
+      : setting === "inclineBall" ? .24 : .003);
     pose.ballCenter = [0, base.radius, z];
   }
   return pose;
@@ -175,8 +210,10 @@ function curl(phase, { setting = "floor", grip = "under", mode = "both", form = 
   const global = cycle(phase);
   const squat = form === "squat";
   const concentration = form === "concentration";
+  const standingConcentration = form === "standing-concentration";
   const pose = fromSupport(setting, {
-    oneLeg: form === "leg-raised", stork: form === "stork",
+    oneLeg: form === "leg-raised" || form === "leg-raised-straight", extendLeg: form === "leg-raised-straight",
+    stork: form === "stork",
     ...(squat ? { point: [0, .889 - .308 * global, .025 - .129 * global], pitch: .04 + .252 * global } : {}),
     ...(concentration ? { pitch: .57 } : {}),
   });
@@ -185,19 +222,26 @@ function curl(phase, { setting = "floor", grip = "under", mode = "both", form = 
       if (form === "bench-brace") {
         arm(pose, side, [-.135, .796, -.168], [-.54, -.642, .12]);
       } else {
-        inactive(pose, side, sign, concentration ? "thigh" : form === "leg-raised" ? "chest" : "low");
+        inactive(pose, side, sign, concentration || standingConcentration ? "thigh" : form === "leg-raised" ? "chest" : "low");
       }
       continue;
     }
-    const amount = depthFor(phase, mode, side);
-    const prone = setting === "prone" || setting === "proneFlat";
+    const amount = form === "isometric" ? .58 * cycle(phase, .16, .84)
+      : form === "mid-hold" ? .58 * ramp(phase, 0, .19) + .42 * ramp(phase, .56, .68) - ramp(phase, .75, 1)
+        : depthFor(phase, mode, side);
+    if (form === "drag") {
+      const track = blend([sign * .081, -.603, .046], [sign * .046, .041, .109], amount);
+      arm(pose, side, add(pose[side + "s"], track), [sign * .24, -.39, -.90], [1, 0, 0]);
+      continue;
+    }
+    const prone = setting.startsWith("prone");
     const reversed = prone ? -sign : sign;
     let upper = [reversed * .079, -.239, .018];
     if (setting === "incline") upper = [sign * .074, -.240, -.025];
     if (setting === "preacher" || setting === "preacherStanding") upper = [sign * .024, -.177, .177];
     if (setting === "kneelingBall") upper = [-sign * .078, -.130, .203];
     if (setting === "flat") upper = [sign * (form === "wide" ? .248 : .235), form === "wide" ? -.027 : -.065, .057];
-    if (setting === "prone") upper = [reversed * .068, -.240, -.038];
+    if (setting === "prone" || setting === "proneStanding") upper = [reversed * .068, -.240, -.038];
     if (setting === "proneFlat") upper = [reversed * .233, -.067, -.041];
     if (setting === "armBlaster") upper = [sign * .065, -.234, .065];
     if (form === "high") upper = [sign * .064, -.223, .100];
@@ -216,25 +260,30 @@ function curl(phase, { setting = "floor", grip = "under", mode = "both", form = 
     pose[side + "w"] = add(elbow, scale(path, loadedForearm));
     const neutral = [0, Math.sin(angle), curlDirection * Math.cos(angle)];
     const transverse = [prone ? -1 : 1, 0, 0];
-    const axis = grip === "hammer" ? neutral : grip === "reverse" ? scale(transverse, -1)
-      : grip === "supinate" ? blend(neutral, transverse, smooth(amount * 1.45)) : transverse;
+    const rotation = Math.PI * (ramp(phase, .38, .53) - ramp(phase, .90, 1));
+    const axis = grip === "zottman" ? add(scale(transverse, Math.cos(rotation)), scale(neutral, Math.sin(rotation)))
+      : grip === "hammer" ? neutral : grip === "reverse" ? scale(transverse, -1)
+        : grip === "supinate" ? blend(neutral, transverse, smooth(amount * 1.45)) : transverse;
     holdBell(pose, side, axis);
   }
   return pose;
 }
 
-function raise(phase, { setting = "floor", plane = "front", mode = "both", form = "straight" } = {}) {
+function raise(phase, { setting = "floor", plane = "front", mode = "both", form = "straight", grip = "regular" } = {}) {
   const pose = fromSupport(setting);
+  const facing = pose.right[0] < 0 ? -1 : 1;
   for (const [side, sign] of sides) {
-    const localSign = pose.right[0] < 0 ? -sign : sign;
+    const localSign = facing * sign;
     if (mode === "single" && side === "r") {
       if (setting === "raiseBrace") arm(pose, side, [-.510, 1.107, .260], [-.76, -.31, -.22]);
       else inactive(pose, side, localSign, setting === "proneFlat" ? "chest" : "low");
       continue;
     }
-    const split = plane === "combo";
-    const direction = split ? phase <= .5 ? "lateral" : "front" : plane;
-    const amount = split ? cycle((phase * 2) % 1) : depthFor(phase, mode, side);
+    const split = plane === "combo" || plane === "front-side";
+    const first = plane === "front-side" ? "front" : "lateral";
+    const second = first === "front" ? "lateral" : "front";
+    const direction = split ? phase <= .5 ? first : second : plane;
+    const amount = split ? cycle((phase * 2) % 1) : form === "hold" ? cycle(phase, .29, .69) : depthFor(phase, mode, side);
     if (setting === "proneGround") {
       const angle = (21 + 51 * amount) * degrees;
       const arc = [localSign * .578 * Math.sin(angle), .09 + .177 * amount, -.562 * Math.cos(angle)];
@@ -243,17 +292,23 @@ function raise(phase, { setting = "floor", plane = "front", mode = "both", form 
     }
     const peak = direction === "above" ? 157 : direction === "y" ? 133 : direction === "front" ? 92 : 87;
     const angle = (8 + (peak - 8) * amount) * degrees;
-    const floorDirection = direction === "front" || direction === "above" ? [localSign * .075, 0, 1]
-      : direction === "y" ? [localSign * .60, 0, -.79]
-      : [localSign, 0, direction === "rear" && setting !== "prone" && setting !== "proneFlat" ? -.20 : .048];
+    const floorDirection = direction === "front" || direction === "above" ? [localSign * .075, 0, facing]
+      : direction === "scaption" ? [localSign * .73, 0, facing * .68]
+      : direction === "y" ? [localSign * .60, 0, facing * .79]
+      : [localSign, 0, direction === "rear" && !setting.startsWith("prone") ? -.20 : .048];
     const travel = add(scale(unit(floorDirection), Math.sin(angle)), [0, -Math.cos(angle), 0]);
-    const bent = form === "bent";
-    const reach = bent ? .480 : .603;
+    const rightAngle = form === "right-angle";
+    const reach = rightAngle ? .433 : form === "bent" ? .480 : .603;
     const target = add(pose[side + "s"], scale(travel, reach));
     if (setting === "proneFlat") target[1] = Math.max(target[1], .103);
-    const naturalGrip = form === "rotate" ? blend([0, 0, 1], [0, .98, .10], amount) : direction === "front" || direction === "above" ?
-      blend([0, 0, 1], [1, 0, 0], amount) : blend([0, 0, 1], [0, .18, 1], amount);
-    arm(pose, side, target, bent ? [localSign * .95, .28, .47] : [localSign * .28, -.9, .27], naturalGrip);
+    const naturalGrip = grip === "hammer" ? [0, 0, facing] : grip === "under" ? [-facing, 0, 0]
+      : grip === "thumbs-down" || grip === "thumbs-up" ? blend([0, 0, 1], [0, grip === "thumbs-up" ? 1 : -1, 0], amount)
+      : form === "rotate" ? blend([0, 0, 1], [0, .98, .10], amount) : direction === "front" || direction === "above"
+        ? blend([0, 0, facing], [facing, 0, 0], amount) : blend([0, 0, 1], [0, .18, 1], amount);
+    const alignElbow = setting === "proneStanding" || form === "rear-facing";
+    const pole = rightAngle ? [localSign * .90, -.19, -.40] : form === "bent" ? [localSign * .95, .28, .47]
+      : [localSign * .28, -.9, alignElbow ? facing * .27 : .27];
+    arm(pose, side, target, pole, naturalGrip);
   }
   return pose;
 }
@@ -267,55 +322,86 @@ function shoulderPress(phase, { setting = "floor", mode = "both", form = "plain"
     }
     const amount = depthFor(phase, mode, side);
     const neutral = form === "neutral";
-    const start = [sign * (neutral ? .105 : .181), .099, neutral ? .180 : .100];
+    const arnold = form === "arnold";
+    const start = [sign * (arnold ? -.073 : neutral ? .105 : .181), arnold ? .035 : .099, arnold ? .318 : neutral ? .180 : .100];
     const end = add(scale(pose.front, .075), [sign * .035, .580, .010]);
-    const wrist = add(pose[side + "s"], blend(start, end, amount));
-    const grip = neutral ? [0, 0, 1] : [1, 0, 0];
-    arm(pose, side, wrist, [sign * .879, -.523, .131], grip);
+    const middle = [sign * .200, .21, .106];
+    const travel = arnold ? blend(blend(start, middle, smooth(amount / .52)), end, smooth((amount - .29) / .71)) : blend(start, end, amount);
+    const wrist = add(pose[side + "s"], travel);
+    const turn = Math.PI * smooth(amount);
+    const grip = arnold ? [-Math.cos(turn), 0, sign * Math.sin(turn)] : neutral ? [0, 0, 1] : [1, 0, 0];
+    const pole = arnold ? [sign * (.44 + .44 * amount), -.90, .32 - .15 * amount] : [sign * .879, -.523, .131];
+    arm(pose, side, wrist, pole, grip);
   }
   return pose;
 }
 
-function chestPress(phase, { setting = "flat", mode = "both", form = "regular" } = {}) {
+function chestPress(phase, { setting = "flat", mode = "both", form = "regular", startLow = false, hold = false } = {}) {
   const pose = fromSupport(setting, { oneLeg: form === "one-leg" });
+  const floorPress = setting === "supineMat";
   for (const [side, sign] of sides) {
     if (mode === "single" && side === "r") {
-      inactive(pose, side, sign, "chest");
+      if (floorPress) {
+        arm(pose, side, [-.48, .055, -.158], [-.53, -.29, .81]);
+        pose.rPalmSide = [0, 1, 0];
+        pose.rFingers = [-.80, .01, .60];
+      } else inactive(pose, side, sign, "chest");
       continue;
     }
-    const depth = depthFor(phase, mode, side);
+    const move = hold ? cycle(phase, .20, .84) : depthFor(phase, mode, side);
+    const depth = startLow ? 1 - move : move;
     const fly = form === "fly" || form === "twist-fly" || form === "one-leg";
     const neutral = form === "neutral" || form === "twist-press";
     const top = [sign * (fly ? -.073 : .021), .603, .022];
     const bottom = fly ? [sign * .598, .073, .027]
-      : [sign * (neutral ? .129 : .244), .223, setting === "incline" ? .114 : .114];
+      : [sign * (neutral ? .129 : form === "wide" ? .285 : .244), .223, .114];
     const travel = fly
       ? [sign * (-.073 + .666 * Math.sin(depth * Math.PI / 2)), .073 + .53 * Math.cos(depth * Math.PI / 2), .028]
       : blend(top, bottom, depth);
     const grip = form === "twist-fly" ? blend([0, 0, 1], [1, 0, 0], depth) :
       form === "twist-press" ? blend([0, 0, 1], [1, 0, 0], 1 - depth) :
+      form === "supinated-press" ? [-Math.cos(Math.PI * (1 - depth)), 0, sign * Math.sin(Math.PI * (1 - depth))] :
       fly || neutral ? [0, 0, 1] : form === "reverse" ? [-1, 0, 0] : [1, 0, 0];
     const pole = fly ? [sign * .20, -.8, .359] : [sign * (neutral ? .25 : .86), -.83, neutral ? .65 : .33];
-    arm(pose, side, add(pose[side + "s"], travel), pole, grip);
+    const shoulder = pose[side + "s"];
+    if (floorPress && !fly) {
+      const upper = blend([sign * .032, .250, .010], [sign * (neutral ? .153 : .223), -.046, neutral ? .194 : .104], depth);
+      const forearm = blend([-sign * .014, .370, .010], [-sign * .034, .366, -.015], depth);
+      pose[side + "e"] = add(shoulder, scale(unit(upper), upperArm));
+      pose[side + "w"] = add(pose[side + "e"], scale(unit(forearm), loadedForearm));
+      holdBell(pose, side, grip);
+    } else {
+      arm(pose, side, add(shoulder, travel), pole, grip);
+    }
   }
   return pose;
 }
 
-function row(phase, { setting = "hinge", mode = "both", form = "plain" } = {}) {
+function row(phase, { setting = "hinge", mode = "both", form = "plain", braceFree = false } = {}) {
   const pose = fromSupport(setting);
   for (const [side, sign] of sides) {
     const facing = pose.right[0] < 0 ? -1 : 1;
     const lateral = facing * sign;
     if (mode === "single" && side === "r") {
-      inactive(pose, side, lateral, form === "brace" ? "thigh" : "low");
+      if (braceFree) {
+        arm(pose, side, [lateral * .228, .712, -.158], [lateral * .78, -.34, -.49]);
+        pose.rFingers = [0, -.27, -.96];
+        pose.rPalmSide = [0, .85, -.52];
+      } else inactive(pose, side, lateral, form === "brace" ? "thigh" : "low");
       continue;
     }
     const amount = depthFor(phase, mode, side);
     const high = form === "rear";
     const down = setting === "proneFlat" ? [lateral * .076, -.454, .019] : [lateral * .046, -.603, .019];
-    const peak = high ? [lateral * .185, -.148, facing * .047] : [lateral * .043, -.135, facing * -.327];
-    const pole = [lateral * (high ? .93 : .13), -.09, -facing * .88];
-    const grip = form === "reverse" ? [-facing, 0, 0] :
+    const facePull = form === "face-pull";
+    const scapular = form === "scapular";
+    const peak = facePull ? [lateral * -.038, .065, facing * .212] :
+      scapular ? [lateral * .040, -.600, .018] :
+        high ? [lateral * .185, -.148, facing * .047] : [lateral * .043, -.135, facing * -.327];
+    const pole = [lateral * (high || facePull ? .93 : .13), -.09, -facing * .88];
+    if (scapular) pose[side + "s"] = add(pose[side + "s"], [-lateral * .029 * amount, .057 * amount, -.024 * facing * amount]);
+    const grip = form === "reverse" ? [-facing, 0, 0] : form === "overhand" ? [facing, 0, 0] :
+      form === "overhand-to-neutral" ? blend([facing, 0, 0], [0, 0, facing], amount) :
       form === "swivel" ? blend([0, 0, 1], [-facing, 0, 0], amount) : [0, 0, facing];
     arm(pose, side, add(pose[side + "s"], blend(down, peak, amount)), pole, grip);
   }
@@ -350,31 +436,37 @@ function shrug(phase, { setting = "floor" } = {}) {
 
 function kickback(phase, { setting = "hinge", mode = "both" } = {}) {
   const pose = fromSupport(setting);
+  const facing = setting === "proneStanding" ? -1 : 1;
+  const fixedTorso = setting === "proneStanding" || setting === "kickbackBall";
   for (const [side, sign] of sides) {
     if (mode === "single" && side === "r") {
       inactive(pose, side, sign, "thigh");
       continue;
     }
-    const elbow = add(pose[side + "s"], setting === "hingeSeat" ? [sign * .087, -.055, -.230] : [sign * .027, -.055, -.244]);
+    const elbow = add(pose[side + "s"], fixedTorso ? [sign * .031 * facing, -.248 * pose.up[1], -.248 * pose.up[2]]
+      : setting === "hingeSeat" ? [sign * .087, -.055, -.230]
+      : [sign * .027 * facing, -.055, -.244 * facing]);
     const amount = depthFor(phase, mode, side);
-    const bend = (8 + 86 * amount) * degrees;
+    const extension = fixedTorso ? Math.atan2(Math.abs(pose.up[2]), pose.up[1]) : 94 * degrees;
+    const bend = fixedTorso ? .140 + (extension - .140) * amount : (8 + 86 * amount) * degrees;
     pose[side + "e"] = elbow;
-    pose[side + "w"] = add(elbow, [0, -loadedForearm * Math.cos(bend), -loadedForearm * Math.sin(bend)]);
-    holdBell(pose, side, [0, -Math.sin(bend), Math.cos(bend)]);
+    pose[side + "w"] = add(elbow, [0, -loadedForearm * Math.cos(bend), -loadedForearm * Math.sin(bend) * facing]);
+    holdBell(pose, side, [0, -Math.sin(bend), Math.cos(bend) * facing]);
   }
   return pose;
 }
 
-function elbowExtension(phase, { setting = "floor", mode = "both", sharedBell = false } = {}) {
+function elbowExtension(phase, { setting = "floor", mode = "both", sharedBell = false, form = "plain", arcDegrees } = {}) {
   const pose = fromSupport(setting);
-  const lyingDown = setting === "flat" || setting === "decline";
-  const amount = cycle(phase);
-  const angle = (8 + (lyingDown ? 73 : 112) * amount) * degrees;
+  const lyingDown = ["flat", "decline", "incline", "bridge", "supineMat"].includes(setting);
+  const arc = arcDegrees ?? (lyingDown ? 73 : 112);
+  const sharedAngle = (8 + arc * cycle(phase)) * degrees;
   for (const [side, sign] of sides) {
     if (mode === "single" && side === "r" && !sharedBell) {
       inactive(pose, side, sign, lyingDown ? "chest" : "thigh");
       continue;
     }
+    const angle = sharedBell ? sharedAngle : (8 + arc * depthFor(phase, mode, side)) * degrees;
     const elbow = add(pose[side + "s"], [sign * (sharedBell ? -.078 : -.025), .230, lyingDown ? -.099 : .101]);
     pose[side + "e"] = elbow;
     const inward = sharedBell ? -sign * .065 : 0;
@@ -383,19 +475,20 @@ function elbowExtension(phase, { setting = "floor", mode = "both", sharedBell = 
       pose[side + "Grip"] = [sign, 0, 0];
       pose[side + "Fingers"] = [0, Math.sin(angle), Math.cos(angle)];
     } else {
-      holdBell(pose, side, [0, Math.sin(angle), Math.cos(angle)]);
+      holdBell(pose, side, form === "reverse" ? [-sign, 0, 0] : [0, Math.sin(angle), Math.cos(angle)]);
     }
   }
   if (sharedBell) {
-    pose.dumbbells.push({ center: add(blend(pose.lw, pose.rw, .5), [0, -.044 * Math.sin(angle), -.044 * Math.cos(angle)]),
-      axis: [0, Math.cos(angle), -Math.sin(angle)] });
+    const [sin, cos] = [Math.sin(sharedAngle), Math.cos(sharedAngle)];
+    pose.dumbbells.push({ center: add(blend(pose.lw, pose.rw, .5), [0, -.044 * sin, -.044 * cos]),
+      axis: [0, cos, -sin] });
   }
   return pose;
 }
 
-function pullover(phase, { setting = "flat", mode = "both", form = "plain" } = {}) {
+function pullover(phase, { setting = "flat", mode = "both", form = "plain", hold = false } = {}) {
   const pose = fromSupport(setting);
-  const amount = cycle(phase);
+  const amount = hold ? cycle(phase, .21, .82) : cycle(phase);
   const angle = .025 + amount * (form === "around" ? 1.76 : 1.59);
   const right = [1, 0, 0];
   const single = mode === "single";
@@ -405,7 +498,7 @@ function pullover(phase, { setting = "flat", mode = "both", form = "plain" } = {
       inactive(pose, side, sign, "chest");
       continue;
     }
-    const reach = form === "straight" ? .606 : .59;
+    const reach = form === "straight" ? .606 : form === "bent" ? .536 : .59;
     const crossBody = sign * (single ? -.017 : -.106);
     const target = add(pose[side + "s"], [crossBody, reach * Math.cos(angle), -reach * Math.sin(angle)]);
     arm(pose, side, target, [sign * .48, -.12, -.25]);
@@ -451,9 +544,9 @@ function wristCurl(phase, { setting = "seat", mode = "both", form = "under", ove
   return pose;
 }
 
-function externalRotation(phase, { setting = "floor" } = {}) {
-  const standing = setting === "floor";
-  const pose = standing ? fromSupport("floor") : sideSupport("flat");
+function externalRotation(phase, { setting = "floor", sideLying = false } = {}) {
+  const standing = setting === "floor" && !sideLying;
+  const pose = standing ? fromSupport("floor") : sideSupport(setting);
   const angle = (.049 + 1.41 * cycle(phase));
   for (const [side, sign] of sides) {
     if (!standing && side === "r") continue;
@@ -506,6 +599,44 @@ function hangingBells(pose, { mode = "both", forward = .02, grip = [0, 0, 1] } =
   }
 }
 
+function holdGoblet(pose, curlDepth = 0) {
+  const center = add(pose.chest, [0, -.029 - .364 * curlDepth, .247 + .053 * curlDepth]);
+  for (const [side, sign] of sides) {
+    arm(pose, side, add(center, [sign * .060, .077, -.002]), [sign * .43, -.86, .52]);
+    pose[side + "Grip"] = [sign, 0, 0];
+    pose[side + "Fingers"] = [0, .75, .45];
+  }
+  pose.dumbbells.push({ center, axis: [0, 1, 0] });
+}
+
+function gobletSquat(phase, { setting = "floor", form = "plain", load = "goblet" } = {}) {
+  const wall = setting === "wallBall";
+  const wide = form === "sumo";
+  const depth = form === "hold" ? cycle(phase, .27, .72) : form === "curl" ? cycle(phase, .31, .70)
+    : form === "calf" ? cycle(phase, .31, .42) * (1 - ramp(phase, .63, .73)) : cycle(phase);
+  const heels = form === "calf" ? .079 * ramp(phase, .74, .87) * (1 - ramp(phase, .89, 1)) : 0;
+  const hips = wall ? [0, .821 - .319 * depth, .061 - .016 * depth]
+    : [0, .887 - .354 * depth + heels * .75, .029 - .202 * depth];
+  const pose = body(hips, wall ? -.048 : .026 + .301 * depth);
+  for (const [side, sign] of sides) {
+    const stance = sign * (wide ? .31 : .174);
+    const contact = [stance, floor + heels, wall ? .425 : .106 + heels * .34];
+    foot(pose, side, sign, contact, [sign * (wide ? .56 : .22), .031, .89],
+      [sign * (wide ? .076 : .025), -.071 - heels, .131 - heels * .34]);
+    if (load === "between") {
+      arm(pose, side, add(pose[side + "s"], [-sign * .081, -.590, .029]), [sign * .32, -.22, -.68], [0, 0, 1]);
+    }
+  }
+  if (wall) pose.ballCenter = [0, .950 - .228 * depth, -.339];
+  if (load === "goblet") {
+    const curlDepth = form === "curl" ? ramp(phase, .35, .46) * (1 - ramp(phase, .51, .64)) : 0;
+    holdGoblet(pose, curlDepth);
+  } else if (load === "sides") {
+    hangingBells(pose, { forward: .048 - .088 * depth });
+  }
+  return pose;
+}
+
 function squat(phase, { setting = "floor", form = "plain" } = {}) {
   const jump = form === "jump";
   const oneLeg = form === "single-leg";
@@ -518,7 +649,7 @@ function squat(phase, { setting = "floor", form = "plain" } = {}) {
     .027 + (oneLeg ? .36 : .41) * depth);
   for (const [side, sign] of sides) {
     const relax = oneLeg && side === "r";
-    const x = pose.hips[0] + sign * (oneLeg ? .100 : .180);
+    const x = pose.hips[0] + sign * (oneLeg ? .100 : form === "narrow" ? .075 : .180);
     const z = goblet ? 1.625 : .13;
     const point = relax ? [x, .256 + .085 * depth, z + .33] : [x, floor + lift * .19, z];
     if (lift > 0 || relax) delete pose.planted[side];
@@ -538,7 +669,7 @@ function squat(phase, { setting = "floor", form = "plain" } = {}) {
   return pose;
 }
 
-function deadlift(phase, { setting = "floor", form = "bent", mode = "both" } = {}) {
+function deadlift(phase, { form = "bent", mode = "both", grip = "overhand", longRearLeg = false } = {}) {
   const amount = cycle(phase);
   const straight = form === "straight";
   const single = mode === "single";
@@ -547,16 +678,19 @@ function deadlift(phase, { setting = "floor", form = "bent", mode = "both" } = {
     .017 - (straight ? .232 : single ? .131 : .236) * amount], .029 + hinge);
   for (const [side, sign] of sides) {
     const supportLeg = single && side === "r";
-    const target = supportLeg ? [-.162, .217 + .32 * amount, -.490 - .16 * amount] :
-      [sign * .141, floor, .099];
+    const rearAngle = .21 + 1.40 * amount;
+    const target = supportLeg ? longRearLeg
+      ? add(pose[side + "h"], [-.071, -.833 * Math.cos(rearAngle), -.833 * Math.sin(rearAngle)])
+      : [-.162, .217 + .32 * amount, -.490 - .16 * amount] : [sign * .141, floor, .099];
     foot(pose, side, sign, target, [sign * .10, .064, .98], [sign * .025, -.071, supportLeg ? -.123 : .144]);
     if (supportLeg) {
       delete pose.planted[side];
       inactive(pose, side, sign, "thigh");
       continue;
     }
-    const hanging = [sign * .056, -.605, .115 - .132 * amount];
-    arm(pose, side, add(pose[side + "s"], hanging), [sign * .53, -.23, -.70], [1, 0, 0]);
+    const neutral = grip === "neutral";
+    const hanging = [sign * (neutral ? .083 : .056), -.605, (neutral ? .038 : .115) - .132 * amount];
+    arm(pose, side, add(pose[side + "s"], hanging), [sign * .53, -.23, -.70], neutral ? [0, 0, 1] : [1, 0, 0]);
   }
   return pose;
 }
@@ -586,6 +720,8 @@ function lunge(phase, { form = "plain" } = {}) {
       const highest = [sign * -.017, .593 - .234 * flexion, .038 - .327 * flexion];
       const wrist = add(pose[side + "s"], blend([sign * .076, -.558, .060], highest, overhead));
       arm(pose, side, wrist, [sign * .53, .59, -.208], blend([0,0,1], [0,1,0], flexion));
+    } else if (form === "overhead") {
+      arm(pose, side, add(pose[side + "s"], [sign * .034, .594, .061]), [sign * .62, -.22, -.43], [0, 0, 1]);
     } else if (form === "curl" || form === "bowling") {
       const elbow = add(pose[side + "s"], [sign * .051, -.239, .054]);
       const amount = ramp(fraction, .16, .4) * (1 - ramp(fraction, .57, .99));
@@ -600,11 +736,66 @@ function lunge(phase, { form = "plain" } = {}) {
   return pose;
 }
 
+function staticLunge(phase) {
+  const amount = cycle(phase, .43, .57);
+  const pose = body([.024, .797 - .279 * amount, .025 + .102 * amount], .067 + .117 * amount);
+  foot(pose, "l", 1, [.146, floor, .383], [.08, .04, .99]);
+  foot(pose, "r", -1, [-.144, .137, -.440], [-.15, .05, .97], [-.016, -.136, .099]);
+  hangingBells(pose);
+  return pose;
+}
+
+function splitSquat(phase, { setting = "floor", form = "plain", mode = "both" } = {}) {
+  const amount = cycle(phase);
+  const rearElevated = setting === "rearBench";
+  const frontElevated = setting === "deadliftStep";
+  const long = form === "long" || form === "low";
+  const offset = rearElevated ? 1.80 : frontElevated ? -1.048 : 0;
+  const x = rearElevated ? .10 : .024;
+  const pos = [x, (frontElevated ? .883 : .807) - (form === "low" ? .310 : .279) * amount,
+    offset + .026 + .098 * amount];
+  const pose = body(pos, .045 + .112 * amount);
+  const front = [x + .146, frontElevated ? .230 : floor, offset + (frontElevated ? .473 : long ? .421 : .372)];
+  const rear = [x - .142, rearElevated ? .505 : .139, rearElevated ? 1.401 : offset + (long ? -.476 : -.415)];
+  foot(pose, "l", 1, front, [.14, .05, .97]);
+  foot(pose, "r", -1, rear, [-.14, -.06, .97],
+    rearElevated ? [-.022, -.064, -.125] : [-.016, -.136, .100]);
+  if (frontElevated) pose.planted.l = .155;
+  if (rearElevated) pose.planted.r = .461;
+  if (form === "goblet" || form === "long") holdGoblet(pose);
+  else hangingBells(pose, { mode });
+  return pose;
+}
+
+function gobletHinge(phase) {
+  const amount = cycle(phase);
+  const pose = body([0, .878 - .077 * amount, .020 - .242 * amount], .028 + 1.057 * amount);
+  for (const [side, sign] of sides) {
+    foot(pose, side, sign, [sign * .141, floor, .067], [sign * .10, .030, .98]);
+  }
+  holdGoblet(pose);
+  return pose;
+}
+
+function sideBend(phase) {
+  const pose = fromSupport("floor");
+  const angle = -.323 * cycle(phase);
+  for (const part of ["chest", "neck", "head", "ls", "rs"]) {
+    const [x, y, z] = subtract(pose[part], pose.hips);
+    pose[part] = add(pose.hips, [x * Math.cos(angle) - y * Math.sin(angle),
+      x * Math.sin(angle) + y * Math.cos(angle), z]);
+  }
+  arm(pose, "l", add(pose.ls, [.075, -.602, .048]), [.36, -.28, -.58], [0, 0, 1]);
+  arm(pose, "r", add(pose.head, [-.091, .025, -.045]), [-.95, .04, -.06]);
+  return pose;
+}
+
 function stepUp(phase, { form = "both-feet" } = {}) {
   const drive = form === "knee-drive";
-  const lead = drive ? 1 : ramp(phase, 0, .19) * (1 - ramp(phase, .79, 1));
-  const climb = ramp(phase, drive ? 0 : .19, .43) * (1 - ramp(phase, .59, drive ? 1 : .79));
-  const trail = drive ? 0 : ramp(phase, .26, .48) * (1 - ramp(phase, .55, .77));
+  const keepLead = drive || form === "fixed-step";
+  const lead = keepLead ? 1 : ramp(phase, 0, .19) * (1 - ramp(phase, .79, 1));
+  const climb = ramp(phase, keepLead ? 0 : .19, .43) * (1 - ramp(phase, .59, keepLead ? 1 : .79));
+  const trail = keepLead ? 0 : ramp(phase, .26, .48) * (1 - ramp(phase, .55, .77));
   const pose = body([0, .883 + .121 * climb - .10 * lead * (1 - climb), .038 + .42 * climb],
     .049 + .264 * lead * (1 - climb));
   for (const [side, sign] of sides) {
@@ -612,12 +803,12 @@ function stepUp(phase, { form = "both-feet" } = {}) {
     const swing = Math.sin(progress * Math.PI);
     const point = [sign * (drive ? .120 : .140), floor + progress * .125 + swing * .16,
       .035 + .45 * progress];
-    if (drive && side === "r") {
-      point[1] = floor + climb * .763;
-      point[2] = .025 + climb * .682;
+    if (keepLead && side === "r") {
+      point[1] = floor + climb * (drive ? .763 : .202);
+      point[2] = .025 + climb * (drive ? .682 : .269);
     }
     if (progress === 1) pose.planted[side] = .125;
-    else if (progress > 0 || (drive && side === "r" && climb > 0)) delete pose.planted[side];
+    else if (progress > 0 || (keepLead && side === "r" && climb > 0)) delete pose.planted[side];
     foot(pose, side, sign, point, [sign * .11, .024, .95]);
   }
   hangingBells(pose);
@@ -640,22 +831,30 @@ function overheadCarry(phase) {
   return pose;
 }
 
-function snatch(phase) {
+function snatch(phase, { fromFloor = false } = {}) {
   const lift = ramp(phase, .17, .52) * (1 - ramp(phase, .65, 1));
   const absorb = ramp(phase, .39, .49) * (1 - ramp(phase, .52, .66));
-  const pose = body([0, .713 + .18 * lift - .052 * absorb, -.101 + .116 * lift], 1.01 - .96 * lift);
+  const pose = body(fromFloor ? [0, .436 + .457 * lift - .052 * absorb, -.166 + .181 * lift]
+    : [0, .713 + .18 * lift - .052 * absorb, -.101 + .116 * lift], 1.01 - .96 * lift);
   for (const [side, sign] of sides) foot(pose, side, sign, [sign * .177, floor, .066], [sign * .18, 0, .98]);
   const reach = [.075, -.604 + 1.202 * lift, .027 + .144 * Math.sin(lift * Math.PI)];
-  arm(pose, "l", add(pose.ls, reach), [.73, .30, -.09], blend([-1, 0, 0], [0, 0, 1], lift));
+  const loadedHand = fromFloor ? blend([.185, .085, .218], add(pose.ls, reach), smooth(lift * 3.4)) : add(pose.ls, reach);
+  arm(pose, "l", loadedHand, [.73, .30, -.09], blend([-1, 0, 0], [0, 0, 1], lift));
   arm(pose, "r", add(pose.rs, [-.146, -.402, -.235 * lift]), [-.79, -.16, .42]);
   return pose;
 }
 
-function hipThrust(phase) {
-  const amount = cycle(phase);
-  const pose = body([.1, .195 + .330 * amount, 1.591 - .072 * amount], -.919 - .583 * amount);
+function hipThrust(phase, { setting = "flat", form = "plain" } = {}) {
+  const ground = setting === "supineMat";
+  const amount = form === "short" ? 1 - .32 * cycle(phase) : cycle(phase);
+  const pose = ground ? body([0, .142 + .280 * amount, .035 - .078 * amount], -Math.PI / 2 - .554 * amount)
+    : body([.1, .195 + .330 * amount, 1.591 - .072 * amount], -.919 - .583 * amount);
   for (const [side, sign] of sides) {
-    foot(pose, side, sign, [.1 + sign * .188, floor, 1.952], [sign * .18, .86, .78]);
+    const lifted = form === "single" && side === "r";
+    const ankle = lifted ? [pose.hips[0] + sign * .159, .464 + .222 * amount, ground ? .477 : 1.879]
+      : ground ? [sign * .177, floor, .518] : [.1 + sign * .188, floor, 1.952];
+    if (lifted) delete pose.planted[side];
+    foot(pose, side, sign, ankle, [sign * .18, .86, .78]);
     arm(pose, side, add(pose.hips, [sign * .100, .110, .055]), [sign * .81, .18, .24]);
     pose[side + "Grip"] = [sign, 0, 0];
   }
@@ -675,8 +874,9 @@ function calfRaise(phase, { setting = "floor", mode = "both", form = "plain" } =
   const pose = body(center, seat ? .077 : (wall ? -.066 : .046));
   const contact = seat ? 1.543 : setting === "stepBrace" ? .047 : .092;
   const base = setting === "seatStep" ? .108 : setting === "stepBrace" ? .155 : 0;
+  const workingLeg = form === "contralateral" ? "r" : "l";
   for (const [side, sign] of sides) {
-    const activeLeg = !(onOne && side === "r");
+    const activeLeg = !onOne || side === workingLeg;
     const ankleGap = setting === "wallBallAnkles" ? .065 : .145;
     const x = center[0] + sign * ankleGap;
     const ankleY = activeLeg ? base + floor + height - (step ? .055 : 0) : seat ? floor + .066 : .358;
@@ -962,6 +1162,212 @@ addGroup("3240", calfRaise, { setting: "wallBallKnees" }, ["calf"]);
 
 addGroup("1274", weightedPushup, { setting: "pushupFloor" }, ["pec", "triceps", "core"]);
 addGroup("0660", weightedPushup, { setting: "pushupFloor", form: "narrow" }, ["triceps", "pec", "core"]);
+
+// Match the selected catalogue illustration's support surface, grip and working side.
+curls("2403", { setting: "armBlaster", mode: "alternate" }, { durationMs: 5600 });
+curls("1196", { mode: "alternate" });
+curls("6147", { grip: "hammer", mode: "alternate" }, { durationMs: 5750 });
+curls("1649", { setting: "ball", form: "leg-raised-straight", mode: "alternate" }, { durationMs: 6200 });
+curls("7625", { setting: "hinge" });
+curls("5921", { setting: "preacher", grip: "hammer" });
+curls("3682", { setting: "incline", mode: "alternate" });
+curls("1233", { setting: "incline", grip: "hammer", mode: "alternate" });
+curls("3764", { setting: "incline" });
+curls("0402", { setting: "preacher" });
+curls("3688", { setting: "upright", grip: "reverse" });
+curls("6265", { grip: "reverse", mode: "alternate" });
+curls("6757", { mode: "single" });
+
+raises("4341", { mode: "alternate" });
+addGroup("3685 2500", raise, { setting: "proneStanding", plane: "rear" }, ["rearShoulder", "trap"]);
+addGroup("3694", raise, { setting: "proneStanding", plane: "rear", mode: "alternate" }, ["rearShoulder", "trap"]);
+raises("9933", { setting: "seat", plane: "lateral", mode: "alternate" });
+raises("3689 6143", { setting: "seat", mode: "single" });
+raises("2234", { plane: "lateral" });
+
+addGroup("0414", shoulderPress, { mode: "alternate" }, ["shoulder", "triceps"],
+  { camera: [52, 12, [0, 1.05, .05], 2.32] });
+addGroup("0388", shoulderPress, { setting: "upright", mode: "alternate", form: "neutral" }, ["shoulder", "triceps"]);
+addGroup("3546", shoulderPress, { setting: "upright", mode: "alternate" }, ["shoulder", "triceps"]);
+addGroup("1231", shoulderPress, { setting: "upright", mode: "single" }, ["l:shoulder", "l:triceps"]);
+addGroup("0404", shoulderPress, { setting: "upright", form: "neutral" }, ["shoulder", "triceps"]);
+addGroup("0427", shoulderPress, { form: "neutral" }, ["shoulder", "triceps"],
+  { camera: [53, 12, [0, 1.06, .05], 2.34] });
+
+presses("3695", { mode: "alternate" });
+presses("4834", { setting: "bridge", mode: "alternate" });
+presses("5097", { setting: "decline", mode: "alternate" });
+presses("5098", { mode: "alternate", form: "fly" });
+presses("3333", { mode: "single", form: "wide" });
+
+addGroup("3799", row, { form: "reverse" }, ["lat", "biceps"]);
+addGroup("5661 9698 3320", row, { setting: "proneStanding" }, ["lat", "biceps"]);
+addGroup("4730", row, { mode: "single" }, ["l:lat", "l:biceps"]);
+addGroup("1330", row, { setting: "proneStanding", mode: "single", form: "reverse", braceFree: true }, ["l:lat", "l:biceps"]);
+addGroup("2511", row, { setting: "proneStanding", form: "reverse" }, ["lat", "biceps"]);
+addGroup("9699", row, { setting: "proneStanding", mode: "single" }, ["l:lat", "l:biceps"]);
+addGroup("0397", wristCurl, { setting: "seat", form: "neutral" }, ["forearm"], { camera: wristCamera });
+addGroup("1555", squat, {}, ["quad", "glute"]);
+addGroup("4293", deadlift, { form: "straight" }, ["hamstring", "glute"]);
+
+curls("3761", { setting: "seat", mode: "alternate" });
+curls("3083", { setting: "seat" });
+curls("1676", { setting: "ball", grip: "hammer", mode: "alternate" });
+curls("1681", { setting: "ball", grip: "hammer" });
+curls("6264", { setting: "proneStanding", grip: "hammer", mode: "alternate" });
+curls("9931", { setting: "proneStanding" });
+curls("0421", { setting: "hinge", mode: "single", form: "standing-concentration" });
+
+raises("3428", {});
+raises("3913", { mode: "single" });
+raises("5944", { mode: "single", grip: "hammer" });
+raises("5092", { mode: "single", grip: "under" });
+raises("1230", { mode: "alternate", grip: "hammer" }, { durationMs: 5400 });
+raises("0387", { setting: "seat", mode: "alternate", grip: "hammer" }, { durationMs: 5400 });
+raises("0415", { plane: "lateral", mode: "alternate" });
+raises("2690", { plane: "lateral", mode: "single" });
+raises("5631", { plane: "lateral", form: "right-angle" });
+raises("4055", { setting: "ball", plane: "lateral" });
+raises("7449", { plane: "front-side" }, { durationMs: 5500 });
+raises("4238", { setting: "seat", plane: "combo" }, { durationMs: 5500 });
+raises("1176 3980 4236", { setting: "proneStanding" });
+raises("4071", { setting: "proneStanding", mode: "single" });
+raises("0325", { setting: "incline" });
+addGroup("4066", raise, { setting: "hingeSeat", plane: "rear", mode: "alternate" }, ["rearShoulder", "trap"]);
+addGroup("4832", raise, { setting: "proneFlat", plane: "rear", form: "rear-facing" }, ["rearShoulder", "trap"]);
+addGroup("7995", raise, { setting: "hinge", plane: "y", grip: "hammer" }, ["rearShoulder", "trap"],
+  { camera: [48, 16, [0, .89, .18], 2.05] });
+
+const standingPressCamera = [52, 12, [0, 1.06, .08], 2.35];
+addGroup("3972", shoulderPress, { mode: "alternate" }, ["shoulder", "triceps"], { camera: standingPressCamera });
+addGroup("4067 4065", shoulderPress, { mode: "alternate", form: "arnold" }, ["shoulder", "triceps"],
+  { camera: standingPressCamera, durationMs: 5600 });
+addGroup("2137 0287 4108", shoulderPress, { form: "arnold" }, ["shoulder", "triceps"], { camera: standingPressCamera });
+addGroup("3690", shoulderPress, { setting: "ball" }, ["shoulder", "triceps", "core"],
+  { camera: [51, 13, [0, .94, .10], 2.08] });
+
+presses("0316", { setting: "incline", form: "fly", startLow: true });
+presses("1280", { setting: "inclineOnBall", mode: "single", form: "fly" });
+presses("1282", { setting: "inclineOnBall", mode: "single", startLow: true });
+presses("1283", { setting: "inclineOnBall", startLow: true });
+presses("1618", { setting: "inclineOnBall", form: "neutral", startLow: true });
+presses("1620", { setting: "inclineOnBall", mode: "single", form: "neutral", startLow: true });
+presses("1621", { setting: "bridge", mode: "single", form: "neutral", startLow: true });
+presses("1622", { mode: "single", form: "reverse", startLow: true });
+presses("4835", { form: "twist-press", startLow: true });
+presses("6218", { setting: "incline", form: "supinated-press", startLow: true });
+presses("4731", { setting: "bridgeMat", startLow: true });
+presses("2982", { setting: "supineMat", mode: "alternate" });
+presses("3319", { setting: "supineMat", form: "neutral", startLow: true });
+presses("5093", { setting: "supineMat", mode: "single", startLow: true });
+presses("3334", { setting: "supineMat", mode: "single", form: "fly" });
+presses("5079", { setting: "supineMat", form: "fly" });
+
+addGroup("2326", row, { form: "overhand" }, ["lat", "biceps"]);
+addGroup("2325", row, { form: "overhand-to-neutral" }, ["lat", "biceps"]);
+addGroup("4235", row, { setting: "hingeSeat", form: "rear" }, ["rearShoulder", "trap"]);
+addGroup("4326", pullover, { setting: "flat", form: "bent", sharedBell: true }, ["lat", "pec"]);
+
+const overheadExtensionCamera = [65, 14, [.1, .91, 1.17], 2.05];
+addGroup("6158 6159", elbowExtension, { setting: "seat", mode: "single" }, ["l:triceps"],
+  { camera: overheadExtensionCamera });
+addGroup("1738", elbowExtension, { setting: "seat", mode: "single", form: "reverse" }, ["l:triceps"],
+  { camera: overheadExtensionCamera });
+addGroup("2189", elbowExtension, { setting: "upright" }, ["triceps"]);
+addGroup("7892", elbowExtension, { setting: "upright", sharedBell: true }, ["triceps"]);
+addGroup("0430", elbowExtension, { sharedBell: true }, ["triceps"], { camera: standingPressCamera });
+addGroup("1729", elbowExtension, { setting: "flat", mode: "alternate", arcDegrees: 78 }, ["triceps"]);
+addGroup("1733", elbowExtension, { setting: "incline", arcDegrees: 78 }, ["triceps"]);
+addGroup("1746", elbowExtension, { setting: "bridge", arcDegrees: 78 }, ["triceps", "core"]);
+
+addGroup("3684", externalRotation, { setting: "sideFloor", mode: "single", sideLying: true }, ["l:rearShoulder"]);
+addGroup("5817", externalRotation, { setting: "flat", mode: "single" }, ["l:rearShoulder"]);
+addGroup("4335", sideBend, { mode: "single" }, ["core"]);
+addGroup("1552", squat, { form: "jump" }, ["quad", "glute", "calf"], { camera: standingPressCamera });
+addGroup("5634", squat, { form: "narrow" }, ["quad", "glute"]);
+addGroup("4290", staticLunge, {}, ["quad", "glute"], { camera: [60, 15, [0, .85, .06], 1.96] });
+addGroup("5119", deadlift, {}, ["hamstring", "glute", "core"]);
+addGroup("4914", deadlift, { grip: "neutral" }, ["hamstring", "glute", "core"]);
+addGroup("3340 3894", deadlift, { form: "straight" }, ["hamstring", "glute"]);
+addGroup("3973", calfRaise, { setting: "stepBrace", mode: "single", form: "contralateral" }, ["r:calf"]);
+addGroup("1178", calfRaise, { setting: "stepBrace", mode: "single" }, ["l:calf"]);
+addGroup("2925 4986", stepUp, { setting: "frontStep", form: "fixed-step" }, ["quad", "glute"]);
+addGroup("4565", stepUp, { setting: "frontStep", form: "knee-drive" }, ["quad", "glute"]);
+
+curls("4910", { form: "isometric" }, { durationMs: 4900 });
+curls("11864", { form: "mid-hold", mode: "single" }, { durationMs: 6500, posterAt: .42 });
+curls("4743", { setting: "incline" });
+curls("3084", { setting: "preacher", mode: "single" });
+curls("3687 5449", { form: "drag" });
+curls("6149", { setting: "seat", form: "drag" });
+curls("0439", { grip: "zottman" }, { durationMs: 4500, posterAt: .56 });
+curls("4110", { setting: "seat", grip: "zottman" }, { durationMs: 4500, posterAt: .56 });
+curls("2294", { setting: "preacher", grip: "zottman" }, { durationMs: 4700, posterAt: .56 });
+curls("1672", { setting: "preacher", grip: "zottman", mode: "single" }, { durationMs: 4700, posterAt: .56 });
+
+raises("6141", { form: "hold" });
+raises("11014", { grip: "under" });
+raises("5819", { plane: "scaption", grip: "thumbs-down" });
+raises("5818", { plane: "scaption", grip: "thumbs-up" });
+addGroup("7252", raise, { setting: "proneStanding", mode: "single", plane: "rear" }, ["l:rearShoulder", "l:trap"],
+  { camera: [-56, 18, [0, .68, .25], 1.88] });
+addGroup("7231", raise, { setting: "proneStanding", mode: "single", plane: "y", grip: "hammer" }, ["l:rearShoulder", "l:trap"],
+  { camera: [-61, 20, [0, .75, .22], 2.01] });
+
+addGroup("5667 6890", shoulderPress, { setting: "zSeat" }, ["shoulder", "triceps", "core"]);
+addGroup("6891", shoulderPress, { setting: "zSeat", mode: "alternate" }, ["shoulder", "triceps", "core"]);
+addGroup("10043", shoulderPress, { setting: "zSeat", mode: "single" }, ["l:shoulder", "l:triceps", "core"]);
+addGroup("4745", shoulderPress, { setting: "tallKneel", form: "arnold" }, ["shoulder", "triceps", "core"]);
+addGroup("11017", shoulderPress, { setting: "tallKneel", mode: "single" }, ["l:shoulder", "l:triceps", "core"]);
+addGroup("11016", shoulderPress, { setting: "halfKneel", mode: "single" }, ["l:shoulder", "l:triceps", "core"]);
+
+presses("1450", { form: "fly", hold: true }, { durationMs: 5900 });
+presses("7994", { setting: "bridgeMat", startLow: true });
+addGroup("2566", pullover, { setting: "supineMat", form: "bent", sharedBell: true }, ["lat", "pec"]);
+addGroup("1444", pullover, { setting: "flat", form: "bent", hold: true, sharedBell: true }, ["lat", "pec"],
+  { durationMs: 5900 });
+addGroup("3693", externalRotation, { setting: "flat", mode: "single" }, ["l:rearShoulder"]);
+addGroup("6148", elbowExtension, { setting: "seat", mode: "alternate" }, ["triceps"],
+  { camera: overheadExtensionCamera });
+addGroup("0330", elbowExtension, { setting: "incline", arcDegrees: 78 }, ["triceps"]);
+addGroup("7879", kickback, { setting: "proneStanding" }, ["triceps"]);
+addGroup("1734", kickback, { setting: "kickbackBall" }, ["triceps"]);
+addGroup("5665", row, { form: "face-pull" }, ["rearShoulder", "trap"]);
+addGroup("6136", row, { form: "scapular" }, ["lat", "trap"]);
+addGroup("6152", snatch, { mode: "single", fromFloor: true }, ["l:shoulder", "glute", "hamstring", "core"],
+  { camera: [57, 12, [0,1.10,.023], 2.40] });
+
+addGroup("4577", shoulderPress, { setting: "halfKneel" }, ["shoulder", "triceps", "core"]);
+addGroup("2913", overheadCarry, { mode: "single" }, ["l:shoulder", "core"],
+  { camera: [47, 12, [0,1.11,.023], 2.38], durationMs: 3100 });
+addGroup("5076", lunge, { form: "overhead" }, ["quad", "glute", "shoulder", "core"],
+  { camera: [54, 13, [0,1.05,.22], 2.38], durationMs: 5700 });
+
+addGroup("4816", gobletSquat, { form: "hold", sharedBell: true }, ["quad", "glute"], { durationMs: 4600 });
+addGroup("4738", gobletSquat, { form: "curl", sharedBell: true }, ["quad", "glute", "biceps"], { durationMs: 6200 });
+addGroup("7469", gobletSquat, { form: "calf", sharedBell: true }, ["quad", "glute", "calf"],
+  { durationMs: 4600, posterAt: .80 });
+addGroup("7547", gobletSquat, { form: "sumo", sharedBell: true }, ["quad", "glute"]);
+addGroup("2323", gobletSquat, { form: "sumo", load: "between" }, ["quad", "glute"]);
+addGroup("0412", gobletSquat, { setting: "wallBall", load: "sides" }, ["quad", "glute"]);
+addGroup("0435", gobletSquat, { setting: "wallBall", form: "sumo", sharedBell: true }, ["quad", "glute"]);
+addGroup("3692", squat, { setting: "benchSquat", form: "bench", sharedBell: true }, ["quad", "glute"]);
+addGroup("7549", splitSquat, { setting: "rearBench", form: "goblet", sharedBell: true }, ["l:quad", "l:glute"]);
+addGroup("1550", splitSquat, { setting: "rearBench" }, ["l:quad", "l:glute"]);
+addGroup("3691 5028", splitSquat, { form: "long", sharedBell: true }, ["l:quad", "l:glute"]);
+addGroup("2956", splitSquat, { setting: "deadliftStep", form: "goblet", sharedBell: true }, ["l:quad", "l:glute"],
+  { camera: [62, 13, [0, .91, -.94], 2.12] });
+addGroup("4048", splitSquat, { mode: "single" }, ["l:quad", "l:glute"]);
+addGroup("6328", splitSquat, { form: "low" }, ["l:quad", "l:glute"]);
+addGroup("6424", gobletHinge, { sharedBell: true }, ["hamstring", "glute"], { camera: [61, 14, [0,.86,.07], 2.06] });
+addGroup("7648", deadlift, { form: "straight", mode: "single", longRearLeg: true }, ["l:hamstring", "l:glute"]);
+addGroup("4751", hipThrust, { setting: "supineMat", sharedBell: true }, ["glute", "hamstring"]);
+addGroup("4291", hipThrust, { setting: "supineMat", form: "single", sharedBell: true }, ["l:glute", "l:hamstring"]);
+const hipThrustCamera = [68, 13, [.1,.54,1.50], 1.57];
+addGroup("5754", hipThrust, { setting: "flat", sharedBell: true }, ["glute", "hamstring"], { camera: hipThrustCamera });
+addGroup("5554", hipThrust, { setting: "flat", form: "short", sharedBell: true }, ["glute", "hamstring"], { camera: hipThrustCamera });
+addGroup("4755 8075", hipThrust, { setting: "flat", form: "single", sharedBell: true }, ["l:glute", "l:hamstring"],
+  { camera: [68, 16, [.1,.62,1.50], 1.65] });
 
 export { add, arm, blend, body, cycle, foot, inactive, joint, ramp, scale, sides };
 

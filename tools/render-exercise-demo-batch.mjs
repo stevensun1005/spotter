@@ -57,8 +57,11 @@ async function makeReviewSheet(frames) {
     .composite(columns.map((input, index) => ({ input, left: index * 264, top: 0 }))).jpeg({ quality: 90 }).toBuffer();
 }
 
-async function checkReceipt(directory, receipt, fingerprint, names) {
+async function checkReceipt(directory, receipt, fingerprint, names, id, kind) {
   if (!receipt || receipt.fingerprint !== fingerprint) throw new Error("Existing output uses a different source. Use a new directory.");
+  if ((receipt.id !== undefined || receipt.kind !== undefined) && (receipt.id !== id || receipt.kind !== kind)) {
+    throw new Error("Existing output belongs to a different exercise or batch kind.");
+  }
   for (const name of names) {
     if (sha(await readFile(join(directory, name))) !== receipt.files?.[name]) throw new Error("Existing output failed its checksum.");
   }
@@ -80,7 +83,7 @@ async function renderItem(job, options) {
   if (await stat(output).catch((error) => {
     if (error.code !== "ENOENT") throw error;
   })) {
-    await checkReceipt(output, await existingReceipt(output), fingerprint, names);
+    await checkReceipt(output, await existingReceipt(output), fingerprint, names, id, options.kind);
     return "cached";
   }
   const stage = await mkdtemp(join(options.output, ".render-"));
@@ -113,7 +116,7 @@ async function renderItem(job, options) {
       await writeFile(join(stage, names[2]), gif);
     }
     const files = Object.fromEntries(await Promise.all(names.map(async (name) => [name, sha(await readFile(join(stage, name)))])));
-    await writeFile(join(stage, "receipt.json"), JSON.stringify({ fingerprint, files }, null, 2) + "\n");
+    await writeFile(join(stage, "receipt.json"), JSON.stringify({ id, kind: options.kind, fingerprint, files }, null, 2) + "\n");
     await rename(stage, output);
     return "rendered";
   } finally {

@@ -158,16 +158,16 @@ function barCable(pose, anchor, center, axis = lateral) {
   pose.cables = [{ anchor, end: center, grip: axis }];
 }
 
-function latPulldown(phase, { grip = "wide", rear = false, under = false, full = false }) {
+function latPulldown(phase, { grip = "wide", rear = false, under = false, full = false, chest = false }) {
   const t = cycle(phase);
   const lean = rear ? .048 : -.13 - t * .066;
   const pose = torso([0, .567, -.017], lean);
   seatFeet(pose, "lat");
-  const z = rear ? -.259 : mix(.236,.263,t);
+  const z = rear ? -.259 : mix(.236,chest ? .157 : .263,t);
   const width = widths[grip];
   const reach = Math.sqrt(.597 ** 2 - (width - .192) ** 2 - (z - pose.ls[2]) ** 2);
   const start = pose.ls[1] + reach + (barDrop[grip] ?? 0);
-  const end = rear ? 1.228 : full ? 1.181 : 1.235;
+  const end = rear ? 1.228 : chest ? 1.109 : full ? 1.181 : 1.235;
   const center = [0, mix(start, end, t), z];
   const poles = { l: [.78, -.76, rear ? -.29 : -.14], r: [-.78, -.76, rear ? -.29 : -.14] };
   barHold(pose, center, grip, poles, under ? "under" : "over");
@@ -223,10 +223,10 @@ function kneelingHighRow(phase) {
   return pose;
 }
 
-function seatedRow(phase, {mode = "row", grip = "straight", anchorY = .27, high = false, under = false, crossover = false}) {
+function seatedRow(phase, {mode = "row", grip = "straight", anchorY = .27, high = false, under = false, crossover = false, steady = false}) {
   const t = cycle(phase);
   const height = mode === "floor-row" ? .165 : mode === "high-row" ? .651 : mode === "seat" ? .565 : .435;
-  const pitch = under ? .126 : mode === "decline-row" ? -.123 : mix(.075,-.026,t);
+  const pitch = steady ? .043 : under ? .126 : mode === "decline-row" ? -.123 : mix(.075,-.026,t);
   const pose = torso([0,height,-.02], pitch);
   seatFeet(pose, mode);
   const start = [0, pose.ls[1] - (high ? .033 : .235), pose.ls[2] + (grip === "wide" ? .45 : .518)];
@@ -246,7 +246,7 @@ function seatedRow(phase, {mode = "row", grip = "straight", anchorY = .27, high 
   return pose;
 }
 
-function standingRow(phase, {grip = "v", twist = false, upright = false, high = false}) {
+function standingRow(phase, {grip = "v", twist = false, upright = false, high = false, anchorHeight = null}) {
   const t = cycle(phase);
   const yaw = twist ? mix(.52,-.13,t) : 0;
   const pose = torso([0,.864,-.019], upright ? .025 : .118, yaw);
@@ -257,44 +257,45 @@ function standingRow(phase, {grip = "v", twist = false, upright = false, high = 
   const axis = [Math.cos(yaw),0,-Math.sin(yaw)];
   const poles = {l:[.87,upright ? .36 : -.66,-.46],r:[-.87,upright ? .36 : -.66,-.46]};
   barHold(pose,center,grip,poles,"over",axis);
-  barCable(pose,[twist ? .864 : 0, high ? 1.161 : .175, twist ? .59 : .977],center,axis);
+  barCable(pose,[twist ? .864 : 0, anchorHeight ?? (high ? 1.161 : .175), twist ? .59 : .977],center,axis);
   return pose;
 }
 
-function oneArmRow(phase, {hinge = false, onKnees = false, turn = false, facePull = false}) {
+function oneArmRow(phase, {hinge = false, onKnees = false, turn = false, facePull = false, kneelingHinge = false, anchorHeight = null, split = false, outwardRotation = false, twist = false, high = false}) {
   const t = cycle(phase);
   const side = facePull ? "l" : "r";
   const sign = side === "l" ? 1 : -1;
-  const yaw = facePull ? -.22 : 0;
-  const pose = torso([0,onKnees ? .481 : hinge ? .797 : .866,-.054], hinge ? 1.005 : .108, yaw);
+  const yaw = facePull ? -.22 : twist ? mix(.028, -.473, t) : 0;
+  const pose = torso([0,onKnees ? .481 : hinge ? .797 : .866,-.054], hinge ? 1.005 : kneelingHinge ? .458 : twist ? -.064 : .108, yaw);
   if (onKnees) kneel(pose);
-  else stance(pose,.163,facePull ? .16 : .042);
+  else stance(pose,.163,facePull || split ? .16 : .042);
   const shoulder = pose[side + "s"];
-  const reach = facePull ? .529 : hinge ? .291 : .527;
+  const reach = facePull ? .529 : hinge ? .291 : high ? .538 : .527;
   let low = facePull ? -.284 : hinge ? -.509 : -.132;
-  if (onKnees) low = -.082;
-  const start = add(shoulder,[sign * .027,low,reach]);
-  const destination = add(shoulder,[sign * (facePull ? .167 : .058),facePull ? -.129 : -.231, -.063]);
+  if (onKnees) low = kneelingHinge ? -.236 : -.082;
+  const start = add(shoulder,[sign * .027,outwardRotation ? -.032 : high ? .184 : low,reach]);
+  const destination = outwardRotation ? add(shoulder, [sign * .244, .158, .129])
+    : add(shoulder,[sign * (facePull ? .167 : .058),high ? -.038 : facePull ? -.129 : -.231, high ? .104 : -.063]);
   const grasp = blend(start,destination,t);
-  const grip = turn ? [Math.cos(t*Math.PI),Math.sin(t*Math.PI),0] : facePull ? lateral : vertical;
-  arm(pose,side,grasp,[sign * .72, -.35, -.89],grip);
+  const grip = turn ? [Math.cos(t*Math.PI),Math.sin(t*Math.PI),0] : facePull ? (outwardRotation ? unit([1,-.15*t,.27*t]) : lateral) : vertical;
+  arm(pose,side,grasp,[sign * .72, outwardRotation ? .21 : -.35, -.89],grip);
   restingArm(pose,side === "r" ? "l" : "r",-sign);
-  const anchor = [0, onKnees ? 1.062 : turn ? 1.075 : .239, hinge ? 1.17 : 1.081];
+  const anchor = [0, anchorHeight ?? (onKnees ? 1.062 : turn ? 1.075 : .239), hinge ? 1.17 : 1.081];
   singleCable(pose,anchor,side,grip);
   return pose;
 }
 
-function ropeFaceRow(phase, {kneeling = false, low = false, chest = false}) {
+function ropeFaceRow(phase, {kneeling = false, low = false, chest = false, under = false, anchorHeight = null} = {}) {
   const t = cycle(phase);
   const pose = torso([0,kneeling ? .485 : .876,-.053], kneeling ? -.03 : .018);
   if (kneeling) kneel(pose);
   else stance(pose,.159,.049);
   const shoulder = pose.ls;
-  const anchor = [0,kneeling ? 1.05 : low ? .947 : 1.31,1.142];
+  const anchor = [0,anchorHeight ?? (kneeling ? 1.05 : low ? .947 : 1.31),1.142];
   for (const [side, sign] of sides) {
     const start = [sign * .104,shoulder[1] - (low ? .177 : .066),shoulder[2] + .562];
     const end = [sign * (chest ? .208 : .248),shoulder[1] + (chest ? -.112 : .108),shoulder[2] + .108];
-    arm(pose,side,blend(start,end,t),[sign * .97,.08,-.89]);
+    arm(pose,side,blend(start,end,t),[sign * .97,.08,-.89],undefined,under ? handFacing.under : undefined);
   }
   ropeCable(pose,anchor);
   return pose;
@@ -337,7 +338,7 @@ function cableRaise(phase, {single = false, hinge = false, lateralRaise = false}
 
 function bicepsCurl(phase, variant = {}) {
   const {grip = "straight", single = false, reverse = false, drag = false,
-    position = "stand", rope = false} = variant;
+    position = "stand", rope = false, elbowOut = .035} = variant;
   const t = cycle(phase);
   const seated = position === "seat";
   const squat = position === "squat";
@@ -352,7 +353,7 @@ function bicepsCurl(phase, variant = {}) {
       restingArm(pose,side,sign);
       continue;
     }
-    const elbow = add(pose[side + "s"],[sign * .035,-.243,seated ? .114 : drag ? -.167 * t : -.005]);
+    const elbow = add(pose[side + "s"],[sign * elbowOut,-.243,seated ? .114 : drag ? -.167 * t : -.005]);
     const wrist = add(elbow,scale(direction,.370));
     const width = single || rope ? Math.abs(wrist[0]) : widths[grip];
     arm(pose,side,[sign * width,wrist[1],wrist[2]],sub(elbow,pose[side + "s"]),
@@ -479,9 +480,9 @@ function kneelingConcentrationExtension(phase) {
   return pose;
 }
 
-function hingeWithCable(phase, pullThrough = false) {
+function hingeWithCable(phase, pullThrough = false, straightLegs = false) {
   const t = cycle(phase);
-  const pose = torso([0,mix(.753,.889,t),mix(-.235,-.025,t)],mix(1.113,.021,t));
+  const pose = torso([0,mix(straightLegs ? .834 : .753,.889,t),mix(straightLegs ? -.143 : -.235,-.025,t)],mix(1.113,.021,t));
   stance(pose,pullThrough?.243:.17,0,.101);
   for (const [side,sign] of sides) {
     const low = pullThrough ? [sign * .09,.452,.012] : [sign * .264,.41,.335];
@@ -594,17 +595,21 @@ function lyingBench(variant) {
 
 function pressWithCables(phase, variant) {
   const t = cycle(phase);
-  const seated = variant==="seat";
-  const incl = variant==="incline";
-  const pose = seated ? torso([0,.573,-.012],-.031): lyingBench(variant);
+  const seated = variant === "seat";
+  const standing = variant.startsWith("stand");
+  const upright = seated || standing;
+  const narrow = variant === "stand-narrow";
+  const incl = variant === "incline";
+  const pose = standing ? torso([0,.846,.026],.179) : seated ? torso([0,.573,-.012],-.031) : lyingBench(variant);
   if (seated) seatFeet(pose);
+  if (standing) stance(pose,.159,.239);
   for (const [side,sign] of sides) {
     const shoulder = pose[side+"s"];
-    const start = add(shoulder,[sign*.161,seated?-.058:.108,seated?.166:incl?.126:.067]);
-    const end = add(shoulder,[-sign*.064,seated?.021:incl?.447:.591,seated?.593:incl?.378:.125]);
-    arm(pose,side,blend(start,end,t),[sign*.88,seated?-.53:-.98,seated?-.52:.04],lateral,handFacing.over);
+    const start = add(shoulder,[sign*(narrow ? -.050 : .161),upright?-.058:.108,upright?.166:incl?.126:.067]);
+    const end = add(shoulder,[-sign*(narrow ? .115 : .064),upright?.021:incl?.447:.591,upright?.593:incl?.378:.125]);
+    arm(pose,side,blend(start,end,t),[sign*(narrow ? .21 : .88),upright?-.53:-.98,upright?-.52:.04],lateral,handFacing.over);
   }
-  dualCable(pose,[[.761,seated?1.020:.20,seated?-.438:-.34],[-.761,seated?1.020:.20,seated?-.438:-.34]]);
+  dualCable(pose,[[.761,standing?1.288:seated?1.020:.20,upright?-.438:-.34],[-.761,standing?1.288:seated?1.020:.20,upright?-.438:-.34]]);
   return pose;
 }
 
@@ -614,11 +619,12 @@ function crossCableFly(phase, mode) {
   const low = mode === "low";
   const crossed = low || mode === "upright";
   const seated = mode === "seated-reverse";
+  const neutralGrip = mode === "neutral";
   const ball = mode === "ball";
   const one = ball;
   const pose = torso([0,seated?.566:ball?.601:.877,-.018],mode==="middle"?.235:.052);
   if (seated || ball) seatFeet(pose);
-  else stance(pose,.173,mode==="middle"?.14:.06,.03);
+  else stance(pose, .173, (mode === "middle" || neutralGrip) ? .14 : .06, .03);
   if (ball) pose.ballCenter = [0,.285,-.037];
   for (const [side,sign] of sides) {
     if (ball && side === "l") {
@@ -631,7 +637,7 @@ function crossCableFly(phase, mode) {
     const open = reverse || seated ? t : 1-t;
     const direction = blend(unit(sub(to,shoulder)),unit(sub(from,shoulder)),open);
     arm(pose,side,add(shoulder,scale(unit(direction),low?.571:.587)),
-      [sign*.353,-.710,-.414],ball ? vertical : lateral,handFacing.over);
+      [sign*.353,-.710,-.414],ball || neutralGrip ? vertical : lateral,handFacing.over);
   }
   if (ball) singleCable(pose,[-.978,1.051,-.043],"r");
   else {
@@ -748,6 +754,302 @@ function cableTuck(phase) {
   return pose;
 }
 
+function floorRopeRow(phase) {
+  const t = cycle(phase);
+  const pose = torso([0, .139, -.028], mix(.078, .006, t));
+  for (const [side, sign] of sides) {
+    leg(pose, side, sign, [sign * .156, .07, .786], [sign * .11, .98, .06]);
+    const hand = [sign * mix(.106, .213, t), mix(.466, .512, t), mix(.552, .186, t)];
+    arm(pose, side, hand, [sign * .49, -.30, -.80]);
+  }
+  ropeCable(pose, [0, .163, 1.28]);
+  return pose;
+}
+
+function rearAnchorFrontRaise(phase, single = false, neutral = false) {
+  const t = cycle(phase);
+  const angle = mix(.05, Math.PI / 2, t);
+  const pose = torso([0, .875, .03], .019);
+  stance(pose, .176, .025);
+  for (const [side, sign] of sides) {
+    if (single && side === "l") {
+      restingArm(pose, side, sign);
+      continue;
+    }
+    const shoulder = pose[side + "s"];
+    const hand = [sign * (single ? .228 : mix(.119, .177, t)),
+      shoulder[1] - .591 * Math.cos(angle), shoulder[2] + .589 * Math.sin(angle)];
+    const grip = neutral ? unit([0, Math.cos(angle), Math.sin(angle)]) : lateral;
+    arm(pose, side, hand, [sign * .31, -.85, .17], grip, neutral ? undefined : handFacing.over);
+  }
+  if (single) singleCable(pose, [-.276, .164, -.912], "r", pose.rGrip);
+  else ropeCable(pose, [0, .162, -.942]);
+  return pose;
+}
+
+function oneArmPushdown(phase, { sideOn = false, stagger = .041, handOnHip = false } = {}) {
+  const t = cycle(phase);
+  const pose = torso([0, .873, -.042], .098);
+  stance(pose, .162, stagger);
+  if (handOnHip) arm(pose, "l", [.178, .918, -.019], [.95, -.284, -.162], vertical);
+  else restingArm(pose, "l", 1);
+  const elbow = add(pose.rs, [-.027, -.242, .041]);
+  const angle = mix(1.86, .086, t);
+  wristFromElbow(pose, "r", elbow, [0, -Math.cos(angle), Math.sin(angle)], lateral, handFacing.over);
+  singleCable(pose, sideOn ? [-.941, 2.047, .149] : [-.191, 2.047, .863], "r", lateral);
+  return pose;
+}
+
+function lyingRopeExtension(phase, { bar = false, start = -1.46 } = {}) {
+  const t = cycle(phase);
+  const angle = mix(start, .093, t);
+  const pose = lyingBench("flat");
+  for (const [side, sign] of sides) {
+    const elbow = add(pose[side + "s"], [sign * (bar ? -.016 : .011), .243, -.055]);
+    wristFromElbow(pose, side, elbow, [bar ? 0 : sign * mix(.012, .165, t), Math.cos(angle), Math.sin(angle)], lateral, handFacing.over);
+  }
+  const anchor = [0, .17, -1.406];
+  if (bar) barCable(pose, anchor, midpoint(pose.lw, pose.rw));
+  else ropeCable(pose, anchor);
+  return pose;
+}
+
+function seatedRopeFacePull(phase) {
+  const t = cycle(phase);
+  const pose = torso([0, .565, -.03], -.031);
+  seatFeet(pose);
+  for (const [side, sign] of sides) {
+    const shoulder = pose[side + "s"];
+    const hand = [sign * mix(.104, .241, t), shoulder[1] + mix(-.030, .142, t),
+      shoulder[2] + mix(.558, .107, t)];
+    arm(pose, side, hand, [sign * .92, .065, -.84]);
+  }
+  ropeCable(pose, [0, 1.171, 1.169]);
+  return pose;
+}
+
+function cableDeclineFly(phase, cross = false) {
+  const t = cycle(phase);
+  const pose = torso([0, .865, .018], .097);
+  stance(pose, .172, .102);
+  for (const [side, sign] of sides) {
+    const shoulder = pose[side + "s"];
+    const open = [sign * .981, .064, -.184];
+    const closed = [-sign * (cross ? .427 : .286), cross ? -.482 : -.534, .796];
+    const hand = add(shoulder, scale(unit(blend(open, closed, t)), .575));
+    if (cross) hand[1] += sign * .039 * t;
+    arm(pose, side, hand, [sign * .39, -.89, -.08], vertical, handFacing.over);
+  }
+  dualCable(pose, [[.983, 1.986, -.421], [-.983, 1.986, -.421]]);
+  return pose;
+}
+
+function lowReverseCableFly(phase) {
+  const t = cycle(phase);
+  const pose = torso([0, .810, -.015], .934);
+  stance(pose, .195);
+  for (const [side, sign] of sides) {
+    const shoulder = pose[side + "s"];
+    const open = [sign * .981, .036, -.172];
+    const closed = [-sign * .358, -.927, .113];
+    const hand = add(shoulder, scale(unit(blend(closed, open, t)), .568));
+    arm(pose, side, hand, [sign * .48, -.69, .42], vertical);
+  }
+  dualCable(pose, [[-.898, .169, .501], [.898, .169, .501]]);
+  return pose;
+}
+
+function directionalSinglePull(phase, position, towardHip = false) {
+  const t = cycle(phase);
+  const pose = torso([0, position === "seat" ? .567 : position === "kneel" ? .485 : .875, -.025], -.069);
+  if (position === "seat") seatFeet(pose, "lat");
+  else if (position === "kneel") kneel(pose);
+  else stance(pose, .167, .072);
+  const shoulder = pose.rs;
+  const highRow = position === "stand";
+  const start = add(shoulder, [-.073, highRow ? .25 : .519, highRow ? .516 : .318]);
+  const end = add(shoulder, [-.084, towardHip ? -.173 : -.074, .155]);
+  arm(pose, "r", blend(start, end, t), [-.61, -.96, -.24], lateral);
+  restingArm(pose, "l", 1);
+  singleCable(pose, [-.21, highRow ? 1.923 : 2.245, highRow ? 1.13 : .799], "r", lateral);
+  return pose;
+}
+
+function dualCableFrontRaise(phase) {
+  const t = cycle(phase);
+  const pose = torso([0, .879, .073], .027);
+  stance(pose, .164, .043);
+  const angle = mix(-.078, Math.PI / 2, t);
+  for (const [side, sign] of sides) {
+    const hand = add(pose[side + "s"], [sign * mix(.045, -.019, t), -.588 * Math.cos(angle), .59 * Math.sin(angle)]);
+    arm(pose, side, hand, [sign * .28, -.82, .18], lateral, handFacing.over);
+  }
+  dualCable(pose, [[.721, .173, -.891], [-.721, .173, -.891]]);
+  return pose;
+}
+
+function floorCableCurl(phase, towardMachine) {
+  const t = cycle(phase);
+  const pose = torso([0, .141, .025], -Math.PI / 2);
+  for (const [side, sign] of sides) {
+    leg(pose, side, sign, [sign * .135, .066, .681], [sign * .087, .91, .045]);
+    const shoulder = pose[side + "s"];
+    const elbow = add(shoulder, [sign * -.016, towardMachine ? .112 : .129, towardMachine ? .209 : -.194]);
+    const angle = towardMachine ? mix(.067, 2.36, t) : mix(.049, 1.835, t);
+    wristFromElbow(pose, side, elbow, [0, Math.sin(angle), (towardMachine ? 1 : -1) * Math.cos(angle)], lateral, handFacing.under);
+  }
+  barCable(pose,[0, .181, towardMachine ? 1.221 : -1.382],midpoint(pose.lw,pose.rw));
+  return pose;
+}
+
+function bentCableRow(phase, grip) {
+  const t = cycle(phase);
+  const pose = torso([0, .796, -.078], 1.27);
+  stance(pose, .174, .025);
+  const center = blend([0, .517, .668], [0, .802, .304], t);
+  const anchor = [0, .183, 1.168];
+  const poles = {l: [.78, -.04, -.96], r: [-.78, -.04, -.96]};
+  if (grip === "rope") {
+    for (const [side, sign] of sides) {
+      arm(pose, side, add(center, [sign * mix(.106, .219, t), .037 * t, 0]), poles[side]);
+    }
+    ropeCable(pose, anchor);
+  } else {
+    barHold(pose, center, "medium", poles, grip === "under" ? "under" : "over");
+    barCable(pose, anchor, center);
+  }
+  return pose;
+}
+
+function sideOverheadArms(phase, movement) {
+  const t = cycle(phase);
+  const seated = movement === "seated-curl";
+  const extend = movement === "extension";
+  const pose = torso([0, seated ? .565 : .877, -.035], .021);
+  if (seated) seatFeet(pose);
+  else stance(pose, .163, .062);
+  const cables = [];
+  for (const [side, sign] of sides) {
+    const shoulder = pose[side + "s"];
+    const elbow = add(shoulder, [sign * (extend ? .201 : .243), extend ? .142 : .043, .018]);
+    const angle = extend ? mix(2.29, .63, t) : mix(.155, 2.72, t);
+    const direction = [sign * Math.cos(angle), Math.sin(angle), extend ? -.051 : .138 * t];
+    const grip = [0, 0, 1];
+    wristFromElbow(pose, side, elbow, direction, grip, extend ? handFacing.over : handFacing.under);
+    cables.push({anchor: [sign * .974, extend ? 1.168 : shoulder[1] + .168, .079], end: pose[side + "w"], grip});
+  }
+  pose.cables = cables;
+  return pose;
+}
+
+function kneelingOverheadExtension(phase) {
+  const t = cycle(phase);
+  const pose = torso([0, .345, -.115], .145);
+  kneel(pose);
+  const angle = mix(-1.46, .328, t);
+  for (const [side, sign] of sides) {
+    const elbow = add(pose[side + "s"], [sign * -.016, .235, .075]);
+    wristFromElbow(pose, side, elbow, [0, Math.cos(angle), Math.sin(angle)], lateral, handFacing.over);
+  }
+  barCable(pose, [0,.18,-.941], midpoint(pose.lw, pose.rw));
+  return pose;
+}
+
+function wideScapularPulldown(phase) {
+  const t = cycle(phase);
+  const pose = torso([0,.567,-.017], -.081);
+  seatFeet(pose,"lat");
+  for (const [side] of sides) pose[side+"s"][1] -= .051*t;
+  const center = [0, mix(1.572,1.521,t), .214];
+  barHold(pose,center,"wide",{l:[.34,-.21,-.88],r:[-.34,-.21,-.88]});
+  barCable(pose,[0,2.267,.249],center);
+  return pose;
+}
+
+function shoulderRotation(phase, { external = false, raised = false, floor = false } = {}) {
+  const t = cycle(phase);
+  const pose = torso([0, floor ? .139 : .876, -.025], .035);
+  if (floor) {
+    for (const [side, sign] of sides) leg(pose, side, sign, [sign*.123,.070,.796], [sign*.07,.96,.009]);
+  } else stance(pose, .155);
+  const side = "r";
+  const shoulder = pose.rs;
+  const elbow = add(shoulder, raised ? [-.244, -.023, .003] : [-.038, -.243, .024]);
+  const angle = external ? mix(.05, 1.48, t) : mix(1.31, -.95, t);
+  const direction = raised ? [0, Math.sin(angle), Math.cos(angle)] : [-Math.sin(angle), .014, Math.cos(angle)];
+  const grip = raised ? unit([0, Math.cos(angle), -Math.sin(angle)]) : vertical;
+  wristFromElbow(pose, side, elbow, direction, grip);
+  if (floor) arm(pose,"l",[.189,.167,.30],[.43,-.92,-.25]);
+  else restingArm(pose, "l", 1);
+  const anchor = raised && !external ? [-.49, elbow[1], -.96] : [external ? .939 : -.938, elbow[1], .167];
+  singleCable(pose, anchor, side, grip);
+  return pose;
+}
+
+function highRopeCurl(phase) {
+  const t = cycle(phase);
+  const pose = torso([0, .866, -.018], .029);
+  stance(pose, .16, .181);
+  const angle = mix(.647, 2.675, t);
+  for (const [side, sign] of sides) {
+    const elbow = add(pose[side + "s"], [sign*.085, .118, .203]);
+    wristFromElbow(pose, side, elbow, [sign*.08, Math.sin(angle), Math.cos(angle)], lateral, handFacing.under);
+  }
+  ropeCable(pose, [0,2.16,1.091]);
+  return pose;
+}
+
+function cableScapula(phase, mode) {
+  const t = cycle(phase, .37, .61);
+  const high = mode === "high";
+  const low = mode === "low";
+  const standing = high || low;
+  const shrug = mode === "seated-shrug";
+  const pose = torso([0, standing ? .872 : shrug ? .567 : .435, -.018], low ? .198 : .018);
+  if (standing) stance(pose, .155, .051);
+  else seatFeet(pose, shrug ? "seat" : "row");
+  for (const [side, sign] of sides) {
+    if (standing && side === "l") {
+      restingArm(pose, side, sign);
+      continue;
+    }
+    const shoulder = pose[side + "s"];
+    shoulder[1] += (high ? -.059 : shrug ? .063 : .018) * t;
+    shoulder[2] -= (high ? .043 : .081) * t;
+    const direction = unit([0, high ? .64 : low ? -.44 : -.285, 1]);
+    const wrist = add(shoulder, scale(direction, .603));
+    arm(pose, side, wrist, [sign * .47, -.49, -.75], standing || shrug ? vertical : lateral);
+  }
+  if (standing) singleCable(pose, [-.217, high ? 1.985 : .174, 1.103], "r");
+  else if (shrug) dualCable(pose, [[.242,.186,1.126],[-.242,.186,1.126]]);
+  else barCable(pose, [0,.187,1.095], midpoint(pose.lw,pose.rw));
+  return pose;
+}
+
+function alternatingLowFly(phase) {
+  const pose = torso([0,.866,-.017], .134);
+  stance(pose,.165,.171);
+  for (const [side, sign] of sides) {
+    const t = alternating(phase, sign);
+    const shoulder = pose[side+"s"];
+    const direction = unit(blend([sign*.76,-.724,-.058], [-sign*.34,.078,.96], t));
+    arm(pose, side, add(shoulder,scale(direction,.588)), [sign*.40,-.72,-.39],vertical);
+  }
+  dualCable(pose, [[.903,.172,-.466],[-.903,.172,-.466]]);
+  return pose;
+}
+
+function oneArmCableFly(phase) {
+  const t = cycle(phase);
+  const pose = torso([0,.862,.029], .046, -.11);
+  stance(pose, .155, -.187);
+  const direction = unit(blend([-.873,-.038,-.28],[.62,-.097,.83],t));
+  arm(pose,"r",add(pose.rs,scale(direction,.571)),[-.26,-.98,-.10],vertical);
+  restingArm(pose,"l",1);
+  singleCable(pose,[-.97,1.336,-.241],"r");
+  return pose;
+}
+
 const standingCamera = { yaw: 63, elevation: 12, focus: [0, .96, .27], height: 2.25 };
 const rowCamera = { yaw: 61, elevation: 12, focus: [0, .86, .49], height: 2.28 };
 const latCamera = { yaw: 59, elevation: 11, focus: [0, 1.14, .35], height: 2.65 };
@@ -856,6 +1158,87 @@ const jobs = [
   ["0210","cable-seated-short-bar",reverseWristCurl,["forearm"],{...standingCamera,yaw:55}],
   ["0220","cable-medium-bar",cableShrug,["trap"],{...standingCamera,yaw:43}],
   ["0242","cable-ankle-tuck",cableTuck,["core"],{...standingCamera,yaw:71,focus:[0,.61,.26]}],
+  ["6032","cable-row-v",(p) => seatedRow(p,{grip:"v",anchorY:.171}),latMuscles,{...rowCamera,yaw:43}],
+  ["2661","cable-row-v",(p) => seatedRow(p,{grip:"v"}),latMuscles,{...rowCamera,yaw:54}],
+  ["3357","rope",floorRopeRow,latMuscles,{...rowCamera,yaw:63,focus:[0,.78,.60],height:2.28}],
+  ["0206","cable-straight-bar",(p) => bicepsCurl(p,{reverse:true}),["forearm","biceps"],{...standingCamera,yaw:40}],
+  ["6543","rope",rearAnchorFrontRaise,["shoulder"],{...standingCamera,yaw:-64,focus:[0,.96,-.29],height:2.58}],
+  ["2689","cable",(p) => rearAnchorFrontRaise(p,true),["r:shoulder"],{...standingCamera,yaw:-55,focus:[0,.96,-.25],height:2.54}],
+  ["1723","cable",oneArmPushdown,["r:triceps"],{...standingCamera,yaw:55,height:2.48}],
+  ["4353","cable-flat-bench-rope",lyingRopeExtension,["triceps"],{...rowCamera,yaw:-58,focus:[0,.84,-.42],height:2.47}],
+  ["5658","cable-seated-rope",seatedRopeFacePull,["rearShoulder","trap"],{...rowCamera,yaw:55,focus:[0,.9,.47]}],
+  ["7583","cable-lat-neutral",(p) => latPulldown(p,{grip:"v",chest:true}),latMuscles,{...latCamera,yaw:46}],
+  ["10503","cable-lat-narrow",(p) => latPulldown(p,{grip:"narrow",under:true,chest:true}),latMuscles,{...latCamera,yaw:54}],
+  ["5123","cable-lat-medium",(p) => latPulldown(p,{grip:"medium",under:true,chest:true}),latMuscles,{...latCamera,yaw:65}],
+  ["3912","cable",(p) => cableRaise(p,{single:true,hinge:true,lateralRaise:true}),["r:shoulder","r:rearShoulder"],{...standingCamera,yaw:-20,focus:[.03,.99,.16],height:2.47}],
+  ["0154","dual-cable",lowReverseCableFly,["rearShoulder","trap"],{...standingCamera,yaw:34,height:2.49}],
+  ["0158","dual-cable",cableDeclineFly,["pec"],{...standingCamera,yaw:32,focus:[0,.99,-.17],height:2.58}],
+  ["0155","dual-cable",(p) => cableDeclineFly(p,true),["pec"],{...standingCamera,yaw:24,focus:[0,.98,-.17],height:2.62}],
+  ["0163","cable-row-bar",(p) => seatedRow(p,{steady:true}),latMuscles,{...rowCamera,yaw:49}],
+  ["0166","rope",(p) => bicepsCurl(p,{rope:true}),["biceps","forearm"],{...standingCamera,yaw:52}],
+  ["0181","cable-short-bar",(p) => floorCableCurl(p,true),["biceps"],{...rowCamera,yaw:61,focus:[0,.84,.37],height:2.53}],
+  ["0183","cable-mat-short",(p) => floorCableCurl(p,false),["biceps"],{...rowCamera,yaw:-62,focus:[0,.84,-.26],height:2.55}],
+  ["0186","cable-flat-bench-rope",(p) => lyingRopeExtension(p,{start:-1.39}),["triceps"],{...rowCamera,yaw:69,focus:[0,.84,-.42],height:2.48}],
+  ["0187","cable-flat-bench-short",(p) => lyingRopeExtension(p,{bar:true}),["triceps"],{...rowCamera,yaw:61,focus:[0,.84,-.44],height:2.48}],
+  ["1046","cable-medium-bar",(p) => standingRow(p,{grip:"medium",high:true,anchorHeight:1.612}),["rearShoulder","lat"],{...standingCamera,yaw:56}],
+  ["1204","cable-seated",(p) => directionalSinglePull(p,"seat",true),["r:lat","r:biceps"],{...latCamera,yaw:-48}],
+  ["1609","cable",(p) => oneArmPushdown(p,{sideOn:true}),["r:triceps"],{...standingCamera,yaw:27,focus:[-.31,.99,.16],height:2.48}],
+  ["2515","dual-cable",dualCableFrontRaise,["shoulder"],{...standingCamera,yaw:46,focus:[0,.99,-.26],height:2.68}],
+  ["2656","cable",(p) => bicepsCurl(p,{single:true}),["r:biceps"],{...standingCamera,yaw:-58}],
+  ["3233","cable-row-bar",(p) => seatedRow(p,{under:true,steady:true}),latMuscles,{...rowCamera,yaw:71}],
+  ["4391","cable-row-rope",(p) => seatedRow(p,{grip:"rope",steady:true,anchorY:.177}),latMuscles,{...rowCamera,yaw:49}],
+  ["4948","cable",(p) => directionalSinglePull(p,"kneel"),["r:lat","r:biceps"],{...latCamera,yaw:-48,height:2.62}],
+  ["5243","cable-flat-bench-short",(p) => lyingRopeExtension(p,{bar:true,start:-1.35}),["triceps"],{...rowCamera,yaw:-64,focus:[0,.84,-.42],height:2.48}],
+  ["5369","cable",(p) => oneArmRow(p,{onKnees:true}),["r:lat","r:biceps"],{...standingCamera,yaw:-62}],
+  ["5581","cable",(p) => directionalSinglePull(p,"kneel",true),["r:lat","r:biceps"],{...latCamera,yaw:51,height:2.62}],
+  ["6510","cable",(p) => directionalSinglePull(p,"stand"),["r:lat","r:rearShoulder"],{...standingCamera,yaw:-64,height:2.49}],
+  ["8901","cable",(p) => cableRaise(p,{single:true,lateralRaise:true}),["r:shoulder"],{...standingCamera,yaw:27,height:2.48}],
+  ["1203","cable",(p) => bicepsCurl(p,{single:true,elbowOut:.082}),["r:biceps"],{...standingCamera,yaw:-45}],
+  ["1636","dual-cable",(p) => sideOverheadArms(p,"standing-curl"),["biceps"],{...standingCamera,yaw:21,focus:[0,.99,.05],height:2.61}],
+  ["1643","cable-seated-dual",(p) => sideOverheadArms(p,"seated-curl"),["biceps"],{...standingCamera,yaw:22,focus:[0,.98,.05],height:2.57}],
+  ["1859","cable-short-bar",kneelingOverheadExtension,["triceps"],{...standingCamera,yaw:-62,focus:[0,.93,-.26],height:2.51}],
+  ["3859","cable-medium-bar",(p) => bentCableRow(p,"over"),latMuscles,{...standingCamera,yaw:66}],
+  ["4367","cable-medium-bar",(p) => bentCableRow(p,"under"),latMuscles,{...standingCamera,yaw:55}],
+  ["4368","rope",(p) => bentCableRow(p,"rope"),["lat","rearShoulder"],{...standingCamera,yaw:63}],
+  ["4960","dual-cable",(p) => sideOverheadArms(p,"extension"),["triceps"],{...standingCamera,yaw:21,focus:[0,1.06,.05],height:2.68}],
+  ["5518","cable",(p) => oneArmRow(p,{onKnees:true,kneelingHinge:true,anchorHeight:.178}),["r:lat","r:biceps"],{...standingCamera,yaw:-63,focus:[0,.92,.34],height:2.46}],
+  ["7155","cable-lat-wide",wideScapularPulldown,["lat","trap"],{...latCamera,yaw:49}],
+  ["10667","cable",(p) => oneArmRow(p,{onKnees:true,anchorHeight:.924}),["r:lat","r:biceps"],{...standingCamera,yaw:-50,focus:[0,.94,.34],height:2.48}],
+  ["0216","cable",(p) => shoulderRotation(p,{floor:true}),["r:shoulder"],{...rowCamera,yaw:-25,focus:[-.18,.98,.23],height:2.5}],
+  ["0227","dual-cable",(p) => cableDeclineFly(p),["pec"],{...standingCamera,yaw:39,focus:[0,1.01,-.12],height:2.60}],
+  ["0235","cable",(p) => shoulderRotation(p,{external:true}),["r:rearShoulder"],{...standingCamera,yaw:-34,focus:[.22,.96,.14]}],
+  ["1227","cable",(p) => oneArmPushdown(p,{stagger:.095}),["r:triceps"],{...standingCamera,yaw:-45,height:2.5}],
+  ["2954","cable-straight-bar",(p) => bicepsCurl(p,{reverse:true}),["forearm","biceps"],{...standingCamera,yaw:56}],
+  ["3068","rope",highRopeCurl,["biceps"],{...standingCamera,yaw:59,height:2.53}],
+  ["3359","dual-cable",(p) => pressWithCables(p,"stand"),["pec","triceps"],{...standingCamera,yaw:29,focus:[0,.97,-.12],height:2.58}],
+  ["3363","dual-cable",(p) => pressWithCables(p,"stand-narrow"),["pec","triceps"],{...standingCamera,yaw:25,focus:[0,.97,-.12],height:2.58}],
+  ["4355","cable-v-press-bar",(p) => tricepsPushdown(p,"pressV"),["triceps"],{...standingCamera,yaw:58,height:2.44}],
+  ["5087","cable",(p) => shoulderRotation(p,{external:true,raised:true}),["r:rearShoulder"],{...standingCamera,yaw:25,focus:[.12,1.06,.14]}],
+  ["5088","cable",(p) => shoulderRotation(p),["r:shoulder"],{...standingCamera,yaw:-24,focus:[-.18,1.04,.14]}],
+  ["5089","cable",(p) => shoulderRotation(p,{raised:true}),["r:shoulder"],{...standingCamera,yaw:-32,focus:[-.12,1.03,-.18],height:2.42}],
+  ["5090","cable-medium-bar",(p) => standingRow(p,{grip:"medium",anchorHeight:1.258}),latMuscles,{...standingCamera,yaw:58}],
+  ["5179","cable-v-bar",(p) => standingRow(p,{anchorHeight:1.233}),latMuscles,{...standingCamera,yaw:45}],
+  ["5524","cable",(p) => oneArmRow(p,{facePull:true,anchorHeight:1.29,outwardRotation:true}),["l:rearShoulder","l:lat"],{...standingCamera,yaw:-42}],
+  ["5656","rope",(p) => ropeFaceRow(p,{anchorHeight:1.634}),["rearShoulder","trap"],{...standingCamera,yaw:50}],
+  ["7416","dual-cable",(p) => crossCableFly(p,"neutral"),["pec"],{...standingCamera,yaw:24,focus:[0,.98,-.17],height:2.63}],
+  ["7564","cable",(p) => oneArmRow(p,{split:true}),["r:lat","r:biceps"],{...standingCamera,yaw:-57}],
+  ["7744","rope",(p) => ropeFaceRow(p,{under:true,anchorHeight:1.562}),["rearShoulder","trap"],{...standingCamera,yaw:48}],
+  ["11261","rope",(p) => bicepsCurl(p,{rope:true}),["biceps","forearm"],{...standingCamera,yaw:63}],
+  ["0231","cable",(p) => oneArmPushdown(p,{handOnHip:true}),["r:triceps"],{...standingCamera,yaw:49,height:2.5}],
+  ["1210","cable",(p) => oneArmRow(p,{split:true,twist:true,high:true,anchorHeight:1.623}),["r:rearShoulder","r:lat"],{...standingCamera,yaw:-50,height:2.53}],
+  ["1212","cable",(p) => oneArmRow(p,{twist:true,anchorHeight:1.186}),["r:lat","r:biceps"],{...standingCamera,yaw:-54}],
+  ["1229","rope",(p) => pullDownStraight(p,{rope:true,hinge:.086}),["lat"],{...standingCamera,yaw:45}],
+  ["2324","rope",(p) => hingeWithCable(p,true,true),["glute","hamstring"],{...standingCamera,yaw:67,focus:[0,.98,-.24],height:2.6}],
+  ["3232","rope",(p) => ropeFaceRow(p,{anchorHeight:1.308}),["rearShoulder","trap"],{...standingCamera,yaw:58}],
+  ["3914","rope",(p) => ropeFaceRow(p,{chest:true,anchorHeight:1.306}),["rearShoulder","trap"],{...standingCamera,yaw:53}],
+  ["4111","cable-seated-dual",(p) => cableScapula(p,"seated-shrug"),["trap"],{...rowCamera,yaw:49,focus:[0,.94,.52],height:2.39}],
+  ["4374","dual-cable",alternatingLowFly,["pec"],{...standingCamera,yaw:25,focus:[0,1.04,-.17],height:2.65}],
+  ["4838","cable",(p) => bicepsCurl(p,{single:true}),["r:biceps"],{...standingCamera,yaw:-43}],
+  ["5943","cable",(p) => rearAnchorFrontRaise(p,true,true),["r:shoulder"],{...standingCamera,yaw:-56,focus:[0,.99,-.21],height:2.54}],
+  ["6219","cable",oneArmCableFly,["r:pec"],{...standingCamera,yaw:22,focus:[-.30,1.00,.09],height:2.5}],
+  ["6511","cable",(p) => cableScapula(p,"high"),["r:lat","r:trap"],{...standingCamera,yaw:-62,height:2.53}],
+  ["6512","cable",(p) => cableScapula(p,"low"),["r:trap","r:rearShoulder"],{...standingCamera,yaw:-49,height:2.51}],
+  ["11057","cable-row-bar",(p) => cableScapula(p,"seated-row"),["trap"],{...rowCamera,yaw:67}],
 ];
 
 const [directory, ...requested] = process.argv.slice(2);

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const audit = join(root, 'cloudflare/scripts/audit-exercise-animations.mjs');
@@ -11,11 +12,12 @@ const media = join(root, 'cloudflare/public/open-gym/spotter-3d');
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const readJSON = async (path) => JSON.parse(await readFile(path, 'utf8'));
 
-const manifests = process.argv.slice(2);
-if (!manifests.length) throw new Error('Usage: node tools/spotter-demo/promote-reviewed-legacy.mjs <reviewed.json> [...]');
+const { values, positionals: manifests } = parseArgs({ options: { illustrations: { type: 'boolean' } }, allowPositionals: true });
+if (!manifests.length) throw new Error('Usage: node tools/spotter-demo/promote-reviewed-legacy.mjs [--illustrations] <reviewed.json> [...]');
 const approvals = await Promise.all(manifests.map(async (file) => ({ base: dirname(resolve(file)), entries: await readJSON(file) })));
-const legacy = JSON.parse(execFileSync(process.execPath, [audit, '--list-legacy'], { encoding: 'utf8', maxBuffer: 4_000_000 }));
-const targets = new Set(legacy.legacyRows.map(({id}) => id));
+const listFlag = values.illustrations ? '--list-illustrations' : '--list-legacy';
+const inventory = JSON.parse(execFileSync(process.execPath, [audit, listFlag], { encoding: 'utf8', maxBuffer: 4_000_000 }));
+const targets = new Set((values.illustrations ? inventory.illustrationRows : inventory.legacyRows).map(({id}) => id));
 const previous = await readJSON(registry);
 const next = { ...previous };
 const files = [['poster.jpg', 'jpg'], ['review.jpg', null], ['demo.mp4', 'mp4']];
@@ -24,11 +26,16 @@ for (const { base, entries } of approvals) {
   if (!Array.isArray(entries) || !entries.length) throw new Error('Expected a list of reviewed results.');
   for (const { id, output } of entries) {
     if (!targets.has(id) || Object.hasOwn(next,id) || typeof output !== 'string' || !output) {
-      throw new Error('Expected distinct, still-active legacy IDs with reviewed output directories.');
+      const source = values.illustrations ? 'illustration' : 'legacy';
+      throw new Error('Expected distinct, still-active ' + source + ' IDs with reviewed output directories.');
     }
     const folder = resolve(base,output);
     const receipt = await readJSON(join(folder,'receipt.json'));
     if (!/^[0-9a-f]{64}$/.test(receipt.fingerprint)) throw new Error(id + ' has no render fingerprint.');
+    if ((values.illustrations || receipt.id !== undefined || receipt.kind !== undefined) &&
+        (receipt.id !== id || receipt.kind !== 'catalogue')) {
+      throw new Error(id + ' requires a catalogue render receipt for this exact exercise ID.');
+    }
     for (const [filename, extension] of files) {
       const bytes = await readFile(join(folder,filename));
       if (digest(bytes) !== receipt.files?.[filename]) throw new Error(id + ' has a media checksum mismatch.');

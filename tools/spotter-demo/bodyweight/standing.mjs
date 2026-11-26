@@ -1,4 +1,4 @@
-import { sides, add, blend, smooth, ramp, rep, halfCycle, torso, arm, leg, legAngles, stand } from "./pose.mjs";
+import { sides, add, blend, smooth, ramp, rep, halfCycle, torso, arm, grip, leg, legAngles, stand } from "./pose.mjs";
 
 // Ground and standing movements, including their stance and swing phases.
 export function jump(phase, options) {
@@ -44,6 +44,78 @@ export function squat(phase, options) {
   return pose;
 }
 
+export function bodyweightSquat(phase, options) {
+  const cycle = rep(phase, options.press ? .38 : options.hold ? .18 : .41,
+    options.press ? .48 : options.hold ? .81 : .58);
+  const depth = options.pulse ? cycle * (.91 + .09 * Math.cos(10 * Math.PI * phase)) : cycle;
+  const width = options.width ?? .165;
+  const wide = Math.max(0, width - .172);
+  const pitch = .025 + (options.hands === "ground" ? .72 : options.hands === "overhead" ? .178 : .31) * depth;
+  const hips = [0, .918 - options.depth * depth, .029 - (.205 + .22 * wide) * depth];
+  const pose = stand(hips, pitch);
+  for (const [side, sign] of sides) {
+    leg(pose, side, [sign * width, .084, .064], [sign * (.092 + 1.35 * wide), .012, .96],
+      [sign * (.018 + .39 * wide), -.068, .126], 0);
+    const shoulder = pose[side + "s"];
+    const raised = add(shoulder, [sign * .036, .608 * Math.cos(pitch), .608 * Math.sin(pitch)]);
+    let hand;
+    let elbow = [sign * .43, -.45, -.61];
+    if (options.press) {
+      const drive = ramp(phase, .58, .82) * (1 - ramp(phase, .88, 1));
+      const rack = add(shoulder, [sign * .041, .016, .169]);
+      hand = blend(rack, raised, drive);
+    } else if (options.hands === "overhead") {
+      hand = raised;
+    } else if (options.hands === "prisoner") {
+      hand = add(pose.head, [sign * .104, -.025, -.104]);
+      elbow = [sign * .98, .23, -.15];
+    } else if (options.hands === "cup") {
+      hand = add(shoulder, [-sign * .161, -.141 + sign * .018, .247]);
+    } else if (options.hands === "ground") {
+      hand = blend(add(shoulder, [sign * .045, -.552, .053]), [sign * .037, .059, .200], depth);
+    } else {
+      const reach = options.hands === "reach" ? 1 : depth;
+      hand = add(shoulder, [sign * .025, -.552 + .516 * reach, .044 + .528 * reach]);
+    }
+    const fingers = options.hands === "ground" ? [0, -.96, .22]
+      : options.press || options.hands === "overhead" ? [0, Math.cos(pitch), Math.sin(pitch)] : [0, -.018, .999];
+    arm(pose, side, hand, elbow, fingers);
+  }
+  return pose;
+}
+
+export function goodMorning(phase, options) {
+  const { active, progress } = halfCycle(phase);
+  const t = options.offsetFeet ? progress : phase;
+  const placement = options.offsetFeet ? rep(t, .19, .81) : 0;
+  const effort = options.offsetFeet ? ramp(t, .21, .44) * (1 - ramp(t, .55, .78)) : rep(t, .45, .55);
+  const hips = [active * .060 * placement, .920 - .069 * effort, -.004 - .267 * effort];
+  const pose = stand(hips, .026 + .96 * effort);
+  for (const [side, sign] of sides) {
+    const rear = sign === active ? 0 : placement;
+    const front = sign === active ? placement : 0;
+    const swing = Math.sin(Math.PI * rear) * .081;
+    leg(pose, side, [sign * (.137 - .036 * placement), .083 + .071 * rear + swing, .034 + .062 * front - .255 * rear],
+      [sign * .062, -.013, .96], [sign * .016, -.071 - .071 * rear, .126], swing < .002 ? 0 : undefined);
+    arm(pose, side, add(pose.head, [sign * .113, -.024, -.11]), [sign * .96, .23, -.23]);
+  }
+  return pose;
+}
+
+export function wallSlideSquat(phase, options) {
+  const slide = rep(phase, options.hold ? .19 : .41, options.hold ? .82 : .60);
+  const hipY = options.hip - options.depth * slide;
+  const hips = [0, hipY, -.439];
+  const pose = stand(hips, .006);
+  for (const [side, sign] of sides) {
+    leg(pose, side, [sign * .162, .085, options.ankle], [sign * .079, -.02, .952], [sign * .022, -.072, .127], 0);
+    const hand = options.hold ? [-sign * .062, hips[1] + .267 + sign * .018, -.241]
+      : [sign * .240, hips[1] - .037, -.338];
+    arm(pose, side, hand, [sign * .64, -.27, -.55]);
+  }
+  return backToWall(pose);
+}
+
 export function lunge(phase, options) {
   const { active, progress } = halfCycle(phase);
   const t = options.fixed ? phase : progress;
@@ -71,6 +143,57 @@ export function lunge(phase, options) {
       : [hips[0] + s * .159, hips[1] + .062, hips[2] + .066];
     arm(pose, side, hand, [s * .71, -.08, -.65]);
   }
+  return pose;
+}
+
+export function guidedLunge(phase, options) {
+  const { active, progress } = halfCycle(phase);
+  const t = options.fixed ? phase : progress;
+  const movingSide = options.fixed ? 1 : active;
+  const frontSide = options.reverse || options.curtsey ? -movingSide : movingSide;
+  const stride = options.stride ?? .615;
+  const stance = options.fixed ? 1 : rep(t, .245, .765);
+  const dip = options.fixed ? rep(t, options.hold ? .19 : .43, options.hold ? .81 : .57)
+    : ramp(t, .24, options.pulse ? .34 : .43) * (1 - ramp(t, options.pulse ? .68 : .58, .77));
+  const depth = options.pulse ? dip * (.93 + .07 * Math.cos(12 * Math.PI * t)) : dip;
+  const pitch = (options.hinge ? .45 : .095) * depth + .028;
+  const sideTravel = options.curtsey ? frontSide * .075 : options.diagonal ? movingSide * .131 : 0;
+  const hips = [sideTravel * stance, .914 - (.076 + .21 * (stride - .615)) * stance - options.depth * depth,
+    .035 + (options.fixed ? .060 : options.curtsey ? -.125 : options.reverse ? -.237 : .43 * stride) * stance];
+  const pose = stand(hips, pitch);
+  for (const [side, sign] of sides) {
+    const moving = sign === movingSide;
+    const front = sign === frontSide;
+    const swing = moving && !options.fixed ? .116 * Math.sin(Math.PI * stance) : 0;
+    const baseX = sign * .131;
+    const footX = baseX + (moving && options.curtsey ? -sign * .385 * stance
+      : moving && options.diagonal ? sign * .405 * stance : 0);
+    const z = .053 + (options.fixed ? (front ? .410 : -.315) : moving ? (front ? stride : -stride) * stance : 0);
+    const heelAngle = .49 + (front ? 0 : .68 * stance);
+    const ankleY = .018 + .145 * Math.sin(heelAngle);
+    const ankleZ = z + .128 - .145 * Math.cos(heelAngle);
+    leg(pose, side, [footX, ankleY + swing, ankleZ], [sign * .076, -.055, .96],
+      [sign * .016, .018 - ankleY, .145 * Math.cos(heelAngle)], front && swing < .002 ? 0 : undefined);
+    const hand = options.overhead ? add(pose[side + "s"], [sign * .045, .603 * Math.cos(pitch), .603 * Math.sin(pitch)])
+      : add(hips, [sign * .163, .083, .087]);
+    arm(pose, side, hand, [sign * .71, -.08, -.65], options.overhead ? [0, Math.cos(pitch), Math.sin(pitch)] : [0, -.06, .998]);
+  }
+  return pose;
+}
+
+export function halfSplitStretch(phase) {
+  const stretch = rep(phase, .21, .80);
+  const angle = .071 + .91 * stretch;
+  const knee = [-.108, .110, -.119];
+  const hips = [0, knee[1] + .422 * Math.cos(angle), knee[2] - .422 * Math.sin(angle)];
+  const torsoPitch = .100 + .756 * stretch;
+  const pose = stand(hips, torsoPitch);
+  pose.rk = knee;
+  pose.ra = [-.108, .153, -.540];
+  pose.rt = [-.113, .100, -.657];
+  leg(pose, "l", [.136, .117, .429], [.089, .18, .97], [.009, .057, .124], .024);
+  arm(pose, "l", [pose.lk[0] + .078, pose.lk[1] + .05, pose.lk[2] + .035], [.64, .15, -.62]);
+  arm(pose, "r", add(hips, [-.210, -.019, .213]), [-.67, -.55, -.43]);
   return pose;
 }
 
@@ -165,6 +288,39 @@ export function calfRaise(phase, options) {
       : options.wall ? [sign * .213, 1.247 + (options.lean ? -.283 : 0), .513]
       : add(shoulder, [sign * .052, -.579, .105]);
     arm(pose, side, support, [sign * .56, -.65, -.45], options.wall ? [0, 1, .022] : [0, -.022, 1]);
+  }
+  return pose;
+}
+
+export function standingCalf(phase, options) {
+  const { active, progress } = halfCycle(phase);
+  const t = options.single ? progress : phase;
+  const standing = options.squat ? rep(t, .17, .83) : 0;
+  const balance = options.single ? rep(t, .18, .80) : 0;
+  const start = options.single ? .22 : options.squat ? .18 : .02;
+  const end = options.single ? .76 : options.squat ? .82 : .98;
+  const local = Math.min(1, Math.max(0, (t - start) / (end - start)));
+  const effort = rep(local, options.hold ? .22 : .36, options.hold ? .78 : .55);
+  const raise = options.pulse ? rep(local, .24, .76) * (.84 + .16 * Math.cos(8 * Math.PI * local)) : effort;
+  const step = options.step ? .31 : 0;
+  const toeY = step + .017;
+  const toeZ = options.step ? .233 : .145;
+  const angle = (options.step ? -.18 : .46) + (options.step ? 1.36 : .75) * raise;
+  const ankleY = toeY + .157 * Math.sin(angle);
+  const ankleZ = toeZ - .157 * Math.cos(angle);
+  const hips = [options.single ? -active * .114 * balance : 0,
+    ankleY + .826 - .281 * standing, ankleZ - .034 - .128 * standing];
+  const pose = stand(hips, (options.wall ? .06 : .025) + .26 * standing);
+  for (const [side, sign] of sides) {
+    const free = options.single && active === sign ? balance : 0;
+    const spread = options.squat ? .165 : .118;
+    leg(pose, side, [sign * (spread + .086 * free), ankleY + .248 * free, ankleZ - .127 * free],
+      [sign * .061, -.016, .95], [sign * .009, toeY - ankleY - .052 * free, toeZ - ankleZ + .032 * free]);
+    const hand = options.wall ? [sign * .208, 1.348, .513]
+      : options.single ? add(pose[side + "s"], [sign * .027, -.426, .105])
+      : add(pose[side + "s"], [sign * .044, -.582 + .12 * standing, .063 + .310 * standing]);
+    if (options.step) grip(pose, side, [sign * .415, 1.362, .467], [sign * .68, -.50, -.32], [0, 0, 1]);
+    else arm(pose, side, hand, [sign * .62, -.34, -.68], options.wall ? [0, 1, .024] : [0, -.018, .999]);
   }
   return pose;
 }

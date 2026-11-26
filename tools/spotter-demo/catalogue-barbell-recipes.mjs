@@ -86,24 +86,39 @@ const benchSetups = {
   floor: { hips: [0,.138,.19], pitch: -Math.PI / 2, ankles: [[.174,.076,.76],[-.174,.076,.76]], aimX:0, focus:[0,.46,.0], height:1.51 },
 };
 
-function benchBody(kind) {
+function benchBody(kind, feetOnBench = false, floatingFeet) {
   const setup = benchSetups[kind];
-  const pose = athlete(setup.hips, setup.pitch);
+  const pose = athlete(feetOnBench ? add(setup.hips, [0, 0, -.044]) : setup.hips, setup.pitch);
   pose.headDrop = kind === "incline" ? .008 : .025;
   for (const [index, [side, sign]] of sides.entries()) {
-    const anchor = setup.ankles[index];
-    foot(pose, side, sign, anchor, kind === "decline" ? null : 0,
-      0, kind === "decline" ? [sign * .19, .95, .30] : [sign * .57, 1, .12]);
+    if (floatingFeet === "right-angle") {
+      const [x,y,z] = pose[side + "h"];
+      pose[side + "k"] = [x + sign * .022, y + .412, z + .064];
+      pose[side + "a"] = [x + sign * .022, y + .349, z + .483];
+      pose[side + "t"] = [x + sign * .033, y + .455, z + .590];
+      continue;
+    }
+    const anchor = feetOnBench ? [.1 + sign * .110, .504, 1.281] : setup.ankles[index];
+    if (floatingFeet === "straight") {
+      const hip = pose[side + "h"];
+      foot(pose, side, sign, add(hip, [sign * .026, -.059, .823]), null, 0, [sign * .1,1,.14]);
+      continue;
+    }
+    const support = feetOnBench ? .428 : kind === "decline" ? null : 0;
+    foot(pose, side, sign, anchor, support,
+      0, feetOnBench ? [0, 1, 0] : kind === "decline" ? [sign * .19, .95, .30] : [sign * .57, 1, .12]);
   }
   return pose;
 }
 
-function benchPress(phase, { kind = "flat", grip = "standard", smith = false, reverse = false, action, pin = false, ez = false } = {}) {
-  const amount = pin ? 1 - rep(phase, .45, .58) : rep(phase, .48, .58);
-  const pose = benchBody(kind);
+function benchPress(phase, { kind = "flat", grip = "standard", gripWidth, smith = false, reverse = false,
+  action, pin = false, ez = false, pause = false, feetOnBench = false, straightPinPath = false, floatingFeet } = {}) {
+  const amount = pin ? 1 - rep(phase, straightPinPath ? .43 : .45, straightPinPath ? .51 : .58)
+    : pause ? rep(phase, .39, .62) : rep(phase, .48, .58);
+  const pose = benchBody(kind, feetOnBench, floatingFeet);
   const setup = benchSetups[kind];
   const [x, y, z] = pose.ls;
-  const width = ez ? .173 : grip === "close" ? .218 : grip === "wide" ? .462 : .367;
+  const width = gripWidth ?? (ez ? .173 : grip === "close" ? .218 : grip === "wide" ? .462 : .367);
   const path = {
     flat: [[1.110,.743], [.715,.88]],
     incline: [[1.505,-.081], [1.071,-.024]],
@@ -114,8 +129,9 @@ function benchPress(phase, { kind = "flat", grip = "standard", smith = false, re
   const bottom = action === "neck" ? [.752, z - .054]
     : action === "jm" ? [y + .152, z + .074]
     : pin ? [y + .187, z + .104] : ordinary;
-  const center = [setup.aimX, mix(top[0], bottom[0], amount),
-    smith ? mix(top[1], bottom[1], .42) : mix(top[1], bottom[1], amount)];
+  const topHeight = kind === "incline" && reverse && grip === "wide" ? top[0] - .035 : top[0];
+  const center = [setup.aimX, mix(topHeight, bottom[0], amount),
+    straightPinPath ? bottom[1] : smith ? mix(top[1], bottom[1], .42) : mix(top[1], bottom[1], amount)];
   if (action === "single") {
     const load = [x + .009, center[1], center[2]];
     arm(pose, "l", load, [.66, -.55, .41], [-1,0,0]);
@@ -129,16 +145,22 @@ function benchPress(phase, { kind = "flat", grip = "standard", smith = false, re
   return pose;
 }
 
-function supineArc(phase, { kind = "flat", type = "pullover", grip = "standard", ez = false, reverse = false, smith = false } = {}) {
-  const amount = rep(phase, .50, .58);
+function supineArc(phase, { kind = "flat", type = "pullover", grip = "standard", ez = false, reverse = false,
+  smith = false, arcReach, arcFinish, hold = false, depthOffset = 0 } = {}) {
+  const amount = hold ? rep(phase, .224, .746) : rep(phase, .50, .58);
   const pose = benchBody(kind);
+  if (depthOffset) {
+    for (const [name, joint] of Object.entries(pose)) {
+      if (Array.isArray(joint)) pose[name] = add(joint, [0,0,depthOffset]);
+    }
+  }
   const [, y, z] = pose.ls;
   const width = ez ? .173 : grip === "wide" ? .46 : grip === "close" ? .188 : .253;
   const centerX = benchSetups[kind].aimX;
   if (type === "pullover" || type === "bent-pullover" || type === "front-pullover") {
     const start = type === "front-pullover" ? 1.42 : .075;
-    const angle = mix(start, kind === "decline" ? -1.86 : -1.47, amount);
-    const reach = type === "bent-pullover" ? .536 : .582;
+    const angle = mix(start, arcFinish ?? (kind === "decline" ? -1.86 : -1.47), amount);
+    const reach = arcReach ?? (type === "bent-pullover" ? .536 : .582);
     const center = [centerX, y + reach * Math.cos(angle), z + reach * Math.sin(angle)];
     loadedBar(pose, center, width, sign => [sign * .72, -.54, -.26]);
   } else {
@@ -161,14 +183,14 @@ function supineArc(phase, { kind = "flat", type = "pullover", grip = "standard",
   return pose;
 }
 
-function curl(phase, { mode = "standing", width = .249, reverse = false, smith = false } = {}) {
-  const amount = rep(phase, .44, .55);
+function curl(phase, { mode = "standing", width = .249, reverse = false, smith = false, strict = false } = {}) {
+  const amount = strict ? rep(phase, .41, .62) : rep(phase, .44, .55);
   const seated = mode === "seated" || mode === "concentration";
   const preacher = mode === "preacher";
   const prone = mode === "prone";
   const drag = mode === "drag";
   const hips = prone ? [0,.62,-.27] : seated || preacher ? [0,.558,-.025] : [0,.899,.008];
-  const pose = athlete(hips, prone ? 1.04 : preacher ? .31 : mode === "concentration" ? 1.048 : .018);
+  const pose = athlete(hips, prone ? 1.04 : preacher ? .31 : mode === "concentration" ? 1.048 : strict ? 0 : .018);
   stance(pose,mode === "concentration" ? .294 : .157,seated || preacher ? .532 : prone ? -.477 : .056);
   const angle = mix(.10, preacher ? 2.39 : 2.35, amount);
   const y = preacher ? .818 : mode === "concentration" ? .564 : pose.ls[1] - .247 + (drag ? amount * .032 : 0);
@@ -235,12 +257,13 @@ function standingPull(phase, { type, width = .29, smith = false } = {}) {
 }
 
 function squatWithBar(phase, { rack = "back", width = .179, depth = .36, smith = false, fast = false,
-  jump = false, single = false, kneeling = false, thruster = false, box = false, feet = .112 } = {}) {
+  jump = false, single = false, kneeling = false, thruster = false, box = false, feet = .112,
+  pause = false, turnout = false, upright = false } = {}) {
   const up = jump ? smooth((phase - .49) / .21) * smooth((.91 - phase) / .15) : 0;
-  const amount = rep(phase, fast ? .53 : .45, fast ? .58 : .57);
+  const amount = pause ? rep(phase, .27, .65) : rep(phase, fast ? .53 : .45, fast ? .58 : .57);
   const restY = kneeling ? .495 : .887;
   const barDepth = .041;
-  const shoulderPitch = rack === "low" ? .52 : rack === "back" ? .39 : .25;
+  const shoulderPitch = upright ? .25 : rack === "low" ? .52 : rack === "back" ? .39 : .25;
   const hips = [single ? -.060 : 0, restY - (kneeling ? .266 : depth) * amount + .13 * up,
     kneeling ? -.12 - .31 * amount : smith ? barDepth - .041 - (rack === "front" ? .100 : -.086)
       - .505 * Math.sin(.037 + shoulderPitch * amount) : -.021 - (box ? .179 : .139) * amount];
@@ -256,7 +279,11 @@ function squatWithBar(phase, { rack = "back", width = .179, depth = .36, smith =
     foot(pose,"l",1,[.143,mix(.165,hips[1] -.058,amount),mix(.485,.72,amount)],null,0,[.03,.9,-.06]);
   } else {
     const float = up > .003;
-    for (const [side, sign] of sides) foot(pose,side,sign,[sign * width,.076 + .13 * up,feet],float ? null : 0);
+    for (const [side, sign] of sides) {
+      foot(pose,side,sign,[sign * width,.076 + .13 * up,feet],float ? null : 0,0,
+        turnout ? [sign * .64,.015,1] : [sign * .12,.015,1]);
+      if (turnout) pose[side + "t"][0] += sign * .049;
+    }
   }
   const extended = thruster ? smooth((phase - .56) / .17) * smooth((.99 - phase) / .20) : 0;
   const lowBar = rack === "low";
@@ -323,7 +350,8 @@ function hinge(phase, { style = "lift", reverse = false, smith = false, width = 
   return pose;
 }
 
-function lunge(phase, { direction = "forward", smith = false, staticStance = false, sprint = false, alternate = false, fixedWide = false } = {}) {
+function lunge(phase, { direction = "forward", smith = false, staticStance = false, sprint = false,
+  alternate = false, fixedWide = false, frontRack = false, longSplit = false, stableStance = false } = {}) {
   const active = alternate && phase >= .5 ? -1 : 1;
   const time = alternate ? phase * 2 % 1 : phase;
   const amplitude = rep(time,.42,.58);
@@ -331,8 +359,10 @@ function lunge(phase, { direction = "forward", smith = false, staticStance = fal
   const sideStep = direction === "side";
   const reverse = direction === "reverse";
   const x = sideStep ? active * .269 * amplitude : 0;
-  const position = sideStep ? -.063 : reverse ? -.152 * travel : .182 * travel;
-  const pose = athlete([x,.875 - amplitude * .346,position], .053 + amplitude * .17);
+  const position = stableStance ? longSplit ? .315 : .278 : sideStep ? -.063 : reverse ? -.152 * travel : .182 * travel;
+  const hipHeight = stableStance ? .824 - amplitude * (longSplit ? .322 : .308) : .875 - amplitude * (longSplit ? .369 : .346);
+  const pose = athlete([x,hipHeight,position],
+    frontRack ? .035 + .043 * amplitude : .053 + amplitude * .17);
   if (sideStep) {
     for (const [side,sign] of sides) {
       const widened = sign === active || fixedWide;
@@ -341,17 +371,26 @@ function lunge(phase, { direction = "forward", smith = false, staticStance = fal
     }
   } else {
     for (const [side,sign] of sides) {
-      const leading = side === "l";
+      const leading = sign === active;
       const advances = reverse ? !leading : leading;
-      const depth = .052 + travel * (leading ? (reverse ? .0 : .57) : (reverse ? -.54 : -.094));
+      const depth = .052 + travel * (leading ? (reverse ? 0 : longSplit ? .63 : .57) : (reverse ? -.54 : longSplit ? -.16 : -.094));
       const lift = advances && travel < .999 ? Math.sin(Math.PI * travel) * .079 : 0;
       const heel = leading ? 0 : .102 * travel;
       foot(pose,side,sign,[sign * .128,.076 + heel + lift,depth],
         lift > .003 ? null : 0, heel);
     }
   }
-  const center = [x,pose.ls[1] + .033,smith ? .026 : pose.ls[2] - .084];
-  loadedBar(pose,center,.367,sign => [sign*.48,-.74,-.48]);
+  const center = [x,pose.ls[1] + (frontRack ? .060 : .033),smith ? .026 : pose.ls[2] + (frontRack ? .104 : -.084)];
+  if (frontRack) {
+    for (const [side, sign] of sides) {
+      const grip = add(center, [sign * .246, 0, 0]);
+      [pose[side + "e"], pose[side + "w"]] = joints(pose[side + "s"], grip, [0,-.1,1], .252, .213);
+      pose[side + "Grip"] = axis;
+    }
+    pose.barbell = { center, axis };
+  } else {
+    loadedBar(pose,center,.367,sign => [sign*.48,-.74,-.48]);
+  }
   if (sprint) pose.head[2] += .027 * amplitude;
   return pose;
 }
@@ -403,8 +442,8 @@ function addRows(entries, movement, muscle, equipment, camera, duration = 4000, 
 const standing = { yaw: 45, elevation: 12, focus: [0,.96,.05], height: 2.12 };
 const kneeling = { yaw: 47, elevation: 15, focus: [0,.70,.06], height: 1.73 };
 const supportCam = { yaw: 56, elevation: 13, focus: [0,.84,.06], height: 2.22 };
-const benchCamera = ({ kind = "flat", smith = false }) => ({
-  yaw: kind === "incline" ? 56 : 63, elevation: kind === "decline" ? 21 : 15,
+const benchCamera = ({ kind = "flat", smith = false, view }) => ({
+  yaw: view === "side" ? 79 : kind === "incline" ? 56 : 63, elevation: kind === "decline" ? 21 : 15,
   focus: benchSetups[kind].focus, height: smith ? 2.77 : benchSetups[kind].height,
 });
 function benchHardware({ kind = "flat", smith = false, ez = false, pin = false }) {
@@ -731,6 +770,345 @@ addRows([["0562"],["0589",{row:true}]],landmine,["core","lat"],"landmine",
 addRows([["0756"]],smithBridge,["glute","hamstring"],"smith-standing",
   {yaw:57,elevation:19,focus:[0,.98,.055],height:2.61});
 addRows([["2798"]],squatLunge,["glute","quad"],"barbell",standing,6200,.68);
+
+function catalogueShrug(phase, { behind = false, width = .248, seated = false } = {}) {
+  const amount = rep(phase, .36, .62);
+  const pose = athlete(seated ? [0,.564,-.019] : [0,.886,.002]);
+  stance(pose, .149, seated ? .524 : .074);
+  for (const [side] of sides) pose[side + "s"][1] += .071 * amount;
+  const height = seated ? .604 : .818 + (width > .35 ? .055 : 0);
+  const center = [0, height + .071 * amount, seated ? .390 : behind ? -.165 : .134];
+  loadedBar(pose, center, width, sign => [sign * .5, -.32, behind ? -.64 : -.16], behind);
+  return pose;
+}
+
+function wideDragCurl(phase) {
+  const amount = rep(phase, .43, .57);
+  const pose = athlete([0, .899, .008]);
+  stance(pose, .157, .056);
+  const center = [0, mix(.826, 1.325, amount), mix(.135, .162, amount)];
+  loadedBar(pose, center, .343, sign => [sign * .16, -.34, -.92]);
+  return pose;
+}
+
+function sumoRomanianDeadlift(phase) {
+  const amount = rep(phase, .44, .55);
+  const pose = athlete([0, mix(.873, .777, amount), mix(-.034, -.258, amount)], mix(.02, 1.05, amount));
+  for (const [side, sign] of sides) {
+    foot(pose, side, sign, [sign * .298, .076, .035], 0, 0, [sign * .69, .018, .82]);
+    const ankle = pose[side + "a"];
+    pose[side + "t"] = [ankle[0] + sign * .078, .006, ankle[2] + .122];
+  }
+  const center = [0, mix(.800, .507, amount), mix(.150, .239, amount)];
+  loadedBar(pose, center, .156, sign => [sign * .28, -.16, -.92]);
+  return pose;
+}
+
+// These variants are keyed to the original catalogue instructions and keep their exact grip,
+// support and movement. Behind-the-back shrugs are framed from the rear to reveal the bar.
+addRows([
+  ["4721", {width:.194}], ["4981", {width:.132}], ["5669", {width:.194, strict:true}],
+], curl, ["biceps"], "barbell", standing);
+addRows([["2413"]], wideDragCurl, ["biceps"], "barbell", {...standing, yaw:58});
+addRows([
+  ["5226", {behind:true, width:.434}], ["3730", {behind:true}], ["5224", {width:.434}],
+], catalogueShrug, ["trap"], "barbell", ({behind}) => ({...standing, yaw:behind ? 135 : 43}));
+addRows([["5632", {type:"upright", width:.198}]], standingPull, ["shoulder","trap"], "barbell", standing);
+addRows([
+  ["5091", {reverse:true, grip:"close"}], ["1173", {kind:"incline", reverse:true, grip:"wide"}],
+], benchPress, ["pec","triceps"], benchHardware, benchCamera);
+addRows([
+  ["3917", {kind:"floor", reverse:true, grip:"close"}], ["10115", {kind:"decline", grip:"close"}],
+], benchPress, ["triceps","pec"], benchHardware, benchCamera, 4600);
+addRows([["3731"]], sumoRomanianDeadlift, ["hamstring","glute"], "barbell",
+  {...standing, yaw:58, focus:[0,.86,.02], height:2.10}, 4600);
+
+addRows([
+  ["6813", {view:"side", gripWidth:.246}], ["6584", {feetOnBench:true, gripWidth:.251}],
+  ["3724", {kind:"floor", gripWidth:.247}], ["0036", {kind:"decline", grip:"wide"}],
+], benchPress, ["pec","triceps"], benchHardware, benchCamera, 4200);
+addRows([
+  ["5013", {pause:true, gripWidth:.247}], ["5010", {kind:"decline", pause:true, gripWidth:.247}],
+  ["5011", {kind:"incline", pause:true, gripWidth:.247}],
+], benchPress, ["pec","triceps"], benchHardware, benchCamera, 4600);
+addRows([
+  ["7621", {pin:true, straightPinPath:true, gripWidth:.218}],
+  ["5660", {pin:true, straightPinPath:true, gripWidth:.255}],
+], benchPress, ["pec","triceps"], benchHardware, benchCamera, 4500);
+addRows([["4856", {pin:true, straightPinPath:true, grip:"close"}]], benchPress, ["triceps","pec"],
+  benchHardware, benchCamera, 4500);
+
+const squatView = {...standing, yaw:49, height:2.32};
+addRows([
+  ["1514", {depth:.096}], ["5633", {width:.069, depth:.353}], ["1527", {upright:true, depth:.455}],
+  ["1868", {rack:"low", depth:.370}], ["5017", {pause:true, depth:.410}],
+], squatWithBar, ["quad","glute"], ({rack}) => rack === "low" ? "barbell-rack" : "barbell", squatView, 5200);
+addRows([["1063", {width:.358, turnout:true, depth:.449}]], squatWithBar, ["glute","quad"], "barbell",
+  {...squatView, yaw:33}, 4600);
+
+const lungeView = {...standing, yaw:58, height:2.19};
+addRows([
+  ["3399", {frontRack:true, alternate:true}], ["4382", {frontRack:true, alternate:true, longSplit:true}],
+  ["4390", {frontRack:true, direction:"reverse", alternate:true}], ["0078", {direction:"reverse", alternate:true}],
+], lunge, ["glute","quad"], "barbell", lungeView, 6400, .23);
+addRows([
+  ["4397", {frontRack:true, staticStance:true, longSplit:true, stableStance:true}],
+  ["6329", {staticStance:true, longSplit:true, stableStance:true}],
+  ["3030", {staticStance:true, longSplit:true, stableStance:true}], ["10054", {staticStance:true, stableStance:true}],
+], lunge, ["quad","glute"], "barbell", lungeView, 4400);
+
+addRows([
+  ["1165", {width:.245}], ["5328", {width:.247}], ["0788", {behind:true, width:.352}],
+], standingPress, ["shoulder","triceps"], "barbell", {...standing, focus:[0,1.02,0], height:2.24}, 4200);
+
+function deadliftRise(phase, pause) {
+  if (!pause) return rep(phase, .40, .54);
+  if (phase < .15) return .12 * smooth(phase / .15);
+  if (phase < .35) return .12;
+  if (phase < .57) return mix(.12, 1, smooth((phase - .35) / .22));
+  return smooth((1 - phase) / .43);
+}
+
+function hingedAthlete(hipHeight, hipDepth, pitch, barCenter, width) {
+  const shoulderLift = .505 * Math.cos(pitch) - .004 * Math.sin(pitch);
+  const shoulderDepth = hipDepth + .505 * Math.sin(pitch) + .004 * Math.cos(pitch);
+  const armReach = Math.sqrt(.619 ** 2 - (width - .192) ** 2 - (barCenter[2] - shoulderDepth) ** 2);
+  return athlete([0, Math.min(hipHeight, barCenter[1] + armReach - shoulderLift), hipDepth], pitch);
+}
+
+function catalogueDeadlift(phase, { pause = false, wide = false, snatch = false, frog = false } = {}) {
+  const rise = deadliftRise(phase, pause);
+  const initialHip = wide ? .518 : snatch ? .552 : .565;
+  const width = snatch ? .434 : wide ? .153 : .226;
+  const center = [0, mix(.197, snatch ? .853 : .817, rise), mix(.136, .128, rise)];
+  const pose = hingedAthlete(mix(initialHip, .877, rise), mix(wide ? -.220 : -.261, -.016, rise),
+    mix(wide ? .91 : .995, .022, rise), center, width);
+  for (const [side, sign] of sides) {
+    const footWidth = frog ? .270 : wide ? .315 : .158;
+    foot(pose, side, sign, [sign * footWidth, .076, .040], 0, 0, [sign * (wide ? .60 : .15), .027, 1]);
+    if (wide) pose[side + "t"][0] += sign * (frog ? .087 : .055);
+  }
+  loadedBar(pose, center, width, sign => [sign * .19, -.30, -.94]);
+  return pose;
+}
+
+function stiffLegDeadlift(phase, { wide = false } = {}) {
+  const amount = rep(phase, .45, .53);
+  const width = wide ? .177 : .224;
+  const center = [0, mix(.804, .463, amount), mix(.144, .282, amount)];
+  const pose = hingedAthlete(mix(.869, wide ? .801 : .827, amount), mix(-.009, -.236, amount),
+    mix(.024, 1.16, amount), center, width);
+  for (const [side, sign] of sides) {
+    foot(pose, side, sign, [sign * (wide ? .263 : .150), .076, .051], 0, 0,
+      [sign * (wide ? .52 : .13), .015, 1]);
+    if (wide) pose[side + "t"][0] += sign * .046;
+  }
+  loadedBar(pose, center, width, sign => [sign * .22, -.14, -.92]);
+  return pose;
+}
+
+function chestSupportedBarbellAthlete(overTop = false) {
+  const pose = athlete(overTop ? [0,.772,-.026] : [0,.560,.213], .785, Math.PI);
+  for (const [side, sign] of sides) {
+    foot(pose, side, -sign, [-sign * .175, .076, overTop ? .295 : .828], 0, 0, [-sign * .13, .1, -1]);
+    const ankle = pose[side + "a"];
+    pose[side + "t"] = [ankle[0] - sign * .032, .006, ankle[2] - .145];
+  }
+  return pose;
+}
+
+function catalogueRow(phase, { supported = false, rearDelt = false, reverse = false, width = .300 } = {}) {
+  const amount = rep(phase, .42, .59);
+  const pose = supported ? chestSupportedBarbellAthlete() : athlete([0,.780,-.195], 1.095);
+  if (!supported) stance(pose, .151, .045);
+  const [,, shoulderZ] = pose.ls;
+  const hangingY = pose.ls[1] - (width > .32 ? .584 : .603);
+  const topZ = shoulderZ + (supported ? rearDelt ? .020 : .080 : rearDelt ? -.036 : -.152);
+  // The support rail slopes down toward the seat. Keep the shaft below it.
+  const topY = supported ? .648 - (topZ + .110) - .052 : pose.ls[1] - (rearDelt ? .118 : .166);
+  const center = [0, mix(hangingY, topY, amount), mix(shoulderZ, topZ, amount)];
+  loadedBar(pose, center, width,
+    sign => [sign * (supported ? -1 : 1) * (rearDelt ? .97 : .23), .54, supported ? .64 : -.77],
+    reverse, supported ? [-1,0,0] : axis);
+  return pose;
+}
+
+function seatedBarbellRaise(phase, { high = false } = {}) {
+  const amount = rep(phase, .43, .57);
+  const pose = athlete([0,.564,-.019]);
+  stance(pose,.155,.528);
+  const angle = mix(.49, high ? 1.86 : 1.56, amount);
+  const radius = mix(.454, .586, amount);
+  const center = [0, pose.ls[1] - radius * Math.cos(angle), pose.ls[2] + radius * Math.sin(angle)];
+  loadedBar(pose, center, .244, sign => [sign * .30, -.78, -.50]);
+  return pose;
+}
+
+function overheadBarbellShrug(phase) {
+  const amount = rep(phase, .39, .58);
+  const pose = athlete([0,.873,-.014]);
+  stance(pose,.152,.056);
+  for (const [side] of sides) pose[side + "s"][1] += .066 * amount;
+  const center = [0, pose.ls[1] + .559, .034];
+  loadedBar(pose, center, .436, sign => [sign * .29, -.96, -.08]);
+  return pose;
+}
+
+addRows([
+  ["4340", {grip:"wide", arcReach:.548}], ["7565", {type:"bent-pullover"}],
+  ["4339", {grip:"close", arcFinish:-1.60, arcReach:.546}],
+], supineArc, ["lat"], benchHardware, benchCamera, 4400);
+addRows([["4344", {kind:"incline", type:"extension", depthOffset:.118}]],
+  supineArc, ["triceps"], benchHardware, benchCamera, 4400);
+addRows([
+  ["3308"], ["5014", {pause:true}], ["5577", {wide:true, pause:true}], ["1535", {snatch:true}],
+  ["9696", {wide:true, frog:true}],
+], catalogueDeadlift, ["glute","hamstring"], "barbell",
+  ({wide}) => ({...standing, yaw:wide ? 48 : 57, focus:[0,.82,.02], height:2.02}), 5600, .05);
+addRows([
+  ["1543"], ["1544", {wide:true}],
+], stiffLegDeadlift, ["hamstring","glute"], "barbell",
+  ({wide}) => ({...standing, yaw:wide ? 49 : 64, focus:[0,.84,.03], height:2.03}), 4500);
+addRows([
+  ["3721", {rearDelt:true, width:.374}], ["0062", {reverse:true, width:.153}],
+  ["2509", {supported:true, reverse:true, width:.229}],
+], catalogueRow, ["lat","trap"], ({supported}) => supported ? "barbell-chest-support-row" : "barbell",
+  ({supported}) => ({...standing, yaw:supported ? 56 : 69, focus:[0,.80,.06], height:2.11}), 4500);
+addRows([
+  ["0076", {rearDelt:true, width:.257}], ["5853", {supported:true, rearDelt:true, width:.347}],
+], catalogueRow, ["rearShoulder","trap"], ({supported}) => supported ? "barbell-chest-support-row" : "barbell",
+  {...standing, yaw:63, focus:[0,.80,.05], height:2.11}, 4500);
+addRows([
+  ["3726"], ["4411", {high:true}],
+], seatedBarbellRaise, ["shoulder"], "barbell-seat",
+  {...standing, yaw:60, focus:[0,.74,.12], height:1.77}, 4200);
+addRows([["2928"]], overheadBarbellShrug, ["trap","shoulder"], "barbell",
+  {...standing, yaw:37, focus:[0,1.02,.02], height:2.30}, 4200);
+
+function pulloverPress(phase) {
+  const pose = benchBody("flat");
+  const start = [.10,1.11,.743];
+  const pullingOver = phase < .53;
+  const amount = pullingOver ? rep(phase / .53, .44, .57) : rep((phase - .53) / .47, .43, .53);
+  const camber = mix(.02, -1.55, amount);
+  const center = pullingOver
+    ? [start[0], start[1] + .537 * (Math.cos(camber) - Math.cos(.02)), start[2] + .537 * (Math.sin(camber) - Math.sin(.02))]
+    : lerp(start,[.10,.715,.88],amount);
+  loadedBar(pose, center, .247, sign => [sign * .52,-.54,.22]);
+  return pose;
+}
+
+function spiderCurl(phase, { reverse = false } = {}) {
+  const pose = chestSupportedBarbellAthlete(true);
+  const amount = rep(phase, .45, .57);
+  const angle = mix(.05, 2.27, amount);
+  const elbowY = pose.ls[1] - .251;
+  const depth = pose.ls[2] - .037;
+  const center = [0,elbowY - .348 * Math.cos(angle),depth - .348 * Math.sin(angle)];
+  for (const [side,sign] of sides) {
+    pose[side + "e"] = [-sign * .194, elbowY, depth];
+    pose[side + "w"] = add(center, [-sign * .213,0,0]);
+    pose[side + "Grip"] = reverse ? axis : [-1,0,0];
+  }
+  pose.barbell = {center,axis};
+  return pose;
+}
+
+addRows([
+  ["6270", {floatingFeet:"straight", gripWidth:.257}],
+  ["3174", {floatingFeet:"right-angle", gripWidth:.251}],
+], benchPress, ["pec","triceps"], benchHardware, option => ({
+  ...benchCamera(option), yaw:53, focus:[.10,.75,1.12], height:1.72,
+}), 4400);
+addRows([["6271", {floatingFeet:"straight", grip:"close"}]], benchPress, ["triceps","pec"],
+  benchHardware, {...benchCamera({}), yaw:53, focus:[.10,.74,1.12], height:1.72}, 4400);
+addRows([["0035", {kind:"decline", type:"extension", grip:"close"}]], supineArc,
+  ["triceps"], benchHardware, benchCamera, 4400);
+addRows([["1448", {hold:true, arcFinish:-1.54, arcReach:.557}]], supineArc,
+  ["lat"], benchHardware, benchCamera, 6500);
+addRows([["0022"]], pulloverPress, ["lat","pec","triceps"], "bench-barbell",
+  {...benchCamera({}), yaw:66}, 6400, .25);
+addRows([["4338"]], spiderCurl, ["biceps"], "barbell-chest-bench",
+  {...standing, yaw:120, focus:[0,.78,.22], height:2.02}, 4500);
+addRows([["3988", {reverse:true}]], spiderCurl, ["forearm","biceps"], "barbell-chest-bench",
+  {...standing, yaw:120, focus:[0,.78,.22], height:2.02}, 4500);
+addRows([["4862", {width:.488}]], catalogueShrug, ["trap"], "barbell", {...standing, yaw:37}, 4000);
+
+function anchoredShoulderPress(phase, { floor = false } = {}) {
+  const extend = rep(phase, .43, .56);
+  const pose = athlete(floor ? [0,.148,-.168] : [-.045,.513,.018], floor ? -.023 : .027);
+  if (floor) {
+    for (const [side, sign] of sides) {
+      pose[side + "k"] = [sign*.131,.103,.247];
+      pose[side + "a"] = [sign*.150,.073,.661];
+      pose[side + "t"] = [sign*.157,.183,.737];
+    }
+  } else {
+    foot(pose,"l",1,[.156,.076,.456],0,0,[.05,1,.21]);
+    pose.rk = [-.162,.087,.018];
+    pose.ra = [-.172,.067,-.406];
+    pose.rt = [-.182,.025,-.544];
+  }
+  const center = [pose.hips[0], pose.ls[1] + mix(.025,.586,extend), pose.ls[2] + mix(.151,.032,extend)];
+  loadedBar(pose,center,.246,sign=>[sign*.80,-.64,.32]);
+  return pose;
+}
+
+function squatToOverheadPress(phase) {
+  const squat = smooth(phase/.275) * smooth((.565-phase)/.225);
+  const press = smooth((phase-.402)/.227) * smooth((1-phase)/.241);
+  const pose = athlete([0,.883-.372*squat,-.022-.137*squat],.024+.287*squat);
+  stance(pose,.179,.078);
+  const center = [0,pose.ls[1]+.055+.533*press,pose.ls[2]+.117-.088*press];
+  loadedBar(pose,center,.255,sign=>[sign*.78,-.49,.50]);
+  return pose;
+}
+
+function singleLegGoodMorning(phase) {
+  const amount = rep(phase, .45, .58);
+  const pose = athlete([-.104,mix(.873,.800,amount),mix(-.004,-.186,amount)],mix(.02,1.30,amount));
+  foot(pose,"r",-1,[-.152,.076,.056]);
+  const floating = [mix(.133,-.015,amount),mix(.103,.745,amount),mix(.011,-1.006,amount)];
+  foot(pose, "l", 1, floating, null, 0, [.12,-.91,.16]);
+  const center = [pose.hips[0],pose.ls[1]+.023,pose.ls[2]-.102];
+  loadedBar(pose,center,.356,sign=>[sign*.58,-.69,-.28]);
+  return pose;
+}
+
+function staggeredHinge(phase, { stiff = false } = {}) {
+  const amount = rep(phase, .45, .57);
+  const center = [.041,mix(.813,stiff?.441:.503,amount),mix(.209,.308,amount)];
+  const pose = hingedAthlete(mix(.880,stiff?.826:.780,amount),mix(.015,-.192,amount),
+    mix(.045,stiff?1.24:1.09,amount),center,.246);
+  for (const [name,joint] of Object.entries(pose)) {
+    if (Array.isArray(joint)) pose[name] = add(joint,[center[0],0,0]);
+  }
+  foot(pose,"l",1,[.148,.076,.181]);
+  foot(pose,"r",-1,[-.109,.147,stiff?-.158:-.189],0,.071,[-.12,.06,1]);
+  loadedBar(pose,center,.246,sign=>[sign*.21,-.21,-.94]);
+  return pose;
+}
+
+function behindBackRaise(phase) {
+  const amount = rep(phase, .41, .58);
+  const pose = athlete([0,.891,.021],.007);
+  stance(pose);
+  const center = [0,mix(.815,1.081,amount),mix(-.151,-.329,amount)];
+  loadedBar(pose,center,.286,sign=>[sign*.90,.37,-.64],true);
+  return pose;
+}
+
+addRows([["4866", {floor:true}], ["9694"]], anchoredShoulderPress, ["shoulder","triceps"], "barbell",
+  ({floor}) => ({...standing,yaw:57,focus:[0,floor?.72:.90,.17],height:floor?1.74:1.99}), 4200);
+addRows([["1540"]], squatToOverheadPress, ["shoulder","quad","triceps"], "barbell",
+  {...standing,yaw:54,focus:[0,.97,.04],height:2.30}, 4900, .64);
+addRows([["4850"]], singleLegGoodMorning, ["r:hamstring","r:glute"], "barbell",
+  {...standing,yaw:67,focus:[-.04,.88,-.08],height:2.16}, 4500);
+addRows([["10047"], ["11789", {stiff:true}]], staggeredHinge, ["l:hamstring","l:glute"], "barbell",
+  {...standing,yaw:57,focus:[0,.82,.08],height:2.08}, 4500);
+addRows([["4016", {seated:true,width:.265}]], catalogueShrug, ["trap"], "barbell-seat",
+  {...standing,yaw:52,focus:[0,.74,.12],height:1.75}, 4300);
+addRows([["0075"]], behindBackRaise, ["rearShoulder","trap"], "barbell", {...standing,yaw:135}, 4350);
 
 function fitBarbellCamera(camera, keyframes) {
   const yaw = camera.yaw * Math.PI / 180;
