@@ -51,6 +51,10 @@ struct NativeCatalogueSmoke {
         }
         let video = index.entry(withID: "0047")!
         precondition(index.bundledVideoURL(for: video)?.isFileURL == true)
+        let dumbbellBench = index.entry(withID: "0289")!
+        let relatedBench = index.relatedExercises(for: dumbbellBench, excluding: ["0025"])
+        precondition(!relatedBench.isEmpty && relatedBench.count <= 6)
+        precondition(relatedBench.allSatisfy { $0.target == dumbbellBench.target && $0.id != dumbbellBench.id && $0.id != "0025" })
         let registry = root.appendingPathComponent("cloudflare/features/exercises/spotter-demo-assets.json")
         let spotterDemos = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: registry))
         precondition(spotterDemos["0198"] == "/open-gym/spotter-3d/0198.mp4")
@@ -61,6 +65,7 @@ struct NativeCatalogueSmoke {
             precondition(index.videoURL(for: entry)?.path == path)
         }
         precondition(index.entry(exactName: "A1 跪姿绳索三头下压")?.id == "0176")
+        precondition(index.knows("barbell bench press"))
         precondition(index.entry(exactName: "A2 跪姿绳索三头下压（反握）") == nil)
         precondition(index.entry(exactName: "上斜俯卧哑铃展臂")?.id == "0326")
         let personal = index.makePersonal(name: "私人的测试动作")

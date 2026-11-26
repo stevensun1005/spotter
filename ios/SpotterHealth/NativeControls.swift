@@ -191,6 +191,7 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     @Binding var value: Option
     let title: (Option) -> String
     let glass: Bool
+    let compact: Bool
     let guideTarget: (Option) -> NativeGuideStep?
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
@@ -199,12 +200,13 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     @Environment(\.colorScheme) private var colorScheme
     @Namespace private var selection
 
-    init(options: [Option], value: Binding<Option>, glass: Bool = true,
+    init(options: [Option], value: Binding<Option>, glass: Bool = true, compact: Bool = false,
          guideTarget: @escaping (Option) -> NativeGuideStep? = { _ in nil },
          title: @escaping (Option) -> String) {
         self.options = options
         _value = value
         self.glass = glass
+        self.compact = compact
         self.guideTarget = guideTarget
         self.title = title
     }
@@ -212,9 +214,12 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     @ViewBuilder var body: some View {
         if glass {
             SpotterGlassGroup(spacing: 5) { buttons }
-                .spotterGlassToolbar()
+                .padding(.horizontal, 4)
+                .padding(.vertical, compact ? 0 : 4)
+                .spotterGlass(cornerRadius: compact ? 22 : 26, interactive: false)
         } else {
-            buttons.padding(3)
+            buttons.padding(.horizontal, 3)
+                .padding(.vertical, compact ? 0 : 3)
                 .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 14))
         }
     }
@@ -248,22 +253,25 @@ struct SpotterGlassSegments<Option: Hashable>: View {
             .multilineTextAlignment(.center)
             .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
             .padding(.horizontal, 2)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Capsule())
+            .frame(maxWidth: .infinity, minHeight: compact && !textSize.isAccessibilitySize ? 34 : 44)
 
-        if !selected {
-            label
-        } else if glass, #available(iOS 26.0, *) {
-            label
-                .glassEffect(.regular.tint(accent.fill.opacity(colorScheme == .dark ? 0.30 : 0.46))
-                    .interactive(enabled && motion != nil), in: Capsule())
-                .glassEffectID("selection", in: selection)
-        } else {
-            label.background {
-                Capsule().fill(accent.selection)
-                    .matchedGeometryEffect(id: "selection", in: selection)
+        Group {
+            if !selected {
+                label
+            } else if glass, #available(iOS 26.0, *) {
+                label
+                    .glassEffect(.regular.tint(accent.fill.opacity(colorScheme == .dark ? 0.30 : 0.46))
+                        .interactive(enabled && motion != nil), in: Capsule())
+                    .glassEffectID("selection", in: selection)
+            } else {
+                label.background {
+                    Capsule().fill(accent.selection)
+                        .matchedGeometryEffect(id: "selection", in: selection)
+                }
             }
         }
+        .frame(minHeight: 44)
+        .contentShape(Capsule())
     }
 }
 

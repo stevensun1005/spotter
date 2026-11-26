@@ -2704,7 +2704,9 @@ struct NativeActiveWorkoutView: View {
                     openedMove = max(0, (store.active?.session?.plan.exercises.count ?? 1) - 1)
                 }
                 case .progress:
-                    if let progressMove { NativeExerciseProgressView(store: store, move: progressMove, showsClose: true) }
+                    if let progressMove {
+                        NativeExerciseProgressView(store: store, move: progressMove, showsClose: true, startsWithStats: true)
+                    }
                 case .finish:
                     NativeWorkoutFinishPanel(store: store) { record in
                         completed(record)
@@ -3833,7 +3835,7 @@ struct NativeWorkoutDetailView: View {
                 Spacer(minLength: 0)
                 if own {
                     NavigationLink {
-                        NativeExerciseProgressView(store: store, move: move)
+                        NativeExerciseProgressView(store: store, move: move, startsWithStats: true)
                     } label: {
                         Image(systemName: "chart.line.uptrend.xyaxis")
                             .foregroundStyle(SpotterPalette.accent)

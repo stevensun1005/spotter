@@ -447,15 +447,19 @@ struct NativeSpotterStats: View {
 
     private var rangePicker: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if let partner, !sharedLogs.isEmpty {
-                let name = remarks.name(for: partner.id, fallback: partner.name)
-                SpotterGlassSegments(options: [false, true], value: $partnerSelected, glass: false, title: { $0 ? "搭子 · \(name)" : "我" })
-            }
-            SpotterGlassSegments(options: Period.allCases, value: $period, title: \.rawValue)
-                .onChange(of: period) { value in
-                    step = 0
-                    if value == .custom { editingDates = true }
+            VStack(spacing: 4) {
+                if let partner, !sharedLogs.isEmpty {
+                    let name = remarks.name(for: partner.id, fallback: partner.name)
+                    SpotterGlassSegments(options: [false, true], value: $partnerSelected, glass: false, compact: true) {
+                        $0 ? "搭子 · \(name)" : "我"
+                    }
                 }
+                SpotterGlassSegments(options: Period.allCases, value: $period, compact: true, title: \.rawValue)
+                    .onChange(of: period) { value in
+                        step = 0
+                        if value == .custom { editingDates = true }
+                    }
+            }
             if period == .recent {
                 SpotterMenuPicker("最近天数", selection: $recent, options: [7, 30, 90, 365].map { ($0, "\($0) 天") })
                     .onChange(of: recent) { _ in step = 0 }

@@ -257,6 +257,7 @@ struct NativeCatalogIndex: Sendable {
         let muscleLabels: [String: String]
         let sections: [Section]
         let families: [Family]
+        let trainingPatterns: [String: String]?
         let preferredFamilies: [String: String]
         let corrections: [String: String]
         let exactAliases: [String: String]?
@@ -275,6 +276,7 @@ struct NativeCatalogIndex: Sendable {
     private let rowsByExactName: [String: NativeCatalogEntry]
     private let familiesByRow: [String: Metadata.Family]
     private let variantsByRow: [String: NativeCatalogVariant]
+    private let rowsByTrainingPattern: [String: [NativeCatalogEntry]]
     private let knownNames: Set<String>
     private let sectionsByEquipment: [String: String]
     private let searchContextByID: [String: String]
@@ -319,7 +321,15 @@ struct NativeCatalogIndex: Sendable {
                                    uniquingKeysWith: { first, _ in first })
         variantsByRow = Dictionary(metadata.families.flatMap(\.variants).map { ($0.id, $0) },
                                    uniquingKeysWith: { first, _ in first })
-        knownNames = Set(rows.map(\.normalizedName) + metadata.families.flatMap(\.aliases))
+        let patterns = metadata.trainingPatterns ?? [:]
+        let grouped = Dictionary(grouping: rows.filter { patterns[$0.id] != nil }, by: { patterns[$0.id] ?? "" })
+        rowsByTrainingPattern = grouped.mapValues { entries in
+            entries.filter { entry in
+                entry.en.range(of: #"\b(?:pov|(?:side|back|front|rear|left|right) view|form checks?|technique checks?)\b"#,
+                               options: [.regularExpression, .caseInsensitive]) == nil
+            }
+        }
+        knownNames = Set(rows.flatMap { [$0.normalizedName, $0.normalizedEnglish] } + metadata.families.flatMap(\.aliases))
         sectionsByEquipment = Dictionary(metadata.sections.flatMap { section in section.equipment.map { ($0, section.id) } },
                                          uniquingKeysWith: { first, _ in first })
         searchContextByID = Dictionary(rows.map { row in
@@ -394,6 +404,28 @@ struct NativeCatalogIndex: Sendable {
     }
 
     func variant(for entry: NativeCatalogEntry) -> NativeCatalogVariant? { variantsByRow[entry.id] }
+
+    func relatedExercises(for entry: NativeCatalogEntry, excluding ids: Set<String>) -> [NativeCatalogEntry] {
+        guard let pattern = metadata.trainingPatterns?[entry.id], let candidates = rowsByTrainingPattern[pattern] else { return [] }
+        let existing = ids.union([entry.id])
+        let representedFamilies = Set(existing.compactMap { familiesByRow[$0]?.id })
+        let ranked = candidates.filter { candidate in
+            guard candidate.target == entry.target, !existing.contains(candidate.id) else { return false }
+            if let family = familiesByRow[candidate.id] {
+                return family.primary == candidate.id && !representedFamilies.contains(family.id)
+            }
+            return true
+        }.sorted { lhs, rhs in
+            func rank(_ candidate: NativeCatalogEntry) -> (Int, Int, Int, String) {
+                let video = metadata.videos[candidate.id] ?? ""
+                return (candidate.equipment == entry.equipment ? 0 : 1,
+                        video.hasPrefix("/open-gym/spotter-3d/") ? 0 : 1, candidate.en.count, candidate.id)
+            }
+            return rank(lhs) < rank(rhs)
+        }
+        var usedNames = Set(existing.compactMap { rowsByID[$0]?.normalizedName })
+        return Array(ranked.filter { usedNames.insert($0.normalizedName).inserted }.prefix(6))
+    }
 
     func coverData(for entry: NativeCatalogEntry) -> Data? { asset(in: covers, range: metadata.covers[entry.id]) }
 

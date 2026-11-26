@@ -658,15 +658,16 @@ struct NativeExerciseLabel {
     let slot: String
     let warmup: Bool
 
-    init(_ move: NativeJSON) {
+    init(_ move: NativeJSON, preservingNameQualifiers: Bool = false) {
         let rawName = move["name"].string.trimmingCharacters(in: .whitespacesAndNewlines)
         var displayName = rawName
         var legacySlot = ""
         if let prefix = rawName.range(of: #"^(?:[A-Z]\d+\s+|[A-Z]\s+热身组\s*·\s*|E\s+(?![A-Za-z]))"#, options: .regularExpression) {
             let matched = rawName[prefix].trimmingCharacters(in: .whitespacesAndNewlines)
             legacySlot = matched.contains("热身组") ? String(matched.prefix(1)) + "-warmup" : matched
+            let suffix = preservingNameQualifiers ? #"(?:\s*·\s*.+)?$"# : #"(?:（[^（）]+）)?(?:\s*·\s*.+)?$"#
             let trimmed = String(rawName[prefix.upperBound...])
-                .replacingOccurrences(of: #"(?:（[^（）]+）)?(?:\s*·\s*.+)?$"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: suffix, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { displayName = trimmed }
         }
@@ -682,11 +683,14 @@ struct NativeExerciseHistory: Sendable {
     struct Identity: Hashable, Sendable {
         let catalogueID: String
         let names: Set<String>
+        let personalOnly: Bool
 
-        init(_ move: NativeJSON) {
-            catalogueID = move["catalogueId"].string
-            names = Set(["name", "sourceName"].compactMap { field in
-                let normalized = NativeExerciseLabel(.object(["name": move[field]])).name
+        init(_ move: NativeJSON, catalogueID: String? = nil, alternateNames: [String] = [], personalOnly: Bool = false) {
+            self.catalogueID = personalOnly ? "" : catalogueID ?? move["catalogueId"].string
+            self.personalOnly = personalOnly
+            let candidates = [move["name"].string, move["sourceName"].string] + alternateNames
+            names = Set((personalOnly ? Array(candidates.prefix(1)) : candidates).compactMap { name in
+                let normalized = NativeExerciseLabel(.object(["name": .string(name)]), preservingNameQualifiers: true).name
                     .precomposedStringWithCompatibilityMapping.lowercased()
                     .split(whereSeparator: \.isWhitespace).joined(separator: " ")
                 return normalized.isEmpty ? nil : normalized
@@ -710,13 +714,30 @@ struct NativeExerciseHistory: Sendable {
 
         var unit: String { NativeExerciseHistory.unit(of: move) }
         var isTimed: Bool { move["seconds"].number > 0 }
+        var completedRows: [NativeJSON] { rows.filter { $0["done"].bool } }
+        var volumeKg: Double {
+            completedRows.reduce(0) { $0 + NativeWorkoutSession.setVolumeKg($1, move: move, perSide: perSide) }
+        }
         var resultRows: [NativeJSON] {
             guard !warmup else { return [] }
-            return rows.filter { $0["done"].bool && $0["kind"].string.isEmpty }
+            return completedRows.filter { $0["kind"].string.isEmpty }
         }
         var greatestWeightKg: Double? { resultRows.compactMap(weightKg).max() }
         var longestSeconds: Double? {
             resultRows.map { $0["seconds"].number }.filter { $0 > 0 }.max()
+        }
+
+        func estimatedMaxKg(_ row: NativeJSON, formula: String) -> Double? {
+            guard strength, !isTimed, !warmup, row["done"].bool, row["kind"].string.isEmpty,
+                  row["seconds"].number <= 0 else { return nil }
+            let factor = unit == "lb" ? 0.45359237 : 1
+            return [row, row["right"]].compactMap { side -> Double? in
+                let weight = side["weight"].number * factor
+                let reps = side["reps"].number
+                guard weight > 0, (1...10).contains(reps) else { return nil }
+                if reps == 1 { return weight }
+                return formula == "brzycki" ? weight * 36 / (37 - reps) : weight * (1 + reps / 30)
+            }.max()
         }
 
         func weightKg(_ line: NativeJSON) -> Double? {
@@ -756,7 +777,7 @@ struct NativeExerciseHistory: Sendable {
     private var byCatalogue: [String: [Int]] = [:]
     private var byName: [String: [Int]] = [:]
 
-    init(logs: [NativeWorkoutEntry] = [], owner: String = "") {
+    init(logs: [NativeWorkoutEntry] = [], owner: String = "", identify: (NativeJSON) -> Identity = { Identity($0) }) {
         let ordered = logs.filter { $0.kind == "log" && $0.owner == owner }
             .sorted {
                 if $0.day != $1.day { return $0.day > $1.day }
@@ -772,7 +793,7 @@ struct NativeExerciseHistory: Sendable {
             for (index, move) in session.plan.exercises.enumerated() where groups.indices.contains(index) {
                 let rows = groups[index]
                 guard rows.contains(where: { $0["done"].bool }) else { continue }
-                let identity = Identity(move)
+                let identity = identify(move)
                 let position = records.count
                 records.append(Record(workoutID: entry.id, day: entry.day, started: entry.data["started"].number,
                                       title: entry.displayTitle, moveIndex: index, move: move, identity: identity,
@@ -788,9 +809,16 @@ struct NativeExerciseHistory: Sendable {
     func matching(_ identity: Identity) -> [Record] {
         let named = Set(identity.names.flatMap { byName[$0] ?? [] })
         let identifiedNames = Set(named.map { records[$0].identity.catalogueID }.filter { !$0.isEmpty })
-        let legacy = named.filter { records[$0].identity.catalogueID.isEmpty }
+        let legacy = named.filter { records[$0].identity.catalogueID.isEmpty && !records[$0].identity.personalOnly }
+        if identity.personalOnly {
+            return named.sorted().compactMap {
+                let record = records[$0]
+                return record.identity.catalogueID.isEmpty ? record : nil
+            }
+        }
         if identity.catalogueID.isEmpty {
-            return (identifiedNames.count > 1 ? legacy : named).sorted().map { records[$0] }
+            let candidates = identifiedNames.count > 1 ? legacy : named.filter { !records[$0].identity.personalOnly }
+            return candidates.sorted().map { records[$0] }
         }
         let byID = Set(byCatalogue[identity.catalogueID] ?? [])
         return (identifiedNames.subtracting([identity.catalogueID]).isEmpty ? byID.union(legacy) : byID)

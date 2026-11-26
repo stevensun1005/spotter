@@ -126,6 +126,26 @@ struct NativeWorkoutSmoke {
                "Exercise history excludes other accounts, variants and duplicate logs")
         expect(benchProgress.first?.bestReps(at: 50) == 10 && benchProgress.last?.bestReps(at: 50) == 6,
                "Same-weight history tracks increases in reps separately from load")
+        if let record = benchProgress.last, let work = record.rows.first {
+            var warmup = work
+            warmup["kind"] = .string("warmup")
+            var uncompleted = work
+            uncompleted["done"] = .bool(false)
+            expect(record.completedRows.count == 2 && record.volumeKg == 600,
+                   "Exercise charts count the logged repetitions and use the existing training volume formula")
+            expect(record.estimatedMaxKg(work, formula: "epley") == 60 &&
+                   abs((record.estimatedMaxKg(work, formula: "brzycki") ?? 0) - 50 * 36 / 31) < 0.001 &&
+                   record.estimatedMaxKg(warmup, formula: "epley") == nil &&
+                   record.estimatedMaxKg(uncompleted, formula: "epley") == nil,
+                   "1RM uses the selected formula and valid completed working sets only")
+        } else { preconditionFailure("Exercise data is available") }
+        var unnamedVariant = mostRecentBench
+        unnamedVariant.data["plan"]["exercises"] = .array([.object(["name": .string("A1 卧推（反握）")])])
+        let variantProgress = NativeExerciseHistory(logs: [unnamedVariant, priorBench], owner: entry.owner)
+        expect(variantProgress.matching(.init(bench)).map(\.workoutID) == [priorBench.id] &&
+               variantProgress.matching(.init(.object(["name": .string("卧推（反握）")]), personalOnly: true))
+                   .map(\.workoutID) == [unnamedVariant.id],
+               "Old qualified variant names remain separate from the base exercise")
         let increase = exerciseHistory.increase(for: bench)
         expect(increase?.weight == 52.5 && increase?.rightWeight == nil,
                "Two successful sessions at the target produce a modest, opt-in increase")

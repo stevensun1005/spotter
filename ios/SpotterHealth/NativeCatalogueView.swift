@@ -48,6 +48,7 @@ struct NativeCatalogueBrowser: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
     @Namespace private var detailZoom
+    @Namespace private var previewViewport
     @AppStorage("spotter.native.catalogue.cards") private var cards = true
     @AppStorage(NativeGymPreferences.storageKey) private var gymPreferences = Data()
     @AppStorage(NativePreferenceKey.equipment) private var legacyEquipment = ""
@@ -97,9 +98,7 @@ struct NativeCatalogueBrowser: View {
                             .frame(width: min(91, max(62, geometry.size.width * 0.19)))
                         VStack(alignment: .leading, spacing: 7) {
                             equipmentBar(index)
-                            scopeBar
                             if let results {
-                                resultSummary(results)
                                 resultPane(results, index: index)
                             } else {
                                 ProgressView("正在加载动作…")
@@ -245,109 +244,96 @@ struct NativeCatalogueBrowser: View {
         let all = results?.equipmentOptions ?? index.equipmentOptions
         let featured = ["barbell", "dumbbell", "kettlebell", "cable"]
         let ordered = featured.filter(all.contains) + all.filter { !featured.contains($0) }
-        return ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 5) {
-                catalogueChip("置顶", symbol: "star", selected: filters.scope == .pinned) {
-                    filters.scope = filters.scope == .pinned ? .all : .pinned
-                    filters.area = ""
-                    filters.equipment = ""
-                }
-                ForEach(ordered, id: \.self) { gear in
-                    catalogueChip(index.label(gear), selected: filters.equipment == gear) {
-                        filters.equipment = filters.equipment == gear ? "" : gear
+        return HStack(spacing: 3) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 5) {
+                    catalogueChip("置顶", symbol: "star", selected: filters.scope == .pinned) {
+                        toggleScope(.pinned)
+                    }
+                    ForEach(ordered, id: \.self) { gear in
+                        catalogueChip(index.label(gear), selected: filters.equipment == gear) {
+                            filters.equipment = filters.equipment == gear ? "" : gear
+                        }
                     }
                 }
+                .padding(.vertical, 2)
+                .animation(filterMotion, value: filters.equipment)
+                .animation(filterMotion, value: filters.scope)
             }
-            .padding(.vertical, 2)
-            .animation(filterMotion, value: filters.equipment)
-            .animation(filterMotion, value: filters.scope)
+            .accessibilityLabel("器械快捷筛选")
+            filterMenu
         }
-        .frame(height: 48)
-        .accessibilityLabel("器械快捷筛选")
+        .frame(height: 42)
     }
 
-    private var scopeBar: some View {
-        HStack(spacing: 8) {
-            scopeButton("精选动作", selected: filters.scope != .frequent) { filters.scope = .all }
-            scopeButton("常用动作", selected: filters.scope == .frequent) {
-                filters.scope = filters.scope == .frequent ? .all : .frequent
-                filters.area = ""
-                filters.equipment = ""
+    private var filterMenu: some View {
+        Menu {
+            Button {
+                toggleScope(.frequent)
+            } label: {
+                Label(filters.scope == .frequent ? "显示全部动作" : "常用动作", systemImage: "clock.arrow.circlepath")
             }
-            Spacer(minLength: 0)
-            catalogueIconButton("slider.horizontal.3", label: "筛选", size: 44) {
+            if !selectedGear.isEmpty {
+                Toggle("只显示我的器械", isOn: $filters.usesGear)
+            }
+            Button {
                 searchFocused = false
                 sheet = .filters
+            } label: {
+                Label("高级筛选", systemImage: "slider.horizontal.3")
             }
-        }
-        .animation(filterMotion, value: filters.scope)
-    }
-
-    private func scopeButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            searchFocused = false
-            action()
         } label: {
-            Text(title)
-                .font(.system(size: 13, weight: .bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(SpotterPalette.ink)
+                .frame(width: 32, height: 32)
+                .background(SpotterPalette.card, in: Circle())
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(SpotterChoiceStyle(selected: selected, horizontalPadding: 6))
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityLabel("动作库更多选项")
     }
 
-    private func resultSummary(_ result: NativeCatalogResults) -> some View {
-        HStack(spacing: 3) {
-            Text("\(result.count.formatted(.number.grouping(.never))) 个结果")
-                .font(.system(size: 14))
-                .foregroundStyle(SpotterPalette.muted)
-                .accessibilityAddTraits(.updatesFrequently)
-            if !selectedGear.isEmpty {
-                Spacer(minLength: 0)
-                Button {
-                    filters.usesGear.toggle()
-                } label: {
-                    Text(filters.usesGear ? "显示所有器械" : "只显示我的器械")
-                        .font(.system(size: 11)).underline()
-                }
-                .buttonStyle(.spotterPress)
-                .foregroundStyle(SpotterPalette.accent)
-            }
-        }
-        .padding(.vertical, 2)
+    private func toggleScope(_ scope: NativeCatalogScope) {
+        searchFocused = false
+        filters.scope = filters.scope == scope ? .all : scope
+        filters.area = ""
+        filters.equipment = ""
     }
 
     private func resultPane(_ result: NativeCatalogResults, index: NativeCatalogIndex) -> some View {
         ScrollViewReader { scroll in
             HStack(alignment: .top, spacing: 5) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        Color.clear.frame(height: 0).id("spotter.catalogue.start")
-                        if !result.featured.isEmpty { featuredEntries(result.featured, index: index) }
-                        if let name = newSearchName(in: index) {
-                            Button { searchFocused = false; sheet = .create(name) } label: {
-                                Label("创建「\(name)」", systemImage: "plus")
-                                    .lineLimit(2)
+                GeometryReader { bounds in
+                    let viewport = NativeCataloguePreviewViewport(coordinateSpace: previewViewport, size: bounds.size)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            Color.clear.frame(height: 0).id("spotter.catalogue.start")
+                            if let name = newSearchName(in: index) {
+                                Button { searchFocused = false; sheet = .create(name) } label: {
+                                    Label("创建「\(name)」", systemImage: "plus")
+                                        .lineLimit(2)
+                                }
+                                .buttonStyle(SpotterNativeButtonStyle(primary: false))
                             }
-                            .buttonStyle(SpotterNativeButtonStyle(primary: false))
+                            ForEach(result.sections) { section in
+                                catalogueSection(section, index: index, viewport: viewport).id(section.id)
+                            }
+                            if result.count == 0 {
+                                Text(filters.scope == .pinned ? "暂无符合条件的置顶动作。" :
+                                     filters.scope == .frequent ? "暂无符合条件的常用动作。" : "当前搜索和筛选条件下没有动作。")
+                                    .font(.footnote)
+                                    .foregroundStyle(SpotterPalette.muted)
+                                    .padding(8)
+                            }
+                            catalogueAttribution
                         }
-                        ForEach(result.sections) { section in
-                            catalogueSection(section, index: index).id(section.id)
-                        }
-                        if result.count == 0 {
-                            Text(filters.scope == .pinned ? "暂无符合条件的置顶动作。" :
-                                 filters.scope == .frequent ? "暂无符合条件的常用动作。" : "当前搜索和筛选条件下没有动作。")
-                                .font(.footnote)
-                                .foregroundStyle(SpotterPalette.muted)
-                                .padding(8)
-                        }
-                        catalogueAttribution
+                        .padding(.bottom, 6)
                     }
-                    .padding(.bottom, 6)
+                    .coordinateSpace(name: previewViewport)
+                    .scrollDismissesKeyboard(.interactively)
+                    .accessibilityLabel("动作列表")
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .accessibilityLabel("动作列表")
                 if result.sections.count > 1 {
                     jumpRail(result.sections) { section in
                         searchFocused = false
@@ -401,7 +387,9 @@ struct NativeCatalogueBrowser: View {
         .accessibilityLabel("器械分区导航")
     }
 
-    private func catalogueSection(_ section: NativeCatalogSection, index: NativeCatalogIndex) -> some View {
+    private func catalogueSection(
+        _ section: NativeCatalogSection, index: NativeCatalogIndex, viewport: NativeCataloguePreviewViewport
+    ) -> some View {
         let batch = filters.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 8 : 40
         let limit = sectionLimits[section.id] ?? batch
         return VStack(alignment: .leading, spacing: 6) {
@@ -417,7 +405,7 @@ struct NativeCatalogueBrowser: View {
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6, alignment: .top), count: cards ? 2 : 1), spacing: 6) {
                 ForEach(section.rows.prefix(limit)) { entry in
-                    entryRow(entry, index: index, vertical: cards, source: "section:" + section.id + ":" + entry.id)
+                    entryRow(entry, index: index, viewport: viewport, vertical: cards, source: "section:" + section.id + ":" + entry.id)
                 }
             }
             if section.rows.count > limit {
@@ -429,21 +417,10 @@ struct NativeCatalogueBrowser: View {
         }
     }
 
-    private func featuredEntries(_ entries: [NativeCatalogEntry], index: NativeCatalogIndex) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 5) {
-                ForEach(entries) { entry in
-                    entryRow(entry, index: index, vertical: false, source: "featured:" + entry.id)
-                        .frame(width: 177)
-                }
-            }
-            .padding(1)
-        }
-        .accessibilityLabel("精选推荐")
-    }
-
     @ViewBuilder
-    private func entryRow(_ entry: NativeCatalogEntry, index: NativeCatalogIndex, vertical: Bool, source: String) -> some View {
+    private func entryRow(
+        _ entry: NativeCatalogEntry, index: NativeCatalogIndex, viewport: NativeCataloguePreviewViewport, vertical: Bool, source: String
+    ) -> some View {
         let chinese = index.family(for: entry)?.title ?? entry.name
         let title = if entry.en.isEmpty || entry.en == chinese || language == "zh" {
             chinese
@@ -461,7 +438,8 @@ struct NativeCatalogueBrowser: View {
         } label: {
             if vertical {
                 VStack(alignment: .leading, spacing: 4) {
-                    NativeCatalogueCover(index: index, entry: entry, ratio: 5.0 / 3.0)
+                    NativeCatalogueCardPreview(index: index, entry: entry, ratio: 5.0 / 3.0,
+                                               permitsPlayback: sheet == nil, viewport: viewport, store: store)
                     entryText(entry, title: title, pinned: isPinned, index: index)
                         .padding(.horizontal, 2)
                         .padding(.bottom, 3)
@@ -469,13 +447,15 @@ struct NativeCatalogueBrowser: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             } else {
                 HStack(spacing: 5) {
-                    NativeCatalogueCover(index: index, entry: entry, ratio: 1)
+                    NativeCatalogueCardPreview(index: index, entry: entry, ratio: 1,
+                                               permitsPlayback: sheet == nil, viewport: viewport, store: store)
                         .frame(width: 36)
                     entryText(entry, title: title, pinned: isPinned, index: index)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .accessibilityIdentifier("catalogue-entry-" + entry.id)
         .buttonStyle(.spotterPress)
 
         let card = Group {
@@ -715,6 +695,129 @@ private struct NativeCatalogueCover: View {
     }
 }
 
+private struct NativeCataloguePreviewViewport: Sendable {
+    let coordinateSpace: Namespace.ID
+    let size: CGSize
+
+    func showsPreview(_ frame: CGRect) -> Bool {
+        let visible = CGRect(origin: .zero, size: size).intersection(frame)
+        return !frame.isEmpty && !visible.isEmpty && visible.height >= frame.height * 0.45
+    }
+}
+
+@MainActor
+private struct NativeCatalogueCardPreview: View {
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    let index: NativeCatalogIndex
+    let entry: NativeCatalogEntry
+    let ratio: CGFloat
+    let permitsPlayback: Bool
+    var viewport: NativeCataloguePreviewViewport? = nil
+    let store: NativeWorkoutStore
+    @State private var appeared = false
+    @State private var visibleInViewport = false
+    @State private var loaded: LoadedPreview?
+
+    private enum Media: Sendable {
+        case video(URL)
+        case gif(NativeExerciseGIFFrames)
+        case drawing(NativeCatalogDrawing)
+    }
+
+    private struct Request: Equatable {
+        let entryID: String
+        let owner: String?
+    }
+
+    private struct LoadedPreview {
+        let request: Request
+        let media: Media
+    }
+
+    private var request: Request? {
+        guard appeared, viewport == nil || visibleInViewport, permitsPlayback, scenePhase == .active,
+              !reduceMotion, !systemReduceMotion else { return nil }
+        return Request(entryID: entry.id, owner: entry.isPersonal ? store.owner : nil)
+    }
+
+    var body: some View {
+        let requested = request
+        NativeCatalogueCover(index: index, entry: entry, ratio: ratio)
+            .overlay {
+                if let requested, let loaded, loaded.request == requested {
+                    preview(loaded.media)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .allowsHitTesting(false)
+                }
+            }
+            .accessibilityHidden(true)
+            .onAppear { appeared = true }
+            .onDisappear { appeared = false }
+            .onGeometryChange(for: Bool.self) { [viewport] geometry in
+                guard let viewport else { return true }
+                return viewport.showsPreview(geometry.frame(in: .named(viewport.coordinateSpace)))
+            } action: { isVisible in
+                visibleInViewport = isVisible
+            }
+            .task(id: requested) {
+                loaded = nil
+                guard let requested else { return }
+                // Let quick scrolls bypass media loading until the preview is settled in view.
+                do { try await Task.sleep(for: .milliseconds(110)) }
+                catch { return }
+                let media = await loadMedia(for: requested)
+                if let media, !Task.isCancelled { loaded = LoadedPreview(request: requested, media: media) }
+            }
+    }
+
+    @ViewBuilder
+    private func preview(_ media: Media) -> some View {
+        switch media {
+        case .video(let url):
+            NativeExerciseVideoPlayer(url: url, playing: true)
+        case .gif(let frames):
+            SpotterPalette.color(0x314839).overlay {
+                NativeExerciseGIFPlayer(frames: frames, playing: true)
+            }
+        case .drawing(let drawing):
+            SpotterPalette.color(0x314839).overlay {
+                NativeCatalogueDrawingPlayer(drawing: drawing, playing: true)
+            }
+        }
+    }
+
+    private func loadMedia(for request: Request) async -> Media? {
+        let personalBytes: Data?
+        if let owner = request.owner {
+            var query = URLComponents()
+            query.queryItems = [URLQueryItem(name: "name", value: entry.name)]
+            guard let encoded = query.percentEncodedQuery,
+                  let data = try? await store.api.request("/api/exercises/demo?" + encoded, method: "GET", json: nil, for: owner),
+                  !Task.isCancelled else { return nil }
+            personalBytes = data
+        } else {
+            personalBytes = nil
+        }
+
+        let worker = Task.detached(priority: .utility) { [index, entry] () -> Media? in
+            if let personalBytes {
+                return NativeExerciseGIFFrames.decode(personalBytes, thumbnailSize: 224).map(Media.gif)
+            }
+            if let url = index.bundledVideoURL(for: entry) { return .video(url) }
+            if let bytes = index.animationData(for: entry), let frames = NativeExerciseGIFFrames.decode(bytes) { return .gif(frames) }
+            return index.drawing(for: entry).map(Media.drawing)
+        }
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+}
+
 private struct NativeCatalogueFiltersSheet: View {
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dismiss) private var dismiss
@@ -932,97 +1035,220 @@ private struct NativeCatalogueCustomEditor: View {
     }
 }
 
+@MainActor
 struct NativeCatalogueExerciseDetail: View {
-    @Environment(\.spotterAccent) private var accent
+    @ObservedObject var store: NativeWorkoutStore
+    let index: NativeCatalogIndex
+    let entry: NativeCatalogEntry
+    let add: (NativeCatalogEntry) -> Void
+
+    var body: some View {
+        NavigationStack {
+            NativeCatalogueExercisePage(store: store, index: index, entry: entry, move: catalogueMove(entry),
+                                        showsClose: true, add: add)
+                .id(store.owner)
+        }
+    }
+}
+
+private enum NativeExerciseDetailTab: String, CaseIterable {
+    case guide, history, statistics, variants
+
+    var title: String {
+        switch self {
+        case .guide: return "要点"
+        case .history: return "历史"
+        case .statistics: return "统计"
+        case .variants: return "变式"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .guide: return "list.bullet.clipboard"
+        case .history: return "clock"
+        case .statistics: return "chart.bar"
+        case .variants: return "square.stack"
+        }
+    }
+}
+
+private func catalogueMove(_ entry: NativeCatalogEntry) -> NativeJSON {
+    .object(["name": .string(entry.name), "sourceName": .string(entry.en),
+             "catalogueId": .string(entry.isPersonal ? "" : entry.id)])
+}
+
+@MainActor
+private struct NativeCatalogueExercisePage: View {
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @Environment(\.spotterReduceMotion) private var reduceMotion
-    let index: NativeCatalogIndex
-    @State var entry: NativeCatalogEntry
-    let add: (NativeCatalogEntry) -> Void
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.dynamicTypeSize) private var textSize
+    @Namespace private var previewCoordinateSpace
+    @Namespace private var detailTabSelection
+    let index: NativeCatalogIndex?
+    let entry: NativeCatalogEntry?
+    let move: NativeJSON
+    let showsClose: Bool
+    let add: ((NativeCatalogEntry) -> Void)?
+    @State private var tab: NativeExerciseDetailTab
     @State private var content: NativeCatalogDetailText?
     @State private var pinError: String?
     @State private var savingPin = false
 
+    init(store: NativeWorkoutStore, index: NativeCatalogIndex?, entry: NativeCatalogEntry?, move: NativeJSON,
+         initialTab: NativeExerciseDetailTab = .guide, showsClose: Bool = false,
+         add: ((NativeCatalogEntry) -> Void)? = nil) {
+        self.store = store
+        self.index = index
+        self.entry = entry
+        self.move = move
+        self.showsClose = showsClose
+        self.add = add
+        _tab = State(initialValue: initialTab)
+    }
+
+    private var name: String {
+        entry?.name ?? NativeExerciseLabel(move, preservingNameQualifiers: true).name
+    }
+
+    private var exerciseProfiles: [NativeJSON] {
+        store.libraryRows.filter { $0["kind"].string == "exercise" }.map { $0["item"] }
+    }
+
     private var profile: NativeJSON? {
-        let key = index.nameKey(entry.name)
-        return store.libraryRows.first { $0["kind"].string == "exercise" && index.nameKey($0["item"]["name"].string) == key }?["item"]
+        let key = exerciseIdentityKey(name)
+        return exerciseProfiles.first { exerciseIdentityKey($0["name"].string) == key }
+    }
+
+    private func exerciseIdentityKey(_ name: String) -> String {
+        name.precomposedStringWithCompatibilityMapping.lowercased()
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if entry.isPersonal {
-                        NativePersonalExerciseDemo(store: store, name: entry.name) {
-                            NativeCatalogueCover(index: index, entry: entry, ratio: 5.0 / 3.0)
+        GeometryReader { geometry in
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 0).accessibilityHidden(true).id("exercise-detail-top")
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            if tab == .guide { demonstration }
+                            header
+                            switch tab {
+                            case .guide: guidance
+                            case .variants:
+                                variants(viewport: .init(coordinateSpace: previewCoordinateSpace, size: geometry.size))
+                            case .history, .statistics: EmptyView()
+                            }
+                            if tab == .history || tab == .statistics {
+                                NativeExerciseLogDetail(store: store, index: index, move: move, entry: entry, tab: tab)
+                            }
                         }
-                    } else {
-                        NativeCatalogueExerciseDemo(index: index, entry: entry).id(entry.id)
+                        .padding(14)
                     }
-                    Text(entry.name).font(.title2.bold()).accessibilityAddTraits(.isHeader)
-                    let subtitle = [entry.en, catalogueMetadata(for: entry, index: index), index.label(entry.type)]
-                        .filter { !$0.isEmpty }.joined(separator: " · ")
-                    if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(SpotterPalette.muted) }
-                    HStack {
-                        addButton
-                        Button { Task { await togglePin() } } label: {
-                            Label(profile?["pinned"].bool == true ? "取消置顶" : "置顶", systemImage: profile?["pinned"].bool == true ? "star.fill" : "star")
-                        }
-                        .buttonStyle(SpotterNativeButtonStyle(primary: false))
-                        .disabled(savingPin)
-                    }
-                    if let pinError { Text(pinError).font(.footnote).foregroundStyle(.red) }
-                    if let video = index.videoURL(for: entry) {
-                        Link(destination: video) { Label("打开动作示范", systemImage: "play.circle") }
-                            .buttonStyle(SpotterNativeButtonStyle(primary: false))
-                    }
-                    if let family = index.family(for: entry), family.variants.count > 1 {
-                        SpotterMenuPicker("动作变式", selection: Binding(get: { entry.id }, set: { id in
-                            if let selection = family.variants.first(where: { $0.id == id }) { entry = selection }
-                        }), options: family.variants.map { ($0.id, $0.name) })
-                    }
-                    NavigationLink {
-                        NativeExerciseProgressView(store: store, move: .object([
-                            "name": .string(entry.name),
-                            "sourceName": .string(entry.en),
-                            "catalogueId": .string(entry.isPersonal ? "" : entry.id),
-                        ]))
-                    } label: {
-                        Label("查看动作进步", systemImage: "chart.line.uptrend.xyaxis")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(SpotterNativeButtonStyle(primary: false))
-                    guidance
                 }
-                .padding(16)
+                .coordinateSpace(name: previewCoordinateSpace)
+                .onChange(of: tab) { _ in scroll.scrollTo("exercise-detail-top", anchor: .top) }
             }
-            .background(SpotterPalette.background)
-            .navigationTitle("动作详情")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
-            .task(id: entry.id) {
-                content = nil
-                let selected = entry
-                let result = await Task.detached(priority: .utility) { try? index.details(for: selected) }.value
-                if !Task.isCancelled { content = result }
+        }
+        .background(SpotterPalette.background)
+        .foregroundStyle(SpotterPalette.ink)
+        .navigationTitle("动作详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if showsClose {
+                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
             }
+        }
+        .task(id: entry?.id) {
+            content = nil
+            guard let index, let entry, !entry.isPersonal else { return }
+            let result = await Task.detached(priority: .utility) { try? index.details(for: entry) }.value
+            if !Task.isCancelled { content = result }
         }
     }
 
     @ViewBuilder
-    private var addButton: some View {
-        let button = Button { add(entry) } label: { Label("加入训练计划", systemImage: "plus") }
-        if #available(iOS 26.0, *) {
-            button.buttonStyle(.glass(.regular.tint(accent.fill).interactive(!reduceMotion && !systemReduceMotion)))
-                .foregroundStyle(SpotterPalette.deep)
-        } else {
-            button.buttonStyle(SpotterNativeButtonStyle(primary: true))
+    private var demonstration: some View {
+        if let index, let entry, !entry.isPersonal {
+            NativeCatalogueExerciseDemo(index: index, entry: entry).id(entry.id)
+        } else if !name.isEmpty, move["catalogueId"].string.isEmpty || entry?.isPersonal == true {
+            NativePersonalExerciseDemo(store: store, name: name) { EmptyView() }
+                .id(store.owner + "\n" + name)
         }
     }
 
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(name).font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("catalogue-detail-name")
+            if let index, let entry {
+                let subtitle = [entry.en, catalogueMetadata(for: entry, index: index), index.label(entry.type)]
+                    .filter { !$0.isEmpty }.joined(separator: " · ")
+                if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(SpotterPalette.muted) }
+            }
+            tabs
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .spotterCard()
+    }
+
+    private var tabs: some View {
+        let layout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 3)) : AnyLayout(HStackLayout(spacing: 3))
+        return layout {
+            ForEach(NativeExerciseDetailTab.allCases, id: \.self) { section in
+                let selected = tab == section
+                Button { tab = section } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: section.icon).accessibilityHidden(true)
+                        Text(section.title).fixedSize(horizontal: true, vertical: false)
+                    }
+                    .font(.caption.weight(selected ? .bold : .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
+                    .background {
+                        if selected {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(SpotterPalette.card)
+                                .matchedGeometryEffect(id: "selected", in: detailTabSelection)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.spotterPress)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityIdentifier("catalogue-detail-section-" + section.rawValue)
+            }
+        }
+        .padding(3)
+        .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 13))
+        .animation(motion, value: tab)
+    }
+
     @ViewBuilder private var guidance: some View {
+        if !name.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { guideActions }
+                VStack(alignment: .leading, spacing: 8) { guideActions }
+            }
+        }
+        if let pinError { Text(pinError).font(.footnote).foregroundStyle(.red) }
+        if let index, let entry, let video = index.videoURL(for: entry) {
+            Link(destination: video) { Label("打开动作示范", systemImage: "play.circle") }
+                .buttonStyle(.spotterControl)
+        }
+        if let note = profile?["note"].string, !note.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("个人备注").font(.headline)
+                Text(note).font(.subheadline)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14).spotterCard()
+        }
         let guide = profile?["guide"]
         let authored = guide?["description"].string ?? ""
         let description = authored.isEmpty ? content?.description ?? "" : authored
@@ -1030,7 +1256,7 @@ struct NativeCatalogueExerciseDetail: View {
         let steps = manualSteps.isEmpty ? content?.steps ?? [] : manualSteps
         if !description.isEmpty || !steps.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("动作说明").font(.headline)
+                Text("动作要点").font(.headline)
                 if !description.isEmpty { Text(description).font(.subheadline) }
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                     Text("\(index + 1). \(step)").font(.subheadline)
@@ -1038,13 +1264,103 @@ struct NativeCatalogueExerciseDetail: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14).spotterCard()
+        } else {
+            empty("暂无动作说明", icon: "list.bullet.clipboard")
         }
+    }
+
+    @ViewBuilder private var guideActions: some View {
+        if let entry, let add {
+            Button { add(entry) } label: { Label("加入训练计划", systemImage: "plus") }
+                .buttonStyle(.spotterPrimaryControl)
+        }
+        let pinned = profile?["pinned"].bool == true
+        Button { Task { await togglePin() } } label: {
+            Label(pinned ? "取消置顶" : "置顶", systemImage: pinned ? "star.fill" : "star")
+        }
+        .buttonStyle(.spotterControl)
+        .disabled(savingPin)
+    }
+
+    @ViewBuilder
+    private func variants(viewport: NativeCataloguePreviewViewport) -> some View {
+        if let index, let entry {
+            let result = relatedEntries(for: entry, index: index)
+            if result.isEmpty {
+                empty("暂无动作变式", icon: "square.stack")
+            } else {
+                let columns = Array(repeating: GridItem(.flexible(), spacing: 9), count: textSize.isAccessibilitySize ? 1 : 2)
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 9) {
+                    ForEach(result) { variant in
+                        NavigationLink {
+                            NativeCatalogueExercisePage(store: store, index: index, entry: variant,
+                                                        move: catalogueMove(variant), add: add)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                NativeCatalogueCardPreview(index: index, entry: variant, ratio: 5.0 / 3.0,
+                                                           permitsPlayback: true, viewport: viewport, store: store)
+                                    .accessibilityHidden(true)
+                                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                    Text(variant.name).font(.subheadline.weight(.semibold))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
+                                        .foregroundStyle(SpotterPalette.muted)
+                                }
+                                let metadata = catalogueMetadata(for: variant, index: index)
+                                if !metadata.isEmpty {
+                                    Text(metadata).font(.caption).foregroundStyle(SpotterPalette.muted)
+                                }
+                            }
+                            .multilineTextAlignment(.leading)
+                            .foregroundStyle(SpotterPalette.ink)
+                            .padding(8)
+                            .spotterCard()
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.spotterPress)
+                        .accessibilityIdentifier("catalogue-variant-" + variant.id)
+                        .accessibilityHint("打开该变式的动作详情")
+                    }
+                }
+            }
+        } else {
+            empty("暂无动作变式", icon: "square.stack")
+        }
+    }
+
+    private func relatedEntries(for entry: NativeCatalogEntry, index: NativeCatalogIndex) -> [NativeCatalogEntry] {
+        let personalBase = profile?["versionOf"].string ?? ""
+        let baseName = personalBase.isEmpty ? entry.name : personalBase
+        let base = entry.isPersonal ? index.entry(exactName: baseName) : entry
+        let standard = base.map { index.family(for: $0)?.variants ?? [$0] } ?? []
+        let baseKeys = Set(([baseName] + standard.flatMap { [$0.name, $0.en] }).map(exerciseIdentityKey))
+        let personal = exerciseProfiles.compactMap { profile -> NativeCatalogEntry? in
+            let name = profile["name"].string
+            let parent = profile["versionOf"].string
+            let isLinked = !parent.isEmpty && baseKeys.contains(exerciseIdentityKey(parent))
+            let isPersonalBase = base == nil && exerciseIdentityKey(name) == exerciseIdentityKey(baseName)
+            guard !name.isEmpty, isLinked || isPersonalBase else { return nil }
+            return index.makePersonal(name: name, classification: profile["classification"])
+        }
+        var seen: Set<String> = [entry.id]
+        let linked = (standard + personal).filter { seen.insert($0.id).inserted }
+        guard let base, linked.count < 4 else { return linked }
+        return linked + index.relatedExercises(for: base, excluding: seen).prefix(6 - linked.count)
+    }
+
+    private func empty(_ message: String, icon: String) -> some View {
+        Label(message, systemImage: icon)
+            .font(.subheadline)
+            .foregroundStyle(SpotterPalette.muted)
+            .frame(maxWidth: .infinity)
+            .padding(18)
+            .spotterCard()
     }
 
     private func togglePin() async {
         guard !savingPin else { return }
         savingPin = true
-        var next = profile ?? .object(["name": .string(entry.name), "pinned": .bool(false), "note": .string(""), "videos": .array([])])
+        var next = profile ?? .object(["name": .string(name), "pinned": .bool(false), "note": .string(""), "videos": .array([])])
         next["pinned"] = .bool(!next["pinned"].bool)
         pinError = await store.saveExerciseProfile(next)
         savingPin = false
@@ -1244,7 +1560,7 @@ private struct NativeExerciseGIFFrames: Sendable {
     let images: [CGImage]
     let durations: [Double]
 
-    nonisolated static func decode(_ data: Data) -> Self? {
+    nonisolated static func decode(_ data: Data, thumbnailSize: Int? = nil) -> Self? {
         guard data.count <= 768 * 1024,
               let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let count = CGImageSourceGetCount(source)
@@ -1253,12 +1569,25 @@ private struct NativeExerciseGIFFrames: Sendable {
         var durations: [Double] = []
         var pixels = 0
         for index in 0..<count {
-            guard let image = CGImageSourceCreateImageAtIndex(source, index,
-                [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
-                  image.width <= 480, image.height <= 480 else { return nil }
-            pixels += image.width * image.height
-            guard pixels <= 9_000_000 else { return nil }
+            guard !Task.isCancelled else { return nil }
             let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+            guard let width = properties?[kCGImagePropertyPixelWidth] as? Int,
+                  let height = properties?[kCGImagePropertyPixelHeight] as? Int,
+                  (1...480).contains(width), (1...480).contains(height) else { return nil }
+            pixels += width * height
+            guard pixels <= 9_000_000 else { return nil }
+            let image: CGImage?
+            if let thumbnailSize {
+                image = CGImageSourceCreateThumbnailAtIndex(source, index, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: thumbnailSize,
+                    kCGImageSourceShouldCacheImmediately: true,
+                ] as CFDictionary)
+            } else {
+                image = CGImageSourceCreateImageAtIndex(source, index,
+                    [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+            }
+            guard let image, image.width <= 480, image.height <= 480 else { return nil }
             let gif = properties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
             let delay = (gif?[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
                 ?? (gif?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
@@ -1325,109 +1654,156 @@ struct NativeExerciseProgressView: View {
     @ObservedObject var store: NativeWorkoutStore
     let move: NativeJSON
     var showsClose = false
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.spotterAccent) private var accent
-    @State private var records: [NativeExerciseHistory.Record] = []
-    @State private var metric: Metric = .weight
-    @State private var selectedLoad: Double?
-    @State private var olderAnchor: String?
-    @State private var loadingMore = false
-    @State private var loadFailed = false
+    var startsWithStats = false
     @State private var catalogue: NativeCatalogIndex?
-    @State private var catalogueLoaded = false
+    @State private var loadedCatalogue = false
 
-    private enum Metric: String, CaseIterable {
-        case weight, reps, seconds
-
-        var title: String {
-            switch self {
-            case .weight: return "最高重量"
-            case .reps: return "同重次数"
-            case .seconds: return "最长时长"
-            }
+    private var entry: NativeCatalogEntry? {
+        guard let catalogue else { return nil }
+        let name = move["name"].string
+        let id = move["catalogueId"].string
+        let personal = catalogue.isPersonalVariant(named: name, library: store.libraryRows)
+        if personal || id.isEmpty {
+            if !personal, let exact = catalogue.entry(exactName: name) { return exact }
+            let qualified = NativeExerciseLabel(move, preservingNameQualifiers: true).name
+            return catalogue.makePersonal(name: qualified)
         }
-    }
-
-    private struct Point: Identifiable {
-        let id: String
-        let date: Date
-        let value: Double
-    }
-
-    private var name: String { NativeExerciseLabel(move).name }
-    private var bestLoad: Double? { records.compactMap(\.greatestWeightKg).max().flatMap { $0 > 0 ? $0 : nil } }
-    private var bestDuration: Double? { records.compactMap(\.longestSeconds).max() }
-    private var loads: [Double] {
-        Set(records.flatMap { record in
-            record.resultRows.compactMap(record.repsLoadKg)
-        }).sorted(by: >)
-    }
-    private var referenceLoad: Double? {
-        if let selectedLoad, loads.contains(selectedLoad) { return selectedLoad }
-        let latest = records.first { $0.greatestWeightKg != nil }
-        if let weight = latest?.greatestWeightKg, loads.contains(weight) { return weight }
-        return loads.first
-    }
-    private var metrics: [Metric] {
-        Metric.allCases.filter {
-            switch $0 {
-            case .weight: return bestLoad != nil
-            case .reps: return !loads.isEmpty
-            case .seconds: return bestDuration != nil
-            }
-        }
-    }
-    private var shownMetric: Metric { metrics.contains(metric) ? metric : metrics.first ?? .reps }
-    private var unit: String {
-        if move["unit"].string.isEmpty { return records.first?.unit ?? "kg" }
-        return NativeExerciseHistory.unit(of: move)
-    }
-    private var baseline: String {
-        if let olderAnchor { return olderAnchor }
-        if let start = store.recentHistoryStart { return start }
-        return spotterDay(Calendar.current.date(byAdding: .day, value: -62, to: .now) ?? .now)
+        return catalogue.entry(exactName: name, catalogueID: id)
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                heading
-                demonstration
-                if records.isEmpty { empty }
-                if !metrics.isEmpty {
-                    recordsCard
-                    trendCard
-                }
-                if !records.isEmpty {
-                    Text("历史组次").font(.headline).accessibilityAddTraits(.isHeader)
-                    ForEach(records) { record in sessionCard(record) }
-                }
-                earlierButton
+        Group {
+            if loadedCatalogue {
+                NativeCatalogueExercisePage(store: store, index: catalogue, entry: entry, move: move,
+                                            initialTab: startsWithStats ? .statistics : .guide, showsClose: showsClose)
+                    .id(store.owner)
+            } else {
+                ProgressView("正在读取动作…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(SpotterPalette.background)
             }
-            .padding(14)
-        }
-        .background(SpotterPalette.background)
-        .foregroundStyle(SpotterPalette.ink)
-        .navigationTitle("动作进步")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if showsClose { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
         }
         .task {
             let index = try? await NativeCatalogIndex.bundled.value
             if !Task.isCancelled {
                 catalogue = index
-                catalogueLoaded = true
+                loadedCatalogue = true
             }
         }
-        .task(id: store.logs) {
-            let logs = store.logs
-            let owner = store.owner
-            let identity = NativeExerciseHistory.Identity(move)
-            let matched = await Task.detached(priority: .userInitiated) {
-                NativeExerciseHistory(logs: logs, owner: owner).matching(identity)
+    }
+}
+
+@MainActor
+private struct NativeExerciseLogDetail: View {
+    @ObservedObject var store: NativeWorkoutStore
+    @Environment(\.spotterAccent) private var accent
+    @AppStorage(NativePreferenceKey.oneRepMax) private var oneRepMax = "epley"
+    let index: NativeCatalogIndex?
+    let move: NativeJSON
+    let entry: NativeCatalogEntry?
+    let tab: NativeExerciseDetailTab
+    @State private var records: [NativeExerciseHistory.Record] = []
+    @State private var indexed = false
+    @State private var olderAnchor: String?
+    @State private var loadingMore = false
+    @State private var loadFailed = false
+    @State private var selectedLoad: Double?
+
+    private enum Metric: String, CaseIterable {
+        case volume = "训练容量"
+        case sets = "完成组数"
+        case weight = "最大重量"
+        case estimatedMax = "1RM 估算"
+        case reps = "同重次数"
+        case seconds = "最长时长"
+
+        func unit(weight: String) -> String {
+            switch self {
+            case .sets: return "组"
+            case .reps: return "次"
+            case .seconds: return "秒"
+            case .volume, .weight, .estimatedMax: return weight
+            }
+        }
+    }
+
+    private struct Point: Identifiable {
+        var id: Date { date }
+        let date: Date
+        let value: Double
+    }
+
+    private struct HistoryRequest: Equatable {
+        let owner: String
+        let logs: [NativeWorkoutEntry]
+        let identity: NativeExerciseHistory.Identity
+        let privateNames: Set<String>
+    }
+
+    private var request: HistoryRequest {
+        let privateNames = Set(store.libraryRows.lazy.filter {
+            $0["kind"].string == "exercise" && !$0["item"]["versionOf"].string.isEmpty
+        }.compactMap { NativeExerciseHistory.Identity($0["item"], personalOnly: true).names.first })
+        let identity = entry.map { NativeExerciseHistory.Identity(catalogueMove($0), personalOnly: $0.isPersonal) }
+            ?? NativeExerciseHistory.Identity(move)
+        return HistoryRequest(owner: store.owner, logs: store.logs, identity: identity, privateNames: privateNames)
+    }
+
+    private var unit: String {
+        if move["unit"].string.isEmpty { return records.first?.unit ?? "kg" }
+        return NativeExerciseHistory.unit(of: move)
+    }
+
+    private var loads: [Double] {
+        Set(records.flatMap { $0.resultRows.compactMap($0.repsLoadKg) }).sorted(by: >)
+    }
+
+    private var referenceLoad: Double? {
+        if let selectedLoad, loads.contains(selectedLoad) { return selectedLoad }
+        if let weight = records.compactMap(\.greatestWeightKg).first, loads.contains(weight) { return weight }
+        return loads.first
+    }
+
+    private var baseline: String {
+        olderAnchor ?? store.recentHistoryStart ?? spotterDay(Calendar.current.date(byAdding: .day, value: -62, to: .now) ?? .now)
+    }
+
+    var body: some View {
+        let current = request
+        LazyVStack(alignment: .leading, spacing: 10) {
+            if records.isEmpty {
+                Label(!indexed || loadingMore ? "正在读取训练记录" : "暂无这个动作的已完成组次",
+                      systemImage: tab.icon)
+                    .font(.subheadline)
+                    .foregroundStyle(SpotterPalette.muted)
+                    .frame(maxWidth: .infinity)
+                    .padding(18)
+                    .spotterCard()
+            } else if tab == .history {
+                history
+            } else {
+                statistics
+            }
+            earlierButton
+        }
+        .task(id: current) {
+            let catalogue = index
+            let matching = await Task.detached(priority: .userInitiated) {
+                NativeExerciseHistory(logs: current.logs, owner: current.owner) { candidate in
+                    let given = NativeExerciseHistory.Identity(candidate)
+                    guard given.catalogueID.isEmpty else { return given }
+                    let privateIdentity = NativeExerciseHistory.Identity(candidate, personalOnly: true)
+                    if !privateIdentity.names.isDisjoint(with: current.privateNames) { return privateIdentity }
+                    guard let catalogue else { return given }
+                    if let linked = catalogue.entry(exactName: candidate["name"].string) {
+                        return NativeExerciseHistory.Identity(candidate, catalogueID: linked.id)
+                    }
+                    return privateIdentity
+                }.matching(current.identity)
             }.value
-            if !Task.isCancelled { records = matched }
+            if !Task.isCancelled {
+                records = matching
+                indexed = true
+            }
         }
         .task(id: store.recentHistoryStart) {
             guard olderAnchor == nil, let start = store.recentHistoryStart else { return }
@@ -1435,161 +1811,161 @@ struct NativeExerciseProgressView: View {
         }
     }
 
-    @ViewBuilder private var demonstration: some View {
-        let id = move["catalogueId"].string
-        let originalName = move["name"].string
-        let isPersonalVariant = catalogue?.isPersonalVariant(named: originalName, library: store.libraryRows) == true
-        if let catalogue, !isPersonalVariant, let entry = catalogue.entry(exactName: originalName, catalogueID: id) {
-            NativeCatalogueExerciseDemo(index: catalogue, entry: entry).id(entry.id)
-        } else if catalogueLoaded && (id.isEmpty || isPersonalVariant) && !originalName.isEmpty {
-            NativePersonalExerciseDemo(store: store, name: originalName) { EmptyView() }
-                .id(store.owner + "\n" + originalName)
+    private var history: some View {
+        let sessions = Dictionary(grouping: records, by: \.workoutID)
+        return ForEach(records.filter { sessions[$0.workoutID]?.first?.id == $0.id }) { first in
+            let session = sessions[first.workoutID] ?? [first]
+            sessionCard(first, records: session)
         }
     }
 
-    private var heading: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(name).font(.title2.bold()).accessibilityAddTraits(.isHeader)
-            let count = Set(records.map(\.workoutID)).count
-            if count > 0 {
-                Text("已读取 \(count) 次训练").font(.subheadline).foregroundStyle(SpotterPalette.muted)
-            }
-        }
-    }
-
-    private var empty: some View {
-        VStack(spacing: 9) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.title2.weight(.semibold)).foregroundStyle(accent.tint)
-            Text(loadingMore ? "正在读取训练记录" : "暂无这个动作的已完成组次")
-                .font(.subheadline.weight(.semibold))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(24)
-        .spotterCard()
-    }
-
-    private var recordsCard: some View {
+    private func sessionCard(_ first: NativeExerciseHistory.Record, records: [NativeExerciseHistory.Record]) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text("个人纪录").font(.headline)
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 8) { recordTiles }
-                VStack(alignment: .leading, spacing: 8) { recordTiles }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(first.title).font(.subheadline.weight(.bold))
+                let time = first.started > 0 ? Date(timeIntervalSince1970: first.started / 1_000)
+                    .formatted(date: .omitted, time: .shortened) : ""
+                Text([first.day, time].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(SpotterPalette.muted)
             }
-        }
-        .padding(12)
-        .spotterCard()
-    }
-
-    @ViewBuilder private var recordTiles: some View {
-        if let bestLoad { recordTile("最高重量", value: loadLabel(bestLoad)) }
-        if let referenceLoad, let reps = records.compactMap({ $0.bestReps(at: referenceLoad) }).max() {
-            let title = referenceLoad > 0 ? "\(loadLabel(referenceLoad)) 最多次数" : "自重最多次数"
-            recordTile(title, value: "\(reps.formatted()) 次")
-        }
-        if let bestDuration { recordTile("最长时长", value: "\(bestDuration.formatted()) 秒") }
-    }
-
-    private func recordTile(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.caption).foregroundStyle(SpotterPalette.muted)
-            Text(value).font(.system(.title3, design: .rounded, weight: .bold)).monospacedDigit()
+            let volume = records.reduce(0) { $0 + $1.volumeKg }
+            Text("容量 \(loadLabel(volume)) · \(records.reduce(0) { $0 + $1.completedRows.count }) 组")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(SpotterPalette.muted)
+            Divider()
+            ForEach(records) { record in
+                ForEach(Array(record.rows.enumerated()), id: \.offset) { index, row in
+                    if row["done"].bool { setLine(index, row: row, in: record) }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+        .padding(12).spotterCard()
+    }
+
+    private func setLine(_ index: Int, row: NativeJSON, in record: NativeExerciseHistory.Record) -> some View {
+        let kind = row["kind"].string
+        let label = (record.warmup || kind == "warmup") ? "热身" : kind == "drop" ? "递减" : "第 \(index + 1) 组"
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label).font(.caption).foregroundStyle(SpotterPalette.muted).fixedSize()
+            Text(NativeExerciseHistory.amount(row, unit: record.unit)).font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let estimate = record.estimatedMaxKg(row, formula: oneRepMax) {
+                Text("1RM \(loadLabel(estimate))")
+                    .font(.caption).foregroundStyle(SpotterPalette.muted)
+                    .accessibilityLabel("1RM 估算 \(loadLabel(estimate))")
+            }
+        }
         .accessibilityElement(children: .combine)
     }
 
-    private var trendCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("训练趋势").font(.headline)
-            if metrics.count > 1 {
-                SpotterMenuPicker("指标", selection: Binding(get: { shownMetric }, set: { metric = $0 }),
-                                   options: metrics.map { ($0, $0.title) })
+    private var statistics: some View {
+        let days = Dictionary(grouping: records, by: \.day)
+        let availableLoads = loads
+        let reference = referenceLoad
+        return ForEach(Metric.allCases, id: \.self) { metric in
+            let points = points(for: metric, days: days, reference: reference)
+            if !points.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    let maximum = points.map(\.value).max() ?? 0
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(metric.rawValue).font(.subheadline.weight(.bold))
+                        Spacer(minLength: 4)
+                        Text("最高 \(quantity(maximum)) \(metric.unit(weight: unit))")
+                            .font(.caption.weight(.semibold)).monospacedDigit()
+                            .foregroundStyle(SpotterPalette.muted)
+                    }
+                    if metric == .reps, let reference, availableLoads.count > 1 {
+                        SpotterMenuPicker("重量", selection: Binding(get: { reference }, set: { selectedLoad = $0 }),
+                                          options: availableLoads.map { ($0, $0 == 0 ? "自重" : loadLabel($0)) })
+                    }
+                    chart(points, metric: metric)
+                }
+                .padding(12)
+                .spotterCard()
+                .accessibilityIdentifier("catalogue-detail-statistic-" + String(describing: metric))
             }
-            if shownMetric == .reps, let referenceLoad, loads.count > 1 {
-                SpotterMenuPicker("重量", selection: Binding(get: { referenceLoad }, set: { selectedLoad = $0 }),
-                                   options: loads.map { ($0, $0 == 0 ? "自重" : loadLabel($0)) })
-            }
-            trend(shownMetric)
         }
-        .padding(12)
-        .spotterCard()
     }
 
-    private func trend(_ metric: Metric) -> some View {
-        let points = records.reversed().compactMap { record -> Point? in
-            guard let date = nativePlanDate(record.day) else { return nil }
+    private func points(for metric: Metric, days: [String: [NativeExerciseHistory.Record]], reference: Double?) -> [Point] {
+        days.keys.sorted().compactMap { day in
+            guard let group = days[day], let date = nativePlanDate(day) else { return nil }
             let value: Double?
             switch metric {
-            case .weight: value = record.greatestWeightKg.map { NativeExerciseHistory.convert($0, from: "kg", to: unit) }
-            case .reps: value = referenceLoad.flatMap(record.bestReps(at:))
-            case .seconds: value = record.longestSeconds
+            case .volume:
+                value = inUnit(group.reduce(0) { $0 + $1.volumeKg })
+            case .sets:
+                value = Double(group.reduce(0) { $0 + $1.completedRows.count })
+            case .weight:
+                value = group.compactMap(\.greatestWeightKg).filter { $0 > 0 }.max().map(inUnit)
+            case .estimatedMax:
+                value = group.flatMap { record in record.resultRows.compactMap { record.estimatedMaxKg($0, formula: oneRepMax) } }
+                    .max().map(inUnit)
+            case .reps:
+                value = reference.flatMap { weight in group.compactMap { $0.bestReps(at: weight) }.max() }
+            case .seconds:
+                value = group.compactMap(\.longestSeconds).max()
             }
-            return value.map { Point(id: record.id, date: date, value: $0) }
+            return value.map { Point(date: date, value: $0) }
         }
-        let daily = Dictionary(grouping: points, by: \.date).values.compactMap { $0.max(by: { $0.value < $1.value }) }
-            .sorted { $0.date < $1.date }
-        return Chart(daily) { point in
-            LineMark(x: .value("日期", point.date), y: .value(metric.title, point.value))
-                .foregroundStyle(accent.tint)
-            PointMark(x: .value("日期", point.date), y: .value(metric.title, point.value))
-                .foregroundStyle(accent.tint)
-                .accessibilityLabel(point.date.formatted(date: .abbreviated, time: .omitted))
-                .accessibilityValue("\(point.value.formatted()) \(metric == .weight ? unit : metric == .seconds ? "秒" : "次")")
-        }
-        .chartYAxisLabel(metric == .weight ? unit : metric == .seconds ? "秒" : "次")
-        .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                AxisGridLine()
-                AxisValueLabel(format: .dateTime.month(.defaultDigits).day(.defaultDigits))
-            }
-        }
-        .frame(height: 165)
     }
 
-    private func sessionCard(_ record: NativeExerciseHistory.Record) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(record.title).font(.subheadline.weight(.bold))
-                Spacer(minLength: 6)
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(record.day)
-                    if record.started > 0 {
-                        let time = Date(timeIntervalSince1970: record.started / 1_000)
-                        Text(time.formatted(date: .omitted, time: .shortened))
+    private func chart(_ points: [Point], metric: Metric) -> some View {
+        let labelCount = min(4, points.count)
+        let labels = (0..<labelCount).map { position in
+            points[position * (points.count - 1) / max(1, labelCount - 1)].date
+        }
+        let start = points.first?.date ?? .now
+        let end = points.last?.date ?? start
+        let margin = max(6 * 3_600, end.timeIntervalSince(start) * 0.12)
+        let spansYears = !Calendar.current.isDate(start, equalTo: end, toGranularity: .year)
+        let integerStep = max(1, ceil((points.map(\.value).max() ?? 0) / 3))
+        let integerAxis = (0...3).map { Double($0) * integerStep }
+
+        return Chart(points) { point in
+            LineMark(x: .value("日期", point.date), y: .value(metric.rawValue, point.value))
+                .foregroundStyle(accent.tint)
+            PointMark(x: .value("日期", point.date), y: .value(metric.rawValue, point.value))
+                .foregroundStyle(accent.tint)
+                .accessibilityLabel(point.date.formatted(date: .abbreviated, time: .omitted))
+                .accessibilityValue("\(quantity(point.value)) \(metric.unit(weight: unit))")
+        }
+        .chartXScale(domain: start.addingTimeInterval(-margin)...end.addingTimeInterval(margin))
+        .chartXAxis {
+            AxisMarks(values: labels) { mark in
+                AxisGridLine()
+                if let date = mark.as(Date.self) {
+                    AxisValueLabel(centered: false, anchor: .top, collisionResolution: .disabled) {
+                        Text(String(spotterDay(date).suffix(spansYears ? 8 : 5))).fixedSize()
                     }
-                }
-                .font(.caption)
-                .foregroundStyle(SpotterPalette.muted)
-                .fixedSize()
-            }
-            ForEach(Array(record.rows.enumerated()), id: \.offset) { index, row in
-                if row["done"].bool {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        let label = row["kind"].string == "warmup" ? "热身" : row["kind"].string == "drop" ? "递减" : "第 \(index + 1) 组"
-                        Text(label).font(.caption).foregroundStyle(SpotterPalette.muted).fixedSize()
-                        Text(NativeExerciseHistory.amount(row, unit: record.unit))
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .accessibilityElement(children: .combine)
                 }
             }
         }
-        .padding(12)
-        .spotterCard()
+        .chartYAxis {
+            if metric == .sets || metric == .reps {
+                AxisMarks(values: integerAxis) { mark in
+                    AxisGridLine()
+                    if let number = mark.as(Double.self) {
+                        AxisValueLabel { Text(quantity(number)) }
+                    }
+                }
+            } else {
+                AxisMarks(values: .automatic(desiredCount: 4))
+            }
+        }
+        .frame(height: 112)
     }
 
     private var earlierButton: some View {
         VStack(alignment: .leading, spacing: 5) {
             if loadFailed { Text("暂时无法读取更早的训练。").font(.caption).foregroundStyle(SpotterPalette.muted) }
             Button { Task { await readOlder(before: baseline) } } label: {
-                Label(loadingMore ? "正在读取" : loadFailed ? "重试读取" : "加载更早的训练", systemImage: "clock.arrow.circlepath")
+                Label(loadingMore ? "正在读取" : loadFailed ? "重试读取" : "加载更早的训练",
+                      systemImage: "clock.arrow.circlepath")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(SpotterNativeButtonStyle(primary: false))
+            .buttonStyle(.spotterControl)
             .disabled(loadingMore)
         }
     }
@@ -1604,8 +1980,11 @@ struct NativeExerciseProgressView: View {
         if let from { olderAnchor = from } else { loadFailed = true }
     }
 
-    private func loadLabel(_ kg: Double) -> String {
-        let amount = NativeExerciseHistory.convert(kg, from: "kg", to: unit)
-        return amount.formatted(.number.precision(.fractionLength(0...1))) + " " + unit
+    private func inUnit(_ kg: Double) -> Double { NativeExerciseHistory.convert(kg, from: "kg", to: unit) }
+
+    private func quantity(_ amount: Double) -> String {
+        amount.formatted(.number.precision(.fractionLength(0...1)))
     }
+
+    private func loadLabel(_ kg: Double) -> String { quantity(inUnit(kg)) + " " + unit }
 }

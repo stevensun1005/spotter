@@ -22,7 +22,8 @@ const index = JSON.parse(await readFile(new URL("index.json", resource), "utf8")
 const corrections = JSON.parse(await readFile(new URL("features/exercises/catalog-corrections.json", root), "utf8"));
 const exactAliases = JSON.parse(await readFile(new URL("features/exercises/catalogue-exact-aliases.json", root), "utf8"));
 const { catalogueAreas } = await import("../cloudflare/features/exercises/catalogue-areas.ts");
-const { catalogFamilies, preferredFamilyForQuery, variantDetails } = await import("../cloudflare/features/exercises/catalog-families.ts");
+const { catalogueTrainingPattern, catalogFamilies, preferredFamilyForQuery, variantDetails }
+  = await import("../cloudflare/features/exercises/catalog-families.ts");
 const { catalogueSections, collapseCatalogueRows } = await import("../cloudflare/features/exercises/catalog-sections.ts");
 const { catalogueCover, catalogueDemo, poseFrame } = await import("../cloudflare/features/exercises/catalogue-demo.ts");
 const { guideClassifications } = await import("../cloudflare/features/exercises/custom-catalogue-classifications.ts");
@@ -233,6 +234,10 @@ const metadata = {
     id, title, jumpLabel, equipment: [...new Set(rows.map((row) => row.equipment))],
   })),
   families: variantMetadata,
+  trainingPatterns: Object.fromEntries(index.rows.flatMap((row) => {
+    const pattern = catalogueTrainingPattern(row);
+    return pattern ? [[row.id, pattern.id]] : [];
+  })),
   preferredFamilies: Object.fromEntries(preferred),
   corrections: Object.fromEntries(Object.values(corrections).flatMap(({ aliases }) =>
     aliases.map((alias) => [alias.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " "), canonicalMoveName(alias)]))),
