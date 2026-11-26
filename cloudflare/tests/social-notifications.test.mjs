@@ -91,6 +91,7 @@ async function fixture(t) {
   runtime.sendResult = "sent";
   t.after(() => {
     runtime.env.DB = undefined;
+    delete runtime.env.SPOTTER_NOTIFICATIONS_AUDIENCE;
     delete runtime.env.SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS;
     sql.close();
   });
@@ -240,6 +241,35 @@ test("internal allowlist limits inbox, two-way reminders and fanout while ordina
   runtime.env.SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS = " , , ";
   runtime.owner = "sam";
   assert.equal((await GET(new Request(origin + "/api/notifications"))).status, 403);
+});
+
+test("the all-account audience enables existing and future accounts while preserving login and relationships", async (t) => {
+  const sql = await fixture(t);
+  runtime.env.SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS = "alex";
+  runtime.env.SPOTTER_NOTIFICATIONS_AUDIENCE = "all";
+  sql.prepare("INSERT INTO spotter_access_accounts (id, email, display_name, access_hash) VALUES (?, ?, ?, ?)")
+    .run("new-account", "new-account@example.invalid", "New Account", "a".repeat(64));
+
+  runtime.owner = "";
+  assert.equal((await GET(new Request(origin + "/api/notifications"))).status, 401);
+  assert.deepEqual((await inbox("new-account")).items, []);
+  assert.equal((await inbox("sam")).pushAvailable, true);
+
+  const token = "cd".repeat(32);
+  assert.equal((await send("sam", { action: "device", installationId: crypto.randomUUID(),
+    token, environment: "production" })).status, 200);
+  assert.equal((await send("sam", { action: "nudge", buddyId: "alex" })).status, 200);
+  assert.equal((await send("alex", { action: "nudge", buddyId: "sam" })).status, 200);
+  assert.equal((await checkin(bodyRequest("/api/workout", "alex", {
+    action: "log", id: crypto.randomUUID(), data: workout(Date.now()),
+  }))).status, 200);
+
+  const expected = ["buddy-reminder", "friend-workout"];
+  assert.deepEqual((await inbox("sam")).items.map(({ kind }) => kind).sort(), expected);
+  assert.deepEqual((await inbox("stranger")).items, []);
+  assert.deepEqual(runtime.deliveries.filter((delivery) =>
+    delivery.token === token && delivery.environment === "production")
+    .map(({ notification }) => notification.kind).sort(), expected);
 });
 
 const remarksPath = "/api/social/remarks";

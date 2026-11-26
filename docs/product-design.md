@@ -77,7 +77,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 - 在「好友 → 联系人」打开已连接的好友或训练搭子，点「添加备注」或「编辑备注」。保存最多 40 个字符，资料页同时保留对方昵称。备注仅设置者可见，联系人、朋友圈、首页及统计中的对应姓名会优先显示它。移除后恢复显示昵称。系统推送和公开分享继续使用账号昵称。[原生好友详情](../ios/SpotterHealth/NativeWebSecondary.swift) · [网页联系人](../cloudflare/features/friends/friends-view.tsx)
 - iPhone 普通好友详情右上角「⋯」提供「删除好友」。确认框显示对方名称与分享影响，点「确认删除」才提交现有好友移除请求，成功后返回上一页。点「取消」关闭确认框。[原生好友详情](../ios/SpotterHealth/NativeWebSecondary.swift)
 - 「设置 → 功能模块」开启「教练与学员入口」后，入口显示在「好友 → 联系人 → 找搭子」旁，默认隐藏。教练可下发训练计划或多周周期，学员预览确认后导入自己的计划。反馈、完成进度和可见的实际组记录由教练系统自己的权限管理。[教练系统](../cloudflare/docs/coaching.md)
-- 「设置 → 通知」管理搭子提醒、好友打卡和系统通知权限。好友页铃铛打开站内通知中心。受支持的账号在联系人详情可提醒搭子训练。线上推送同时受服务端开通范围、接收偏好、提醒间隔、APNs 及设备权限约束。训练提醒和组间休息提醒也可由系统本地通知运行。
+- 「设置 → 通知」管理搭子提醒、好友打卡和系统通知权限。已登录账号都可使用，包括新注册的账号。好友页铃铛打开站内通知中心，搭子详情可提醒对方训练。通知遵守好友分享范围、接收偏好和提醒间隔，锁屏推送需要 APNs 注册及 iPhone 系统授权。训练提醒和组间休息提醒也可由系统本地通知运行。
 
 实现见 [社交界面](../ios/SpotterHealth/NativeWebSecondary.swift)、[学员界面](../ios/SpotterHealth/NativeCoaching.swift)、[通知客户端](../ios/SpotterHealth/NativeSocialNotifications.swift) 和 [服务端通知](../cloudflare/features/notifications/)。
 
@@ -202,6 +202,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 1.0.1 Build 46 | TestFlight 构建包含当前 SwiftUI 动作详情、动作库播放、紧凑统计控件及已完成的 171 个原创 3D 示范。Apple 关闭已正式发布的 1.0 构建通道后，测试包版本升至 1.0.1。 | 内外测以 App Store Connect 中的构建处理、组分配和审核记录为准。后端沿用 Cloudflare 96。新增外部 Agent 渲染接口和下载包需随 Worker 更新上线。 |
 | 1.0.1 Build 48 | 官方库新增 55 个动作，另有 3 个同一动作复用原 ID。原创示范总数增至 228。iPhone 个人、官方模板支持点动作名弹出详情，网页个人模板和编辑页支持同样入口。官方模板的目标与水平筛选默认全部，并新增可逐周浏览的高级功能性训练周期。 | iPhone 索引核对覆盖待迁移计划的全部动作位置。新增视频逐个解码确认画面变化。独立版和 Cloudflare 构建、测试及原生冒烟通过。模拟器验证个人及官方模板弹窗、播放和中文器械。Cloudflare 97 已上线并按哈希核对官方素材。 模拟器验证两个筛选都默认全部、可切换独立周次及打开动作弹窗。App Store Connect 内测状态为 Testing。 |
 | Build 46 后的 iPhone 开发版 | 首页计划和进行中的训练可直接打开动作演示。按目录 ID 和唯一精确名称找回已有标准素材，个人动图按账号读取并显示可用状态。 | iPhone SE 模拟器用合成计划验证开练前示范自动播放、暂停和继续、缺少个人动图提示，以及训练中分别打开要点和统计。Xcode 模拟器构建、原生冒烟、独立版及 Cloudflare 构建与测试通过。 |
+| Cloudflare 98 | `cloudflare/features/notifications/server.ts` 在生产启用所有已登录账号，覆盖当前与以后注册的账号。通知收件箱、搭子提醒和好友打卡继续使用原接口和数据表。安装了支持系统推送的 iPhone 版本后可授权锁屏通知。 | 365 项 Cloudflare 测试和 25 项独立版测试、构建及类型检查通过。线上用临时账号验证新账号收件箱、两类通知、重复打卡去重、无关账号隔离及 APNs 配置可用。未登录访问返回 401。iPhone 真机锁屏送达待验证。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
 
@@ -217,3 +218,5 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 2026-11-26 发布记录。1.0.1 Build 47 的 App 源码为 `078d468`。源码基线检查、模拟器打包及 iPhone、Watch、小组件的分发签名均通过。通过 Xcode 选择 TestFlight Internal Only 上传，App Store Connect 处理完成后将构建加入「训练搭子内测」，状态为 Testing。分发范围仅限内测。App 后端仍为 Cloudflare 96。本次生产操作仅写入经过核对的私有动图记录，Cloudflare Worker 和私密 Sites 无新部署。
 
 2026-11-26 发布记录。1.0.1 Build 48 的 App 源码为 `3421383`。独立版和 Cloudflare 构建及测试、原生测试、模拟器打包与分发签名均通过。模拟器核对个人模板与官方模板动作弹窗、默认筛选和独立周次。iPhone 生成的 48 节周期通过 Cloudflare 排期数据校验。Cloudflare 97 对应 `784cbe4`，线上核对计划所用 80 个官方动作对应的 160 个视频及封面响应。Build 48 通过 TestFlight Internal Only 上传，加入「训练搭子内测」后显示 Testing。私密 Sites、外测及正式商店沿用原发布。当前归档仍包含第三方授权的旧库数据、人体图及 11 段视频，App Store Connect 的内容权利声明予以保留。
+
+2026-11-26 发布记录。Cloudflare 98 对应 `12d9856`，Worker 版本 `749a3af2-6596-4a92-9692-e731f6a48292` 承载 100% 流量，保留原数据库和生产 APNs 配置。现有 TestFlight 内测和外测构建通过同一个 HTTPS 通知接口生效。本次发布范围为 Cloudflare，Sites 和正式 App Store 沿用原发布状态。

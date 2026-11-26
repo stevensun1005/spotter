@@ -26,6 +26,7 @@ const receiveEnabled = "CASE n.kind WHEN 'buddy-reminder' THEN COALESCE(p.buddy_
   "ELSE COALESCE(p.friend_workouts, 1) END = 1";
 
 export function notificationAudience(env: Cloudflare.Env): NotificationAudience {
+  if (env.SPOTTER_NOTIFICATIONS_AUDIENCE?.trim().toLowerCase() === "all") return null;
   const configured = env.SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS?.trim();
   if (!configured) return null;
   return Array.from(new Set(configured.toLowerCase().split(/[,;\s]+/u)
