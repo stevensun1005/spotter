@@ -84,6 +84,7 @@ final class NativeWorkoutStore: ObservableObject {
     private static let snapshotQueue = DispatchQueue(label: "app.spotter.health.workout-snapshot", qos: .utility)
     private var draftTask: Task<Void, Never>?
     private var draftAgain = false
+    private var pendingRemovalAfterUpload = false
     private var syncRetryTask: Task<Void, Never>?
     private var syncRetryAttempt = 0
     private var reloadAfterPlanWrite = false
@@ -319,6 +320,7 @@ final class NativeWorkoutStore: ObservableObject {
             let edit = entryRevision
             let anatomyEdit = anatomyEditRevision
             let loadedViewerName = viewerName
+            let removalsWhenRequested = Set(discardedDrafts)
             let value = try await api.spotterRead("/api/workout?scope=overview", as: NativeWorkoutState.self)
             guard revision == localRevision, edit == entryRevision else { return }
             guard value.me.id == owner else {
@@ -341,7 +343,9 @@ final class NativeWorkoutStore: ObservableObject {
                 return $0.owner == owner || (!partner.isEmpty && $0.owner == partner && $0.day >= sharedSince)
             }
             let updatedKeys = Set(value.entries.map(\.key))
-            let updated = value.entries.filter { $0.kind != "draft" || !discardedDrafts.contains($0.id) } +
+            // A deletion acknowledged while this request was in flight can still be in its response.
+            let removedDrafts = removalsWhenRequested.union(discardedDrafts)
+            let updated = value.entries.filter { $0.kind != "draft" || !removedDrafts.contains($0.id) } +
                 retained.filter { !updatedKeys.contains($0.key) }
             let historyChanged = entries != updated
             if historyChanged { entries = updated }
@@ -609,6 +613,7 @@ final class NativeWorkoutStore: ObservableObject {
         syncProblem = nil
         draftNeedsSync = false
         discardedDrafts = []
+        pendingRemovalAfterUpload = false
         completedPlanIds = []
         recentHistoryStart = nil
         lastSetCompletion = nil
@@ -627,14 +632,24 @@ final class NativeWorkoutStore: ObservableObject {
 
     @discardableResult
     func discardDraft(_ entry: NativeWorkoutEntry) -> Bool {
+        removeDraft(entry, replacingWith: nil)
+    }
+
+    func restartPausedWorkout(_ entry: NativeWorkoutEntry) -> Bool {
+        guard active?.key == entry.key, let session = active?.session, !session.isRunning else { return false }
+        return removeDraft(entry, replacingWith: makeDraft(session.restarting()))
+    }
+
+    private func removeDraft(_ entry: NativeWorkoutEntry, replacingWith replacement: NativeWorkoutEntry?) -> Bool {
         guard entry.owner == owner, entry.kind == "draft", UUID(uuidString: entry.id) != nil,
+              !isBusy, entry.key != active?.key || active?.session?.isRunning == false,
               active?.key == entry.key || drafts.contains(where: { $0.key == entry.key }) else { return false }
         let current = active
         let previousDirty = draftNeedsSync
         let previousRemovals = discardedDrafts
-        if active?.id == entry.id {
-            active = nil
-            draftNeedsSync = false
+        if active?.key == entry.key {
+            active = replacement
+            draftNeedsSync = replacement != nil
         }
         if !discardedDrafts.contains(entry.id) { discardedDrafts.append(entry.id) }
         guard persist() else {
@@ -643,14 +658,18 @@ final class NativeWorkoutStore: ObservableObject {
             discardedDrafts = previousRemovals
             return false
         }
-        if current?.id == entry.id { draftTask?.cancel(); lastSetCompletion = nil }
+        if current?.key == entry.key { draftTask?.cancel(); lastSetCompletion = nil }
         entryRevision &+= 1
         if isLoading { reloadAfterPlanWrite = true }
         entries.removeAll { $0.key == entry.key && $0.kind == "draft" }
         saveSnapshot()
         errorMessage = nil
-        status = "训练草稿已删除，等待同步"
-        Task { await retryPending() }
+        if replacement != nil {
+            localDraftSaved = true
+            status = "已重新开始，等待同步"
+        } else { status = "训练草稿已删除，等待同步" }
+        if uploading { pendingRemovalAfterUpload = true }
+        Task { await flushLocalChanges() }
         return true
     }
 
@@ -669,10 +688,14 @@ final class NativeWorkoutStore: ObservableObject {
 
     private func begin(_ session: NativeWorkoutSession) {
         lastSetCompletion = nil
-        active = NativeWorkoutEntry(id: UUID().uuidString.lowercased(), owner: owner, kind: "draft",
-                                    updated: ISO8601DateFormatter().string(from: Date()), data: session.raw)
+        active = makeDraft(session)
         errorMessage = nil
         changed()
+    }
+
+    private func makeDraft(_ session: NativeWorkoutSession) -> NativeWorkoutEntry {
+        NativeWorkoutEntry(id: UUID().uuidString.lowercased(), owner: owner, kind: "draft",
+                           updated: Date.now.formatted(.iso8601), data: session.raw)
     }
 
     func resume(_ entry: NativeWorkoutEntry) {
@@ -799,6 +822,10 @@ final class NativeWorkoutStore: ObservableObject {
         mutate { session in if session.isRunning { session.pause() } else { session.resume() } }
     }
 
+    func pauseClock() {
+        mutate { session in if session.isRunning { session.pause() } }
+    }
+
     func applyWatchAction(_ command: NativeWatchWorkoutCommand, workoutID: String) -> NativeWatchWorkoutSnapshot? {
         guard !isBusy, let entry = active, entry.owner == owner, entry.id == workoutID, let session = entry.session else { return nil }
         let previous = undoableSet
@@ -915,6 +942,10 @@ final class NativeWorkoutStore: ObservableObject {
             uploadingCheckinID = nil
             uploading = false
             clearRetryIfSynced()
+            if pendingRemovalAfterUpload {
+                pendingRemovalAfterUpload = false
+                Task { await retryPending() }
+            }
         }
         while let id = discardedDrafts.first {
             do {
@@ -1242,6 +1273,7 @@ struct NativeWorkoutView: View {
     @State private var queuedCatalogueDraft: NativePlanDraft?
     @State private var recordSheet: RecordSheet?
     @State private var draftToDiscard: NativeWorkoutEntry?
+    @State private var swipeDraftID: String?
     @State private var cheering = false
     @State private var cheerError: String?
 
@@ -1768,23 +1800,40 @@ struct NativeWorkoutView: View {
     }
 
     private func draftRow(_ entry: NativeWorkoutEntry, current: Bool) -> some View {
-        HStack(spacing: 10) {
+        let running = current && entry.session?.isRunning == true
+        let row = HStack(spacing: 10) {
             tile("clock", size: 34)
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.title).font(.system(size: 14, weight: .bold))
-                Text("\(entry.session?.completedSets ?? 0) 组完成 · \(current ? "进行中" : "训练草稿")")
+                Text("\(entry.session?.completedSets ?? 0) 组完成 · \(current ? (running ? "进行中" : "计时已暂停") : "训练草稿")")
                     .font(.caption).foregroundStyle(SpotterPalette.muted)
             }
             Spacer(minLength: 0)
-            SpotterMenu {
-                Button("删除训练草稿", systemImage: "trash", role: .destructive) { draftToDiscard = entry }
-            } label: {
-                Image(systemName: "ellipsis").font(.body.weight(.semibold))
-                    .frame(width: 22, height: 22)
-            }.accessibilityLabel("训练草稿操作 \(entry.title)")
-            Button("继续") { if !current { store.resume(entry) }; openWorkout() }
+            if !running {
+                SpotterMenu {
+                    Button("删除训练草稿", systemImage: "trash", role: .destructive) { draftToDiscard = entry }
+                } label: {
+                    Image(systemName: "ellipsis").font(.body.weight(.semibold))
+                        .frame(width: 22, height: 22)
+                }.accessibilityLabel("训练草稿操作 \(entry.title)")
+            }
+            Button(current && !running ? "打开" : "继续") {
+                swipeDraftID = nil
+                if !current { store.resume(entry) }
+                openWorkout()
+            }
                 .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(!current && store.active != nil)
         }.padding(12).spotterCard()
+        return Group {
+            if running { row }
+            else {
+                row.spotterSwipeToDelete(id: entry.id, openRow: $swipeDraftID, accessibilityLabel: "删除训练草稿") {
+                    draftToDiscard = entry
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(current ? "workout-current-draft-row" : "workout-draft-row-\(entry.id)")
     }
 
     private func planRows(_ entries: [NativeWorkoutEntry]) -> some View {
@@ -2525,6 +2574,18 @@ private struct NativeSetTarget: Equatable {
 private enum NativeEditorPanel: String, Identifiable { case settings, note, add, finish, progress; var id: String { rawValue } }
 
 struct NativeActiveWorkoutView: View {
+    private enum WorkoutPrompt {
+        case empty, discard, restart
+
+        var title: String {
+            switch self {
+            case .empty: return "这次还没有可打卡的内容"
+            case .discard: return "删除本次训练？"
+            case .restart: return "重新开始训练？"
+            }
+        }
+    }
+
     @Environment(\.spotterAccent) private var accent
     @ObservedObject var store: NativeWorkoutStore
     let completed: (NativeWorkoutEntry) -> Void
@@ -2544,6 +2605,7 @@ struct NativeActiveWorkoutView: View {
     @State private var editText = ""
     @State private var pristine = true
     @State private var panel: NativeEditorPanel?
+    @State private var workoutPrompt: (kind: WorkoutPrompt, draft: NativeWorkoutEntry)?
     @State private var progressMove: NativeJSON?
     @State private var exerciseHistory = NativeExerciseHistory()
     @State private var hasIndexedExerciseHistory = false
@@ -2565,7 +2627,14 @@ struct NativeActiveWorkoutView: View {
     var body: some View {
         Group {
             if let entry = store.active, let session = entry.session { workout(entry, session: session) }
-            else { VStack(spacing: 15) { Image(systemName: "checkmark.circle").font(.largeTitle); Text("训练已保存").font(.title2.bold()); Text(store.status).font(.subheadline); Button("返回") { dismiss() } }.frame(maxWidth: .infinity, maxHeight: .infinity).background(SpotterPalette.background) }
+            else {
+                VStack(spacing: 15) {
+                    Text(store.status).font(.subheadline.weight(.semibold))
+                    Button("返回") { dismiss() }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(SpotterPalette.background)
+            }
         }
         .foregroundStyle(SpotterPalette.ink).tint(accent.tint)
         .task { await store.loadProteinPreferences() }
@@ -2585,6 +2654,32 @@ struct NativeActiveWorkoutView: View {
         .onAppear { updateIdleTimer(needsIdleTimer) }
         .onChange(of: needsIdleTimer) { enabled in updateIdleTimer(enabled) }
         .onDisappear { updateIdleTimer(false) }
+        .alert(workoutPrompt?.kind.title ?? "", isPresented: Binding(
+            get: { workoutPrompt != nil },
+            set: { if !$0 { workoutPrompt = nil } }
+        ), presenting: workoutPrompt) { prompt in
+            if prompt.kind == .restart {
+                Button("重新开始", role: .destructive) {
+                    guard store.restartPausedWorkout(prompt.draft) else { return }
+                    edit = nil
+                    openedMove = 0
+                    undoneSet = nil
+                    lastRestRemaining = nil
+                }
+            } else {
+                Button("删除本次训练", role: .destructive) {
+                    guard store.active?.key == prompt.draft.key, store.discardDraft(prompt.draft) else { return }
+                    dismiss()
+                }
+            }
+            Button(prompt.kind == .empty ? "返回记录" : "取消", role: .cancel) {}
+        } message: { prompt in
+            switch prompt.kind {
+            case .empty: Text("计时已暂停。可以返回补记完成组、跟练或有氧时长，也可以删除这次试练。已排的训练计划会保留。")
+            case .discard: Text("将删除本次计时、组次和心得。已排的训练计划和以前的打卡会保留。")
+            case .restart: Text("将清空本次计时、组次和心得，保留训练项目并从零计时。已排的训练计划会保留。")
+            }
+        }
         .sheet(item: $panel, onDismiss: finishPanelDismissal) { item in
             NavigationStack {
                 switch item {
@@ -2672,7 +2767,13 @@ struct NativeActiveWorkoutView: View {
             .background(SpotterPalette.background).clipShape(UnevenTopRoundedShape(radius: 23))
             ZStack(alignment: .bottom) {
                 if let edit { keypad(edit, session: session).transition(.move(edge: .bottom).combined(with: .opacity)) }
-                else { actionBar(session).transition(.opacity) }
+                else {
+                    VStack(spacing: 0) {
+                        if !session.isRunning { pausedActions(entry) }
+                        actionBar(session)
+                    }
+                    .transition(.opacity)
+                }
             }
             .animation(motion, value: edit != nil)
         }.background(SpotterPalette.wash).toolbar(.hidden, for: .navigationBar)
@@ -2686,6 +2787,7 @@ struct NativeActiveWorkoutView: View {
                         Text(NativeWorkoutView.duration(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1000))))
                             .font(.system(size: 43, weight: .heavy)).tracking(-2).monospacedDigit()
                     }
+                    .accessibilityIdentifier("workout-elapsed")
                     Button { store.toggleClock() } label: {
                         Image(systemName: session.isRunning ? "pause.fill" : "play.fill").font(.system(size: 16))
                             .frame(width: 44, height: 44)
@@ -2693,12 +2795,15 @@ struct NativeActiveWorkoutView: View {
                             .contentShape(Rectangle())
                     }
                         .buttonStyle(.spotterPress)
+                        .disabled(store.isBusy)
                         .accessibilityLabel(session.isRunning ? "暂停计时" : "继续计时")
+                        .accessibilityIdentifier("workout-clock-toggle")
                 }
                 Spacer(minLength: 5)
-                Button(store.isBusy ? "正在保存" : "完成") { finish() }
+                Button(store.isBusy ? "正在保存" : "结束训练") { finish(entry) }
                     .font(.system(size: 14, weight: .bold)).buttonStyle(SpotterNativeButtonStyle(primary: true))
-                    .disabled(store.isBusy || edit != nil || (session.completedSets == 0 && !session.raw["finishedVideo"].bool && session.cardioActivity == nil))
+                    .disabled(store.isBusy || edit != nil)
+                    .accessibilityIdentifier("workout-finish")
             }
             HStack(alignment: .center, spacing: 10) {
                 if session.raw["planId"].string.isEmpty {
@@ -3036,14 +3141,45 @@ struct NativeActiveWorkoutView: View {
                 .disabled(session.plan.exercises.count >= 30)
             }
             footerAction("写心得", symbol: "square.and.pencil") { panel = .note }
-            if session.cardioActivity == nil {
-                footerAction("数字键盘", symbol: "keyboard") {
-                    if let next = nextSet(session) { let timed = session.plan.exercises[next.move]["seconds"].number > 0; let key = timed ? "seconds" : "weight"; activate(NativeSetTarget(move: next.move, row: next.row, key: key), value: session.rows[next.move][next.row][key].number) }
-                }.disabled(session.rows.isEmpty)
-            }
+            footerAction("退出", symbol: "rectangle.portrait.and.arrow.right", action: exitWorkout)
+                .disabled(store.isBusy)
+                .accessibilityHint("暂停计时并返回")
+                .accessibilityIdentifier("workout-exit")
         }
         .spotterGlassToolbar()
         .padding(.horizontal, 10).padding(.vertical, 5)
+    }
+
+    private func pausedActions(_ entry: NativeWorkoutEntry) -> some View {
+        HStack(spacing: 12) {
+            Button { prompt(.restart, for: entry) } label: {
+                Label("重新开始", systemImage: "arrow.counterclockwise")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .accessibilityIdentifier("workout-restart")
+            Button(role: .destructive) { prompt(.discard, for: entry) } label: {
+                Label("删除本次训练", systemImage: "trash")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .foregroundStyle(.red)
+            .accessibilityIdentifier("workout-delete-draft")
+        }
+        .font(.subheadline.weight(.semibold))
+        .buttonStyle(.spotterControl)
+        .disabled(store.isBusy)
+        .padding(.horizontal, 14)
+        .padding(.top, 6)
+    }
+
+    private func prompt(_ prompt: WorkoutPrompt, for draft: NativeWorkoutEntry) {
+        workoutPrompt = (prompt, draft)
+    }
+
+    private func exitWorkout() {
+        store.pauseClock()
+        guard store.active?.session?.isRunning == false else { return }
+        Task { await store.saveDraft() }
+        dismiss()
     }
 
     private func footerAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
@@ -3065,7 +3201,13 @@ struct NativeActiveWorkoutView: View {
         let position = reopened ?? session.nextSet(after: store.undoableSet)
         return position.map { NativeSetTarget(move: $0.move, row: $0.row, key: "weight") }
     }
-    private func finish() {
+    private func finish(_ entry: NativeWorkoutEntry) {
+        store.pauseClock()
+        guard store.active?.key == entry.key, let session = store.active?.session, !session.isRunning else { return }
+        if !session.hasCheckinContent() {
+            prompt(.empty, for: entry)
+            return
+        }
         if (store.tracksWorkoutProtein && !store.proteinProducts.isEmpty) || store.active?.data["proteinShake"].bool == true { panel = .finish }
         else {
             Task {

@@ -21,6 +21,22 @@ struct NativeWorkoutSmoke {
         session.resume(at: started + 120_000)
         expect(session.elapsedMilliseconds(at: started + 125_000) == 66_000, "Resuming adds wall-clock delta")
         session.setLine(move: 0, row: 0, key: "done", value: .bool(true))
+        expect(session.hasCheckinContent(at: started + 125_000), "A completed set can be checked in")
+        var trial = session
+        trial.raw["defaultRestOverride"] = .number(75)
+        trial.raw["note"] = .string("trial note")
+        trial.raw["proteinShake"] = .bool(true)
+        trial.raw["rest"] = .object(["until": .number(96_000), "kind": .string("组间休息")])
+        trial.setLine(move: 0, row: 0, key: "weight", value: .number(30))
+        trial.pause(at: started + 125_000)
+        let restarted = trial.restarting(at: started + 160_000)
+        expect(restarted.isRunning && restarted.started == started + 160_000 &&
+               restarted.elapsedMilliseconds(at: started + 160_000) == 0, "Restart starts a fresh clock")
+        expect(restarted.plan.raw == trial.plan.raw && restarted.raw["planId"] == trial.raw["planId"] &&
+               restarted.raw["defaultRestOverride"].number == 75, "Restart preserves the prescribed workout and rest preference")
+        expect(!restarted.hasCheckinContent(at: started + 160_000) && restarted.rows[0][0]["weight"].number == 12 &&
+               restarted.raw["note"].string.isEmpty && restarted.raw["proteinShake"] == .null &&
+               restarted.restStatus(at: started + 160_000) == nil, "Restart clears measurements, completed sets, notes and rest")
         session.raw["futureSessionField"] = .string("preserved")
         expect(session.volumeKg == 240, "Per-side loads match Cloudflare capacity")
         session.setLine(move: 0, row: 0, key: "right", value: .object(["weight": .number(14), "reps": .number(8)]))
@@ -150,6 +166,10 @@ struct NativeWorkoutSmoke {
                    "Every cardio activity retains its Watch family and completes with elapsed time and no strength sets")
             expect(log.raw["cardio"]["distanceKm"] == scheduled.raw["cardio"]["distanceKm"] &&
                    log.raw["cardio"]["speedKmh"] == scheduled.raw["cardio"]["speedKmh"], "Optional cardio metrics survive completion")
+            let restarted = log.restarting(at: started + 100_000)
+            expect(restarted.cardioActivity == activity && restarted.raw["cardio"]["distanceKm"] == .null &&
+                   !restarted.hasCheckinContent(at: started + 100_999) &&
+                   restarted.hasCheckinContent(at: started + 101_000), "Restart keeps the cardio activity and clears recorded metrics")
             do { _ = try scheduled.finalizing(at: started); preconditionFailure("Zero-duration cardio check-in rejected") }
             catch NativeWorkoutProblem.invalidCardioDuration { }
         }

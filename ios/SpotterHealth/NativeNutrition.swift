@@ -1186,6 +1186,7 @@ enum NativeWidgetMealAction {
     @State private var presets: [NativeFavoriteMeal] = []
     @State private var widgetMealIDs: [UUID] = []
     @State private var removing: NativeFavoriteMeal?
+    @State private var openPreset: String?
     @State private var retry: (preset: NativeFavoriteMeal, id: String)?
     @State private var busy = false
     @State private var error: String?
@@ -1224,10 +1225,10 @@ enum NativeWidgetMealAction {
             } footer: {
                 Text("最多选三款。从今日饮食小组件点一下，就按默认餐次记一份。")
             }
-            Section("我的常用餐") {
+            Section {
                 if presets.isEmpty { Text("还没有常用餐").foregroundStyle(.secondary) }
                 ForEach(presets) { preset in
-                    VStack(alignment: .leading, spacing: 7) {
+                    let row = VStack(alignment: .leading, spacing: 7) {
                         Text(preset.name).font(.headline)
                         Text(preset.foods.map(\.name).joined(separator: "、"))
                             .font(.footnote).foregroundStyle(SpotterPalette.muted).lineLimit(2)
@@ -1250,7 +1251,28 @@ enum NativeWidgetMealAction {
                         }
                     }
                     .padding(.vertical, 4)
-                    .swipeActions { Button("删除", role: .destructive) { removing = preset }.disabled(busy || retry != nil) }
+                    if #available(iOS 18.0, *) {
+                        if !busy, retry == nil {
+                            row.spotterSwipeToDelete(id: preset.id.uuidString, openRow: $openPreset,
+                                                      accessibilityLabel: "删除 \(preset.name)") { removing = preset }
+                        } else { row }
+                    } else {
+                        row.swipeActions(allowsFullSwipe: false) {
+                            Button("删除", systemImage: "trash") { removing = preset }
+                                .tint(.red)
+                                .disabled(busy || retry != nil)
+                        }
+                        .accessibilityAction(named: Text("删除 \(preset.name)")) {
+                            if !busy, retry == nil { removing = preset }
+                        }
+                    }
+                }
+            } header: {
+                Text("我的常用餐")
+            } footer: {
+                if !presets.isEmpty {
+                    if #available(iOS 18.0, *) { Text("向右滑动一份常用餐可打开删除操作。") }
+                    else { Text("向左滑动一份常用餐可打开删除操作。") }
                 }
             }
             if let error { Section { Text(error).font(.footnote).foregroundStyle(.red) } }
@@ -1263,7 +1285,7 @@ enum NativeWidgetMealAction {
             catch { self.error = "暂时无法读取此设备的常用餐。" }
         }
         .confirmationDialog("删除这份常用组合？", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-                            presenting: removing) { preset in
+                            titleVisibility: .visible, presenting: removing) { preset in
             Button("删除", role: .destructive) {
                 do {
                     presets = try store.edit { $0.removeAll(where: { $0.id == preset.id }) }

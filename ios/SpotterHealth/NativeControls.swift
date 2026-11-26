@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SpotterControlButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
@@ -67,6 +68,121 @@ extension View {
 
     func spotterGlassToolbar() -> some View {
         padding(4).spotterGlass(cornerRadius: 26, interactive: false)
+    }
+
+    @ViewBuilder func spotterSwipeToDelete(id: String, openRow: Binding<String?>,
+                                          accessibilityLabel: String = "删除", action: @escaping () -> Void) -> some View {
+        if #available(iOS 18.0, *) {
+            modifier(SpotterSwipeDelete(id: id, openRow: openRow, deleteLabel: accessibilityLabel, action: action))
+        } else { self }
+    }
+}
+
+@available(iOS 18.0, *)
+private struct SpotterSwipeDelete: ViewModifier {
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.spotterInteractionMotion) private var motion
+    @State private var drag: CGFloat?
+    let id: String
+    @Binding var openRow: String?
+    let deleteLabel: String
+    let action: () -> Void
+
+    private let actionWidth: CGFloat = 66
+    private var isOpen: Bool { openRow == id }
+    private var direction: CGFloat { layoutDirection == .leftToRight ? 1 : -1 }
+    private var reveal: CGFloat { min(actionWidth, max(0, (isOpen ? actionWidth : 0) + (drag ?? 0))) }
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: direction * reveal)
+            .background(alignment: .leading) {
+                Group {
+                    if isOpen {
+                        Button(role: .destructive, action: delete) { actionLabel }
+                            .buttonStyle(.spotterPress)
+                            .accessibilityLabel(deleteLabel)
+                            .accessibilityIdentifier("spotter-swipe-delete-\(id)")
+                    } else if reveal > 0 {
+                        actionLabel.accessibilityHidden(true).allowsHitTesting(false)
+                    }
+                }
+                .offset(x: direction * (reveal - actionWidth))
+            }
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(SpotterHorizontalPan(
+                onDrag: { drag = direction * $0 },
+                onEnd: { distance in
+                    if let distance { settle(direction * distance) }
+                    drag = nil
+                }
+            ))
+            .animation(drag == nil ? motion : nil, value: isOpen)
+            .animation(drag == nil ? motion : nil, value: drag == nil)
+            .accessibilityElement(children: .contain)
+            .accessibilityAction(named: Text(deleteLabel), delete)
+    }
+
+    private var actionLabel: some View {
+        VStack(spacing: 3) {
+            Image(systemName: "trash").accessibilityHidden(true)
+            Text("删除").lineLimit(1).minimumScaleFactor(0.6)
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.white)
+        .frame(width: actionWidth)
+        .frame(maxHeight: .infinity)
+        .background(.red, in: RoundedRectangle(cornerRadius: 10))
+        .contentShape(Rectangle())
+    }
+
+    private func settle(_ distance: CGFloat) {
+        if distance > actionWidth / 2 { openRow = id }
+        if distance < -actionWidth / 2, isOpen { openRow = nil }
+    }
+
+    private func delete() {
+        openRow = nil
+        action()
+    }
+}
+
+@available(iOS 18.0, *)
+private struct SpotterHorizontalPan: UIGestureRecognizerRepresentable {
+    let onDrag: (CGFloat) -> Void
+    let onEnd: (CGFloat?) -> Void
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+            guard let pan = gesture as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view?.window)
+            return abs(velocity.x) > abs(velocity.y)
+        }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGesture: UIGestureRecognizer) -> Bool {
+            otherGesture is UIPanGestureRecognizer && otherGesture.view is UIScrollView
+        }
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = context.coordinator
+        return pan
+    }
+
+    func handleUIGestureRecognizerAction(_ pan: UIPanGestureRecognizer, context: Context) {
+        let distance = pan.translation(in: pan.view?.window).x
+        switch pan.state {
+        case .began, .changed: onDrag(distance)
+        case .ended: onEnd(distance)
+        case .failed, .cancelled: onEnd(nil)
+        default: break
+        }
     }
 }
 

@@ -481,6 +481,20 @@ struct NativeWorkoutSession: Equatable, Sendable {
         if let cardio { session.raw["cardio"] = .object(["activity": .string(cardio.rawValue)]) }
         return session
     }
+    func restarting(at now: Int = Self.nowMilliseconds) -> Self {
+        var fresh = Self.start(plan: plan, planId: raw["planId"].string, now: now)
+        if let cardioActivity { fresh.raw["cardio"] = .object(["activity": .string(cardioActivity.rawValue)]) }
+        if raw["defaultRestOverride"] != .null { fresh.raw["defaultRestOverride"] = raw["defaultRestOverride"] }
+        return fresh
+    }
+
+    func hasCheckinContent(at now: Int = Self.nowMilliseconds) -> Bool {
+        if cardioActivity != nil {
+            return raw["cardio"]["durationSeconds"].number >= 1 || elapsedMilliseconds(at: now) >= 1_000
+        }
+        return completedSets > 0 || raw["finishedVideo"].bool
+    }
+
     mutating func addExercise(name: String) {
         let title = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
         addExercise(NativePreferenceKey.newMove(name: title))
