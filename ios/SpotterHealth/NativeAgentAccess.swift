@@ -10,8 +10,10 @@ private enum NativeAgentScope: String, CaseIterable, Identifiable {
     case nutritionWrite = "nutrition:write", trainingWrite = "training:write"
     case bodyWrite = "body:write", templatesWrite = "templates:write"
 
+    case templatesManage = "templates:manage", exerciseDemos = "exercise-demos:write"
+
     static let read: [Self] = [.context, .trainingRead, .nutritionRead, .templatesRead]
-    static let write: [Self] = [.planDraft, .planWrite, .nutritionWrite, .trainingWrite, .bodyWrite, .templatesWrite]
+    static let write: [Self] = [.planDraft, .planWrite, .nutritionWrite, .trainingWrite, .bodyWrite, .templatesWrite, .templatesManage, .exerciseDemos]
 
     var id: Self { self }
     var title: String {
@@ -26,6 +28,8 @@ private enum NativeAgentScope: String, CaseIterable, Identifiable {
         case .trainingWrite: return "新增已完成的训练记录"
         case .bodyWrite: return "新增身体记录"
         case .templatesWrite: return "新增个人模板"
+        case .templatesManage: return "改名、编辑或删除个人模板"
+        case .exerciseDemos: return "添加或移除个人演示动图"
         }
     }
 }
@@ -98,42 +102,20 @@ private enum NativeAgentConnectionAPI {
     }
 }
 
-private enum NativeAgentPurpose: String, CaseIterable {
-    case analyze = "分析记录"
-    case plan = "制定并添加计划"
-    case nutrition = "记录饮食"
+private func nativeAgentPrompt(origin: String, profileRef: String) -> String {
+    """
+    你是我的训练搭子 Agent。连接的账号标识是 \(profileRef)。
+    远程 MCP：\(origin)/api/agent/mcp（Streamable HTTP）。自定义 HTTP：\(origin)/api/agent/schema 提供 OpenAPI 结构。
+    从工具凭据栏读取 Authorization: Bearer 令牌。先调用 get_spotter_agent_profile（GET /api/agent/profile），核对 profileRef 和已授予的权限。后续工具调用都使用这个 profileRef。只使用获授权的功能。无法连接、权限不足或接口失败时告诉我实际原因。
 
-    var permissions: String {
-        switch self {
-        case .analyze: return "选择要分析的范围，例如读取训练计划与打卡、读取饮食与饮水。"
-        case .plan: return "选择读取编排资料和保存训练草稿。需要从 Agent 保存到日历时，再打开「将确认的计划加入日历」。"
-        case .nutrition: return "选择「新增饮食与饮水」。需要核对当天记录时，可同时选择「读取饮食与饮水」。"
-        }
-    }
+    读取与分析：用 read_spotter_records（GET /api/agent/records）分开读取已授权的 training、nutrition 或 templates。按 nextOffset 分页，用户未指定日期时以最近 30 天为参考（模板不用日期）。说明数据覆盖、趋势和缺项。
+    安排训练：根据目标、器械、每周天数和开始日期，用 read_spotter_planning_context 查真实动作和模板。保留动作 ID、组次、节奏、单位和分侧。只有跟练链接时保留 video，放进「跟练视频」。用 stage_spotter_plans 提交私人草稿，调用 preview_spotter_draft 核对最新预览。我确认后才用 commit_spotter_draft 排日历。完整周期用 stage_spotter_program、preview_spotter_program、commit_spotter_program。重复提交同一草稿沿用 requestId。
+    新增记录：餐食用 add_spotter_meals，按实际日期、餐次、份量和营养写入，估算项标明。常用食物可用 add_spotter_foods。已完成训练、身体测量、饮水及个人模板用 import_spotter_records，选对应类别并使用同一条记录 ID 重试。只写我确认的实际内容。
+    编辑个人模板：先读 templates，获取 templateId（记录 id）和 revision。用 preview_spotter_template_change（POST /api/agent/templates）预览改名、动作编辑或删除。修改动作时保留其余组次和动作元数据。拿到我的确认后才用 commit_spotter_template_change 提交本次 previewToken。遇到版本冲突重新读取。
+    自定义动作示范：添加包含动作库没有的动作的计划或模板时，列出这些动作并询问我是否为它们添加演示动图。收到明确同意和可使用的 GIF 后，再用 manage_spotter_exercise_demo（POST /api/agent/exercise-demos）按准确动作名称上传 raw base64。每个 GIF 不超过 768 KiB 和 480×480，至少两帧。需要替换或移除时也先让我确认。只保存视频链接或没有动图时照常保存计划或模板。
 
-    func prompt(origin: String, profileRef: String) -> String {
-        let setup = """
-        你是我的训练搭子 Agent。用工具连接 Spotter 账号 \(profileRef)。
-        MCP 地址是 \(origin)/api/agent/mcp。支持自定义 HTTP 的客户端可使用 \(origin)/api/agent/schema 获取接口结构。
-        请从客户端凭据设置取 Bearer 令牌，先调用 get_spotter_agent_profile（HTTP：GET /api/agent/profile）。核对返回的 profileRef 是 \(profileRef)，并检查获准权限。后续请求都传这个 profileRef。连接失败或权限不足时明确告诉我，不要声称已读取或保存。
-        """
-        let assignment: String
-        switch self {
-        case .analyze:
-            assignment = """
-            分析我指定日期内的个人数据。通过 read_spotter_records（HTTP：GET /api/agent/records）分别读取必要的 scope：training、nutrition 或 templates。带上 from 和 to（YYYY-MM-DD）；未提供日期时按最近 30 天。按 nextOffset 分页直到读完所需范围。列出数据覆盖日期、变化趋势、缺失项和可执行建议。这个任务只读取，不写入。
-            """
-        case .plan:
-            assignment = """
-            先询问目标、器械、每周可练天数和开始日期。用 read_spotter_planning_context（HTTP：GET /api/agent/context）查实际动作、个人模板和休息日，保留记录里的动作编号、重量单位和组次。用 stage_spotter_plans（HTTP：POST /api/agent/drafts）保存私密草稿，重试沿用 requestId，拿到预览后把日期、动作和冲突给我核对。在我确认这份预览后才用 commit_spotter_draft（HTTP：POST /api/agent/commit），带 draftId、最新 revision 和 confirmed:true。最后报出实际新增与跳过数量。
-            """
-        case .nutrition:
-            assignment = """
-            记我明确要求新增的餐食。核对日期、餐次、食物、份量和营养数值；估算指标要说明。若有读取饮食权限，先查看当天并核对重复。用 add_spotter_meals（HTTP：POST /api/agent/meals），带 profileRef、confirmed:true 和 meals 数组。每餐含 UUID id、date、meal、name、calories、protein、carbs、fat，可选 grams；重试沿用同一 UUID。只新增我已确认的餐食，按实际接口回执说明记入日期、餐次及新增或跳过数量。
-            """
-        }
-        return setup + "\n\n" + assignment
-    }
+    我会告诉你要做哪件事。完成后用实际回执告诉我新增、修改、删除或跳过的记录和日期。
+    """
 }
 
 @MainActor
@@ -171,9 +153,9 @@ struct NativeAgentTutorialView: View {
             case .permission:
                 return "在「外部 Agent」点「新建 Agent 连接」，填写连接名称和有效期，再按要做的任务勾选权限。每个 AI 工具可以单独建一条连接。"
             case .configuration:
-                return "创建后在保存页面点「复制令牌」，并到「配置 Agent」复制 MCP 地址。令牌只在创建时显示，本机剪贴板保留两分钟。"
+                return "连接创建成功后会回到「复制提示词」。首次设置工具时，在这张卡上点「复制令牌」，填到自己 AI 的工具凭据栏。"
             case .prompts:
-                return "回到「配置 Agent」，选好「提示词用途」，点「复制提示词」并粘贴到自己 AI 的对话框。让它先确认已连上你的 Spotter 账号，再发一个任务。"
+                return "点「复制提示词」并粘贴到自己 AI 的对话框。提示词已经包含连接地址和所有用法。让它确认当前 Spotter 账号，再告诉它要做什么。"
             case .verification:
                 return "让 AI 说明实际读取或保存的结果。回到「我的连接」，刷新后可看「最近使用」、权限和到期时间。"
             }
@@ -229,9 +211,10 @@ struct NativeAgentTutorialView: View {
         case .permission:
             tip("分析记录", icon: "chart.xyaxis.line", detail: "只打开要分析的读取项，例如「读取训练计划与打卡」或「读取饮食与饮水」。")
             tip("训练计划", icon: "calendar", detail: "打开「读取编排资料」和「保存训练草稿」。想由 AI 帮你排入日历，再打开「将确认的计划加入日历」。")
+            tip("模板与动图", icon: "film.stack", detail: "需要管理模板时，开启「读取个人模板」和「改名、编辑或删除个人模板」。需要为自定义动作添加 GIF 时，再开启「添加或移除个人演示动图」。")
             tip("记饮食", icon: "fork.knife", detail: "打开「新增饮食与饮水」。需要在记餐前核对当天已有记录时，也可打开「读取饮食与饮水」。")
         case .configuration:
-            tip("MCP 客户端", icon: "point.3.connected.trianglepath.dotted", detail: "在自己 AI 的工具或连接器设置里，添加远程 MCP 工具，传输方式选 Streamable HTTP，粘贴 MCP 地址。把令牌放进凭据栏，或设置 Authorization 请求头，值为 Bearer 后接空格和令牌。")
+            tip("MCP 客户端", icon: "point.3.connected.trianglepath.dotted", detail: "在自己 AI 的工具或连接器设置里，添加远程 MCP 工具，传输方式选 Streamable HTTP，使用复制的提示词里的 MCP 地址。把令牌放进凭据栏，或设置 Authorization 请求头，值为 Bearer 后接空格和令牌。")
             tip("自定义 HTTP 工具", icon: "network", detail: "用复制的提示词里的 OpenAPI 地址导入接口说明，使用相同的 Bearer 认证。你的 AI 客户端需要支持配置工具及认证头。")
             tip("令牌放在凭据设置", icon: "lock", detail: "对话里粘贴「复制提示词」得到的文字。令牌只填到 AI 工具的凭据栏。")
         case .prompts:
@@ -299,7 +282,8 @@ struct NativeAgentAccessView: View {
     @Environment(\.spotterGuide) private var guide
     @State private var connections: [NativeAgentConnection] = []
     @State private var profileRef: String?
-    @State private var purpose: NativeAgentPurpose = .analyze
+    @State private var issued: NativeAgentConnectionAPI.Issued?
+    @State private var tokenCopied = false
     @State private var loading = false
     @State private var creating = false
     @State private var revokeCandidate: NativeAgentConnection?
@@ -307,19 +291,23 @@ struct NativeAgentAccessView: View {
     @State private var errorMessage: String?
     @State private var notice: String?
 
-    private var mcpEndpoint: String { api.origin + "/api/agent/mcp" }
     private var isGuidedTutorial: Bool { guide?.step == .agentTutorial }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                intro
-                if let profileRef { setup(profileRef) }
-                connectionList
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    intro
+                    if let profileRef { setup(profileRef).id("agent-prompt") }
+                    connectionList
+                }
+                .frame(maxWidth: 520, alignment: .leading)
+                .padding(15)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 520, alignment: .leading)
-            .padding(15)
-            .frame(maxWidth: .infinity)
+            .onChange(of: creating) { open in
+                if !open && issued != nil { scroll.scrollTo("agent-prompt", anchor: .top) }
+            }
         }
         .background(SpotterPalette.background.ignoresSafeArea())
         .nativeGuideLayer(.agentAccess)
@@ -335,11 +323,20 @@ struct NativeAgentAccessView: View {
         .refreshable { if revoking == nil { await load() } }
         .sheet(isPresented: $creating) {
             NavigationStack {
-                NativeAgentCreateView(api: api, owner: owner) { connection in
+                NativeAgentCreateView(api: api, owner: owner) { result in
+                    let connection = result.connection
                     connections = [connection] + connections.filter { $0.id != connection.id }
+                    issued = result
+                    tokenCopied = false
+                    notice = nil
+                    creating = false
                 }
             }
             .presentationDragIndicator(.visible)
+        }
+        .onDisappear {
+            issued = nil
+            tokenCopied = false
         }
         .alert("撤销这个 Agent 连接？", isPresented: Binding(
             get: { revokeCandidate != nil }, set: { if !$0 { revokeCandidate = nil } }
@@ -379,23 +376,33 @@ struct NativeAgentAccessView: View {
 
     private func setup(_ profileRef: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("配置 Agent").font(.headline).accessibilityAddTraits(.isHeader)
-            Text("把 MCP 地址填到工具连接设置，把令牌填到它的凭据栏，使用 Authorization: Bearer。提示词可以直接发给 Agent。")
-                .font(.footnote).foregroundStyle(SpotterPalette.muted)
-            Text(mcpEndpoint)
-                .font(.footnote.monospaced())
-                .textSelection(.enabled)
-            Button("复制 MCP 地址", systemImage: "doc.on.doc") { copy(mcpEndpoint, note: "MCP 地址已复制。") }
-                .buttonStyle(.spotterControl)
-            Divider()
-            SpotterMenuPicker("提示词用途", selection: $purpose, options: NativeAgentPurpose.allCases.map { ($0, $0.rawValue) })
-            Text(purpose.permissions)
+            if issued != nil {
+                Label("连接创建成功", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SpotterPalette.deep)
+                    .accessibilityIdentifier("spotter-agent-created")
+            }
+            Text("复制提示词").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("复制后粘贴到你自己的 AI 对话框，告诉它你想做什么。连接地址和全部用法都在里面。")
                 .font(.footnote).foregroundStyle(SpotterPalette.muted)
             Button("复制提示词", systemImage: "doc.on.doc") {
-                copy(purpose.prompt(origin: api.origin, profileRef: profileRef), note: "提示词已复制，含账号识别码。")
+                copy(nativeAgentPrompt(origin: api.origin, profileRef: profileRef), note: "提示词已复制。")
             }
             .buttonStyle(.spotterPrimaryControl)
             .accessibilityIdentifier("spotter-agent-copy-prompt")
+            if let issued {
+                Divider()
+                Text("首次连接时，把令牌填到 AI 工具的凭据栏。离开本页后随时可在「我的连接」撤销。")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                Button(tokenCopied ? "已复制令牌" : "复制令牌", systemImage: "key.horizontal") {
+                    UIPasteboard.general.setItems([[UTType.plainText.identifier: issued.token]],
+                        options: [.localOnly: true, .expirationDate: Date.now.addingTimeInterval(120)])
+                    tokenCopied = true
+                    notice = "令牌会在本机剪贴板保留两分钟。"
+                }
+                .buttonStyle(.spotterControl)
+                .accessibilityIdentifier("spotter-agent-copy-token")
+            }
             if let notice {
                 Text(notice).font(.footnote).foregroundStyle(SpotterPalette.muted)
             }
@@ -488,6 +495,7 @@ struct NativeAgentAccessView: View {
             if let index = connections.firstIndex(where: { $0.id == connection.id }) {
                 connections[index].revokedAt = Date.now.ISO8601Format()
             }
+            if issued?.connection.id == connection.id { issued = nil; tokenCopied = false }
             await load()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -497,75 +505,45 @@ struct NativeAgentAccessView: View {
 private struct NativeAgentCreateView: View {
     let api: NativeAPI
     let owner: String
-    let didIssue: (NativeAgentConnection) -> Void
+    let didIssue: (NativeAgentConnectionAPI.Issued) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
     @State private var name = ""
     @State private var days = 30
     @State private var scopes: Set<NativeAgentScope> = [.context, .planDraft]
     @State private var busy = false
-    @State private var issued: NativeAgentConnectionAPI.Issued?
     @State private var errorMessage: String?
-    @State private var copied = false
-    @State private var revealsToken = false
 
     private var cleanName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         Form {
-            if let issued {
-                Section("保存这次的令牌") {
-                    Text("关闭后无法再次查看这把令牌。请把它填到你信任的工具的凭据栏。")
-                    if revealsToken {
-                        Text(issued.token).font(.footnote.monospaced()).privacySensitive()
-                    }
-                    Button(revealsToken ? "隐藏令牌" : "显示令牌", systemImage: revealsToken ? "eye.slash" : "eye") {
-                        revealsToken.toggle()
-                    }
-                    Button(copied ? "已复制令牌" : "复制令牌", systemImage: "key.horizontal") {
-                        UIPasteboard.general.setItems([[UTType.plainText.identifier: issued.token]],
-                            options: [.localOnly: true, .expirationDate: Date.now.addingTimeInterval(120)])
-                        copied = true
-                    }
-                    .accessibilityIdentifier("spotter-agent-copy-token")
-                    Text("令牌会在本机剪贴板保留两分钟。任何时候都可以在连接列表撤销。")
-                        .font(.footnote).foregroundStyle(SpotterPalette.muted)
-                }
-            } else {
-                Section("连接信息") {
-                    TextField("连接名称，例如训练分析", text: $name)
-                        .accessibilityIdentifier("spotter-agent-name")
-                    Picker("有效期", selection: $days) {
-                        ForEach([7, 30, 60, 90], id: \.self) { Text("\($0) 天").tag($0) }
-                    }
-                }
-                scopeSection("读取权限", scopes: NativeAgentScope.read)
-                scopeSection("写入权限", scopes: NativeAgentScope.write)
-                Section {
-                    if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
-                    Button { Task { await create() } } label: {
-                        if busy { ProgressView() }
-                        else { Text("创建连接").fontWeight(.semibold) }
-                    }
-                    .disabled(busy || cleanName.isEmpty || cleanName.utf16.count > 60 || scopes.isEmpty)
-                    .accessibilityIdentifier("spotter-agent-confirm-create")
+            Section("连接信息") {
+                TextField("连接名称，例如训练分析", text: $name)
+                    .accessibilityIdentifier("spotter-agent-name")
+                Picker("有效期", selection: $days) {
+                    ForEach([7, 30, 60, 90], id: \.self) { Text("\($0) 天").tag($0) }
                 }
             }
+            scopeSection("读取权限", scopes: NativeAgentScope.read)
+            scopeSection("写入权限", scopes: NativeAgentScope.write)
+            Section {
+                if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
+                Button { Task { await create() } } label: {
+                    if busy { ProgressView() }
+                    else { Text("创建连接").fontWeight(.semibold) }
+                }
+                .disabled(busy || cleanName.isEmpty || cleanName.utf16.count > 60 || scopes.isEmpty)
+                .accessibilityIdentifier("spotter-agent-confirm-create")
+            }
         }
-        .navigationTitle(issued == nil ? "新建 Agent 连接" : "连接已创建")
+        .navigationTitle("新建 Agent 连接")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(busy)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(issued == nil ? "取消" : "完成") { dismiss() }.disabled(busy)
-            }
+            ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
         }
-        .onChange(of: scenePhase) { phase in
-            if phase != .active { revealsToken = false }
-        }
-        .onDisappear { issued = nil }
     }
 
     private func scopeSection(_ title: String, scopes options: [NativeAgentScope]) -> some View {
@@ -603,8 +581,7 @@ private struct NativeAgentCreateView: View {
         do {
             let request = NativeAgentConnectionAPI.Issue(name: cleanName, scopes: scopes.map(\.rawValue).sorted(), expiresInDays: days)
             let result = try await NativeAgentConnectionAPI.issue(request, api: api, owner: owner)
-            didIssue(result.connection)
-            issued = result
+            didIssue(result)
         } catch { errorMessage = error.localizedDescription }
     }
 }

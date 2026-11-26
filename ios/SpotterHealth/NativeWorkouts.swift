@@ -519,10 +519,11 @@ final class NativeWorkoutStore: ObservableObject {
     }
 
     func loadProteinPreferences() async {
+        let revision = localRevision
+        let edit = entryRevision
         do {
-            let revision = localRevision
             let data = try await api.request("/api/library", method: "GET", json: nil, for: owner)
-            guard revision == localRevision else { return }
+            guard revision == localRevision, edit == entryRevision else { return }
             let library = try JSONDecoder().decode(NativeJSON.self, from: data)
             let rows = library["rows"].array
             if libraryRows != rows {
@@ -538,6 +539,7 @@ final class NativeWorkoutStore: ObservableObject {
             let tracks = preference.map { $0["enabled"] != .bool(false) } ?? !products.isEmpty
             if tracksWorkoutProtein != tracks { tracksWorkoutProtein = tracks }
         } catch { /* Training can continue; no guessed or stale recipe is selected after an unreadable warehouse. */
+            guard revision == localRevision, edit == entryRevision else { return }
             proteinProducts = []
             defaultProteinProductID = nil
             tracksWorkoutProtein = false
@@ -991,9 +993,26 @@ final class NativeWorkoutStore: ObservableObject {
         ])]), path: "/api/workout")
     }
 
-    func saveTemplate(id: String, data: NativeJSON, revision: String?) async -> String? {
-        await savePlanItem(.object(["action": .string("save"), "expectedOwner": .string(owner), "revision": revision.map(NativeJSON.string) ?? .null,
-                                  "data": .object(["kind": .string("template"), "id": .string(id), "plan": data])]), path: "/api/library")
+    func saveTemplate(id: String, data: NativeJSON, revision: String?) async throws {
+        let template: NativeJSON = .object(["kind": .string("template"), "id": .string(id), "plan": data])
+        let body: NativeJSON = .object(["action": .string("save"), "expectedOwner": .string(owner),
+                                       "revision": revision.map(NativeJSON.string) ?? .null, "data": template])
+        try await writePlanChange(JSONEncoder().encode(body), path: "/api/library") { response in
+            let receipt = try JSONDecoder().decode(NativeJSON.self, from: response)
+            guard receipt["ok"].bool, !receipt["updated"].string.isEmpty else { throw NativeAPIError.invalidResponse }
+            var row = template
+            row["updated"] = receipt["updated"]
+            libraryRows = [row] + libraryRows.filter { $0["kind"].string != "template" || $0["id"].string != id }
+        }
+    }
+
+    func removeTemplate(id: String, revision: String) async throws {
+        let body = ["action": "remove", "kind": "template", "id": id, "revision": revision, "expectedOwner": owner]
+        try await writePlanChange(JSONEncoder().encode(body), path: "/api/library") { response in
+            let receipt = try JSONDecoder().decode(NativeJSON.self, from: response)
+            guard receipt["ok"].bool else { throw NativeAPIError.invalidResponse }
+            libraryRows.removeAll { $0["kind"].string == "template" && $0["id"].string == id }
+        }
     }
 
     func canMovePlan(_ plan: NativeWorkoutEntry) -> Bool {
@@ -1071,12 +1090,12 @@ final class NativeWorkoutStore: ObservableObject {
         }
     }
 
-    private func writePlanChange<T>(_ body: Data, apply: (Data) throws -> T) async throws -> T {
+    private func writePlanChange<T>(_ body: Data, path: String = "/api/workout", apply: (Data) throws -> T) async throws -> T {
         guard !isBusy else { throw NativeAPIError.server(status: 409, message: "正在同步训练，请稍后重试。") }
         isBusy = true
         defer { isBusy = false }
         let revision = localRevision
-        let response = try await api.request("/api/workout", method: "POST", json: body, for: owner)
+        let response = try await api.request(path, method: "POST", json: body, for: owner)
         guard revision == localRevision else { throw NativeWorkoutProblem.accountChanged }
         entryRevision &+= 1
         let result = Result { try apply(response) }
@@ -1191,6 +1210,7 @@ struct NativeWorkoutView: View {
     @State private var showsMoves = false
     @State private var planEditor: NativePlanDraft?
     @State private var planScheduleAction: PlanScheduleAction?
+    @State private var templateAction: NativeTemplateAction?
     @State private var planNotice: String?
     @State private var cataloguePlanMove: NativeCataloguePlanMove?
     @State private var queuedCatalogueDraft: NativePlanDraft?
@@ -1306,6 +1326,9 @@ struct NativeWorkoutView: View {
             case .remove(let plan):
                 NativePlanDeleteSheet(store: store, entry: plan) { planNotice = "计划已删除" }
             }
+        }
+        .sheet(item: $templateAction) { action in
+            NativeTemplateActionSheet(store: store, action: action) { planNotice = $0 }
         }
         .task(id: planNotice) {
             guard planNotice != nil else { return }
@@ -1751,7 +1774,7 @@ struct NativeWorkoutView: View {
             ForEach(entries, id: \.key) { entry in
                 let plan = NativePlan(raw: entry.data)
                 HStack(spacing: 9) {
-                    tile("dumbbell", size: 34)
+                    tile(isFollowAlong(entry.data) ? "play.rectangle" : "dumbbell", size: 34)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(plan.displayTitle).font(.system(size: 14, weight: .bold)).lineLimit(2)
                         Text([shortDay(entry.day), plan.weekDay, plan.category,
@@ -1974,30 +1997,94 @@ struct NativeWorkoutView: View {
                 let plans = store.plans.filter {
                     byPlan[$0.key] == nil && ($0.owner != store.owner || !store.hasCompletedPlan(id: $0.id))
                 }.sorted { $0.day < $1.day }
+                let sessions = plans.filter { !isFollowAlong($0.data) }
+                let videos = plans.filter { isFollowAlong($0.data) }
                 if plans.isEmpty { emptyCard("还没有训练计划", symbol: "list.clipboard") }
-                else { planRows(plans) }
+                if !sessions.isEmpty { planRows(sessions) }
+                if !videos.isEmpty {
+                    followAlongHeading
+                    planRows(videos)
+                }
             }
             if let active = store.active { draftRow(active, current: true) }
         } else if trainingTab == "个人模板" {
-            let templates = store.libraryRows.filter { $0["kind"].string == "template" }
-            Button { planEditor = NativePlanDraft(day: selectedDay, template: true) } label: { Label("新建模板", systemImage: "plus") }
-                .buttonStyle(SpotterNativeButtonStyle(primary: true))
-            if templates.isEmpty { emptyCard("还没有个人模板", symbol: "bookmark", detail: "也可以从现有计划或已完成的打卡另存为模板。") }
-            ForEach(Array(templates.enumerated()), id: \.offset) { _, template in
-                VStack(alignment: .leading, spacing: 10) {
-                    tile("list.clipboard", size: 34)
-                    Text(template["plan"]["title"].string).font(.system(size: 17, weight: .bold))
-                    Text("\(template["plan"]["category"].string) · \(template["plan"]["exercises"].array.count) 个动作").font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
-                    Text(template["plan"]["exercises"].array.prefix(4).map { $0["name"].string }.joined(separator: "、")).font(.system(size: 13))
-                    HStack {
-                        Button("编辑") { planEditor = NativePlanDraft(template: template, day: selectedDay, schedule: false) }
-                            .buttonStyle(SpotterNativeButtonStyle(primary: false))
-                        Button { planEditor = NativePlanDraft(template: template, day: selectedDay, schedule: true) } label: { Label("安排训练", systemImage: "calendar.badge.plus") }
-                            .buttonStyle(SpotterNativeButtonStyle(primary: true))
-                    }.disabled(store.isBusy)
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(14).spotterCard()
-            }
+            personalTemplates
         }
+    }
+
+    private func isFollowAlong(_ plan: NativeJSON) -> Bool {
+        plan["category"].string == "跟练视频" || !plan["video"].string.isEmpty
+    }
+
+    private var followAlongHeading: some View {
+        Label("跟练视频", systemImage: "play.rectangle")
+            .font(.headline)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder private var personalTemplates: some View {
+        let templates = store.libraryRows.filter { $0["kind"].string == "template" }
+        let workouts = templates.filter { !isFollowAlong($0["plan"]) }
+        let videos = templates.filter { isFollowAlong($0["plan"]) }
+        Button { planEditor = NativePlanDraft(day: selectedDay, template: true) } label: { Label("新建模板", systemImage: "plus") }
+            .buttonStyle(SpotterNativeButtonStyle(primary: true))
+        if templates.isEmpty {
+            emptyCard("还没有个人模板", symbol: "bookmark", detail: "也可以从现有计划或已完成的打卡另存为模板。")
+        }
+        ForEach(workouts, id: \.["id"].string) { personalTemplateCard($0) }
+        if !videos.isEmpty {
+            followAlongHeading
+            ForEach(videos, id: \.["id"].string) { personalTemplateCard($0) }
+        }
+    }
+
+    private func personalTemplateCard(_ template: NativeJSON) -> some View {
+        let plan = NativePlan(raw: template["plan"])
+        let moveNames = plan.exercises.prefix(4).map { $0["name"].string }.joined(separator: "、")
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                tile(isFollowAlong(plan.raw) ? "play.rectangle" : "list.clipboard", size: 38)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(plan.title).font(.headline)
+                    Text([plan.category, plan.exercises.isEmpty ? "" : "\(plan.exercises.count) 个动作",
+                          plan.raw["minutes"].number > 0 ? "\(Int(plan.raw["minutes"].number)) 分钟" : ""]
+                        .filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                SpotterMenu {
+                    Button("改名", systemImage: "character.cursor.ibeam") {
+                        templateAction = .init(template: template, operation: .rename)
+                    }
+                    if let url = URL(string: plan.video), url.scheme?.lowercased() == "https" {
+                        Link(destination: url) { Label("打开跟练视频", systemImage: "play.rectangle") }
+                    }
+                    Button("删除模板", systemImage: "trash", role: .destructive) {
+                        templateAction = .init(template: template, operation: .remove)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.body.weight(.semibold)).frame(width: 22, height: 22)
+                }
+                .accessibilityLabel("模板操作 \(plan.title)")
+            }
+            if !moveNames.isEmpty { Text(moveNames).font(.subheadline).foregroundStyle(SpotterPalette.muted) }
+            HStack {
+                Button {
+                    planEditor = NativePlanDraft(template: template, day: selectedDay, schedule: false)
+                } label: {
+                    Label(plan.exercises.isEmpty ? "编辑模板" : "编辑动作", systemImage: "pencil")
+                }.buttonStyle(SpotterNativeButtonStyle(primary: false))
+                Button {
+                    planEditor = NativePlanDraft(template: template, day: selectedDay, schedule: true)
+                } label: {
+                    Label("安排训练", systemImage: "calendar.badge.plus")
+                }.buttonStyle(SpotterNativeButtonStyle(primary: true))
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .disabled(store.isBusy)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14).spotterCard()
     }
 
     private func showEarlierHistory(before: String) async {
@@ -2041,6 +2128,111 @@ struct NativeWorkoutView: View {
     static func duration(_ milliseconds: Int) -> String {
         let seconds = max(0, milliseconds / 1000)
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct NativeTemplateAction: Identifiable {
+    enum Operation: String { case rename, remove }
+
+    let template: NativeJSON
+    let operation: Operation
+
+    var id: String { "\(operation.rawValue):\(template["id"].string)" }
+}
+
+private struct NativeTemplateActionSheet: View {
+    @ObservedObject var store: NativeWorkoutStore
+    let action: NativeTemplateAction
+    let didFinish: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var busy = false
+    @State private var problem: String?
+    @State private var needsReview = false
+
+    init(store: NativeWorkoutStore, action: NativeTemplateAction, didFinish: @escaping (String) -> Void) {
+        self.store = store
+        self.action = action
+        self.didFinish = didFinish
+        self._name = State(initialValue: action.template["plan"]["title"].string)
+    }
+
+    private var isRename: Bool { action.operation == .rename }
+    private var nameToSave: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var validName: Bool { (1...100).contains(nameToSave.utf16.count) }
+    private var canSubmit: Bool { !busy && !store.isBusy && !needsReview && (!isRename || validName) }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    if isRename {
+                        TextField("模板名称", text: $name)
+                            .textFieldStyle(.roundedBorder)
+                            .submitLabel(.done)
+                            .onSubmit { if canSubmit { Task { await submit() } } }
+                        if nameToSave.utf16.count > 100 {
+                            Text("模板名称最多 100 字。")
+                                .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                        }
+                    } else {
+                        Text("删除「\(action.template["plan"]["title"].string)」？")
+                            .font(.headline)
+                        Text("已安排的训练和已完成的打卡都会保留。")
+                            .font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                    }
+                    if let problem {
+                        Label(problem, systemImage: "exclamationmark.circle")
+                            .font(.footnote).foregroundStyle(.red)
+                    }
+                    if !isRename {
+                        Button(role: .destructive) { Task { await submit() } } label: {
+                            Label(busy ? "正在删除…" : "确认删除", systemImage: "trash")
+                        }.buttonStyle(.spotterControl).disabled(!canSubmit)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(14).spotterCard().padding(14)
+            }
+            .background(SpotterPalette.background.ignoresSafeArea())
+            .navigationTitle(isRename ? "模板改名" : "删除模板")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
+                if isRename {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(busy ? "保存中" : "保存") { Task { await submit() } }.disabled(!canSubmit)
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(busy)
+    }
+
+    private func submit() async {
+        guard canSubmit else { return }
+        busy = true
+        problem = nil
+        defer { busy = false }
+        do {
+            let id = action.template["id"].string
+            let revision = action.template["updated"].string
+            if isRename {
+                var plan = action.template["plan"]
+                plan["title"] = .string(nameToSave)
+                try await store.saveTemplate(id: id, data: plan, revision: revision)
+            } else {
+                try await store.removeTemplate(id: id, revision: revision)
+            }
+            didFinish(isRename ? "模板已改名" : "模板已删除")
+            dismiss()
+        } catch {
+            problem = error.localizedDescription
+            if (error as? NativeAPIError)?.statusCode == 409 {
+                needsReview = true
+                await store.load()
+            }
+        }
     }
 }
 
@@ -3781,7 +3973,7 @@ struct NativePlanEditorPanel: View {
                             moveNumber("秒", index: index, key: "seconds", value: move["seconds"].number, maximum: 18000)
                         }
                         if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.caption).foregroundStyle(SpotterPalette.muted) }
-                        if reviewed != nil {
+                        if reviewed != nil || draft.isTemplate {
                             SpotterMenuPicker("重量单位", selection: Binding(get: { move["unit"].string }, set: { setMove(index, key: "unit", value: .string($0)) }),
                                               options: [("kg", "kg"), ("lb", "lb")])
                         }
@@ -3800,6 +3992,7 @@ struct NativePlanEditorPanel: View {
                 HStack {
                     TextField("添加动作名称", text: $moveName)
                     Button { addMove() } label: { Image(systemName: "plus.circle.fill") }
+                        .accessibilityLabel("添加动作")
                         .disabled(moveName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.plan["exercises"].array.count >= 30)
                 }
             }
@@ -3868,10 +4061,19 @@ struct NativePlanEditorPanel: View {
         guard !draft.plan["title"].string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !draft.plan["exercises"].array.isEmpty || !draft.plan["video"].string.isEmpty else { error = "请填写计划名称，并至少添加一个动作或跟练视频。"; return }
         busy = true; defer { busy = false }
-        let message = draft.isTemplate ? await store.saveTemplate(id: draft.id, data: draft.plan, revision: draft.revision) :
-            await store.savePlan(id: draft.id, data: draft.plan, revision: draft.revision)
-        if let message { error = message }
-        else { saved(draft.plan["date"].string); dismiss() }
+        if draft.isTemplate {
+            do { try await store.saveTemplate(id: draft.id, data: draft.plan, revision: draft.revision) }
+            catch {
+                self.error = error.localizedDescription
+                if (error as? NativeAPIError)?.statusCode == 409 { await store.load() }
+                return
+            }
+        } else if let message = await store.savePlan(id: draft.id, data: draft.plan, revision: draft.revision) {
+            error = message
+            return
+        }
+        saved(draft.plan["date"].string)
+        dismiss()
     }
 }
 

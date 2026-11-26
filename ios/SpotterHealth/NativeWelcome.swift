@@ -242,8 +242,11 @@ private struct NativeGuideSpotlight: View {
 
     private func tooltip(space: CGFloat, anchored: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let inAgentFlow = guide.step.presentation == .coachPanel || guide.step.presentation == .agentAccess
+        let maximumHeight = inAgentFlow ? min(space, 210) : space
         return ScrollView {
             tooltipContent(anchored: anchored)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background {
                     GeometryReader { geometry in
@@ -251,12 +254,12 @@ private struct NativeGuideSpotlight: View {
                     }
                 }
         }
-        .scrollDisabled(contentHeight <= space)
+        .scrollDisabled(contentHeight <= maximumHeight)
         .scrollIndicators(.hidden)
         .onPreferenceChange(NativeGuideTooltipHeight.self) { height in
             if height > 0, abs(contentHeight - height) > 1 { contentHeight = height }
         }
-        .frame(height: min(space, contentHeight))
+        .frame(height: min(maximumHeight, contentHeight))
         .frame(maxWidth: 370)
         .background(SpotterPalette.card, in: shape)
         .clipShape(shape)
