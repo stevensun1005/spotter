@@ -109,10 +109,11 @@ private func nativeAgentPrompt(origin: String, profileRef: String) -> String {
     从工具凭据栏读取 Authorization: Bearer 令牌。先调用 get_spotter_agent_profile（GET /api/agent/profile），核对 profileRef 和已授予的权限。后续工具调用都使用这个 profileRef。只使用获授权的功能。无法连接、权限不足或接口失败时告诉我实际原因。
 
     读取与分析：用 read_spotter_records（GET /api/agent/records）分开读取已授权的 training、nutrition 或 templates。按 nextOffset 分页，用户未指定日期时以最近 30 天为参考（模板不用日期）。说明数据覆盖、趋势和缺项。
-    安排训练：根据目标、器械、每周天数和开始日期，用 read_spotter_planning_context 查真实动作和模板。保留动作 ID、组次、节奏、单位和分侧。只有跟练链接时保留 video，放进「跟练视频」。用 stage_spotter_plans 提交私人草稿，调用 preview_spotter_draft 核对最新预览。我确认后才用 commit_spotter_draft 排日历。完整周期用 stage_spotter_program、preview_spotter_program、commit_spotter_program。重复提交同一草稿沿用 requestId。
+    核对动作：生成或导入包含动作的计划、周期或模板前，先用 read:context 调用 read_spotter_planning_context（GET /api/agent/context），查我自己的 Spotter 动作库和内置目录。按各自的 nextOffset 翻页。以相同的标准目录 ID、已有明确对应的别名或规范化后完全相同的名称确认同一动作，并沿用已有动作的名称和目录 ID（如有）。器械、握法或姿势不同等相近变式各自保留。遇到多个可能结果时先和我核对。缺少读取权限时说明，并在取得权限后确认是否有新动作。
+    安排训练：按目标、器械、每周天数和开始日期，用核对过的动作和模板起草。保留组次、节奏、单位和分侧。只有跟练链接时保留 video，放进「跟练视频」。用 stage_spotter_plans 提交私人草稿，调用 preview_spotter_draft 核对最新预览。我确认后才用 commit_spotter_draft 排日历。完整周期用 stage_spotter_program、preview_spotter_program、commit_spotter_program。重复提交同一草稿沿用 requestId。
     新增记录：餐食用 add_spotter_meals，按实际日期、餐次、份量和营养写入，估算项标明。常用食物可用 add_spotter_foods。已完成训练、身体测量、饮水及个人模板用 import_spotter_records，选对应类别并使用同一条记录 ID 重试。只写我确认的实际内容。
     编辑个人模板：先读 templates，获取 templateId（记录 id）和 revision。用 preview_spotter_template_change（POST /api/agent/templates）预览改名、动作编辑或删除。修改动作时保留其余组次和动作元数据。拿到我的确认后才用 commit_spotter_template_change 提交本次 previewToken。遇到版本冲突重新读取。
-    自定义动作示范：添加包含动作库没有的动作的计划或模板时，列出这些动作并询问我是否为它们添加演示动图。收到明确同意和可使用的 GIF 后，再用 manage_spotter_exercise_demo（POST /api/agent/exercise-demos）按准确动作名称上传 raw base64。每个 GIF 不超过 768 KiB 和 480×480，至少两帧。需要替换或移除时也先让我确认。只保存视频链接或没有动图时照常保存计划或模板。
+    自定义动作示范：完成动作库核对后，只为确认没有同一动作的新增项询问我是否添加演示动图。收到明确同意和可使用的 GIF 后，再用 manage_spotter_exercise_demo（POST /api/agent/exercise-demos）按准确动作名称上传 raw base64。每个 GIF 不超过 768 KiB 和 480×480，至少两帧。需要替换或移除时也先让我确认。只保存视频链接或没有动图时照常保存计划或模板。
 
     我会告诉你要做哪件事。完成后用实际回执告诉我新增、修改、删除或跳过的记录和日期。
     """
@@ -210,7 +211,7 @@ struct NativeAgentTutorialView: View {
         switch step {
         case .permission:
             tip("分析记录", icon: "chart.xyaxis.line", detail: "只打开要分析的读取项，例如「读取训练计划与打卡」或「读取饮食与饮水」。")
-            tip("训练计划", icon: "calendar", detail: "打开「读取编排资料」和「保存训练草稿」。想由 AI 帮你排入日历，再打开「将确认的计划加入日历」。")
+            tip("训练计划", icon: "calendar", detail: "打开「读取编排资料」，让 AI 先核对你的动作库并沿用同一动作。创建草稿需打开「保存训练草稿」，排入日历还需打开「将确认的计划加入日历」。")
             tip("模板与动图", icon: "film.stack", detail: "需要管理模板时，开启「读取个人模板」和「改名、编辑或删除个人模板」。需要为自定义动作添加 GIF 时，再开启「添加或移除个人演示动图」。")
             tip("记饮食", icon: "fork.knife", detail: "打开「新增饮食与饮水」。需要在记餐前核对当天已有记录时，也可打开「读取饮食与饮水」。")
         case .configuration:
@@ -219,7 +220,7 @@ struct NativeAgentTutorialView: View {
             tip("令牌放在凭据设置", icon: "lock", detail: "对话里粘贴「复制提示词」得到的文字。令牌只填到 AI 工具的凭据栏。")
         case .prompts:
             tip("分析记录示例", icon: "chart.xyaxis.line", detail: "「看我最近 7 天的训练记录，总结频率和训练重点。」")
-            tip("制定计划示例", icon: "calendar", detail: "「给我做一份下周三练的计划，只用哑铃。先保存草稿，让我看日期和组次。」")
+            tip("制定计划示例", icon: "calendar", detail: "「帮我整理下周三练的哑铃计划。先查我的动作库，相同动作沿用，变式各自保留。保存草稿后给我看日期和组次。」")
             tip("记录饮食示例", icon: "fork.knife", detail: "「帮我记今天早餐的一杯牛奶，约 250 毫升。先让我核对份量和营养。」")
         case .verification:
             tip("核对你的记录", icon: "checkmark.circle", detail: "确认计划预览后，到「训练 → 我的计划」查排入的日期。确认餐食后，到「今日 → 饮食记录」看对应餐次。")

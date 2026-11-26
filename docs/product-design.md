@@ -77,6 +77,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 - 「设置 → 外部 Agent」可创建和撤销个人连接，网页从「添加计划 → 用自己的 AI」进入。连接名称、有效期及可读写范围在创建时选择。「复制提示词」提供一份通用文本，内含 MCP 和 OpenAPI 地址，以及编排训练、记饮食、分析记录、管理模板和演示动图的指令。连接创建后自动定位到提示词卡片，在同一卡片用「复制令牌」取得只在本次创建后提供的连接凭据。提示词粘贴到自己的 AI 对话框，令牌只填入外部工具的凭据设置。[原生连接](../ios/SpotterHealth/NativeAgentAccess.swift) · [网页连接](../cloudflare/features/agent-access/access-panel.tsx)
 - App 的「设置 → 外部 Agent → 使用教学」和教练「用自己的 AI」的连接页共用四步教学。教程带用户选权限、配置自己的客户端、复制提示词执行示例，并在「我的连接」核对最近使用时间或撤销。新手引导高亮真实入口，使用教学只展示说明和示例。[SwiftUI 使用教学](../ios/SpotterHealth/NativeAgentAccess.swift)
 - 外部 Agent 按当前账号的 `profileRef` 与连接权限校验归属。权限区分编排资料、训练草稿、排期、分类读取和写入。健康原始读数、身体数据与搭子或好友的记录均在外部 Agent 读取范围之外。明确授权后才记餐，重试同一餐食复用原 UUID。[Agent 权限](../cloudflare/features/agent-access/model.ts)
+- 外部 Agent 在生成或导入含动作的计划、周期和个人模板前，用 `read:context` 查当前账号的个人动作和内置目录。标准目录 ID 一致、明确登记为同一动作的别名或规范化后完全相同的名称可用于复用。相近变式各自保留。两端的复制提示词说明这个规则，iPhone 的使用教学同时提示开启「读取编排资料」。[编排资料接口](../cloudflare/features/agent-access/context.ts) · [网页提示词](../cloudflare/features/agent/guide.ts) · [原生提示词与教学](../ios/SpotterHealth/NativeAgentAccess.swift)
 - 外部 Agent 管理个人模板时，用 `templates:read` 读取模板 ID 和版本，用 `templates:manage` 预览改名、替换整份动作列表或删除。预览展示对关联计划的影响，用户确认后提交同一个预览令牌。版本已变或预览到期时需重新核对。[模板修改服务](../cloudflare/features/agent-access/template-change.ts)
 - 连接获得 `exercise-demos:write` 后，外部 Agent 可针对用户确认的动作上传、替换或移除私人演示 GIF。GIF 上限 768 KiB，宽高各不超过 480 像素，限 2–90 帧，并限制解码总像素。动作详情只向登录的所有者展示该附件。App 回到前台或刷新训练时同步动作资料。现有 JSON 备份包含动作资料，GIF 文件随账号保存在 Cloudflare。[演示校验和存储](../cloudflare/features/exercises/personal-demo.ts) · [原生动作详情](../ios/SpotterHealth/NativeCatalogueView.swift) · [网页动作详情](../cloudflare/features/exercises/exercise-view.tsx)
 - 在教练点「怎么用训练搭子？」或输入「怎么拍照记餐」「外部 Agent 在哪」等操作问题，会按当前端列出入口和按钮。iPhone 可继续追问「那饮食呢？」。已收录的问答由客户端直接回答，即使一般 AI 对话额度用完也可使用。导航回答只指导操作。明确记餐、生成计划和训练咨询继续走各自流程。
@@ -159,5 +160,6 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | --- | --- | --- |
 | 1.0 Build 40 | 使用引导用 SwiftUI 锚点聚焦真实按钮。扩充有氧选项，Watch 用镜像和 WatchConnectivity 补传完训摘要。Agent API 增加按权限读取和记餐。AI 教练在两端使用共用帮助资料回答导航问题。 | Xcode 模拟器以合成账号验证 14 步引导及用量为零时的操作问答。服务端测试覆盖训练匹配、权限、账号隔离与写入去重。实际心率及断连恢复待配对设备验证。 |
 | 1.0 Build 41 | `NativeAvatarStore` 统一当前会话中的头像。本人保存或移除后立即更新，其他头像在切页、回到前台、恢复网络或前台每 60 秒刷新。新增外部 Agent 四步教学、真实入口引导、统一提示词及连接创建回执。待训练和个人模板都提供跟练视频分区。App 和网页提供模板改名、修改动作及确认删除。Cloudflare 提供模板变更预览与提交，以及个人动作 GIF 的写入与读取。 | iPhone 模拟器通过头像刷新、四步教学及模板管理验证。Cloudflare 测试覆盖 GIF 权限与账号隔离、去重及模板事务回滚。 |
+| 1.0 Build 41 动作复用 | 外部 Agent 写入计划、周期、模板、个人动作和 GIF 前查本账号动作库。只按标准目录 ID、已登记别名或规范化名称复用同一动作。保留握法等独立变式和原组次处方。iPhone 与网页提示词及教学使用同样的规则。 | Cloudflare 95 源码为 `91b476a`。服务端 362 项测试通过，覆盖原始记录保护、账号隔离、重试与动作变式。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。

@@ -22,6 +22,7 @@ struct NativeProductHelpSmoke {
         precondition(help.reply(to: "午餐该吃多少？", previousQuestion: "官方模板在哪？") == nil)
         precondition(help.reply(to: "如何连接自己的 ＡＩ Agent？")?.contains("新建 Agent 连接") == true)
         precondition(help.reply(to: "用自己的 AI 的教学在哪？")?.contains("使用教学") == true)
+        precondition(help.reply(to: "外部 Agent 动作去重教程在哪？")?.contains("先查你的库并沿用同一动作") == true)
         precondition(help.reply(to: "怎么复制提示词？")?.contains("MCP、OpenAPI") == true)
         precondition(help.reply(to: "怎么删除个人模板？")?.contains("解除关联") == true)
         precondition(help.reply(to: "怎么改个人模板的名字？")?.contains("… → 改名") == true)

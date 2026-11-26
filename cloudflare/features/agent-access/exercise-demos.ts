@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { profileRefSchema } from "@/features/agent/profile";
-import { parsePlanMove } from "@/features/exercises/move-name";
 import { demoMaxBase64, removePersonalDemo, savePersonalDemo } from "@/features/exercises/personal-demo";
 import { HttpError } from "@/server/http";
 import { loadAgentExerciseLibrary } from "./exercise-library";
@@ -18,7 +17,7 @@ export async function changeAgentExerciseDemo(db: D1Database, principal: AgentPr
   await verifyProfile(principal.owner, input.profileRef);
   if (input.action === "remove") return { action: input.action, ...await removePersonalDemo(db, principal.owner, input.name) };
   requireScope(principal, "read:context");
-  const exercise = (await loadAgentExerciseLibrary(db, principal.owner)).resolve(parsePlanMove(input.name).name);
+  const exercise = (await loadAgentExerciseLibrary(db, principal.owner)).resolve(input.name);
   if (exercise.source === "catalogue") throw new HttpError(400, "动作库已有同一个内置动作。请使用它已有的动作示范。");
   return { action: input.action, ...await savePersonalDemo(db, principal.owner, exercise.name, input.gifBase64) };
 }
