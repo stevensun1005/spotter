@@ -88,7 +88,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 - 外部 Agent 在生成或导入含动作的计划、周期和个人模板前，用 `read:context` 查当前账号的个人动作和内置目录。标准目录 ID 一致、明确登记为同一动作的别名或规范化后完全相同的名称可用于复用。相近变式各自保留。两端的复制提示词说明这个规则，iPhone 的使用教学同时提示开启「读取编排资料」。[编排资料接口](../cloudflare/features/agent-access/context.ts) · [网页提示词](../cloudflare/features/agent/guide.ts) · [原生提示词与教学](../ios/SpotterHealth/NativeAgentAccess.swift)
 - 外部 Agent 管理个人模板时，用 `templates:read` 读取模板 ID 和版本，用 `templates:manage` 预览改名、替换整份动作列表或删除。预览展示对关联计划的影响，用户确认后提交同一个预览令牌。版本已变或预览到期时需重新核对。[模板修改服务](../cloudflare/features/agent-access/template-change.ts)
 - 连接获得 `exercise-demos:write` 后，外部 Agent 可针对用户确认的动作上传、替换或移除私人演示 GIF。GIF 上限 768 KiB，宽高各不超过 480 像素，限 2–90 帧，并限制解码总像素。动作详情只向登录的所有者展示该附件。App 回到前台或刷新训练时同步动作资料。现有 JSON 备份包含动作资料，GIF 文件随账号保存在 Cloudflare。[演示校验和存储](../cloudflare/features/exercises/personal-demo.ts) · [原生动作详情](../ios/SpotterHealth/NativeCatalogueView.swift) · [网页动作详情](../cloudflare/features/exercises/exercise-view.tsx)
-- iPhone 标准动作演示由资源生成工具按网页版的动作 ID 选用现有绘制动画、Flow／姿势图或 MP4。演示随 App 安装，可离线使用。详情按需读取当前动作，离开或切后台时暂停。开启减少动态效果时，可手动点「播放」。个人 GIF 继续使用账号授权读取。[资源生成](../tools/build-ios-catalogue.mjs) · [原生播放](../ios/SpotterHealth/NativeCatalogueView.swift)
+- iPhone 标准动作演示由资源生成工具按网页版的动作 ID 选用现有绘制动画、Flow／姿势图或 MP4。演示随 App 安装，可离线使用。打开详情后，演示加载完成即自动播放，暂停后再播放会从当前帧继续。离开或切后台时暂停。开启减少动态效果时，可手动点「播放」。个人 GIF 继续使用账号授权读取。[资源生成](../tools/build-ios-catalogue.mjs) · [原生播放](../ios/SpotterHealth/NativeCatalogueView.swift)
 - 在教练点「怎么用训练搭子？」或输入「怎么拍照记餐」「外部 Agent 在哪」等操作问题，会按当前端列出入口和按钮。iPhone 可继续追问「那饮食呢？」。已收录的问答由客户端直接回答，即使一般 AI 对话额度用完也可使用。导航回答只指导操作。明确记餐、生成计划和训练咨询继续走各自流程。
 - 共用的 [产品帮助资料](../cloudflare/shared/product-help.json) 按主题 ID、别名和 iPhone / 网页步骤维护。[iPhone 查询](../ios/SpotterHealth/NativeProductHelp.swift) 在本机读取打包资源。[网页查询](../cloudflare/features/ai-coach/product-help.ts) 复用于浏览器和服务端，API 在验证账号后优先处理操作问答。
 
@@ -180,6 +180,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 1.0 Build 44 | 首页搭子打卡小卡片统一使用头像、名称和状态。训练详情集中在下方的最近打卡入口。 | Swift 语法及 8 项卡片布局、详情入口和帮助资料的源码检查通过。 |
 | 1.0 Build 45 | 普通好友的删除入口移到详情页右上角菜单。由确认框提交现有关系移除请求。 | Xcode 模拟器构建、确认入口和教练帮助的源码检查、17 项好友接口测试通过。 |
 | 1.0 Build 45 | 补齐 SwiftUI 标准动作详情的离线演示和播放／暂停，按目录 ID 对应已有动作素材。 | Xcode 模拟器构建通过，包内 5,630 个标准动作的资源映射与源码一致。原生冒烟测试核对绘制、动图、本地视频和个人动作隔离。 |
+| Build 45 后的 iPhone 源码 | 「训练 → 动作库」的绘制和 GIF 从详情挂载后按素材帧间隔播放，本地视频在播放器进入窗口时应用播放状态。暂停保留画面，按钮按前台播放状态显示。沿用已打包素材和个人动图的账号权限。 | Xcode 模拟器构建、原生冒烟测试、独立版网页构建和 24 项根目录测试通过。以合成账号比较演示区域截图，验证绘制动画、GIF 和本地视频首次打开即播放，暂停静止且恢复后继续播放。旧版卡帧在这三个模拟器样本上未复现，待真机确认。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
 

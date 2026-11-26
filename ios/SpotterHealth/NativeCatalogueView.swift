@@ -1074,7 +1074,8 @@ private struct NativeCatalogueExerciseDemo: View {
 
     private var reducedMotion: Bool { reduceMotion || systemReduceMotion }
     private var wantsPlayback: Bool { preferredPlayback ?? !reducedMotion }
-    private var playing: Bool { wantsPlayback && visible && scenePhase == .active }
+    private var canPlay: Bool { visible && scenePhase == .active }
+    private var playing: Bool { wantsPlayback && canPlay }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -1091,12 +1092,13 @@ private struct NativeCatalogueExerciseDemo: View {
                         Text("参考练法").font(.caption).foregroundStyle(SpotterPalette.muted)
                     }
                     Spacer(minLength: 6)
-                    Button { preferredPlayback = !wantsPlayback } label: {
-                        Label(wantsPlayback ? "暂停" : "播放", systemImage: wantsPlayback ? "pause.fill" : "play.fill")
+                    Button { preferredPlayback = !playing } label: {
+                        Label(playing ? "暂停" : "播放", systemImage: playing ? "pause.fill" : "play.fill")
                             .font(.caption.weight(.semibold))
                     }
                     .buttonStyle(.spotterControl)
-                    .accessibilityLabel(wantsPlayback ? "暂停动作示意" : "播放动作示意")
+                    .disabled(!canPlay)
+                    .accessibilityLabel(playing ? "暂停动作示意" : "播放动作示意")
                     .accessibilityIdentifier("catalogue-demo-playback")
                 }
             } else {
@@ -1135,18 +1137,15 @@ private struct NativeCatalogueExerciseDemo: View {
 private struct NativeCatalogueDrawingPlayer: View {
     let drawing: NativeCatalogDrawing
     let playing: Bool
-    @State private var start: Date?
-    @State private var elapsed: TimeInterval = 0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: drawing.frameDuration, paused: !playing)) { timeline in
-            let current = elapsed + (start.map { max(0, timeline.date.timeIntervalSince($0)) } ?? 0)
+        NativeExerciseFramePlayer(frameCount: drawing.frames.count, playing: playing, duration: { _ in drawing.frameDuration }) { frame in
             Canvas { context, size in
                 let scale = min(size.width / 320, size.height / 180)
                 var canvas = context
                 canvas.translateBy(x: (size.width - 320 * scale) / 2, y: (size.height - 180 * scale) / 2)
                 canvas.scaleBy(x: scale, y: scale)
-                for mark in drawing.frame(at: current) {
+                for mark in drawing.frames[frame] {
                     let ink = SpotterPalette.color(mark.color)
                     if mark.width < 0 {
                         let center = mark.points[0]
@@ -1160,14 +1159,27 @@ private struct NativeCatalogueDrawingPlayer: View {
                 }
             }
         }
-        .onAppear { if playing { start = .now } }
-        .onChange(of: playing) { active in
-            if active { start = .now }
-            else if let start {
-                elapsed += max(0, Date.now.timeIntervalSince(start))
-                self.start = nil
+    }
+}
+
+private struct NativeExerciseFramePlayer<Content: View>: View {
+    let frameCount: Int
+    let playing: Bool
+    let duration: (Int) -> TimeInterval
+    @ViewBuilder let content: (Int) -> Content
+    @State private var frame = 0
+
+    var body: some View {
+        content(frame)
+            .task(id: playing) {
+                guard playing else { return }
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(duration(frame))) }
+                    catch { return }
+                    guard !Task.isCancelled else { return }
+                    frame = (frame + 1) % frameCount
+                }
             }
-        }
     }
 }
 
@@ -1178,6 +1190,21 @@ private struct NativeExerciseVideoPlayer: UIViewRepresentable {
     final class Surface: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
         var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+        var playing = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            updatePlayback()
+        }
+
+        func updatePlayback() {
+            guard let player = playerLayer.player else { return }
+            if playing && window != nil {
+                if player.rate == 0 { player.playImmediately(atRate: 0.75) }
+            } else {
+                player.pause()
+            }
+        }
     }
 
     final class Coordinator {
@@ -1202,10 +1229,8 @@ private struct NativeExerciseVideoPlayer: UIViewRepresentable {
     }
 
     func updateUIView(_ view: Surface, context: Context) {
-        let player = context.coordinator.player
-        if playing {
-            if player.rate == 0 { player.playImmediately(atRate: 0.75) }
-        } else { player.pause() }
+        view.playing = playing
+        view.updatePlayback()
     }
 
     static func dismantleUIView(_ view: Surface, coordinator: Coordinator) {
@@ -1244,62 +1269,17 @@ private struct NativeExerciseGIFFrames: Sendable {
     }
 }
 
-private struct NativeExerciseGIFPlayer: UIViewRepresentable {
+private struct NativeExerciseGIFPlayer: View {
     let frames: NativeExerciseGIFFrames
     let playing: Bool
 
-    final class Coordinator { var framesID: UUID? }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> UIImageView {
-        let view = UIImageView()
-        view.contentMode = .scaleAspectFit
-        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        view.setContentHuggingPriority(.defaultLow, for: .vertical)
-        return view
-    }
-
-    func updateUIView(_ view: UIImageView, context: Context) {
-        let layer = view.layer
-        let key = "exercise-demo"
-        let poster = frames.images[0]
-        if context.coordinator.framesID != frames.id {
-            layer.removeAnimation(forKey: key)
-            layer.speed = 1
-            layer.timeOffset = 0
-            layer.beginTime = 0
-            view.image = UIImage(cgImage: poster)
-            context.coordinator.framesID = frames.id
+    var body: some View {
+        NativeExerciseFramePlayer(frameCount: frames.images.count, playing: playing, duration: { frames.durations[$0] }) { frame in
+            Image(decorative: frames.images[frame], scale: 1)
+                .resizable()
+                .scaledToFit()
         }
-        if layer.animation(forKey: key) != nil {
-            if playing && layer.speed == 0 {
-                let paused = layer.timeOffset
-                layer.speed = 1
-                layer.timeOffset = 0
-                layer.beginTime = 0
-                layer.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - paused
-            } else if !playing && layer.speed != 0 {
-                let paused = layer.convertTime(CACurrentMediaTime(), from: nil)
-                layer.speed = 0
-                layer.timeOffset = paused
-            }
-            return
-        }
-        guard playing else { return }
-        let time = frames.durations.reduce(0, +)
-        var elapsed = 0.0
-        let keyTimes = frames.durations.map { duration in
-            defer { elapsed += duration }
-            return NSNumber(value: elapsed / time)
-        }
-        let animation = CAKeyframeAnimation(keyPath: "contents")
-        animation.values = frames.images + [poster]
-        animation.keyTimes = keyTimes + [1]
-        animation.calculationMode = .discrete
-        animation.duration = time
-        animation.repeatCount = .infinity
-        layer.add(animation, forKey: key)
+        .id(frames.id)
     }
 }
 

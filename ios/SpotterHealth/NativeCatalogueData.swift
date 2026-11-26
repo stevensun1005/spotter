@@ -220,12 +220,6 @@ struct NativeCatalogDrawing: Sendable {
         self.frameDuration = data.ms / 1000
         self.isReference = isReference
     }
-
-    func frame(at elapsed: TimeInterval) -> [Mark] {
-        let cycle = frameDuration * Double(frames.count)
-        let position = max(0, elapsed).truncatingRemainder(dividingBy: cycle)
-        return frames[min(frames.count - 1, Int(position / frameDuration))]
-    }
 }
 
 enum NativeCatalogScope: Equatable, Sendable {

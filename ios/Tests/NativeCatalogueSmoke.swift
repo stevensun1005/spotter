@@ -41,7 +41,7 @@ struct NativeCatalogueSmoke {
         let drawn = index.entry(withID: "5965")!
         let drawing = index.drawing(for: drawn)!
         precondition(drawing.frames.count > 2 && drawing.frameDuration > 0)
-        let initial = drawing.frame(at: 0).flatMap(\.points)
+        let initial = drawing.frames[0].flatMap(\.points)
         precondition(drawing.frames.dropFirst().contains { $0.flatMap(\.points) != initial })
         for id in ["0001", "4455"] {
             let entry = index.entry(withID: id)!
