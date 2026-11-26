@@ -8,14 +8,17 @@ import { checkAppBundle } from "../tools/ios-app-bundle.mjs";
 
 const source = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
+// Matches both this hand-written project file and the layout Xcode writes when it saves the project.
+const ref = (id) => `${id}(?: /\\*[^*]*\\*/)?`;
+
 function buildPhase(project, id) {
-  const match = project.match(new RegExp(`${id}[^\\n]*= \\{isa = PBX\\w+BuildPhase;[^\\n]*files = \\(([^)]*)\\)`));
+  const match = project.match(new RegExp(`${ref(id)} = \\{\\s*isa = PBX\\w+BuildPhase;[\\s\\S]*?files = \\(([^)]*)\\)`));
   assert.ok(match, `build phase ${id} exists`);
   return match[1];
 }
 
 function buildFileFor(project, filename, phaseFiles) {
-  const ids = [...project.matchAll(new RegExp(`(A1[0-9A-F]{22}) /\\* ${filename.replace(".", "\\.")} in Sources \\*/ = \\{isa = PBXBuildFile`, "g"))]
+  const ids = [...project.matchAll(new RegExp(`([0-9A-F]{24}) /\\* ${filename.replace(".", "\\.")} in Sources \\*/ = \\{\\s*isa = PBXBuildFile`, "g"))]
     .map((match) => match[1]);
   return ids.some((id) => phaseFiles.includes(id));
 }
@@ -36,9 +39,9 @@ test("the Spotter project ships the Live Activity in both Debug and Release", as
   assert.match(embed, /dstSubfolderSpec = 13;/);
   assert.match(embed, /SpotterWidget\.appex in Embed App Extensions/);
   assert.match(embed, /runOnlyForDeploymentPostprocessing = 0;/);
-  assert.match(project, /buildPhases = \([^)]*A1300000000000000000008C \/\* Embed App Extensions \*\/[^)]*\);\s*buildRules = \(\);\s*dependencies = \(A1300000000000000000008E/);
+  assert.match(project, /buildPhases = \([^)]*A1300000000000000000008C \/\* Embed App Extensions \*\/[^)]*\);\s*buildRules = \(\s*\);\s*dependencies = \(\s*A1300000000000000000008E/);
 
-  const widgetConfig = (id) => project.match(new RegExp(`${id} = \\{\\s*isa = XCBuildConfiguration;\\s*buildSettings = \\{([\\s\\S]*?)\\};\\s*name = (\\w+);`));
+  const widgetConfig = (id) => project.match(new RegExp(`${ref(id)} = \\{\\s*isa = XCBuildConfiguration;\\s*buildSettings = \\{([\\s\\S]*?)\\};\\s*name = (\\w+);`));
   const debug = widgetConfig("A13000000000000000000093");
   const release = widgetConfig("A13000000000000000000094");
   assert.equal(debug[2], "Debug");
@@ -48,9 +51,9 @@ test("the Spotter project ships the Live Activity in both Debug and Release", as
 
   for (const scheme of ["Spotter", "SpotterHealth"]) {
     const xml = await source(`ios/SpotterHealth.xcodeproj/xcshareddata/xcschemes/${scheme}.xcscheme`);
-    assert.match(xml, /buildImplicitDependencies="YES"/);
-    assert.match(xml, /buildForArchiving="YES"/);
-    assert.match(xml, /<ArchiveAction buildConfiguration="Release"/);
+    assert.match(xml, /buildImplicitDependencies\s*=\s*"YES"/);
+    assert.match(xml, /buildForArchiving\s*=\s*"YES"/);
+    assert.match(xml, /<ArchiveAction\b[^>]*\bbuildConfiguration\s*=\s*"Release"/);
   }
 
   const bundle = await source("ios/SpotterWidget/SpotterWidget.swift");

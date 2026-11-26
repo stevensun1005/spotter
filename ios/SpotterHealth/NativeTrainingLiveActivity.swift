@@ -1,4 +1,5 @@
 import ActivityKit
+import Combine
 import Foundation
 import OSLog
 import UIKit
@@ -33,11 +34,19 @@ final class NativeTrainingLiveActivity: ObservableObject {
     private var pending: Update?
     private var latest: Update?
     private var isUpdating = false
-    private var observed = Set<String>()
+    /// Last state seen for each activity this process follows.
+    private var lastStates: [String: ActivityState] = [:]
     private var endingByApp = Set<String>()
+    /// The Settings switch was seen off since the last start. Activities it removed are not swipes.
+    private var switchWasOff = false
+    /// Last value from activityEnablementUpdates, so only an off → on change clears a swipe.
+    private var streamEnabled: Bool
 
     private init() {
-        systemEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
+        let enabled = ActivityAuthorizationInfo().areActivitiesEnabled
+        systemEnabled = enabled
+        streamEnabled = enabled
+        switchWasOff = !enabled
         UserDefaults.standard.removeObject(forKey: Self.legacyStartedKey)
         Task { await self.watchEnablement() }
     }
@@ -73,9 +82,15 @@ final class NativeTrainingLiveActivity: ObservableObject {
     private func watchEnablement() async {
         for await enabled in ActivityAuthorizationInfo().activityEnablementUpdates {
             Self.log.notice("Live Activities switch in Settings: \(enabled, privacy: .public)")
+            let wasEnabled = streamEnabled
+            streamEnabled = enabled
             systemEnabled = enabled
-            guard enabled else { continue }
-            // Turning the switch back on brings the running workout back.
+            guard enabled else {
+                switchWasOff = true
+                continue
+            }
+            // Only a switch turned back on brings the running workout back, not a repeated "on".
+            guard !wasEnabled else { continue }
             UserDefaults.standard.removeObject(forKey: Self.dismissedKey)
             dismissedCurrentWorkout = false
             retryLatest()
@@ -85,11 +100,16 @@ final class NativeTrainingLiveActivity: ObservableObject {
     private func apply(_ update: Update) async {
         let enabled = ActivityAuthorizationInfo().areActivitiesEnabled
         if systemEnabled != enabled { systemEnabled = enabled }
+        if !enabled { switchWasOff = true }
         let activities = Training.activities
-        for activity in activities { observe(activity) }
+        for activity in activities {
+            // A swipe can arrive while the app is suspended. Record it before deciding to request again.
+            if activity.activityState == .dismissed { stateChanged(activity, to: .dismissed) } else { observe(activity) }
+        }
         // Ended activities stay listed until they leave the Lock Screen. They no longer update,
         // so clear them and request a new one for the same workout.
-        for activity in activities where !enabled || activity.attributes.workoutKey != update.workoutKey || !Self.isLive(activity) {
+        for activity in activities where activity.activityState != .dismissed &&
+            (!enabled || activity.attributes.workoutKey != update.workoutKey || !Self.isLive(activity)) {
             await end(activity)
         }
         guard pending == nil else { return }
@@ -142,6 +162,7 @@ final class NativeTrainingLiveActivity: ObservableObject {
             }
             observe(activity)
             requestProblem = nil
+            switchWasOff = false
             Self.log.notice("Started activity \(activity.id, privacy: .public)")
         } catch {
             requestProblem = Self.describe(error)
@@ -159,29 +180,33 @@ final class NativeTrainingLiveActivity: ObservableObject {
     }
 
     private func observe(_ activity: Training) {
-        guard activity.activityState != .dismissed, observed.insert(activity.id).inserted else { return }
+        guard activity.activityState != .dismissed, lastStates[activity.id] == nil else { return }
+        lastStates[activity.id] = activity.activityState
         Task { await self.follow(activity) }
     }
 
     private func follow(_ activity: Training) async {
-        var previous = activity.activityState
         for await state in activity.activityStateUpdates {
-            stateChanged(activity, from: previous, to: state)
-            previous = state
+            stateChanged(activity, to: state)
             if state == .dismissed { break }
         }
-        observed.remove(activity.id)
     }
 
-    private func stateChanged(_ activity: Training, from previous: ActivityState, to state: ActivityState) {
+    private func stateChanged(_ activity: Training, to state: ActivityState) {
         let id = activity.id
-        Self.log.info("Activity \(id, privacy: .public) is now \(String(describing: state), privacy: .public)")
-        guard state == .dismissed else { return }
+        // Each removal is handled once, whether follow() or apply() sees it first.
+        guard let previous = lastStates[id] else { return }
+        Self.log.notice("Activity \(id, privacy: .public) is now \(String(describing: state), privacy: .public)")
+        guard state == .dismissed else {
+            lastStates[id] = state
+            return
+        }
+        lastStates[id] = nil
         let endedByApp = endingByApp.remove(id) != nil
         // Only a swipe on the Lock Screen takes a running activity straight to dismissed.
-        // iOS ends an activity first when it times out, and turning off the Settings switch disables activities.
+        // iOS ends an activity first when it times out, and the Settings switch turns authorization off.
         let key = activity.attributes.workoutKey
-        guard !endedByApp, Self.isLiveState(previous), ActivityAuthorizationInfo().areActivitiesEnabled,
+        guard !endedByApp, !switchWasOff, Self.isLiveState(previous), ActivityAuthorizationInfo().areActivitiesEnabled,
               latest?.workoutKey == key,
               !Training.activities.contains(where: { $0.id != id && $0.attributes.workoutKey == key && Self.isLive($0) })
         else { return }

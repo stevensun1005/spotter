@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -17,8 +18,18 @@ function latestArchive() {
       return [];
     }
   }).filter((path) => existsSync(join(path, "Products", "Applications", "Spotter.app")));
-  archives.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  archives.sort((a, b) => created(b) - created(a));
   return archives[0] ?? null;
+}
+
+// Organizer edits rewrite an archive's files, so order by the date Xcode recorded when archiving.
+function created(archive) {
+  try {
+    const date = execFileSync("plutil", ["-extract", "CreationDate", "raw", "-o", "-", join(archive, "Info.plist")], { encoding: "utf8" });
+    const time = Date.parse(date.trim());
+    if (Number.isFinite(time)) return time;
+  } catch {}
+  return statSync(archive).mtimeMs;
 }
 
 function sourceBuildNumber() {
@@ -40,7 +51,9 @@ try {
     console.log(`版本：${host.CFBundleShortVersionString} (${host.CFBundleVersion})`);
     const source = sourceBuildNumber();
     if (source && host.CFBundleVersion !== source) {
-      console.warn(`注意：归档构建号 ${host.CFBundleVersion} 与源码的 CURRENT_PROJECT_VERSION ${source} 不同，可能不是最新归档。`);
+      const message = `归档构建号 ${host.CFBundleVersion} 与源码的 CURRENT_PROJECT_VERSION ${source} 不同。`;
+      if (argument) console.warn("注意：" + message);
+      else problems.push(message + "请确认已重新归档，或传入要上传的 .xcarchive 路径。");
     }
   }
   if (problems.length) {
