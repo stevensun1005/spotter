@@ -1270,7 +1270,6 @@ struct NativeWorkoutView: View {
     @State private var earlierHistoryAnchor: String?
     @State private var loadingEarlierHistory = false
     @State private var earlierHistoryFailed = false
-    @State private var showsMoves = false
     @State private var planEditor: NativePlanDraft?
     @State private var queuedPlanStart: NativePlanDraft?
     @State private var planScheduleAction: PlanScheduleAction?
@@ -1298,7 +1297,7 @@ struct NativeWorkoutView: View {
 
     private enum RecordSheet: Identifiable {
         case record(NativeWorkoutEntry), share(NativeWorkoutEntry), day(String, [NativeWorkoutEntry])
-        case planMoves(NativeWorkoutEntry), planExercise(NativeJSON, id: String)
+        case planMoves(NativeWorkoutEntry)
         case templateMoves(NativeJSON)
 
         var id: String {
@@ -1307,7 +1306,6 @@ struct NativeWorkoutView: View {
             case .share(let entry): return "share:\(entry.owner):\(entry.id)"
             case .day(let day, _): return "day:\(day)"
             case .planMoves(let entry): return "planMoves:" + entry.id
-            case .planExercise(_, let id): return "planExercise:" + id
             case .templateMoves(let template): return "templateMoves:" + template["id"].string
             }
         }
@@ -1372,9 +1370,6 @@ struct NativeWorkoutView: View {
             case .planMoves(let entry):
                 NavigationStack { plannedDemonstrations(entry) }
                     .presentationDragIndicator(.visible)
-            case .planExercise(let move, _):
-                NavigationStack { NativeExerciseProgressView(store: store, move: move, showsClose: true) }
-                    .presentationDragIndicator(.visible)
             case .templateMoves(let template):
                 NavigationStack { NativePersonalTemplatePreview(plan: NativePlan(raw: template["plan"]), store: store) }
                     .presentationDragIndicator(.visible)
@@ -1405,7 +1400,6 @@ struct NativeWorkoutView: View {
             case .move(let plan):
                 NativePlanMoveSheet(store: store, entry: plan) { receipt in
                     if let date = nativePlanDate(receipt.date) { selectedDate = date }
-                    showsMoves = false
                     planNotice = receipt.moved > 1 ? "已顺延 \(receipt.moved) 节训练" : "训练已移动"
                 }
             case .remove(let plan):
@@ -1514,7 +1508,6 @@ struct NativeWorkoutView: View {
         if let first = dayPlans.first {
             hero(first)
             if dayPlans.count > 1 { planRows(Array(dayPlans.dropFirst())) }
-            if !first.data["exercises"].array.isEmpty { movementCard(first) }
             if let url = URL(string: first.data["video"].string), !first.data["video"].string.isEmpty {
                 Link(destination: url) { Label("打开跟练视频", systemImage: "play.circle").frame(maxWidth: .infinity).padding(14).spotterCard() }
                     .buttonStyle(.spotterPress)
@@ -1557,7 +1550,7 @@ struct NativeWorkoutView: View {
                 .font(.subheadline).foregroundStyle(SpotterPalette.muted)
             if let next = store.nextPlan(after: selectedDay), let date = nativePlanDate(next.day) {
                 Button {
-                    withAnimation(motion) { selectedDate = date; showsMoves = false }
+                    withAnimation(motion) { selectedDate = date}
                 } label: {
                     HStack(spacing: 8) {
                         Text("下次 · \(shortDay(next.day))").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
@@ -1733,7 +1726,7 @@ struct NativeWorkoutView: View {
             HStack(spacing: 3) {
                 ForEach(Array(weekDates.enumerated()), id: \.offset) { offset, date in
                     let day = NativeWorkoutSession.day(date)
-                    Button { withAnimation(motion) { selectedDate = date; showsMoves = false } } label: {
+                    Button { withAnimation(motion) { selectedDate = date} } label: {
                         VStack(spacing: 4) {
                             Text("周\(["一", "二", "三", "四", "五", "六", "日"][offset])").font(.system(size: 11, weight: .semibold))
                             Text(date.formatted(.dateTime.day())).font(.system(size: 19, weight: .bold))
@@ -1758,7 +1751,6 @@ struct NativeWorkoutView: View {
     private func shiftWeek(_ days: Int) {
         withAnimation(motion) {
             selectedDate = Calendar.current.date(byAdding: .day, value: days, to: selectedDate) ?? selectedDate
-            showsMoves = false
         }
     }
 
@@ -1814,33 +1806,6 @@ struct NativeWorkoutView: View {
                     }.accessibilityLabel("训练操作 " + entry.displayTitle).padding(12)
                 }
             }
-    }
-
-    private func movementCard(_ entry: NativeWorkoutEntry) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button { withAnimation(motion) { showsMoves.toggle() } } label: {
-                HStack {
-                    Text("动作清单").font(.system(size: 17, weight: .bold))
-                    Spacer()
-                    Text("\(entry.data["exercises"].array.count) 个动作").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
-                    Image(systemName: "chevron.down").rotationEffect(.degrees(showsMoves ? 180 : 0))
-                }.padding(14)
-            }.buttonStyle(.spotterPress)
-                .accessibilityValue(showsMoves ? "已展开" : "已收起")
-            if showsMoves {
-                planMovementRows(entry) { index, move in
-                    if entry.owner == store.owner {
-                        Button { recordSheet = .planExercise(move, id: entry.id + ":\(index)") } label: {
-                            planMovementRow(index, move: move, showsDemo: true)
-                        }
-                        .buttonStyle(.spotterPress)
-                        .accessibilityHint("打开动作详情，查看可用演示")
-                    } else {
-                        planMovementRow(index, move: move, showsDemo: false)
-                    }
-                }.transition(.offset(y: -6).combined(with: .opacity))
-            }
-        }.spotterCard()
     }
 
     private func plannedDemonstrations(_ entry: NativeWorkoutEntry) -> some View {
