@@ -391,6 +391,8 @@ test("product help uses verified web or iPhone navigation without spending messa
     ["跟练链接在哪？", /待训练/u],
     ["怎么用外部 Agent 改模板？", /核对变更预览/u],
     ["怎么上传动作 GIF？", /添加或移除个人演示动图/u],
+    ["怎么给好友加备注？", /添加备注.*仅自己可见/su],
+    ["怎么移除搭子备注？", /移除备注/u],
   ]) {
     assert.match((await checked(ask(question))).reply, answer);
   }

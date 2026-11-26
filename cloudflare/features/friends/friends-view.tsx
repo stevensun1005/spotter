@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Dumbbell, Heart, Link, Lock, Search, UserRoundPlus, Utensils } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Dumbbell, Heart, Link, Lock, Pencil, Search, UserRoundPlus, Utensils } from "lucide-react";
 import { Anatomy } from "@/features/exercises/anatomy";
 import { exerciseMuscles } from "@/features/exercises/guidance";
 import { muscleNames, regionMuscle } from "@/features/exercises/labels";
@@ -13,6 +13,7 @@ import { avatar, Dialog, displayNumber } from "@/shared/ui";
 import type { Friend, FriendDay, FriendFeed as Feed, FriendList, FriendMutation, SharedMeal, SharedWorkout, SharedWorkoutSummary } from "./model";
 import type { FriendRequest, SocialMutation, SocialPerson, SocialPreferences, SocialState } from "./social-model";
 import { EngagementButton } from "./engagement-panel";
+import { remarkLengthLimit, type ContactRemarks } from "./remarks-client";
 
 const endpoint = "/api/friends";
 const handleSocialEndpoint = endpoint + "?section=social&includeBuddy=1";
@@ -225,30 +226,33 @@ function useFriendResource<T>(url: string | undefined, revision: number) {
   };
 }
 
-function FriendRow({ person, sharingOnly, open }: { person: Friend; sharingOnly?: boolean; open: () => void }) {
+function FriendRow({ person, remark, sharingOnly, open }: { person: Friend; remark?: string; sharingOnly?: boolean; open: () => void }) {
   return <button className="list-line friend-row" type="button" onClick={open}>
     <span className={"avatar " + (person.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(person.name)}</span>
-    <span><strong>{person.name}{person.buddy && <span className="state-tag checked">训练搭子</span>}
+    <span><strong>{remark ?? person.name}{person.buddy && <span className="state-tag checked">训练搭子</span>}
       {!sharingOnly && person.checkedIn !== undefined && <span className={"state-tag" + (person.checkedIn ? " checked" : "")}>
         {person.checkedIn ? "今日已打卡" : "今日未打卡"}
       </span>}</strong>
-      {!sharingOnly && <small>{["训练打卡", person.shared.training && "训练详情", person.shared.nutritionDetails ? "饮食详情" : person.shared.nutrition && "饮食状态"].filter(Boolean).join(" · ")}</small>}</span>
+      {!sharingOnly && <small>{[remark && "昵称 " + person.name, "训练打卡", person.shared.training && "训练详情", person.shared.nutritionDetails ? "饮食详情" : person.shared.nutrition && "饮食状态"].filter(Boolean).join(" · ")}</small>}</span>
     <ChevronRight size={18} aria-hidden="true" />
   </button>;
 }
 
-function ContactList({ people, sharingOnly = false, open }: { people: Friend[]; sharingOnly?: boolean; open: (person: Friend) => void }) {
+function ContactList({ people, remarks, sharingOnly = false, open }: {
+  people: Friend[]; remarks?: ContactRemarks["values"]; sharingOnly?: boolean; open: (person: Friend) => void;
+}) {
+  const name = (person: Friend) => remarks?.[person.id] ?? person.name;
   const buddies = people.filter((person) => person.buddy);
-  const friends = people.filter((person) => !person.buddy).sort((a, b) => nameOrder.compare(a.name, b.name));
+  const friends = people.filter((person) => !person.buddy).sort((a, b) => nameOrder.compare(name(a), name(b)));
   const groups = new Map<string, Friend[]>();
   for (const person of friends) {
-    const letter = initial(person.name);
+    const letter = initial(name(person));
     const group = groups.get(letter);
     if (group) group.push(person);
     else groups.set(letter, [person]);
   }
   const letters = Array.from(groups.keys()).sort((a, b) => a === "#" ? 1 : b === "#" ? -1 : a.localeCompare(b));
-  const row = (person: Friend) => <FriendRow key={person.id} person={person} sharingOnly={sharingOnly} open={() => open(person)} />;
+  const row = (person: Friend) => <FriendRow key={person.id} person={person} remark={remarks?.[person.id]} sharingOnly={sharingOnly} open={() => open(person)} />;
   return <>
     {buddies.length > 0 && <section className="card padded friend-list friend-buddy-list" aria-label="训练搭子">
       <h3>训练搭子</h3>
@@ -277,8 +281,8 @@ function feedSummary(workout: SharedWorkoutSummary) {
       workout.exercises > 0 ? workout.exercises + " 个动作" : "", workout.sets > 0 ? workout.sets + " 组" : ""].filter(Boolean).join(" · ")}</small></>;
 }
 
-function FriendFeed({ days, today, open, openOwnLog, setCheer, busy }: {
-  days: Feed["days"]; today: string; open: (person: { id: string }, date: string) => void;
+function FriendFeed({ days, today, remarks, open, openOwnLog, setCheer, busy }: {
+  days: Feed["days"]; today: string; remarks?: ContactRemarks["values"]; open: (person: { id: string }, date: string) => void;
   openOwnLog?: (id: string) => void; setCheer: (id: string, date: string, active: boolean) => void; busy: boolean;
 }) {
   const activeDays = days.filter(({ items }) => items.length);
@@ -288,7 +292,7 @@ function FriendFeed({ days, today, open, openOwnLog, setCheer, busy }: {
       <div className="section-head"><h2>{date === today ? "今天 · " : ""}{shortDate(date)}</h2></div>
       {items.map(({ friend, workouts, own, cheer }) => {
         const identity = <><span className={"avatar " + (friend.buddy ? "lilac" : "lime")} aria-hidden="true">{avatar(friend.name)}</span>
-          <span className="friend-feed-copy"><strong>{friend.name}{(own || friend.buddy) && <span className="state-tag checked">{own ? "我" : "训练搭子"}</span>}</strong></span></>;
+          <span className="friend-feed-copy"><strong>{(own ? undefined : remarks?.[friend.id]) ?? friend.name}{(own || friend.buddy) && <span className="state-tag checked">{own ? "我" : "训练搭子"}</span>}</strong></span></>;
         return <article key={friend.id} className="card padded feature-stack friend-feed-card">
           {own ? <div className="friend-feed-entry">{identity}</div> :
             <button type="button" className="friend-feed-entry" onClick={() => open(friend, date)}>{identity}<ChevronRight size={18} aria-hidden="true" /></button>}
@@ -428,8 +432,47 @@ export function BuddyFinder({ owner, onConnected }: { owner: string; onConnected
   </section>;
 }
 
-export function FriendsView({ enabled, owner, today, initialFriendId, initialDate, sharingOnly = false, onChanged, openOwnLog }: {
+function RemarkEditor({ nickname, remark, save, close, onSaved }: {
+  nickname: string; remark?: string; save: (next: string) => Promise<void>; close: () => void; onSaved: (next: string) => void;
+}) {
+  const [draft, setDraft] = useState(remark ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const clean = draft.trim();
+  const length = Array.from(clean).length;
+  const valid = length <= remarkLengthLimit && !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(clean);
+
+  async function submit(next: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await save(next);
+      onSaved(next);
+      close();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "备注暂时无法保存。");
+    } finally { setBusy(false); }
+  }
+
+  return <Dialog title={remark ? "编辑备注" : "添加备注"} onClose={() => { if (!busy) close(); }}>
+    <form onSubmit={(event) => { event.preventDefault(); if (!busy && valid && clean !== (remark ?? "")) void submit(clean); }}>
+      <div className="dialog-body form-fields">
+        <label>备注名称<input value={draft} onChange={(event) => setDraft(event.target.value)}
+          placeholder={nickname} autoComplete="off" autoFocus disabled={busy} aria-describedby="friend-remark-hint" /></label>
+        <p className="muted" id="friend-remark-hint">仅自己可见 · {length} / {remarkLengthLimit}</p>
+        {error && <p className="inline-error" role="alert">{error}</p>}
+      </div>
+      <div className="dialog-footer">
+        {remark && <button className="button outline" type="button" disabled={busy} onClick={() => void submit("")}>移除备注</button>}
+        <button className="button primary" disabled={busy || !valid || clean === (remark ?? "")}>保存</button>
+      </div>
+    </form>
+  </Dialog>;
+}
+
+export function FriendsView({ enabled, owner, today, initialFriendId, initialDate, sharingOnly = false, onChanged, openOwnLog, remarks }: {
   enabled: boolean; owner?: string; today: string; initialFriendId?: string; initialDate?: string; sharingOnly?: boolean; onChanged?: () => void;
+  remarks?: ContactRemarks;
   openOwnLog?: (id: string) => void;
 }) {
   const sharingView = useRef<HTMLDivElement>(null);
@@ -445,11 +488,13 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [tab, setTab] = useState<FriendsTab>("contacts");
   const [removeOpen, setRemoveOpen] = useState(false);
+  const [remarkOpen, setRemarkOpen] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const friend = friends?.friends.find((item) => item.id === active);
+  const remark = friend && remarks?.values[friend.id];
   const invite = friends?.invite;
   const day = useFriendDay(enabled && !sharingOnly ? friend?.id : undefined, date, dayRevision);
   const socialUrl = enabled ? handleSocialEndpoint : undefined;
@@ -503,6 +548,7 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
 
   function back() {
     setActive(undefined);
+    setRemarkOpen(false);
     setError("");
     setStatus("");
     scrollToTop();
@@ -619,7 +665,7 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
       {sharingOnly ? "添加好友或连接搭子后，可以在这里设置分享范围。" : "添加好友后，可从联系人查看对方分享的每日记录。"}
     </p>}
     {active && friends && !listError && <p className="empty-copy">这位好友目前不可查看。</p>}
-    {!!friends?.friends.length && <ContactList people={friends.friends} sharingOnly={sharingOnly} open={openFriend} />}
+    {!!friends?.friends.length && <ContactList people={friends.friends} remarks={remarks?.values} sharingOnly={sharingOnly} open={openFriend} />}
   </>;
 
   const socialError = social.error && <div className="feature-stack"><p className="inline-error" role="alert">{social.error}</p>
@@ -643,7 +689,13 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
       <div className="friend-detail-heading">
         <button className="text-button friend-back" type="button" onClick={back}><ArrowLeft size={17} aria-hidden="true" /> 返回好友</button>
         <div className="friend-profile"><span className="avatar lilac" aria-hidden="true">{avatar(friend.name)}</span>
-          <h2>{friend.name}</h2>{friend.buddy && <span className="state-tag checked">训练搭子</span>}</div>
+          <div className="friend-profile-name"><h2>{remark ?? friend.name}</h2>
+            {remark && <small>昵称 {friend.name}</small>}</div>
+          {friend.buddy && <span className="state-tag checked">训练搭子</span>}
+          {remarks && (remarks.error
+            ? <button className="button outline small friend-remark-button" type="button" onClick={remarks.retry}>重试读取备注</button>
+            : <button className="button outline small friend-remark-button" type="button" disabled={!remarks.ready}
+              onClick={() => setRemarkOpen(true)}><Pencil size={15} aria-hidden="true" /> {remark ? "编辑备注" : "添加备注"}</button>)}</div>
       </div>
       <section className="card padded feature-stack">
         <div className="section-head"><h2>{date === today ? "今天" : shortDate(date)}的记录</h2></div>
@@ -660,6 +712,9 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
       {day?.data?.restricted
         ? <section className="card padded"><p className="friend-private"><Lock size={15} aria-hidden="true" /> 这一天的记录未开放查看。</p></section>
         : day?.data && <FriendDailyRecords data={day.data} />}
+      {remarkOpen && remarks && <RemarkEditor key={friend.id} nickname={friend.name} remark={remark}
+        save={(next) => remarks.save(friend.id, next)}
+        close={() => setRemarkOpen(false)} onSaved={(next) => setStatus(next ? "备注已保存。" : "备注已移除。")} />}
       {!removeOpen && feedback}
       {!friend.buddy && <button className="text-button friend-remove" type="button" disabled={busy}
         onClick={() => { setRemoveOpen(true); setError(""); setStatus(""); }}>移除好友</button>}
@@ -690,7 +745,7 @@ export function FriendsView({ enabled, owner, today, initialFriendId, initialDat
         {owner && buddy && <EngagementButton kind="appointments" owner={owner} buddy={buddy} />}
       </>}
       {tab === "feed" && <>{owner && <EngagementButton kind="cheers" owner={owner} openOwnLog={openOwnLog} />}
-        {feed.data ? <FriendFeed days={feed.data.days} today={today} open={openFriend}
+        {feed.data ? <FriendFeed days={feed.data.days} today={today} remarks={remarks?.values} open={openFriend}
         openOwnLog={openOwnLog} setCheer={(friend, date, active) => void setFeedCheer(friend, date, active)} busy={busy} /> :
         feed.error ? <section className="card padded feature-stack"><p className="inline-error" role="alert">{feed.error}</p>
           <button className="button outline" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>重新读取</button></section> :
