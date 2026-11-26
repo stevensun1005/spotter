@@ -8,6 +8,7 @@ import { avatar } from "@/shared/ui";
 type PairTodayProps = {
   me: Person;
   partner?: Person | null;
+  partnerName?: string;
   partnerHidden?: boolean;
   myToday: readonly TrainingEntry[];
   partnerToday: readonly TrainingEntry[];
@@ -60,7 +61,7 @@ function Member({ name, person, mine, status, log, open, checked = Boolean(log) 
 }
 
 export function PairToday({
-  me, partner, partnerHidden = false, myToday, partnerToday, latestPartner, today, partnerLastDay, signedIn, loading, unavailable,
+  me, partner, partnerName, partnerHidden = false, myToday, partnerToday, latestPartner, today, partnerLastDay, signedIn, loading, unavailable,
   busy, sentCheer, receivedCheer, onShowLog, onCheer, onConnect, onPartnerHistory,
 }: PairTodayProps) {
   const buddy = signedIn ? partner ?? undefined : undefined;
@@ -81,7 +82,7 @@ export function PairToday({
     </div>
     <div className="pair-today-members">
       <Member name="我" person={signedIn ? me : undefined} mine status={myStatus} log={mine} open={onShowLog} />
-      <Member name={buddy?.name || "训练搭子"} person={buddy} status={buddyStatus} log={theirs} checked={buddyChecked}
+      <Member name={buddy ? partnerName ?? buddy.name : "训练搭子"} person={buddy} status={buddyStatus} log={theirs} checked={buddyChecked}
         open={(log) => onPartnerHistory ? onPartnerHistory(log.data.date) : onShowLog(log)} />
     </div>
     {recentDay && onPartnerHistory && <button type="button" className="pair-today-recent" onClick={() => onPartnerHistory(recentDay)}>

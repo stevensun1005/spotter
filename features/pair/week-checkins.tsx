@@ -2,8 +2,8 @@ import { BarChart3, Check } from "lucide-react";
 import { offsetDate, shortDate, weekdayIndex, weekdays } from "@/shared/dates";
 import type { Checkin, Person, TrainingEntry } from "@/shared/state";
 
-export function WeekCheckins({ today, me, partner, partnerCheckins, partnerCheckinsFrom, logs, status, showStats }: {
-  today: string; me: Person; partner?: Person | null; logs: readonly TrainingEntry[];
+export function WeekCheckins({ today, me, partner, partnerName, partnerCheckins, partnerCheckinsFrom, logs, status, showStats }: {
+  today: string; me: Person; partner?: Person | null; partnerName?: string; logs: readonly TrainingEntry[];
   partnerCheckins?: readonly Checkin[];
   partnerCheckinsFrom?: string;
   status: "ready" | "loading" | "offline" | "signed-out"; showStats: () => void;
@@ -22,7 +22,7 @@ export function WeekCheckins({ today, me, partner, partnerCheckins, partnerCheck
       </div>
       {people.map((person) => {
         const own = person.id === me.id;
-        const label = own ? "我" : person.name;
+        const label = own ? "我" : partnerName ?? person.name;
         const days = new Set(!own && partnerCheckins
           ? partnerCheckins.filter(({ date, count }) => count > 0 && dates.includes(date)).map(({ date }) => date)
           : logs.filter((log) => log.owner === person.id && dates.includes(log.data.date)).map((log) => log.data.date));

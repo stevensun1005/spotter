@@ -315,6 +315,17 @@ export const exerciseDemonstrations = sqliteTable("exercise_demonstrations", {
   check("exercise_demo_gif_size", sql`length(${table.gif}) BETWEEN 4 AND 1048576`),
 ]);
 
+export const socialRemarks = sqliteTable("social_remarks", {
+  owner: text().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  contact: text().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
+  remark: text().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.owner, table.contact] }),
+  index("social_remarks_contact").on(table.contact),
+  check("social_remark_contact", sql`${table.owner} <> ${table.contact}`),
+  check("social_remark_length", sql`length(${table.remark}) BETWEEN 1 AND 40`),
+]);
+
 export const spotterAccountAvatars = sqliteTable("spotter_account_avatars", {
   owner: text().primaryKey().notNull().references(() => spotterAccessAccounts.id, { onDelete: "cascade" }),
   image: text().notNull(),

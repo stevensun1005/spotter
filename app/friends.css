@@ -9,6 +9,9 @@
 .friend-detail-heading { display: grid; align-items: start; gap: 3px; }
 .friend-back { min-height: 44px; justify-self: start; }
 .friend-profile { flex-wrap: wrap; }
+.friend-profile-name { min-width: 0; overflow-wrap: anywhere; }
+.friend-profile-name small { display: block; color: var(--muted); }
+.friend-remark-button { min-height: 36px; margin-inline-start: auto; }
 .friend-date { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 7px; }
 .friend-date .icon-button { width: 44px; height: 44px; }
 .friend-date input[type=date] { min-width: 0; }

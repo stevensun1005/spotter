@@ -48,6 +48,7 @@ import { HomeNutrition } from "@/features/nutrition/home-nutrition";
 import { useNutritionPreferences } from "@/features/nutrition/nutrition-preferences";
 import type { NutritionShortcut } from "@/features/nutrition/nutrition-summary";
 import { BuddyFinder, FriendsView } from "@/features/friends/friends-view";
+import { useContactRemarks } from "@/features/friends/remarks-client";
 import { planCompletions } from "@/features/plans/completion";
 import { isFollowAlong } from "@/features/plans/model";
 import { PlanSections } from "@/features/plans/plan-sections";
@@ -151,6 +152,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
     window.history.replaceState(window.history.state, "", url);
   }, [authNotice]);
   const { display, changeDisplay } = useDisplayPreferences();
+  const contactRemarks = useContactRemarks(viewer?.id);
   useAccountWorkoutPreferences(viewer?.id);
   const { preferences: nutritionPreferences, update: updateNutrition } = useNutritionPreferences(viewer?.id ?? "guest", !display.nutrition);
   const orderedNutritionShortcuts: NutritionShortcut[] = [...nutritionPreferences.mealOrder, "饮水", "体重"];
@@ -363,6 +365,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
   }, [returnToLog, entries, cloud, me.id]);
 
   const partner = room?.partner;
+  const partnerName = partner ? contactRemarks.values[partner.id] ?? partner.name : undefined;
   const partnerWithDetails = room?.partnerTrainingShared === false ? null : partner;
   const demo = !viewer;
   const logs = useMemo(() => entries.filter(draftsOrLogs).filter((entry) => entry.kind === "log"), [entries]);
@@ -813,7 +816,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
 
         {view === "today" && <div className="today-grid">
           {display.social && <div className="home-pair">
-            <PairToday me={me} partner={partner} partnerHidden={room?.partnerTrainingShared === false}
+            <PairToday me={me} partner={partner} partnerName={partnerName} partnerHidden={room?.partnerTrainingShared === false}
               myToday={myToday} partnerToday={partnerToday} latestPartner={latestPartner} today={today} partnerLastDay={partnerLastDay}
               signedIn={!demo} loading={buddyStatus === "loading"} unavailable={buddyStatus === "offline"} busy={busy}
               sentCheer={sentCheer} receivedCheer={receivedCheer} onShowLog={(log) => open({ kind: "log", log })}
@@ -872,7 +875,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
           </div>
 
           <aside className="right-column">
-            {display.weeklyCheckins && <WeekCheckins today={today} me={me} partner={display.social ? partnerWithDetails : undefined}
+            {display.weeklyCheckins && <WeekCheckins today={today} me={me} partner={display.social ? partnerWithDetails : undefined} partnerName={partnerName}
               partnerCheckins={display.social ? room?.partnerCheckins : undefined} partnerCheckinsFrom={room?.partnerCheckinsFrom}
               logs={logs} status={buddyStatus} showStats={() => go("stats")} />}
             {display.planShortcuts && <button className="import-callout" onClick={() => openPlanAssistant("coach")}><span className="tile lilac"><Sparkles size={20} /></span><span><strong>添加计划</strong><small>用 AI 起草训练计划</small></span><ChevronRight size={18} /></button>}
@@ -956,17 +959,17 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
             <button type="button" aria-pressed={statsTab === "overview"} onClick={() => setStatsTab("overview")}>训练统计</button>
             <button type="button" aria-pressed={statsTab === "history"} onClick={() => setStatsTab("history")}>打卡历史</button>
           </div>
-          {calendarOpen ? <History today={today} self={me.id} partner={partnerWithDetails?.name} logs={logs}
+          {calendarOpen ? <History today={today} self={me.id} partner={partnerWithDetails ? partnerName : undefined} logs={logs}
             orderByDay={new Map(library.rows.flatMap((item) => item.kind === "history-order" ? [[item.id, item.entries] as const] : []))}
             saveOrder={viewer ? (date, entries) => library.save({ kind: "history-order", id: date, entries }) : undefined}
             show={(log) => open({ kind: "log", log })} /> :
-            <Stats today={today} self={me.id} partner={partnerWithDetails ?? null} logs={logs} maxFormula={display.maxFormula}
+            <Stats today={today} self={me.id} partner={partnerWithDetails && partnerName ? { ...partnerWithDetails, name: partnerName } : null} logs={logs} maxFormula={display.maxFormula}
               onExercise={(choice, owner) => setExerciseSelection({ choice, owner })}
               pinned={library.rows.find((item) => item.kind === "stats-pins")?.ids}
               savePins={viewer ? (ids) => library.save({ kind: "stats-pins", ids }) : undefined} />}
         </div>}
         {view === "friends" && <FriendsView key={(viewer?.id ?? "guest") + ":" + (friendFocus?.id ?? "friends")} enabled={Boolean(viewer)} owner={viewer?.id}
-          today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} onChanged={() => void refresh()}
+          today={today} initialFriendId={friendFocus?.id} initialDate={friendFocus?.date} remarks={contactRemarks} onChanged={() => void refresh()}
           openOwnLog={(id) => { const log = logs.find((entry) => entry.id === id && entry.owner === viewer?.id); if (log) open({ kind: "log", log }); }} />}
 
         <CoachSheet size={coachSheet} inlineOpen={assistantPage} mode={assistantMode} onModeChange={changeAssistantMode}
@@ -1045,7 +1048,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
       rest={viewer && !library.loading && !library.error ? () => openScheduleSettings(today) : undefined}
       body={() => { close(); go("body"); }} />}
     {overlay?.kind === "friend-sharing" && <Dialog title="好友分享设置" className="friend-settings-dialog" onClose={close}>
-      <div className="dialog-body"><FriendsView enabled={Boolean(viewer)} owner={viewer?.id} today={today} sharingOnly onChanged={() => void refresh()} /></div>
+      <div className="dialog-body"><FriendsView enabled={Boolean(viewer)} owner={viewer?.id} today={today} remarks={contactRemarks} sharingOnly onChanged={() => void refresh()} /></div>
     </Dialog>}
     {overlay?.kind === "schedule" && <ScheduleSettings
       settings={overlay.settings} restDay={overlay.restDay} close={close} save={async (values) => {
@@ -1108,12 +1111,12 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
         {viewer && !partner && <p className="muted">双方同意后会连接搭子。训练和饮食的共享范围可在好友分享设置调整。</p>}
         {viewer && !partner && <BuddyFinder key={viewer.id} owner={viewer.id} onConnected={() => { void refresh(); setToast("搭子已连接"); }} />}
         {demo ? <><p className="muted">登录训练搭子后，你可以创建搭子空间，也可以输入对方的邀请码。</p><a className="button primary" href={signInPath()}><LogIn size={18} /> 登录</a></> :
-          partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partner.name}</strong><small>可以查看彼此的打卡和训练详情。</small></div><span className="state-tag checked">已连接</span></div> :
+          partner ? <div className="partner-row"><span className="avatar lilac">{avatar(partner.name)}</span><div><strong>{partnerName}</strong><small>可以查看彼此的打卡和训练详情。</small></div><span className="state-tag checked">已连接</span></div> :
           room?.invite ? <><p className="muted">把邀请码发给搭子。对方需要先有网站访问权限，再登录并输入邀请码。</p><input aria-label="搭子邀请码" value={room.invite} readOnly onFocus={(e) => e.target.select()} /><button className="button primary" onClick={() => void copy(room.invite!, "已复制邀请码")}><Copy size={17} /> 复制邀请码</button></> :
           <><button className="button primary" disabled={busy} onClick={() => void act(async () => { await post({ action: "create" }); await refresh(); })}><Users size={18} /> 创建搭子空间</button>
             <form className="form-fields join-form" onSubmit={(e) => { e.preventDefault(); void act(async () => { await post({ action: "join", invite: invite.trim().toLowerCase() }); await refresh(); setInvite(""); setToast("搭子已连接"); }); }}><label>已有邀请码<input value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="粘贴搭子的邀请码" autoCapitalize="none" spellCheck={false} /></label><button className="button outline" disabled={busy || !/^[a-fA-F0-9]{32}$/.test(invite.trim())}>加入搭子空间</button></form></>}
         {partner && !demo && <button className="button outline" type="button" onClick={() => { close(); showBuddy(); }}>查看搭子记录</button>}
-        {partner && !demo && room?.connectionId && <DisconnectPair key={room.connectionId} name={partner.name} busy={busy}
+        {partner && !demo && room?.connectionId && <DisconnectPair key={room.connectionId} name={partnerName ?? partner.name} busy={busy}
           onDisconnect={() => void act(async () => {
             await post({ action: "disconnect", partner: partner.id, connection: room.connectionId });
             refreshId.current++;

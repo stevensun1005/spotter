@@ -27,6 +27,7 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 
 const { GET, POST } = await import("../app/api/notifications/route.ts");
+const { GET: listRemarks, PATCH: patchRemark } = await import("../app/api/social/remarks/route.ts");
 const { POST: checkin } = await import("../app/api/workout/route.ts");
 const { sessionCookieName, sessionTokenHash } = await import("../features/auth/server.ts");
 const { startSession } = await import("../features/training/model.ts");
@@ -54,7 +55,7 @@ async function fixture(t) {
         async first() { return statement.get(...bound) ?? null; },
         async all() { return { results: statement.all(...bound) }; },
         async run() {
-          if (!query.includes("RETURNING")) return { results: [], meta: { changes: statement.run(...bound).changes } };
+          if (!statement.columns().length) return { results: [], meta: { changes: statement.run(...bound).changes } };
           const results = statement.all(...bound);
           return { results, meta: { changes: results.length } };
         },
@@ -239,4 +240,65 @@ test("internal allowlist limits inbox, two-way reminders and fanout while ordina
   runtime.env.SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS = " , , ";
   runtime.owner = "sam";
   assert.equal((await GET(new Request(origin + "/api/notifications"))).status, 403);
+});
+
+const remarksPath = "/api/social/remarks";
+
+function remarksFor(owner, expectedOwner = owner) {
+  runtime.owner = owner;
+  const url = new URL(remarksPath, origin);
+  url.searchParams.set("expectedOwner", expectedOwner);
+  return listRemarks(new Request(url));
+}
+
+function remarkAs(owner, id, remark, expectedOwner = owner, from = origin) {
+  const request = bodyRequest(remarksPath, owner, { id, remark, expectedOwner }, from);
+  return patchRemark(new Request(request, { method: "PATCH" }));
+}
+
+async function remarkResult(response) {
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  return response.json();
+}
+
+test("contact remarks are private, account-bound, and never change display names", async (t) => {
+  const sql = await fixture(t);
+  assert.equal((await remarksFor("")).status, 401);
+  assert.equal((await remarkAs("", "lee", "注释")).status, 401);
+  assert.equal((await remarksFor("lee", "alex")).status, 403);
+  assert.equal((await remarkAs("lee", "alex", "注释", "alex")).status, 403);
+  assert.equal((await remarkAs("alex", "lee", "注释", "alex", "https://foreign.example.invalid")).status, 403);
+  assert.deepEqual(await remarkResult(await remarkAs("alex", "lee", "  举铁同伴  ")), { id: "lee", remark: "举铁同伴" });
+  assert.deepEqual(await remarkResult(await remarksFor("lee")), { remarks: {} });
+  assert.deepEqual(await remarkResult(await remarkAs("lee", "alex", "同组训练")), { id: "alex", remark: "同组训练" });
+  assert.deepEqual(await remarkResult(await remarksFor("alex")), { remarks: { lee: "举铁同伴" } });
+  assert.deepEqual(await remarkResult(await remarksFor("lee")), { remarks: { alex: "同组训练" } });
+  assert.equal(sql.prepare("SELECT display_name FROM spotter_access_accounts WHERE id = 'alex'").get().display_name, "Alex");
+  sql.exec("DELETE FROM spotter_access_accounts WHERE id = 'lee'");
+  assert.deepEqual(await remarkResult(await remarksFor("alex")), { remarks: {} });
+  assert.equal(sql.prepare("SELECT COUNT(*) AS count FROM social_remarks").get().count, 0);
+});
+
+test("contact remarks require an accepted friendship or active buddy and can be cleared repeatedly", async (t) => {
+  const sql = await fixture(t);
+  sql.exec("DELETE FROM friend_links WHERE second_id = 'sam'");
+  sql.exec("INSERT INTO friend_requests (first_id, second_id, id, sender, receiver, sender_name, receiver_name, created_at) " +
+    "VALUES ('alex', 'stranger', 'pending', 'alex', 'stranger', 'Alex', 'Stranger', 'synthetic')");
+  assert.equal((await remarkAs("alex", "alex", "自己")).status, 404);
+  assert.equal((await remarkAs("alex", "stranger", "待确认联系人")).status, 404);
+  assert.equal((await remarkAs("alex", "sam", "内部\n换行")).status, 400);
+  assert.equal((await remarkAs("alex", "sam", "💪".repeat(41))).status, 400);
+  const remark = "💪".repeat(40);
+  assert.deepEqual(await remarkResult(await remarkAs("alex", "sam", remark)), { id: "sam", remark });
+  assert.deepEqual(await remarkResult(await remarksFor("alex")), { remarks: { sam: remark } });
+  const cleared = { id: "sam", remark: null };
+  assert.deepEqual(await remarkResult(await remarkAs("alex", "sam", "  ")), cleared);
+  assert.deepEqual(await remarkResult(await remarkAs("alex", "sam", "")), cleared);
+  assert.deepEqual(await remarkResult(await remarkAs("alex", "sam", "搭子")), { id: "sam", remark: "搭子" });
+  assert.deepEqual(await remarkResult(await remarkAs("alex", "lee", "好友")), { id: "lee", remark: "好友" });
+  sql.exec("DELETE FROM members WHERE user = 'sam'; UPDATE friend_links SET linked = 0 WHERE second_id = 'lee'");
+  assert.equal((await remarkAs("alex", "sam", "")).status, 404);
+  assert.equal((await remarkAs("alex", "lee", "已解除关系")).status, 404);
+  assert.deepEqual(await remarkResult(await remarksFor("alex")), { remarks: {} });
 });

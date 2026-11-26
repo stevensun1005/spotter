@@ -183,6 +183,13 @@
       "when": 1795654641006,
       "tag": "0025_exercise_demonstrations",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1795656509961,
+      "tag": "0026_social_remarks",
+      "breakpoints": true
     }
   ]
 }
