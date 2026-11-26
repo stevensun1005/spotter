@@ -118,6 +118,7 @@ const missing = [];
 const coverIssues = [];
 const missingSteps = [];
 const needsVisualReview = [];
+const legacy = [];
 let reviewed = 0;
 const shards = new Map();
 for (const row of rows) {
@@ -134,6 +135,7 @@ for (const row of rows) {
     continue;
   }
   total[type]++;
+  if (type === "flow" || type === "poses") legacy.push({ ...entry, type });
   const hasCover = matchingCover(type, motion);
   if (!hasCover) coverIssues.push(entry);
   if (hasCover && hasSteps && (reviews[row.id] || reviewIds.has(row.id))) {
@@ -160,5 +162,7 @@ const summary = { catalogue: rows.length, aliases: Object.keys(variants).length,
 if (process.argv.includes("--list-missing")) Object.assign(summary, { missingRows: missing, coverIssueRows: coverIssues,
   missingStepRows: missingSteps, aliasIssueRows: aliasIssues });
 if (process.argv.includes("--list-unreviewed")) Object.assign(summary, { unreviewedRows: needsVisualReview });
+if (process.argv.includes("--list-legacy")) Object.assign(summary, { legacyRows: legacy });
 console.log(JSON.stringify(summary, null, 2));
 if (process.argv.includes("--require-complete") && (aliasIssues.length || missing.length || coverIssues.length || missingSteps.length || needsVisualReview.length)) process.exitCode = 1;
+if (process.argv.includes("--require-original-replacements") && (legacy.length || missing.length || coverIssues.length)) process.exitCode = 1;

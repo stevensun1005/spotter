@@ -1,0 +1,107 @@
+import {mkdir, writeFile} from "node:fs/promises";
+import {resolve} from "node:path";
+import {assistedExercises, assistedGrip} from "../../skills/spotter-exercise-demo/lib/assisted-exercise-geometry.js";
+import {prepareRecipe} from "../../skills/spotter-exercise-demo/lib/recipe.js";
+
+const sides = [["l",1],["r",-1]];
+const add = (a,b) => a.map((value,i)=>value+b[i]);
+const sub = (a,b) => a.map((value,i)=>value-b[i]);
+const scale = (a,factor) => a.map((value)=>value*factor);
+const size = (a) => Math.hypot(...a);
+const unit = (a) => scale(a,1/size(a));
+const dot = (a,b) => a.reduce((sum,value,i)=>sum+value*b[i],0);
+const mix = (a,b,t) => a + t*(b-a);
+
+function ease(t) {
+  const weight=Math.max(0,Math.min(1,t));
+  return weight*weight*(3-2*weight);
+}
+
+function cycle(phase) {
+  return ease(phase/.42) * (1-ease((phase-.55)/.45));
+}
+
+function armJoint(shoulder, wrist, pole) {
+  const upper=.255;
+  const lower=.371;
+  const delta=sub(wrist,shoulder);
+  const distance=size(delta);
+  if (distance < lower-upper+.001 || distance >= upper+lower) {
+    throw new Error("Assistant grip outside elbow range ("+distance.toFixed(3)+" m).");
+  }
+  const direction=unit(delta);
+  const projected=(upper**2+distance**2-lower**2)/(2*distance);
+  const sideways=unit(sub(pole,scale(direction,dot(pole,direction))));
+  return add(add(shoulder,scale(direction,projected)),scale(sideways,Math.sqrt(upper**2-projected**2)));
+}
+
+function poseAt(config,phase) {
+  const t=cycle(phase);
+  const dip=config.grip==="dip";
+  const height=dip?mix(1.371,.963,t):config.platform?mix(.945,1.423,t):mix(.933,1.415,t);
+  const z=dip?mix(-.116,-.157,t):mix(-.048,-.093,t);
+  const pitch=dip?config.forwardLean+(.055*t):mix(.024,-.092,t);
+  const joint=(distance,x=0)=>[x,height+distance*Math.cos(pitch),z+distance*Math.sin(pitch)];
+  const pose={
+    hips:joint(0),chest:joint(.377),neck:joint(.604),head:joint(.716),
+    ls:joint(.488,.191),rs:joint(.488,-.191),lh:joint(0,.103),rh:joint(0,-.103),planted:{},
+  };
+  const standing=config.platform;
+  const kneeY=height-(standing?.408:.381);
+  const ankleY=height-(standing?.818:.391);
+  pose.assistedPadY=standing?ankleY-.067:kneeY-.054;
+  for (const [side,sign] of sides) {
+    const knee=[sign*.123,kneeY,standing?.061:.027];
+    const ankle=[sign*.128,ankleY,standing?.012:-.384];
+    pose[side+"k"]=knee;
+    pose[side+"a"]=ankle;
+    pose[side+"t"]=add(ankle,standing?[sign*.017,-.061,.146]:[sign*.013,-.079,-.123]);
+    const wrist=assistedGrip(config,sign);
+    const pole=dip?[sign*(config.forwardLean>.2?.67:.18),.115,-.934]:[sign*.68,-.67,-.67];
+    pose[side+"e"]=armJoint(pose[side+"s"],wrist,pole);
+    pose[side+"w"]=wrist;
+    const neutral=config.grip==="neutral";
+    const under=config.grip==="under";
+    pose[side+"Grip"]=dip||neutral?[0,0,1]:under?[-1,0,0]:[1,0,0];
+    pose[side+"Fingers"]=dip?[sign*-.10,-.99,0]:
+      neutral?[sign*-.76,.615,.11]:under?[0,.81,-.59]:[0,-.82,.56];
+  }
+  return pose;
+}
+
+const back=["lat","biceps"];
+const chest=["pec","triceps"];
+const dip={yaw:103,elevation:11,height:2.29,focus:[0,1.05,.32]};
+const pull={yaw:106,elevation:11,height:2.42,focus:[0,1.10,.35]};
+const jobs=[
+  ["0009","assist-chest-dip",chest,dip],
+  ["0015","assist-neutral-pull",back,{...pull,yaw:117}],
+  ["0017","assist-kneeling-pull",back,pull],
+  ["1431","assist-standing-chin",back,{...pull,yaw:106}],
+  ["1432","assist-standing-pull",back,{...pull,yaw:113}],
+  ["0019","assist-triceps-dip",["triceps"],{...dip,yaw:115}],
+  ["2364","assist-wide-chest-dip",chest,{...dip,yaw:130}],
+];
+
+const [directory,...ids]=process.argv.slice(2);
+if (!directory) throw new Error("Pass an output directory and optional exact catalogue IDs.");
+const selected=ids.length?jobs.filter(([id])=>ids.includes(id)):jobs;
+if (ids.length&&selected.length!==ids.length) throw new Error("Unknown or duplicate catalogue IDs.");
+const output=resolve(directory);
+await mkdir(output,{recursive:true,mode:0o700});
+const items=[];
+for (const [id,name,muscles,camera] of selected) {
+  try {
+    const config=assistedExercises[name];
+    const data={version:1,durationMs:4200,equipment:name,camera,muscles,
+      keyframes:Array.from({length:49},(_,index)=>({at:index/48,...poseAt(config,index/48)}))};
+    prepareRecipe(data);
+    const recipe=id+".json";
+    await writeFile(resolve(output,recipe),JSON.stringify(data)+"\n");
+    items.push({id,recipe,posterAt:.48});
+  } catch(error) {
+    throw new Error(id+": "+error.message,{cause:error});
+  }
+}
+await writeFile(resolve(output,"batch.json"),JSON.stringify({kind:"catalogue",items})+"\n");
+console.log("Prepared",items.length,"Spotter assisted machine recipes.");

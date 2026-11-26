@@ -2,10 +2,11 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 
 export function launchRenderer(executablePath) {
+  const useSystemGPU = process.env.SPOTTER_DEMO_SYSTEM_GPU === '1';
   return chromium.launch({
     executablePath: resolve(executablePath),
     headless: true,
-    args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
+    args: useSystemGPU ? [] : ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
   });
 }
 

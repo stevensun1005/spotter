@@ -48,7 +48,11 @@ const highlights = {
   shoulder:[.201,1.384,.025,.076,.080,.085],
   rearShoulder:[.199,1.371,-.029,.092,.073,.072],
   forearm:[.427,1.125,.135,.081,.077,.112],
+  biceps:[.303,1.281,.099,.082,.089,.073],
   triceps:[.261,1.294,-.016,.078,.096,.072],
+  trap:[.129,1.407,-.056,.099,.083,.062],
+  calf:[.106,.327,-.058,.071,.129,.064],
+  hamstring:[.127,.681,-.057,.071,.154,.072],
 };
 const pale = new T.Color(0xd6d8d3), shorts = new T.Color(0x373d3c);
 const shoe = new T.Color(0x33393a), tint = new T.Color(0xba5345);
@@ -175,7 +179,8 @@ export function createSkinnedAvatar() {
     place('neck_01',neckMotion);
     const naturalHead = point('head').clone().applyMatrix4(torso);
     naturalHead.y-=pose.headDrop ?? 0;
-    const headMotion = frame(naturalHead, naturalHead.clone().add(neck.clone().sub(hip)),side)
+    const headDirection = pose.headAim ? vec(pose.headAim) : neck.clone().sub(hip);
+    const headMotion = frame(naturalHead, naturalHead.clone().add(headDirection),side)
       .multiply(frame(point('head'),point('head').clone().add(bindNeck.clone().sub(bindHip)),lateral).invert());
     place('head',headMotion);
     for (const s of ['l','r']) {
@@ -214,7 +219,8 @@ export function createSkinnedAvatar() {
       }
       const {name:handName,inverse,curl}=hands[s];
       const handFrame=frame(grasp,grasp.clone().add(fingerDirection),grip);
-      const hand = handFrame.clone().multiply(new T.Matrix4().makeTranslation(.006,-.112,gripping ? -curl*.023 : 0)).multiply(inverse);
+      const closure = pose[s+'FingerCurl'] ?? (gripping ? 1 : 0);
+      const hand = handFrame.clone().multiply(new T.Matrix4().makeTranslation(.006,-.112,-closure*curl*.023)).multiply(inverse);
       const wrist = point(handName).clone().applyMatrix4(hand);
       const actualElbow=elbowFor(shoulder,wrist,elbow,limbs.get('upperarm_'+s).length,limbs.get('lowerarm_'+s).length);
       aim('upperarm_'+s,shoulder,actualElbow,side);
@@ -226,8 +232,9 @@ export function createSkinnedAvatar() {
         for (const joint of ['01','02','03']) {
           const key = name+'_'+joint+'_'+s;
           const pivot = point(key).clone().applyMatrix4(parent);
-          const angle = curl * (gripping ? name==='thumb' ? .27 : joint==='01' ? 1.06 : joint==='02' ? .88 : .58
-              : name==='thumb' ? .06 : joint==='01' ? .25 : .18);
+          const restingAngle = name==='thumb' ? .06 : joint==='01' ? .25 : .18;
+          const grippingAngle = name==='thumb' ? .27 : joint==='01' ? 1.06 : joint==='02' ? .88 : .58;
+          const angle = curl * T.MathUtils.lerp(restingAngle, grippingAngle, closure);
           const bend = new T.Matrix4().makeRotationAxis(curlAxis,angle);
           bend.setPosition(pivot.clone().sub(pivot.clone().applyMatrix4(bend)));
           parent = bend.multiply(parent);

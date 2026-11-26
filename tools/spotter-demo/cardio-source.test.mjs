@@ -7,8 +7,8 @@ const sample = (id, phase) => prepareRecipe(cardioCatalogueRecipe(id)).sample(ph
 const length = (a, b) => Math.hypot(...a.map((value, i) => value - b[i]));
 
 test('original cardio recipes provide unique, bounded v1 movements', () => {
-  assert.equal(cardioCatalogueIds.length, 35);
-  assert.equal(new Set(cardioCatalogueIds).size, 35);
+  assert(cardioCatalogueIds.includes('0684'));
+  assert.equal(new Set(cardioCatalogueIds).size, cardioCatalogueIds.length);
   assert.equal(cardioCatalogueRecipe('unreviewed'), undefined);
   assert.equal(cardioCatalogueRecipe('constructor'), undefined);
   for (const id of cardioCatalogueIds) {

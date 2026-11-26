@@ -587,6 +587,7 @@ const all={
  '2138':[bicycle,'rig-bike',4000,62,13,[0,.85,.02],2.01],
  '2259':[t=>gait(t,{tread:true}),'rig-treadmill',3600,55,13,[0,.90,.03],2.19],
  '2197':[t=>gait(t,{tread:true,run:true}),'rig-run-belt',3700,78,12,[0,.92,.04],2.18],
+ '0684':[t=>gait(t,{tread:true,run:true}),'rig-run-belt',3700,64,14,[0,.92,.04],2.20],
  '2141':[ellipticalWalk,'rig-elliptical',4100,58,15,[0,1.04,.04],2.39],
  '2311':[stepmillWalk,'rig-stepmill',4200,36,18,[0,1.17,.0],2.56],
 };

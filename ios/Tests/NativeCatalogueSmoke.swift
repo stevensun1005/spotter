@@ -1,5 +1,5 @@
+import CoreGraphics
 import Foundation
-import ImageIO
 
 @main
 struct NativeCatalogueSmoke {
@@ -44,14 +44,16 @@ struct NativeCatalogueSmoke {
         precondition(drawing.frames.count > 2 && drawing.frameDuration > 0)
         let initial = drawing.frames[0].flatMap(\.points)
         precondition(drawing.frames.dropFirst().contains { $0.flatMap(\.points) != initial })
-        for id in ["4455", "0288"] {
+        for id in ["0047", "4455", "0288", "1047", "2291", "3893", "3666"] {
             let entry = index.entry(withID: id)!
-            let gif = index.animationData(for: entry)!
-            let source = CGImageSourceCreateWithData(gif as CFData, nil)!
-            precondition(CGImageSourceGetCount(source) > 1 && CGImageSourceCreateImageAtIndex(source, 1, nil) != nil)
+            precondition(index.animationData(for: entry) == nil)
+            guard let url = index.bundledVideoURL(for: entry) else {
+                preconditionFailure("Bundled 3D video missing for " + id)
+            }
+            precondition(url.path.hasSuffix("/video/spotter-3d/" + id + ".mp4"))
+            let bytes = try Data(contentsOf: url, options: .mappedIfSafe)
+            precondition(bytes.count > 16 && bytes[4..<8] == Data("ftyp".utf8))
         }
-        let video = index.entry(withID: "0047")!
-        precondition(index.bundledVideoURL(for: video)?.path.hasSuffix("/video/spotter-3d/0047.mp4") == true)
         let videoDirectory = root.appendingPathComponent("ios/SpotterHealth/NativeCatalogueAssets/video")
         precondition(try! FileManager.default.contentsOfDirectory(atPath: videoDirectory.path) == ["spotter-3d"])
         let dumbbellBench = index.entry(withID: "0289")!

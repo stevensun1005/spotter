@@ -73,7 +73,9 @@ async function renderItem(job, options) {
   const recipe = prepareRecipe(data);
   const posterAt = job.posterAt ?? .48;
   const names = ["poster.jpg", "review.jpg", options.kind === "catalogue" ? "demo.mp4" : "demo.gif"];
-  const fingerprint = sha(Buffer.concat([bytes, Buffer.from(JSON.stringify([options.rendererHash, options.kind, options.encoderHash, posterAt, fps, 1]))]));
+  const renderInputs = [options.rendererHash, options.kind, options.encoderHash, posterAt, fps, 1];
+  if (process.env.SPOTTER_DEMO_SYSTEM_GPU === '1') renderInputs.push('system-gpu');
+  const fingerprint = sha(Buffer.concat([bytes, Buffer.from(JSON.stringify(renderInputs))]));
   const output = join(options.output, id);
   if (await stat(output).catch((error) => {
     if (error.code !== "ENOENT") throw error;
