@@ -1,30 +1,30 @@
 import SwiftUI
 
 struct NativeOfficialTemplates: View {
+    private typealias Goal = NativeOfficialTrainingTemplate.Goal
+    private typealias Level = NativeOfficialTrainingTemplate.Level
+
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterGuide) private var guide
-    @State private var goal = NativeOfficialTrainingTemplate.Goal.hypertrophy
-    @State private var level = NativeOfficialTrainingTemplate.Level.beginner
+    @Environment(\.dynamicTypeSize) private var dynamicType
+    @State private var goal: Goal?
+    @State private var level: Level?
     @State private var selected: NativeOfficialTrainingTemplate?
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                introduction
                 switch NativeOfficialTrainingCatalogue.bundled {
                 case .success(let catalogue):
                     filters
                     let matches = catalogue.matching(goal: goal, level: level)
-                    Text("\(goal.title) · \(level.title) · \(matches.count) 个模板")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(SpotterPalette.muted)
-                        .accessibilityAddTraits(.isHeader)
                     ForEach(matches) { template in
                         Button { selected = template } label: { templateCard(template) }
                             .buttonStyle(.spotterPress)
                             .disabled(guide?.step == .officialFilters)
                             .accessibilityHint("查看每周安排和动作")
+                            .accessibilityIdentifier("official-template-card-" + template.id)
                     }
                     references
                 case .failure:
@@ -47,32 +47,38 @@ struct NativeOfficialTemplates: View {
         }
     }
 
-    private var introduction: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("官方训练模板", systemImage: "list.clipboard")
-                .font(.title2.weight(.heavy))
-                .accessibilityAddTraits(.isHeader)
-            Text("按目标和训练经验查看每周安排。选好开始日后，可以逐节调整再排入日历。")
-                .font(.subheadline)
-                .foregroundStyle(SpotterPalette.muted)
+    private var filters: some View {
+        let goals: [(Goal?, String)] = [(nil, "全部")] + Goal.allCases.map { (Optional($0), $0.title) }
+        let levels: [(Level?, String)] = [(nil, "全部")] + Level.allCases.map { (Optional($0), $0.title) }
+        let layout = dynamicType.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            SpotterMenuPicker("训练目标", selection: $goal, options: goals) {
+                filterLabel("训练目标", value: goal?.title ?? "全部")
+            }
+            .accessibilityIdentifier("official-template-goal-filter")
+            SpotterMenuPicker("训练水平", selection: $level, options: levels) {
+                filterLabel("训练水平", value: level?.title ?? "全部")
+            }
+            .accessibilityIdentifier("official-template-level-filter")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(15)
-        .background(accent.selection, in: RoundedRectangle(cornerRadius: 20))
+        .nativeGuideTarget(.officialFilters)
     }
 
-    private var filters: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("训练目标").font(.subheadline.weight(.semibold))
-            SpotterGlassSegments(options: NativeOfficialTrainingTemplate.Goal.allCases,
-                                 value: $goal, glass: false, title: \.title)
-            Text("训练水平").font(.subheadline.weight(.semibold))
-            SpotterGlassSegments(options: NativeOfficialTrainingTemplate.Level.allCases,
-                                 value: $level, glass: false, title: \.title)
+    private func filterLabel(_ title: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption.weight(.medium)).foregroundStyle(SpotterPalette.muted)
+                Text(value).font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.ink)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(SpotterPalette.muted)
+                .accessibilityHidden(true)
         }
-        .padding(12)
-        .spotterCard()
-        .nativeGuideTarget(.officialFilters)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func templateCard(_ template: NativeOfficialTrainingTemplate) -> some View {
@@ -85,8 +91,11 @@ struct NativeOfficialTemplates: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(template.title).font(.headline).foregroundStyle(SpotterPalette.ink)
+                Text("\(template.goal.title) · \(template.level.title)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(accent.tint)
                 Text(template.summary).font(.subheadline).foregroundStyle(SpotterPalette.muted)
-                Text("\(template.weeks) 周 · 每周 \(template.days.count) 节 · \(template.equipment)")
+                Text("\(template.weeks) 周 · \(template.weeklySessionLabel) · \(template.equipment)")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(SpotterPalette.muted)
             }
@@ -127,13 +136,14 @@ struct NativeOfficialTemplatePreview: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
     @State private var startDay = Date()
+    @State private var selectedWeek = 1
     @State private var draft: NativeTrainingProgram?
     @State private var showsDraft = false
     @State private var error: String?
     @State private var exercisePreview: NativeTemplateExercisePreview?
 
     private var week: [Int: NativeOfficialTrainingTemplate.TrainingDay] {
-        Dictionary(uniqueKeysWithValues: template.days.map { ($0.day, $0) })
+        Dictionary(uniqueKeysWithValues: template.trainingDays(for: selectedWeek).map { ($0.day, $0) })
     }
 
     var body: some View {
@@ -141,10 +151,23 @@ struct NativeOfficialTemplatePreview: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 overview
                 startDate
-                Text("每周训练安排")
-                    .font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.top, 4)
+                HStack {
+                    Text(template.isWeekSpecific ? "训练安排" : "每周训练安排")
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    if template.isWeekSpecific {
+                        SpotterMenuPicker("周次", selection: $selectedWeek, options: (1...template.weeks).map { ($0, "第 \($0) 周") }) {
+                            HStack(spacing: 6) {
+                                Text("第 \(selectedWeek) 周")
+                                Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                            }
+                            .font(.subheadline.weight(.semibold))
+                        }
+                        .accessibilityIdentifier("official-template-week-picker")
+                    }
+                }
+                .padding(.top, 4)
                 ForEach(1...7, id: \.self) { day in
                     if let workout = week[day] { trainingDay(workout) }
                     else { restDay(day) }
@@ -202,7 +225,9 @@ struct NativeOfficialTemplatePreview: View {
         VStack(alignment: .leading, spacing: 8) {
             DatePicker("周期开始日", selection: $startDay, displayedComponents: .date)
                 .font(.subheadline.weight(.semibold))
-            Text("第 1 天从开始日算起，后面各周沿用这套安排。重量可按自己的训练水平填写。")
+            Text(template.isWeekSpecific
+                 ? "第 1 天从开始日算起。确认时会排入全部 \(template.weeks) 周训练，重量可按自己的水平填写。"
+                 : "第 1 天从开始日算起，后面各周沿用这套安排。重量可按自己的训练水平填写。")
                 .font(.footnote)
                 .foregroundStyle(SpotterPalette.muted)
         }
@@ -244,7 +269,7 @@ struct NativeOfficialTemplatePreview: View {
     private func dayLabel(_ day: Int) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
-        guard let date = calendar.date(byAdding: .day, value: day - 1, to: startDay) else { return "第 \(day) 天" }
+        guard let date = calendar.date(byAdding: .day, value: (selectedWeek - 1) * 7 + day - 1, to: startDay) else { return "第 \(day) 天" }
         let weekday = ["日", "一", "二", "三", "四", "五", "六"][calendar.component(.weekday, from: date) - 1]
         return "第 \(day) 天（周\(weekday)）"
     }

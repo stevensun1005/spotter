@@ -30,8 +30,9 @@ struct NativeOfficialTrainingCatalogue: Decodable {
         return catalogue
     }
 
-    func matching(goal: NativeOfficialTrainingTemplate.Goal, level: NativeOfficialTrainingTemplate.Level) -> [NativeOfficialTrainingTemplate] {
-        templates.filter { $0.goal == goal && $0.level == level }
+    func matching(goal: NativeOfficialTrainingTemplate.Goal? = nil,
+                  level: NativeOfficialTrainingTemplate.Level? = nil) -> [NativeOfficialTrainingTemplate] {
+        templates.filter { (goal == nil || $0.goal == goal) && (level == nil || $0.level == level) }
     }
 }
 
@@ -79,17 +80,27 @@ struct NativeOfficialTrainingTemplate: Decodable, Identifiable {
         let title: String
         let category: String
         let minutes: Int
+        let defaultRestSeconds: Int?
+        let durationNote: String?
         let exercises: [Exercise]
 
         var id: Int { day }
 
         fileprivate func plan(date: String, unit: String) -> NativeJSON {
-            .object([
+            var fields: [String: NativeJSON] = [
                 "title": .string(title), "date": .string(date), "category": .string(category),
                 "minutes": .number(Double(minutes)), "video": .string(""), "shared": .bool(false),
                 "exercises": .array(exercises.map { $0.move(unit: unit) }),
-            ])
+            ]
+            if let defaultRestSeconds { fields["defaultRestSeconds"] = .number(Double(defaultRestSeconds)) }
+            if let durationNote { fields["durationNote"] = .string(durationNote) }
+            return .object(fields)
         }
+    }
+
+    private struct WeekPlan: Decodable {
+        let week: Int
+        let days: [TrainingDay]
     }
 
     struct Exercise: Decodable {
@@ -102,6 +113,11 @@ struct NativeOfficialTrainingTemplate: Decodable, Identifiable {
         let targetRpe: Double?
         let catalogueId: String?
         let cue: String?
+        let block: String?
+        let station: String?
+        let tempo: String?
+        let sourceSlot: String?
+        let sourceName: String?
 
         func move(unit: String) -> NativeJSON {
             var fields: [String: NativeJSON] = [
@@ -113,6 +129,11 @@ struct NativeOfficialTrainingTemplate: Decodable, Identifiable {
             if let targetRpe { fields["targetRpe"] = .number(targetRpe) }
             if let catalogueId { fields["catalogueId"] = .string(catalogueId) }
             if let cue { fields["cue"] = .string(cue) }
+            if let block { fields["block"] = .string(block) }
+            if let station { fields["station"] = .string(station) }
+            if let tempo { fields["tempo"] = .string(tempo) }
+            if let sourceSlot { fields["sourceSlot"] = .string(sourceSlot) }
+            if let sourceName { fields["sourceName"] = .string(sourceName) }
             return .object(fields)
         }
 
@@ -144,28 +165,70 @@ struct NativeOfficialTrainingTemplate: Decodable, Identifiable {
     let summary: String
     let equipment: String
     let weeks: Int
-    let days: [TrainingDay]
+    private let days: [TrainingDay]?
+    private let schedule: [WeekPlan]?
+
+    var isWeekSpecific: Bool { schedule != nil }
+
+    func trainingDays(for week: Int) -> [TrainingDay] {
+        guard (1...weeks).contains(week) else { return [] }
+        let sessions = schedule.map { $0.first(where: { $0.week == week })?.days ?? [] } ?? days ?? []
+        return sessions.sorted { $0.day < $1.day }
+    }
+
+    var sessionCount: Int {
+        schedule.map { $0.reduce(0) { $0 + $1.days.count } } ?? (days?.count ?? 0) * weeks
+    }
+
+    var weeklySessionRange: ClosedRange<Int> {
+        let counts = schedule?.map { $0.days.count } ?? [days?.count ?? 0]
+        return (counts.min() ?? 0)...(counts.max() ?? 0)
+    }
+
+    var weeklySessionLabel: String {
+        let range = weeklySessionRange
+        let frequency = range.lowerBound == range.upperBound
+            ? "\(range.lowerBound)" : "\(range.lowerBound)–\(range.upperBound)"
+        return "每周 \(frequency) 节"
+    }
 
     fileprivate func validate() throws {
+        let invalid = NativePlanImport.Problem("官方模板「\(title)」的周期信息无效。")
         guard id.range(of: #"^[a-z0-9][a-z0-9-]{1,79}$"#, options: .regularExpression) != nil,
               (1...100).contains(title.utf16.count), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !equipment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              (1...52).contains(weeks), (1...7).contains(days.count),
-              Set(days.map(\.day)).count == days.count, days.allSatisfy({ (1...7).contains($0.day) }) else {
-            throw NativePlanImport.Problem("官方模板「\(title)」的周期信息无效。")
+              (1...52).contains(weeks) else { throw invalid }
+        if let schedule {
+            guard days?.isEmpty != false, schedule.count == weeks,
+                  Set(schedule.map(\.week)) == Set(1...weeks) else { throw invalid }
         }
-        for day in days {
-            for exercise in day.exercises { try exercise.validate() }
-            try NativeTrainingProgram.validatePlan(day.plan(date: "2026-01-01", unit: "kg"))
+        for week in schedule?.map(\.days) ?? [days ?? []] {
+            guard (1...7).contains(week.count), Set(week.map(\.day)).count == week.count,
+                  week.allSatisfy({ (1...7).contains($0.day) }) else { throw invalid }
+            for day in week {
+                try day.exercises.forEach { try $0.validate() }
+                try NativeTrainingProgram.validatePlan(day.plan(date: "2026-01-01", unit: "kg"))
+            }
         }
     }
 
     func draft(startDay: Date, timeZone: TimeZone = .current, unit: String = NativePreferenceKey.newMoveUnit) throws -> NativeTrainingProgram {
         let startDate = NativeTrainingProgram.dayString(startDay, timeZone: timeZone)
         var program = NativeTrainingProgram(title: title, startDate: startDate, weeks: weeks,
-                                            phases: [.init(name: "每周训练", fromWeek: 1, toWeek: weeks, color: .mint)])
-        let sessions = days.map { day in
+                                            phases: [.init(name: isWeekSpecific ? "周期训练" : "每周训练", fromWeek: 1, toWeek: weeks, color: .mint)])
+        if isWeekSpecific {
+            let sessions = (1...weeks).flatMap { week in
+                trainingDays(for: week).map { day in
+                    let date = program.date(week: week, day: day.day)
+                    return program.link(.init(week: week, day: day.day, plan: day.plan(date: date, unit: unit)))
+                }
+            }
+            program.sessions = sessions
+            try program.validate()
+            return program
+        }
+        let sessions = trainingDays(for: 1).map { day in
             NativeTrainingProgram.BaseDay(day: day.day, plan: day.plan(date: program.date(week: 1, day: day.day), unit: unit))
         }
         try program.build(days: sessions, progression: .init())

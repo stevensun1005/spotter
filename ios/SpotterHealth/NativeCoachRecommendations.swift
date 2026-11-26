@@ -159,7 +159,7 @@ enum NativeCoachRecommendationSource {
                 : query.gear == nil || query.gear?.matches(gear) == true
             return (query.goal == nil || template.goal == query.goal) &&
                 template.level == (query.level ?? .beginner) &&
-                (query.frequency == nil || template.days.count == query.frequency) &&
+                (query.frequency.map(template.weeklySessionRange.contains) ?? true) &&
                 matchesGear && (!query.noBench || !gear.contains("凳")) &&
                 (!query.home || equipmentMatchesHome(gear, useTrainingEquipment: true))
         }
@@ -169,7 +169,7 @@ enum NativeCoachRecommendationSource {
             : templates
         return choices(ordered.map {
             .init(kind: .official, key: $0.id, title: $0.title,
-                  detail: "\($0.goal.title) · \($0.level.title) · \($0.weeks) 周 · 每周 \($0.days.count) 练 · \($0.equipment)")
+                  detail: "\($0.goal.title) · \($0.level.title) · \($0.weeks) 周 · \($0.weeklySessionLabel) · \($0.equipment)")
         }, excluding: query.excluded)
     }
 

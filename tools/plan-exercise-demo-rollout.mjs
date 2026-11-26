@@ -78,7 +78,10 @@ async function buildReport(personalPath) {
   ]);
   const catalogueIds = new Set(catalogue.rows.map(({ id }) => id));
   const assets = await assetStatuses(manifest, catalogueIds);
-  const officialReferences = official.templates.flatMap(({ days }) => days.flatMap(({ exercises }) => exercises));
+  const officialReferences = official.templates.flatMap(({ days, schedule }) => {
+    const trainingDays = schedule?.flatMap((week) => week.days) ?? days;
+    return trainingDays.flatMap(({ exercises }) => exercises);
+  });
   const officialIds = new Set(officialReferences.map(({ catalogueId }) => {
     if (!catalogueIds.has(catalogueId)) throw new Error("Unknown official template exercise ID");
     return catalogueId;
