@@ -1009,7 +1009,7 @@ private struct NativeSpotterTabs: View {
         }
         .fullScreenCover(isPresented: $showBody) {
             NavigationStack {
-                NativeBodyData(api: account.api, owner: owner, showsClose: true)
+                NativeBodyData(api: account.api, owner: owner, showsClose: true, onProfileSaved: workouts.useSavedAnatomyVariant)
             }
         }
         .sheet(isPresented: $showTrainingLaunch, onDismiss: finishTrainingLaunch) {

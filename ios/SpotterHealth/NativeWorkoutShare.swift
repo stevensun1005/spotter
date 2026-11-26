@@ -9,6 +9,7 @@ struct NativeWorkoutShareView: View {
     let owner: String
     let displayName: String
     let api: NativeAPI?
+    var subjectFigure: NativeAnatomyVariant? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
@@ -19,7 +20,7 @@ struct NativeWorkoutShareView: View {
     @State private var merge = false
     @State private var includeHeart = false
     @State private var theme = ShareTheme.sketch
-    @State private var figure = SecondaryAnatomy.Figure.male
+    @State private var selectedFigure: NativeAnatomyVariant?
     @State private var artwork: [String: SecondaryAnatomy.Drawing]?
     @State private var shading: MuscleShading?
     @State private var heart: HeartSelection?
@@ -51,6 +52,7 @@ struct NativeWorkoutShareView: View {
     }
     private var requestedHeart: [String] { includeHeart ? displayedLogs.map(\.id) : [] }
     private var selectedHeart: HeartSelection? { includeHeart && heart?.ids == requestedHeart ? heart : nil }
+    private var figure: NativeAnatomyVariant { selectedFigure ?? subjectFigure ?? .male }
     private var scrollsOptions: Bool { textSize.isAccessibilitySize || verticalSizeClass == .compact }
 
     var body: some View {
@@ -154,7 +156,8 @@ struct NativeWorkoutShareView: View {
                 .disabled(api == nil)
                 if !textSize.isAccessibilitySize { Spacer(minLength: 5) }
                 if artwork?.isEmpty == false {
-                    SpotterMenuPicker("肌群图体型", selection: $figure, options: SecondaryAnatomy.Figure.allCases.map { ($0, $0.title) }) {
+                    SpotterMenuPicker("肌群图体型", selection: Binding(get: { figure }, set: { selectedFigure = $0 }),
+                                      options: NativeAnatomyVariant.allCases.map { ($0, $0.title) }) {
                         Label(figure.title, systemImage: "figure.stand")
                     }
                 }

@@ -1015,8 +1015,18 @@ struct NativeWorkoutShareSummary {
     }
 }
 
+enum NativeAnatomyVariant: String, Codable, CaseIterable, Sendable {
+    case male, female
+
+    var title: String { self == .male ? "男性图" : "女性图" }
+}
+
 struct NativeWorkoutState: Decodable, Sendable {
-    struct Viewer: Decodable, Sendable { var id: String; var name: String? }
+    struct Viewer: Decodable, Sendable {
+        var id: String
+        var name: String?
+        var anatomyVariant: String?
+    }
     var me: Viewer
     var entries: [NativeWorkoutEntry]
     var room: NativeJSON?

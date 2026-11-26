@@ -209,6 +209,7 @@ struct NativeBodyData: View {
     let api: NativeAPI
     let owner: String
     var showsClose = false
+    var onProfileSaved: @MainActor (NativeAnatomyVariant?) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
     @State private var library = NativeBodyLibrary()
@@ -417,7 +418,8 @@ struct NativeBodyData: View {
             values["ageAsOf"] = previous["age"].number == Double(value) && !previous["ageAsOf"].string.isEmpty
                 ? previous["ageAsOf"].string : spotterDay()
         }
-        if ["male", "female"].contains(sex) { values["sex"] = sex }
+        let savedFigure = NativeAnatomyVariant(rawValue: sex)
+        if let savedFigure { values["sex"] = savedFigure.rawValue }
         busy = true
         defer { busy = false }
         do {
@@ -426,6 +428,7 @@ struct NativeBodyData: View {
                 "action": "save", "expectedOwner": owner, "revision": revision as Any? ?? NSNull(),
                 "data": ["kind": "body-profile", "values": values]
             ])
+            onProfileSaved(savedFigure)
             message = "身体档案已保存到云端。"
             await load(updateProfile: true)
         } catch { message = error.localizedDescription }

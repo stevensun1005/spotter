@@ -425,6 +425,7 @@ struct NativeSpotterStats: View {
     private var overview: some View {
         let current = logs(elapsedRange)
         let former = comparison == .off ? nil : logs(comparedRange)
+        let subjectID = (partnerSelected ? partner?.id : nil) ?? store.owner
         return LazyVStack(spacing: 9) {
             rangePicker
             if rangeCount(range) > 3_660 {
@@ -437,7 +438,8 @@ struct NativeSpotterStats: View {
                 comparisonCard(current: current, former: former)
                 trendCard(current: current, former: former)
                 SecondaryActivityCalendar(entries: subjectLogs, end: min(range.upperBound, SecondaryDate.today))
-                SecondaryMusclePanel(entries: current)
+                SecondaryMusclePanel(entries: current, subjectFigure: store.anatomyVariant(for: subjectID))
+                    .id(subjectID)
                 SecondaryPerformance(entries: current, compared: former) { selectedWorkout = $0 }
             }
         }
@@ -1024,15 +1026,16 @@ private struct SecondarySVGPath {
 
 struct SecondaryAnatomy: View {
     let counts: [String: Int]
-    @State private var figure = Figure.male
+    var assistingCounts: [String: Int]? = nil
+    var subjectFigure: Figure? = nil
+    @State private var manualFigure = Figure.male
     @State private var artwork = [String: Drawing]()
     @State private var selected: String?
     @State private var loaded = false
 
-    enum Figure: String, CaseIterable {
-        case male, female
-        var title: String { self == .male ? "男性图" : "女性图" }
-    }
+    typealias Figure = NativeAnatomyVariant
+
+    private var figure: Figure { subjectFigure ?? manualFigure }
 
     private enum Side: String, CaseIterable {
         case front, back
@@ -1053,6 +1056,8 @@ struct SecondaryAnatomy: View {
     }
 
     private static let colors = [0xd5e3ff, 0xb3c9ff, 0x8caaff, 0x4f72cb, 0x273e9c].map { SpotterPalette.color(UInt32($0)) }
+    private static let primaryFill = colors[4]
+    private static let assistingFill = colors[2]
     private static let neutral = SpotterPalette.color(0xdce4ef)
     private static let exterior = SpotterPalette.color(0xf3f6fc)
     private static let outline = SpotterPalette.color(0xf7f9fe)
@@ -1080,8 +1085,10 @@ struct SecondaryAnatomy: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            SpotterGlassSegments(options: Figure.allCases, value: $figure, glass: false, title: \.title)
-                .accessibilityLabel("肌群图体型")
+            if subjectFigure == nil {
+                SpotterGlassSegments(options: Figure.allCases, value: $manualFigure, glass: false, title: \.title)
+                    .accessibilityLabel("肌群图体型")
+            }
             if loaded, !artwork.isEmpty {
                 HStack(spacing: 9) {
                     ForEach(Side.allCases, id: \.self) { side in
@@ -1090,15 +1097,7 @@ struct SecondaryAnatomy: View {
                 }
                 Text(selected.map(description) ?? "点图上任一区域可以查看名称")
                     .font(.caption).foregroundStyle(SpotterPalette.muted)
-                HStack(spacing: 4) {
-                    Text("未训练")
-                    colorChip(Self.neutral)
-                    Text("少")
-                    ForEach(Self.colors.indices, id: \.self) { index in colorChip(Self.colors[index]) }
-                    Text("多")
-                }
-                .font(.caption2).foregroundStyle(SpotterPalette.muted)
-                .accessibilityLabel("蓝色越深代表完成组数越多")
+                legend
             } else if loaded { SecondaryNotice(message: "肌肉图暂时无法读取。") }
             else { ProgressView("正在读取肌肉图…") }
         }
@@ -1110,16 +1109,68 @@ struct SecondaryAnatomy: View {
     }
 
     private func name(_ region: String) -> String? { Self.names[region] ?? Self.aliases[region].flatMap { Self.names[$0] } }
-    private func count(_ region: String) -> Int { counts[region] ?? Self.aliases[region].flatMap { counts[$0] } ?? 0 }
-    private func description(_ region: String) -> String { "\(name(region) ?? region) · \(count(region)) 组" }
+
+    private func count(_ region: String) -> Int {
+        if assistingCounts != nil { return counts[region, default: 0] }
+        return counts[region] ?? Self.aliases[region].flatMap { counts[$0] } ?? 0
+    }
+
+    private func description(_ region: String) -> String {
+        let label = name(region) ?? region
+        let primary = count(region)
+        guard let assistingCounts else { return "\(label) · \(primary) 组" }
+        let assisting = assistingCounts[region, default: 0]
+        var roles = [String]()
+        if primary > 0 { roles.append("主要参与 \(primary) 组") }
+        if assisting > 0 { roles.append("辅助参与 \(assisting) 组") }
+        return "\(label) · \(roles.isEmpty ? "未参与" : roles.joined(separator: "，"))"
+    }
+
+    @ViewBuilder private var legend: some View {
+        if assistingCounts != nil {
+            HStack(spacing: 6) {
+                colorChip(Self.primaryFill)
+                Text("主要参与")
+                colorChip(Self.assistingFill).padding(.leading, 6)
+                Text("辅助参与")
+            }
+            .font(.caption).foregroundStyle(SpotterPalette.muted)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("深蓝色表示主要参与，浅蓝色表示辅助参与")
+        } else {
+            HStack(spacing: 4) {
+                Text("未训练")
+                colorChip(Self.neutral)
+                Text("少")
+                ForEach(Self.colors.indices, id: \.self) { index in colorChip(Self.colors[index]) }
+                Text("多")
+            }
+            .font(.caption2).foregroundStyle(SpotterPalette.muted)
+            .accessibilityLabel("蓝色越深代表完成组数越多")
+        }
+    }
 
     private func colorChip(_ color: Color) -> some View {
         RoundedRectangle(cornerRadius: 3).fill(color).frame(width: 13, height: 9).accessibilityHidden(true)
     }
 
+    private func fill(_ region: String, highest: Int) -> Color {
+        let total = count(region)
+        if let assistingCounts {
+            if total > 0 { return Self.primaryFill }
+            if assistingCounts[region, default: 0] > 0 { return Self.assistingFill }
+        } else if total > 0 {
+            let level = max(0, min(4, Int(ceil(Double(total) / Double(highest) * 5)) - 1))
+            return Self.colors[level]
+        }
+        return name(region) == nil ? Self.exterior : Self.neutral
+    }
+
     private func diagram(_ drawing: Drawing, side: Side) -> some View {
         let highest = max(1, counts.values.max() ?? 0)
-        let accessible = drawing.regions.filter { name($0.key) != nil && count($0.key) > 0 }.map { description($0.key) }
+        let accessible = drawing.regions.filter { region in
+            name(region.key) != nil && (count(region.key) > 0 || (assistingCounts?[region.key] ?? 0) > 0)
+        }.map { description($0.key) }
         return VStack(spacing: 4) {
             GeometryReader { geometry in
                 Canvas { context, size in
@@ -1128,11 +1179,9 @@ struct SecondaryAnatomy: View {
                     canvas.translateBy(x: placement.offset.x, y: placement.offset.y)
                     canvas.scaleBy(x: placement.scale, y: placement.scale)
                     for region in drawing.regions {
-                        let total = count(region.key)
-                        let level = max(0, min(4, Int(ceil(Double(total) / Double(highest) * 5)) - 1))
-                        let fill = total > 0 ? Self.colors[level] : name(region.key) == nil ? Self.exterior : Self.neutral
+                        let color = fill(region.key, highest: highest)
                         for path in region.paths {
-                            canvas.fill(path, with: .color(fill))
+                            canvas.fill(path, with: .color(color))
                             canvas.stroke(path, with: .color(Self.outline), lineWidth: 2.3)
                         }
                     }
@@ -1303,6 +1352,8 @@ struct SecondaryAnatomy: View {
 
 struct SecondaryMusclePanel: View {
     let entries: [NativeWorkoutEntry]
+    var subjectFigure: NativeAnatomyVariant? = nil
+    var participationOnly = false
     @State private var layer = Layer.primary
     @State private var catalogue: Catalog?
     @State private var unavailable = false
@@ -1335,31 +1386,45 @@ struct SecondaryMusclePanel: View {
     ]
 
     var body: some View {
+        Group {
+            if participationOnly { content }
+            else { content.padding(12).secondaryCard() }
+        }
+        .task {
+            let loaded = await Task.detached(priority: .utility) { Self.loadCatalogue() }.value
+            catalogue = loaded
+            unavailable = loaded == nil
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text("肌群训练分布").font(.headline)
-            Text("按完成的正式组计数，不含热身。每组可能训练多个肌群。").font(.caption).foregroundStyle(SpotterPalette.muted)
-            SpotterGlassSegments(options: Layer.allCases, value: $layer, glass: false, title: \.rawValue)
+            if !participationOnly {
+                Text("肌群训练分布").font(.headline)
+                Text("按完成的正式组计数，不含热身。每组可能训练多个肌群。").font(.caption).foregroundStyle(SpotterPalette.muted)
+                SpotterGlassSegments(options: Layer.allCases, value: $layer, glass: false, title: \.rawValue)
+            }
             if let catalogue {
-                let (totals, counts) = distribution(catalogue)
-                let highest = max(1, totals.max() ?? 0)
-                SecondaryAnatomy(counts: counts)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 7) {
-                    ForEach(Self.groups.indices, id: \.self) { index in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(Self.groups[index].0).font(.caption.weight(.semibold))
-                            Text("\(totals[index]) 组").font(.caption2).foregroundStyle(SpotterPalette.muted)
-                            ProgressView(value: Double(totals[index]), total: Double(highest)).tint(SpotterPalette.color(0x4f72cb))
-                        }.padding(8).background(SpotterPalette.wash.opacity(0.43), in: RoundedRectangle(cornerRadius: 8))
+                if participationOnly {
+                    let (primary, assisting) = participation(catalogue)
+                    SecondaryAnatomy(counts: primary, assistingCounts: assisting, subjectFigure: subjectFigure)
+                } else {
+                    let (totals, counts) = distribution(catalogue)
+                    let highest = max(1, totals.max() ?? 0)
+                    SecondaryAnatomy(counts: counts, subjectFigure: subjectFigure)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 7) {
+                        ForEach(Self.groups.indices, id: \.self) { index in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(Self.groups[index].0).font(.caption.weight(.semibold))
+                                Text("\(totals[index]) 组").font(.caption2).foregroundStyle(SpotterPalette.muted)
+                                ProgressView(value: Double(totals[index]), total: Double(highest)).tint(SpotterPalette.color(0x4f72cb))
+                            }.padding(8).background(SpotterPalette.wash.opacity(0.43), in: RoundedRectangle(cornerRadius: 8))
+                        }
                     }
                 }
             } else if unavailable { SecondaryNotice(message: "暂时无法读取肌群标注。") }
             else { ProgressView("正在读取肌群标注…") }
-        }.padding(12).secondaryCard()
-            .task {
-                let loaded = await Task.detached(priority: .utility) { Self.loadCatalogue() }.value
-                catalogue = loaded
-                unavailable = loaded == nil
-            }
+        }
     }
 
     nonisolated private static func nameKey(_ name: String) -> String {
@@ -1433,9 +1498,7 @@ struct SecondaryMusclePanel: View {
         }
     }
 
-    private func distribution(_ catalogue: Catalog) -> ([Int], [String: Int]) {
-        var totals = Array(repeating: 0, count: Self.groups.count)
-        var regionCounts = [String: Int]()
+    private func forEachCompletedMovement(_ catalogue: Catalog, perform: ([String: Int], Int) -> Void) {
         for entry in entries {
             guard let session = entry.session else { continue }
             let rows = session.rows
@@ -1444,13 +1507,32 @@ struct SecondaryMusclePanel: View {
                 guard !label.warmup else { continue }
                 let count = rows[index].filter { $0["done"].bool && $0["kind"].string != "warmup" }.count
                 guard count > 0 else { continue }
-                let muscles = catalogue.muscles(move, name: label.name)
-                let regions = Set(muscles.compactMap { name, value -> String? in
-                    return name != "cardiovascular system" && value > 0 && (layer == .primary ? value >= 75 : value < 75) ? name : nil
-                })
-                for region in regions { regionCounts[region, default: 0] += count }
-                for index in Self.groups.indices where !Self.groups[index].1.isDisjoint(with: regions) { totals[index] += count }
+                perform(catalogue.muscles(move, name: label.name), count)
             }
+        }
+    }
+
+    private func participation(_ catalogue: Catalog) -> (primary: [String: Int], assisting: [String: Int]) {
+        var primary = [String: Int]()
+        var assisting = [String: Int]()
+        forEachCompletedMovement(catalogue) { muscles, count in
+            for (region, strength) in SecondaryAnatomy.expandedMuscles(muscles) where strength > 0 && region != "cardiovascular system" {
+                if strength >= 75 { primary[region, default: 0] += count }
+                else { assisting[region, default: 0] += count }
+            }
+        }
+        return (primary, assisting)
+    }
+
+    private func distribution(_ catalogue: Catalog) -> ([Int], [String: Int]) {
+        var totals = Array(repeating: 0, count: Self.groups.count)
+        var regionCounts = [String: Int]()
+        forEachCompletedMovement(catalogue) { muscles, count in
+            let regions = Set(muscles.compactMap { name, value -> String? in
+                name != "cardiovascular system" && value > 0 && (layer == .primary ? value >= 75 : value < 75) ? name : nil
+            })
+            for region in regions { regionCounts[region, default: 0] += count }
+            for index in Self.groups.indices where !Self.groups[index].1.isDisjoint(with: regions) { totals[index] += count }
         }
         return (totals, regionCounts)
     }
@@ -2358,7 +2440,10 @@ struct NativeSettings: View {
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading).secondaryCard()
 
             SecondaryGroup(title: "账户与同步") {
-                NavigationLink { NativeBodyData(api: account.api, owner: owner).toolbar(.visible, for: .navigationBar) } label: {
+                NavigationLink {
+                    NativeBodyData(api: account.api, owner: owner, onProfileSaved: { workoutStore?.useSavedAnatomyVariant($0) })
+                        .toolbar(.visible, for: .navigationBar)
+                } label: {
                     SecondaryRow(title: "身体档案", detail: "查看体重、身体数据与性别", icon: "person.text.rectangle")
                 }.buttonStyle(.spotterPress)
                 Divider()
@@ -3336,6 +3421,8 @@ private struct SecondaryFriendFeed: Decodable {
     let days: [Day]
 }
 
+private let secondaryFriendEngagementPath = "/api/friends/engagement"
+
 private struct SecondaryFriendEngagement: Decodable {
     struct Cheers: Decodable, Identifiable {
         struct Workout: Decodable, Identifiable {
@@ -3366,7 +3453,6 @@ private struct SecondaryFriendEngagement: Decodable {
         }
     }
     let cheers: [Cheers]
-    var appointments: [Appointment]
 }
 
 private func friendPath(_ query: [URLQueryItem]) -> String {
@@ -3483,16 +3569,13 @@ struct NativeFriends: View {
     @State private var engagement: SecondaryFriendEngagement?
     @State private var engagementError: String?
     @State private var engagementLoading = false
-    @State private var appointmentTime = Date.now.addingTimeInterval(3_600)
-    @State private var appointmentNote = ""
-    @State private var appointmentID = UUID().uuidString.lowercased()
     @State private var selectedCheerWorkout: (id: String, date: String)?
     @State private var showNotifications = false
     @State private var inboxSelection: NativeSocialNotification?
     @State private var notificationDestination: FriendDestination?
 
     private enum Dialog: String, Identifiable {
-        case invite = "添加好友", requests = "新的朋友", cheers = "收到的加油", appointments = "约下次训练"
+        case invite = "添加好友", requests = "新的朋友", cheers = "收到的加油"
         var id: Self { self }
     }
     private enum InviteTab: String, CaseIterable { case search = "搜索用户名", code = "邀请链接" }
@@ -3528,8 +3611,6 @@ struct NativeFriends: View {
     private var listPath: String { friendPath([URLQueryItem(name: "today", value: spotterDay())]) }
     private var socialPath: String { "/api/friends?section=social&includeBuddy=1" }
     private var feedPath: String { "/api/friends?feed=2" }
-    private var engagementPath: String { "/api/friends/engagement" }
-    private var buddy: SecondaryFriend? { data?.friends.first(where: \.buddy) }
     private var betaSocialDefaults: Bool { social?.betaSocialDefaults == true }
     private var cleanedCode: String { code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
@@ -3596,7 +3677,6 @@ struct NativeFriends: View {
                         case .invite: invitation
                         case .requests: requests
                         case .cheers: receivedCheers
-                        case .appointments: appointments
                         }
                         if let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
                     }.secondaryPage()
@@ -3608,9 +3688,9 @@ struct NativeFriends: View {
                     }
             }
             .task {
-                if item == .cheers || item == .appointments { await loadEngagement() }
+                if item == .cheers { await loadEngagement() }
             }
-            .presentationDetents(item == .invite && guide?.step != .buddySearch ? [.medium, .large] : [.large])
+            .presentationDetents(item == .invite && inviteKind == .friend && guide?.step != .buddySearch ? [.medium, .large] : [.large])
             .presentationDragIndicator(.visible)
             .interactiveDismissDisabled(busy)
         }
@@ -3666,13 +3746,6 @@ struct NativeFriends: View {
                 let buddies = data.friends.filter(\.buddy)
                 let ordinary = data.friends.filter { !$0.buddy }
                 if !buddies.isEmpty { contactGroup("训练搭子", friends: buddies) }
-                if let buddy {
-                    Button { open(.appointments) } label: {
-                        SecondaryRow(title: "约下次训练", detail: "与 \(displayName(buddy)) 确认时间",
-                                     icon: "calendar.badge.plus", color: accent.selection)
-                            .secondaryCard()
-                    }.buttonStyle(.spotterPress)
-                }
                 if !ordinary.isEmpty { contactGroup("普通好友", friends: ordinary) }
                 if data.friends.isEmpty { SecondaryNotice(message: "添加好友后，可从联系人查看对方分享的每日记录。") }
             } else if !error { ProgressView("正在读取好友…") }
@@ -3803,41 +3876,6 @@ struct NativeFriends: View {
         }
     }
 
-    @ViewBuilder private var appointments: some View {
-        if let buddy {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("邀请 \(displayName(buddy)) 一起训练", systemImage: "person.2.fill").font(.headline)
-                DatePicker("训练时间", selection: $appointmentTime, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
-                    .tint(accent.tint).font(.subheadline)
-                TextField("地点或备注（选填）", text: $appointmentNote)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: appointmentNote) { value in
-                        if value.count > 180 { appointmentNote = String(value.prefix(180)) }
-                        appointmentID = UUID().uuidString.lowercased()
-                    }
-                Button {
-                    let body: [String: Any] = ["action": "propose", "expectedOwner": owner, "id": appointmentID,
-                      "partner": buddy.id, "startsAt": Int(appointmentTime.timeIntervalSince1970 * 1000), "note": appointmentNote]
-                    Task { await mutateAppointment(body, proposed: true) }
-                } label: {
-                    Label("发出训练邀约", systemImage: "paperplane.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(SpotterNativeButtonStyle(primary: true))
-                .disabled(busy || engagementLoading || engagement == nil || appointmentTime <= .now)
-            }
-            .onChange(of: appointmentTime) { _ in appointmentID = UUID().uuidString.lowercased() }
-            .padding(13).secondaryCard()
-        }
-        if let engagement {
-            if engagement.appointments.isEmpty { SecondaryNotice(message: "还没有近期训练邀约。") }
-            ForEach(engagement.appointments) { appointment in
-                appointmentCard(appointment)
-            }
-        } else {
-            engagementLoadState
-        }
-    }
-
     @ViewBuilder private var engagementLoadState: some View {
         if let engagementError {
             SecondaryNotice(message: engagementError, warning: true)
@@ -3845,36 +3883,6 @@ struct NativeFriends: View {
         } else {
             ProgressView("正在读取…").font(.footnote)
         }
-    }
-
-    private func appointmentCard(_ appointment: SecondaryFriendEngagement.Appointment) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label(appointment.sender == owner ? "我发起的邀约" : "搭子的邀约", systemImage: "calendar")
-                    .font(.subheadline.weight(.semibold))
-                Spacer(minLength: 3)
-                SecondaryBadge(text: appointment.statusLabel, green: appointment.status == "accepted")
-            }
-            Text(appointment.date, format: .dateTime.month().day().hour().minute()).font(.headline)
-            if !appointment.note.isEmpty { Text(appointment.note).font(.footnote).foregroundStyle(SpotterPalette.muted) }
-            if appointment.date > .now {
-                if appointment.recipient == owner && appointment.status == "pending" {
-                    HStack {
-                        appointmentButton("接受", action: "accept", item: appointment, primary: true)
-                        appointmentButton("婉拒", action: "decline", item: appointment)
-                    }
-
-                } else if (appointment.sender == owner && appointment.status == "pending") || appointment.status == "accepted" {
-                    appointmentButton("取消邀约", action: "cancel", item: appointment)
-                }
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(13).secondaryCard()
-    }
-
-    private func appointmentButton(_ title: String, action: String, item: SecondaryFriendEngagement.Appointment, primary: Bool = false) -> some View {
-        Button(title) {
-            Task { await mutateAppointment(["action": action, "expectedOwner": owner, "id": item.id]) }
-        }.buttonStyle(SecondaryButtonStyle(primary: primary)).disabled(busy || engagementLoading)
     }
 
     private func openSelectedCheerWorkout() {
@@ -3890,31 +3898,11 @@ struct NativeFriends: View {
         defer { engagementLoading = false }
         engagementError = nil
         do {
-            let response = try await api.request(engagementPath, method: "GET", json: nil, for: owner)
+            let response = try await api.request(secondaryFriendEngagementPath, method: "GET", json: nil, for: owner)
             let current = try JSONDecoder().decode(SecondaryFriendEngagement.self, from: response)
             withAnimation(motion) { engagement = current }
         } catch is CancellationError {
         } catch { engagementError = error.localizedDescription }
-    }
-
-    private func mutateAppointment(_ body: [String: Any], proposed: Bool = false) async {
-        guard !busy else { return }
-        busy = true
-        defer { busy = false }
-        do {
-            struct Update: Decodable { let appointments: [SecondaryFriendEngagement.Appointment] }
-            let json = try JSONSerialization.data(withJSONObject: body)
-            let response = try await api.request(engagementPath, method: "POST", json: json, for: owner)
-            let update = try JSONDecoder().decode(Update.self, from: response)
-            withAnimation(motion) {
-                engagement = SecondaryFriendEngagement(cheers: engagement?.cheers ?? [], appointments: update.appointments)
-            }
-            if proposed {
-                appointmentNote = ""
-                appointmentID = UUID().uuidString.lowercased()
-            }
-            report(proposed ? "训练邀约已发出。" : "训练邀约已更新。")
-        } catch { report(error.localizedDescription, failure: true) }
     }
 
     private var emptyFeed: some View {
@@ -4108,11 +4096,18 @@ struct NativeFriends: View {
     private var invitation: some View {
         VStack(alignment: .leading, spacing: 11) {
             if inviteKind == .buddy {
-                SecondaryNotice(message: "对方接受申请后，你们会成为训练搭子。")
+                if guide?.step == .buddySearch { searchPanel }
+                relationshipComparison
                 if betaSocialDefaults {
                     buddyNutritionChoice($sharesBuddyNutrition)
                 }
-                searchPanel
+                if guide?.step != .buddySearch { searchPanel }
+                Divider()
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("想加普通好友？").font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                    Button { open(.invite, kind: .friend) } label: { Label("添加好友", systemImage: "person.badge.plus") }
+                        .buttonStyle(SecondaryButtonStyle()).disabled(busy || guide?.step == .buddySearch)
+                }
             } else {
                 SecondaryNotice(message: betaSocialDefaults ? "在这里完成添加后，默认可见训练打卡与详情。可在好友资料里开启饮食分享。" :
                                     "添加后默认互相分享训练打卡、详情和饮食记录状态，具体范围遵循双方的分享设置。")
@@ -4121,6 +4116,23 @@ struct NativeFriends: View {
                     if inviteTab == .search { searchPanel } else { codePanel }
                 }.transition(.opacity).animation(motion, value: inviteTab)
             }
+        }
+    }
+
+    private var relationshipComparison: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("搭子和好友的区别").font(.headline).accessibilityAddTraits(.isHeader)
+            SecondaryGroup {
+                SecondaryRow(title: "训练搭子", detail: "对方接受后即绑定，每人同时只能有 1 位。搭子可看训练记录，以及你选择共享的饮食等私人数据。",
+                             icon: "person.2.fill", color: accent.selection, accessory: nil)
+                Divider().padding(.horizontal, 12)
+                SecondaryRow(title: "普通好友", detail: betaSocialDefaults
+                             ? "默认只看你共享的健身打卡和训练详情。饮食需你手动开启共享。"
+                             : "可看你共享的健身打卡和训练详情，饮食可见范围由分享设置决定。",
+                             icon: "person.crop.circle", color: secondaryLilac, accessory: nil)
+            }
+            Text("后续计划为搭子加入训练、睡眠和恢复分析，届时按你授权的范围共享。")
+                .font(.footnote).foregroundStyle(SpotterPalette.muted)
         }
     }
 
@@ -4432,6 +4444,156 @@ private struct SecondaryToggle: View {
 }
 
 @MainActor
+private struct SecondaryBuddyAppointments: View {
+    let api: NativeAPI
+    let owner: String
+    let buddyID: String
+    let buddyName: String
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    @State private var appointments: [SecondaryFriendEngagement.Appointment]?
+    @State private var time = Date.now.addingTimeInterval(3_600)
+    @State private var note = ""
+    @State private var requestID = UUID().uuidString.lowercased()
+    @State private var notice: String?
+    @State private var failed = false
+    @State private var busy = false
+    @State private var loadRevision = 0
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    invitation
+                    if let notice { SecondaryNotice(message: notice, warning: failed).transition(.opacity) }
+                    if let appointments {
+                        if appointments.isEmpty { SecondaryNotice(message: "还没有近期训练邀约。") }
+                        ForEach(appointments) { appointmentCard($0) }
+                    } else if failed {
+                        Button("重新读取") { loadRevision &+= 1 }.buttonStyle(.spotterControl)
+                    } else {
+                        ProgressView("正在读取训练邀约…").font(.footnote)
+                    }
+                }.secondaryPage()
+            }
+            .background(SpotterPalette.background)
+            .navigationTitle("约下次训练").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }.buttonStyle(.spotterPress).disabled(busy)
+                }
+            }
+        }
+        .task(id: loadRevision) { await load() }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(busy)
+    }
+
+    private var invitation: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("邀请 \(buddyName) 一起训练", systemImage: "person.2.fill").font(.headline)
+            DatePicker("训练时间", selection: $time, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
+                .tint(accent.tint).font(.subheadline)
+                .onChange(of: time) { _ in requestID = UUID().uuidString.lowercased() }
+                .disabled(busy)
+            TextField("地点或备注（选填）", text: $note)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: note) { value in
+                    if value.count > 180 { note = String(value.prefix(180)) }
+                    requestID = UUID().uuidString.lowercased()
+                }
+                .disabled(busy)
+            Button {
+                let body: [String: Any] = ["action": "propose", "expectedOwner": owner, "id": requestID,
+                    "partner": buddyID, "startsAt": Int(time.timeIntervalSince1970 * 1000), "note": note]
+                Task { await mutate(body, proposed: true) }
+            } label: {
+                Label("发出训练邀约", systemImage: "paperplane.fill").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(SpotterNativeButtonStyle(primary: true))
+            .disabled(busy || appointments == nil || time <= .now)
+        }
+        .padding(13).secondaryCard()
+    }
+
+    private func appointmentCard(_ appointment: SecondaryFriendEngagement.Appointment) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(appointment.sender == owner ? "我发起的邀约" : "搭子的邀约", systemImage: "calendar")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 3)
+                SecondaryBadge(text: appointment.statusLabel, green: appointment.status == "accepted")
+            }
+            Text(appointment.date, format: .dateTime.month().day().hour().minute()).font(.headline)
+            if !appointment.note.isEmpty { Text(appointment.note).font(.footnote).foregroundStyle(SpotterPalette.muted) }
+            if appointment.date > .now {
+                if appointment.recipient == owner && appointment.status == "pending" {
+                    HStack {
+                        appointmentButton("接受", action: "accept", item: appointment, primary: true)
+                        appointmentButton("婉拒", action: "decline", item: appointment)
+                    }
+                } else if (appointment.sender == owner && appointment.status == "pending") || appointment.status == "accepted" {
+                    appointmentButton("取消邀约", action: "cancel", item: appointment)
+                }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(13).secondaryCard()
+    }
+
+    private func appointmentButton(_ title: String, action: String, item: SecondaryFriendEngagement.Appointment, primary: Bool = false) -> some View {
+        Button(title) {
+            Task { await mutate(["action": action, "expectedOwner": owner, "id": item.id]) }
+        }.buttonStyle(SecondaryButtonStyle(primary: primary)).disabled(busy)
+    }
+
+    private struct Response: Decodable { let appointments: [SecondaryFriendEngagement.Appointment] }
+
+    private func load() async {
+        notice = nil
+        failed = false
+        do {
+            let data = try await api.request(secondaryFriendEngagementPath, method: "GET", json: nil, for: owner)
+            try Task.checkCancellation()
+            try apply(data)
+        } catch is CancellationError {
+        } catch { report(error.localizedDescription, failure: true) }
+    }
+
+    private func mutate(_ body: [String: Any], proposed: Bool = false) async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let json = try JSONSerialization.data(withJSONObject: body)
+            let data = try await api.request(secondaryFriendEngagementPath, method: "POST", json: json, for: owner)
+            try apply(data)
+            if proposed {
+                note = ""
+                requestID = UUID().uuidString.lowercased()
+            }
+            report(proposed ? "训练邀约已发出。" : "训练邀约已更新。")
+        } catch { report(error.localizedDescription, failure: true) }
+    }
+
+    private func apply(_ data: Data) throws {
+        let response = try JSONDecoder().decode(Response.self, from: data)
+        let related = response.appointments.filter { item in
+            (item.sender == owner && item.recipient == buddyID) || (item.sender == buddyID && item.recipient == owner)
+        }
+        withAnimation(motion) { appointments = related }
+    }
+
+    private func report(_ message: String, failure: Bool = false) {
+        withAnimation(motion) {
+            notice = message
+            failed = failure
+        }
+    }
+}
+
+@MainActor
 private struct SecondaryFriendDetail: View {
     let api: NativeAPI
     let owner: String
@@ -4454,6 +4616,7 @@ private struct SecondaryFriendDetail: View {
     @State private var showRemove = false
     @State private var showDatePicker = false
     @State private var showRemarkEditor = false
+    @State private var showAppointments = false
     @State private var loadError: String?
     @State private var actionError: String?
     @State private var loadRevision = 0
@@ -4491,6 +4654,13 @@ private struct SecondaryFriendDetail: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 profileCard
+                if friend.buddy {
+                    Button { showAppointments = true } label: {
+                        SecondaryRow(title: "约下次训练", detail: "发邀约、确认时间和查看近期安排",
+                                     icon: "calendar.badge.plus", color: accent.selection)
+                            .secondaryCard(radius: 16)
+                    }.buttonStyle(.spotterPress)
+                }
                 activityCard
                 if let sharing { sharingCard(sharing) }
                 if let actionError { SecondaryNotice(message: actionError, warning: true) }
@@ -4500,13 +4670,16 @@ private struct SecondaryFriendDetail: View {
                 }
             }.secondaryPage()
         }.background(SpotterPalette.background)
-            .navigationTitle("好友").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            .navigationTitle(friend.buddy ? "训练搭子" : "好友").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .task(id: "\(spotterDay(date)):\(loadRevision)") { await load() }
             .sheet(isPresented: $showDatePicker) {
                 SecondaryFriendDateSheet(day: date, firstDay: Self.firstDay, apply: selectDay)
             }
             .sheet(isPresented: $showRemarkEditor) {
                 SecondaryFriendRemarkEditor(remarks: remarks, friendID: friend.id, nickname: friend.name)
+            }
+            .sheet(isPresented: $showAppointments) {
+                SecondaryBuddyAppointments(api: api, owner: owner, buddyID: friend.id, buddyName: displayName)
             }
             .confirmationDialog("移除好友", isPresented: $showRemove, titleVisibility: .visible) {
                 Button("确认移除", role: .destructive) { Task { await mutate(["action": "remove", "id": friend.id], remove: true) } }

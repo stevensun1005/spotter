@@ -127,7 +127,7 @@ private struct NutritionPayload: Decodable {
         let plan = rows.first { $0.kind == "nutrition-plan" }
         var target = base
         if let stage = plan?.cut?.filter({ $0.date <= date }).max(by: { $0.date < $1.date }) {
-            let energy = (base.protein + base.carbs) * 4 + base.fat * 9
+            let energy = nutritionCalories(protein: base.protein, carbs: base.carbs, fat: base.fat)
             let proteinShare = energy > 0 ? floor(base.protein * 400 / energy) : 25
             let carbShare = energy > 0 ? floor(base.carbs * 400 / energy) : 45
             target.calories = stage.calories
@@ -344,6 +344,10 @@ private struct NativeNutritionSummary: View {
 
 private func nutritionNumber(_ value: Double) -> String {
     value.formatted(.number.precision(.fractionLength(0...1)))
+}
+
+private func nutritionCalories(protein: Double, carbs: Double, fat: Double) -> Double {
+    (protein + carbs) * 4 + fat * 9
 }
 
 private struct NutritionShortcuts: View {
@@ -1748,10 +1752,16 @@ private struct NativeNutritionEditor: View {
                         field("食物名称", value: $name, numeric: false)
                             .nativeGuideTarget(.mealFields)
                         field("重量（g，选填）", value: $quantity)
-                        field("热量（千卡）", value: $calories)
                         field("蛋白质（g）", value: $protein)
                         field("碳水（g）", value: $carbs)
                         field("脂肪（g）", value: $fat)
+                        VStack(alignment: .leading, spacing: 5) {
+                            field("热量（千卡）", value: $calories,
+                                  placeholder: estimatedCalories.map { "\(nutritionNumber($0))（估算）" } ?? "自动估算")
+                            Text("留空时按以上三项估算热量，也可以填写包装标注值。")
+                                .font(.footnote)
+                                .foregroundStyle(SpotterPalette.muted)
+                        }
                     } else if shortcut == .water {
                         field("饮水量（ml）", value: $quantity)
                         SpotterGlassSegments(options: ["150", "250", "500", "750"], value: $quantity, glass: false) { "\($0) ml" }
@@ -1797,10 +1807,10 @@ private struct NativeNutritionEditor: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func field(_ title: String, value: Binding<String>, numeric: Bool = true) -> some View {
+    private func field(_ title: String, value: Binding<String>, numeric: Bool = true, placeholder: String = "") -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
-            TextField("", text: value)
+            TextField(placeholder, text: value)
                 .accessibilityLabel(title)
                 .keyboardType(numeric ? .decimalPad : .default)
                 .padding(.horizontal, 10)
@@ -1857,6 +1867,16 @@ private struct NativeNutritionEditor: View {
         nutritionValue(value)
     }
 
+    private var mealMacros: (protein: Double, carbs: Double, fat: Double)? {
+        guard let p = number(protein), let c = number(carbs), let f = number(fat),
+              [p, c, f].allSatisfy({ (0...20_000).contains($0) }) else { return nil }
+        return (p, c, f)
+    }
+
+    private var estimatedCalories: Double? {
+        mealMacros.map { nutritionCalories(protein: $0.protein, carbs: $0.carbs, fat: $0.fat) }
+    }
+
     private func save() async {
         guard let entry = entryPayload else { error = "请检查名称、数值和单位。"; return }
         guard quickItem == nil else { error = "请先重试上方所选的最近食物，或关闭后重新打开。"; return }
@@ -1884,11 +1904,10 @@ private struct NativeNutritionEditor: View {
     private var entryPayload: [String: Any]? {
         if shortcut.isMeal {
             let food = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard (1...100).contains(food.count), let energy = number(calories), (0...30_000).contains(energy),
-                  let p = number(protein), let c = number(carbs), let f = number(fat),
-                  [p, c, f].allSatisfy({ (0...20_000).contains($0) }) else { return nil }
+            let energy = calories.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? estimatedCalories : number(calories)
+            guard (1...100).contains(food.count), let energy, (0...30_000).contains(energy), let macros = mealMacros else { return nil }
             var entry: [String: Any] = ["type": "meal", "meal": shortcut.rawValue, "name": food,
-                                        "calories": energy, "protein": p, "carbs": c, "fat": f]
+                                        "calories": energy, "protein": macros.protein, "carbs": macros.carbs, "fat": macros.fat]
             if !quantity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 guard let grams = number(quantity), (0.1...3_000).contains(grams) else { return nil }
                 entry["grams"] = grams

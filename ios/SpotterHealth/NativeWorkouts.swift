@@ -69,6 +69,7 @@ final class NativeWorkoutStore: ObservableObject {
     @Published private(set) var libraryRows: [NativeJSON] = []
     @Published private(set) var room: NativeJSON = .null
     @Published private(set) var viewerName = "我"
+    @Published private var viewerAnatomyVariant: NativeAnatomyVariant?
     @Published private(set) var recentHistoryStart: String?
     @Published private var completedPlanIds: Set<String> = [] {
         didSet { widgetRevision &+= 1 }
@@ -88,6 +89,7 @@ final class NativeWorkoutStore: ObservableObject {
     private var reloadAfterPlanWrite = false
     private var localRevision = 0
     private var entryRevision = 0
+    private var anatomyEditRevision = 0
     private var localCompletedPlanIds: Set<String> = []
     private var lastSetCompletion: LastSetCompletion?
 
@@ -136,6 +138,19 @@ final class NativeWorkoutStore: ObservableObject {
     var partnerLogs: [NativeWorkoutEntry] {
         guard !partnerID.isEmpty, room["partnerTrainingShared"] != .bool(false) else { return [] }
         return entries.filter { $0.kind == "log" && $0.owner == partnerID }
+    }
+
+    func anatomyVariant(for personID: String) -> NativeAnatomyVariant? {
+        if personID == owner { return viewerAnatomyVariant }
+        guard !partnerID.isEmpty, personID == partnerID, room["partnerTrainingShared"] != .bool(false) else { return nil }
+        return NativeAnatomyVariant(rawValue: room["partner"]["anatomyVariant"].string)
+    }
+
+    func useSavedAnatomyVariant(_ variant: NativeAnatomyVariant?) {
+        anatomyEditRevision &+= 1
+        guard viewerAnatomyVariant != variant else { return }
+        viewerAnatomyVariant = variant
+        saveSnapshot()
     }
 
     private func rebuildEntries() {
@@ -193,6 +208,7 @@ final class NativeWorkoutStore: ObservableObject {
             completedPlanIds = Set(snapshot.completedPlanIds ?? [])
             recentHistoryStart = snapshot.historyFrom
             widgetHistory = snapshot.widgetHistory
+            viewerAnatomyVariant = snapshot.viewerAnatomyVariant
             entries = snapshot.entries.filter { $0.owner == owner }
             rebuildEntries()
         } else { rebuildLogs() }
@@ -247,6 +263,7 @@ final class NativeWorkoutStore: ObservableObject {
         let completedPlanIds: [String]?
         let historyFrom: String?
         let widgetHistory: WidgetHistory?
+        let viewerAnatomyVariant: NativeAnatomyVariant?
     }
 
     private struct WidgetHistory: Codable {
@@ -283,7 +300,7 @@ final class NativeWorkoutStore: ObservableObject {
         let history = own.filter { $0.kind == "log" }.sorted { $0.updated > $1.updated }.prefix(120)
         let snapshot = Snapshot(origin: origin, owner: owner, entries: scheduled + history,
                                 completedPlanIds: completedPlanIds.sorted(), historyFrom: recentHistoryStart,
-                                widgetHistory: widgetHistory)
+                                widgetHistory: widgetHistory, viewerAnatomyVariant: viewerAnatomyVariant)
         Self.snapshotQueue.async { try? Self.writeLocal(snapshot, to: snapshotURL) }
     }
 
@@ -300,10 +317,17 @@ final class NativeWorkoutStore: ObservableObject {
         do {
             let revision = localRevision
             let edit = entryRevision
+            let anatomyEdit = anatomyEditRevision
             let loadedViewerName = viewerName
             let value = try await api.spotterRead("/api/workout?scope=overview", as: NativeWorkoutState.self)
             guard revision == localRevision, edit == entryRevision else { return }
-            guard value.me.id == owner else { entries = []; throw NativeWorkoutProblem.accountChanged }
+            guard value.me.id == owner else {
+                entries = []; room = .null; viewerAnatomyVariant = nil
+                throw NativeWorkoutProblem.accountChanged
+            }
+            let anatomyVariant = value.me.anatomyVariant.flatMap(NativeAnatomyVariant.init(rawValue:))
+            let anatomyChanged = anatomyEdit == anatomyEditRevision && viewerAnatomyVariant != anatomyVariant
+            if anatomyChanged { viewerAnatomyVariant = anatomyVariant }
             let currentRoom = value.room ?? .null
             let cutoff = value.historyFrom ?? ""
             let incomingCompleted = Set(value.completedPlanIds ?? [])
@@ -321,7 +345,7 @@ final class NativeWorkoutStore: ObservableObject {
                 retained.filter { !updatedKeys.contains($0.key) }
             let historyChanged = entries != updated
             if historyChanged { entries = updated }
-            if historyChanged || snapshotNeedsRefresh { saveSnapshot() }
+            if historyChanged || snapshotNeedsRefresh || anatomyChanged { saveSnapshot() }
             let overviewDay = SpotterWidgetSnapshot.dayKey(for: .now)
             if widgetOverviewDay != overviewDay || room != currentRoom {
                 widgetOverviewDay = overviewDay
@@ -590,6 +614,7 @@ final class NativeWorkoutStore: ObservableObject {
         lastSetCompletion = nil
         active = nil; pendingCheckins = []; entries = []; room = .null
         libraryRows = []
+        viewerAnatomyVariant = nil
         proteinProducts = []; defaultProteinProductID = nil; tracksWorkoutProtein = false
         if let cacheURL { try? FileManager.default.removeItem(at: cacheURL) }
         if let snapshotURL { Self.snapshotQueue.sync { try? FileManager.default.removeItem(at: snapshotURL) } }
@@ -1293,7 +1318,8 @@ struct NativeWorkoutView: View {
                     .presentationDragIndicator(.visible)
             case .share(let entry):
                 if entry.owner == store.owner, let current = store.logs.first(where: { $0.key == entry.key }) {
-                    NativeWorkoutShareView(entry: current, logs: store.logs, owner: store.owner, displayName: store.viewerName, api: store.api)
+                    NativeWorkoutShareView(entry: current, logs: store.logs, owner: store.owner, displayName: store.viewerName,
+                                           api: store.api, subjectFigure: store.anatomyVariant(for: current.owner))
                 }
             case .day(let day, let records):
                 NavigationStack { dayDetails(day, records: records) }
@@ -1526,7 +1552,6 @@ struct NativeWorkoutView: View {
 
     private var partnerCard: some View {
         let today = NativeWorkoutSession.day()
-        let mine = store.logs.filter { $0.day == today }
         let partnerToday = store.partnerLogs.filter { $0.day == today }
         let latest = store.partnerLogs.filter { $0.day <= today }.sorted(by: newestRecord).first
         let lastDay = store.room["partnerCheckins"].array
@@ -1552,12 +1577,13 @@ struct NativeWorkoutView: View {
                 }
             }
             HStack(spacing: 12) {
-                member("我", avatarName: store.viewerName, id: store.owner, checked: todayMine, connected: true, purple: false, records: mine)
+                member("我", avatarName: store.viewerName, id: store.owner, checked: todayMine, connected: true, purple: false)
                 member(partnerDisplayName, avatarName: partnerDisplayName, id: connected ? store.partnerID : nil, checked: todayPartner,
-                       connected: connected, purple: true, statusOverride: canSeePartner ? nil : "打卡未公开", records: partnerToday)
+                       connected: connected, purple: true, statusOverride: canSeePartner ? nil : "打卡未公开")
             }
             if canSeePartner, let latest, latest.day >= (lastDay ?? "") {
-                Button { recordSheet = .record(latest) } label: {
+                let showsDay = latest.day == today && partnerToday.count > 1
+                Button { recordSheet = showsDay ? .day(today, partnerToday) : .record(latest) } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("搭子最近打卡 · \(shortDay(latest.day))").font(.caption).foregroundStyle(SpotterPalette.muted)
@@ -1567,6 +1593,7 @@ struct NativeWorkoutView: View {
                         Image(systemName: "chevron.right")
                     }.frame(minHeight: 44).contentShape(Rectangle())
                 }.buttonStyle(.spotterPress)
+                    .accessibilityHint(showsDay ? "查看当天的全部搭子打卡" : "查看训练记录")
             } else if canSeePartner, let lastDay {
                 Text("搭子最近打卡 · \(shortDay(lastDay))").font(.caption).foregroundStyle(SpotterPalette.muted)
             }
@@ -1606,7 +1633,7 @@ struct NativeWorkoutView: View {
     }
 
     private func member(_ name: String, avatarName: String, id: String?, checked: Bool, connected: Bool, purple: Bool,
-                        statusOverride: String? = nil, records: [NativeWorkoutEntry]) -> some View {
+                        statusOverride: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 7) {
                 NativePersonAvatar(id: id, name: avatarName, size: 32, appearance: .init(
@@ -1617,18 +1644,7 @@ struct NativeWorkoutView: View {
             }
             Label(statusOverride ?? (connected ? (checked ? "已打卡" : store.isLoading ? "同步中" : "未打卡") : "未连接"), systemImage: checked ? "checkmark" : "circle")
                 .font(.system(size: 12, weight: .semibold)).foregroundStyle(checked ? SpotterPalette.accent : SpotterPalette.muted)
-            if let first = records.first {
-                Button {
-                    recordSheet = records.count == 1 ? .record(first) : .day(first.day, records)
-                } label: {
-                    HStack(spacing: 3) {
-                        Text(records.count == 1 ? first.displayTitle : "\(records.count) 次训练")
-                            .multilineTextAlignment(.leading).lineLimit(2)
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.caption2.bold())
-                    }.font(.caption).frame(minHeight: 32).contentShape(Rectangle())
-                }.buttonStyle(.spotterPress)
-            }
+                .lineLimit(1)
         }.frame(maxWidth: .infinity, alignment: .topLeading).padding(11)
             .background(purple ? SpotterPalette.adaptive(0xf4effa, 0x372c45) : SpotterPalette.wash.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
     }
@@ -3485,7 +3501,8 @@ struct NativeWorkoutDetailView: View {
                         }
                         if session.completedSets > 0 {
                             SpotterDisclosure("肌群分布") {
-                                SecondaryMusclePanel(entries: [current]).padding(.top, 8)
+                                SecondaryMusclePanel(entries: [current], subjectFigure: store.anatomyVariant(for: current.owner),
+                                                     participationOnly: true).padding(.top, 8)
                             }.font(.subheadline.weight(.semibold)).padding(14).spotterCard()
                         }
                         if own && scrollsActions { actions(session, inset: false) }
@@ -3513,7 +3530,8 @@ struct NativeWorkoutDetailView: View {
             if own, let current {
                 switch action {
                 case .share:
-                    NativeWorkoutShareView(entry: current, logs: store.logs, owner: store.owner, displayName: store.viewerName, api: store.api)
+                    NativeWorkoutShareView(entry: current, logs: store.logs, owner: store.owner, displayName: store.viewerName,
+                                           api: store.api, subjectFigure: store.anatomyVariant(for: current.owner))
                 case .edit:
                     NavigationStack { NativeWorkoutLogEditor(entry: current, store: store) }
                         .presentationDragIndicator(.visible)
