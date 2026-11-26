@@ -269,7 +269,7 @@ await Promise.all([
   copyFile(new URL("demo-video/LICENSE.txt", resource), new URL("DEMO-VIDEO-LICENSE.txt", output)),
   copyFile(new URL("demo-video/wger/CREDITS.txt", resource), new URL("WGER-DEMO-CREDITS.txt", output)),
   writeFile(new URL("NATIVE-COVERS-NOTICE.txt", output),
-    "Spotter iPhone catalogue thumbnails are proportionally resized and rasterized JPEGs of the existing web covers. See the included notice and attribution files for each upstream source and license. Regenerate the bundle from the repository with node tools/build-ios-catalogue.mjs.\n"),
+    "Spotter iPhone catalogue thumbnails are proportionally resized and rasterized JPEGs of the existing web covers. iPhone exercise demos resize and rasterize Flow and Workout Guide frames into timed GIF sequences. Workout Guide frames by Bryl Lim and credited Everkinetic artwork retain CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). See WORKOUT-GUIDE-ATTRIBUTION.json for individual frame sources and credits. Bundled MP4s are copied unchanged from the Spotter repository; see DEMO-VIDEO-LICENSE.txt and WGER-DEMO-CREDITS.txt. Regenerate the bundle with node tools/build-ios-catalogue.mjs.\n"),
 ]);
 await Promise.all((await readdir(output))
   .filter((name) => /^(?:motion|drawing)-\d+\.bin$/.test(name) && !mediaFiles.has(name))
