@@ -155,7 +155,7 @@ npx --no-install wrangler deploy --config dist/server/wrangler.production.json
 
 ### 社交通知
 
-通知服务使用 `0020_social_notifications.sql`。内测部署将 `SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS` 设置为逗号分隔的已核对账号邮箱或 ID。未设置名单的本地环境允许合成测试账号。现有好友分享范围、接收设置和 15 分钟搭子提醒间隔由服务端校验。
+通知服务使用 `0020_social_notifications.sql`。`SPOTTER_NOTIFICATIONS_AUDIENCE=all` 向所有已登录的 Spotter 账号开放，包括以后注册的账号。未启用此选项时，可以用 `SPOTTER_NOTIFICATIONS_ALLOWED_ACCOUNTS` 按邮箱或账号 ID 限制测试环境。好友分享范围、接收设置和 15 分钟搭子提醒间隔仍由服务端校验。
 
 系统推送使用只授权给 `app.spotter.health` 的 Apple APNs 密钥。通过 Worker Secrets 配置 `SPOTTER_APNS_TEAM_ID`、`SPOTTER_APNS_KEY_ID` 和 `SPOTTER_APNS_PRIVATE_KEY`。开发环境可另外配置 `SPOTTER_APNS_SANDBOX_KEY_ID` 和 `SPOTTER_APNS_SANDBOX_PRIVATE_KEY`。Secrets 不进入 Git。APNs 失败时，已写入的通知仍可在站内查看。
 
