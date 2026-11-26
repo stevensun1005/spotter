@@ -166,3 +166,5 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 1.0 Build 42 候选 | 在「好友 → 联系人」打开对方资料，可添加、修改或移除好友与搭子的私人备注。App 和 Cloudflare 网页按账号和关系授权，备注与昵称分别存储。 | Cloudflare 静态类型检查通过。合成账号验证网页保存、移除、首页同步及切换账号隔离。iPhone 与网页的 AI 教练操作路径测试通过。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
+
+2026-11-25 发布记录。1.0 Build 42 的 App 源码为 `2f0334a`，后台 Cloudflare 96 对应 `8033dc8`。Xcode 校验了 iPhone、Watch 与小组件的分发签名，模拟器和网页合成账号验证了私密备注的新增、切换账号隔离和移除。TestFlight 训练搭子内测与公开外测均显示 Build 42 为 Testing。
