@@ -2792,11 +2792,11 @@ private struct NativeWorkoutPreferences: View {
             Stepper("默认次数 · \(reps) 次", value: $reps, in: 1...100).padding(13)
         }
         SecondaryGroup(title: "训练记录") {
-            NativeSettingToggle(title: "显示下一组", detail: "在训练详情顶部显示下一个未完成组。", value: $showNext)
+            NativeSettingToggle(title: "高亮下一组", detail: "在动作卡片里标出下一个待完成组。", value: $showNext)
             Divider()
-            NativeSettingToggle(title: "自动切换动作", detail: "完成一个动作的所有组后，打开下一个待练动作。", value: $autoAdvance)
+            NativeSettingToggle(title: "自动切换动作", detail: "完成一组训练后，自动打开下一动作。超级组始终按轮次切换。", value: $autoAdvance)
             Divider()
-            NativeSettingToggle(title: "显示动作节奏", detail: "显示计划写明的动作节奏。", value: $showTempo)
+            NativeSettingToggle(title: "显示动作节奏", detail: "在动作组次旁显示计划节奏或建议节奏。", value: $showTempo)
             Divider()
             NativeSettingToggle(title: "显示 RPE", detail: "在组次下方显示已录入的主观用力程度。", value: $showEffort)
         }

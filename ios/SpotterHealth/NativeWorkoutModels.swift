@@ -102,6 +102,50 @@ struct NativePlan: Equatable, Sendable {
     var video: String { raw["video"].string }
 }
 
+struct NativeExerciseTempo {
+    let value: String
+    let prescribed: Bool
+    private var explosive = false
+
+    var label: String { prescribed ? "计划节奏" : "建议节奏" }
+    var accessibilityDescription: String {
+        "\(label) \(value)" + (explosive ? "，向心快速发力" : "")
+    }
+
+    private static let separators = CharacterSet(charactersIn: "-/／–—－")
+    private static let notation = #"(?:[0-9]{1,2}\s*[-/／–—－]\s*){2}(?:[0-9]{1,2}|x)(?:\s*[-/／–—－]\s*[0-9]{1,2})?|[0-9]{2}[0-9x][0-9]?"#
+    private static let valuePattern = try? NSRegularExpression(pattern: "^(?:\(notation))$", options: .caseInsensitive)
+    private static let cuePattern = try? NSRegularExpression(
+        pattern: #"(?:tempo|节奏|节拍)\s*[:：=]?\s*("# + notation + #")(?![0-9x]|\s*[-/／–—－]\s*[0-9x])"#,
+        options: .caseInsensitive
+    )
+
+    static func fromCue(_ text: String) -> String? {
+        guard !text.isEmpty, let match = cuePattern?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let value = Range(match.range(at: 1), in: text) else { return nil }
+        return normalized(String(text[value]))
+    }
+
+    static func display(_ move: NativeJSON, category: String = "") -> Self? {
+        let raw = move["tempo"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let recorded = normalized(raw) ?? fromCue(move["cue"].string) ?? fromCue(move["name"].string) {
+            let phases = recorded.split(separator: "-").prefix(3)
+            return Self(value: phases.map { $0 == "X" ? "0" : String($0) }.joined(separator: "-"),
+                        prescribed: true, explosive: phases.contains("X"))
+        }
+        guard raw.isEmpty, category == "力量训练", move["reps"].number > 0, move["seconds"].number == 0,
+              !NativeExerciseLabel(move).warmup, NativeWorkoutSession.CardioActivity.fromPlannedMove(move) == nil else { return nil }
+        return Self(value: "2-0-1", prescribed: false)
+    }
+
+    private static func normalized(_ value: String) -> String? {
+        guard !value.isEmpty, valuePattern?.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil else { return nil }
+        let parts = value.uppercased().components(separatedBy: separators)
+        if parts.count == 1 { return value.uppercased().map(String.init).joined(separator: "-") }
+        return parts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "-")
+    }
+}
+
 enum NativePlanImport {
     static let categories = ["力量训练", "有氧训练", "拉伸恢复", "跟练视频", "其他"]
     static let maximumBytes = 450_000
@@ -208,11 +252,7 @@ enum NativePlanImport {
             if let rest = captures(#"(?:休息|rest)\s*[:：]?\s*(\d{1,3})\s*(?:秒|s\b)"#, in: fields[6]).first {
                 move["restSeconds"] = .number(Double(rest[1]) ?? 0)
             }
-            if let tempo = captures(#"(?:tempo|节奏|节拍)\s*[:：=]?\s*((?:[0-9]{1,2}\s*[-/／–]\s*){2}(?:[0-9]{1,2}|x)\s*[-/／–]\s*[0-9]{1,2}|[0-9]{2}[0-9x][0-9])(?![\d-])"#, in: fields[6]).first {
-                let value = tempo[1].uppercased()
-                move["tempo"] = .string(value.count == 4 ? value.map(String.init).joined(separator: "-") :
-                    value.replacingOccurrences(of: #"\s*[-/／–]\s*"#, with: "-", options: .regularExpression))
-            }
+            if let tempo = NativeExerciseTempo.fromCue(fields[6]) { move["tempo"] = .string(tempo) }
             return move
         }
         let title = lines.first { line in
@@ -369,6 +409,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
     var rows: [[NativeJSON]] { raw["rows"].array.map(\.array) }
     var started: Int { Int(raw["started"].number) }
     var isRunning: Bool { if case .number = raw["clock"]["runningSince"] { return true }; return false }
+    var totalSets: Int { rows.reduce(0) { $0 + $1.count } }
     var completedSets: Int { rows.flatMap { $0 }.filter { $0["done"].bool }.count }
     var cardioActivity: CardioActivity? { CardioActivity(rawValue: raw["cardio"]["activity"].string) }
     var watchCardioActivity: CardioActivity? {
@@ -571,17 +612,38 @@ struct NativeWorkoutSession: Equatable, Sendable {
         moves[move]["sets"] = .number(Double(groups[move].count))
         raw["plan"]["exercises"] = .array(moves)
     }
+    private struct ExerciseBlockKey: Equatable {
+        let id: String
+        let station: String
+        let warmup: Bool
+    }
+
     private func exerciseBlocks() -> [[Int]] {
         let moves = plan.exercises
-        var result: [[Int]] = []
-        for index in moves.indices {
-            let block = moves[index]["block"].string
-            if let previous = result.last?.last, !block.isEmpty, moves[previous]["block"].string == block,
-               moves[previous]["station"] == moves[index]["station"] {
-                result[result.count - 1].append(index)
-            } else { result.append([index]) }
+        let labels = moves.map { NativeExerciseLabel($0) }
+        var blocks: [[Int]] = []
+        var previousBlock: ExerciseBlockKey?
+        for (index, move) in moves.enumerated() {
+            let label = labels[index]
+            let explicitBlock = move["block"].string
+            let block = explicitBlock.isEmpty ? label.numberedSlot.map { String($0.phase) } ?? "" : explicitBlock
+            let key = block.isEmpty ? nil : ExerciseBlockKey(id: block, station: move["station"].string, warmup: label.warmup)
+            if let key, key == previousBlock {
+                blocks[blocks.count - 1].append(index)
+            } else {
+                blocks.append([index])
+            }
+            previousBlock = key
         }
-        return result
+        return blocks.map { members in
+            let numbered = members.compactMap { index in labels[index].numberedSlot.map { (index: index, order: $0.number) } }
+            guard numbered.count == members.count else { return members }
+            return numbered.sorted { ($0.order, $0.index) < ($1.order, $1.index) }.map(\.index)
+        }
+    }
+
+    func isInSameGroup(_ first: Int, _ second: Int) -> Bool {
+        exerciseBlocks().contains { $0.contains(first) && $0.contains(second) }
     }
 
     func nextSet(after completed: SetPosition? = nil) -> SetPosition? {
@@ -657,6 +719,13 @@ struct NativeExerciseLabel {
     let name: String
     let slot: String
     let warmup: Bool
+
+    fileprivate var numberedSlot: (phase: Character, number: Int)? {
+        guard !warmup, let phase = slot.first, phase.isASCII, phase.isUppercase,
+              let number = Int(slot.dropFirst()), number > 0,
+              slot.dropFirst().allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return (phase, number)
+    }
 
     init(_ move: NativeJSON, preservingNameQualifiers: Bool = false) {
         let rawName = move["name"].string.trimmingCharacters(in: .whitespacesAndNewlines)

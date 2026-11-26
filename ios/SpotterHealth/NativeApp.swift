@@ -880,6 +880,7 @@ private struct NativeSpotterTabs: View {
             }
         }
         .onAppear {
+            refreshLiveActivity()
             if !didFinishWelcome && guideStep == nil && !beginGuideAfterWelcome {
                 showWelcome = true
             } else if didFinishWelcome {
@@ -1234,7 +1235,7 @@ private struct NativeSpotterTabs: View {
         } else { nil }
         let state = SpotterTrainingActivityAttributes.ContentState(
             completedSets: session.completedSets,
-            totalSets: session.rows.reduce(0) { $0 + $1.count },
+            totalSets: session.totalSets,
             nextMovement: name, nextSet: next.map { $0.row + 1 }, isRunning: session.isRunning,
             restDeadline: deadline, pausedRestSeconds: !session.isRunning && restSeconds > 0 ? restSeconds : nil,
             elapsedStartedAt: counterStart, elapsedSeconds: session.isRunning ? nil : session.elapsedMilliseconds() / 1_000,
@@ -1385,6 +1386,7 @@ private struct NativeSpotterTabs: View {
 
     private func openActiveWorkout() {
         guard workouts.active != nil else { return }
+        refreshLiveActivity()
         showActiveWorkout = true
     }
 
@@ -1420,7 +1422,9 @@ private struct NativeSpotterTabs: View {
 
             VStack(spacing: 0) {
                 if let active = workouts.active, let session = active.session, !showActiveWorkout {
-                    NativeWorkoutStatusStrip(title: active.displayTitle, session: session, open: openActiveWorkout)
+                    NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
+                                             watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
+                                             open: openActiveWorkout)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 dock
@@ -1602,6 +1606,7 @@ private struct NativeWorkoutStatusStrip: View {
     @Environment(\.spotterInteractionMotion) private var motion
     let title: String
     let session: NativeWorkoutSession
+    let watchContext: NativeWatchWorkoutContext
     let open: () -> Void
 
     var body: some View {
@@ -1614,8 +1619,13 @@ private struct NativeWorkoutStatusStrip: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    Text(session.isRunning ? "\(session.completedSets) 组已完成" : "计时已暂停")
-                        .font(.caption).foregroundStyle(SpotterPalette.muted).lineLimit(1)
+                    HStack(spacing: 8) {
+                        Text(progressText)
+                            .font(.caption).monospacedDigit().foregroundStyle(SpotterPalette.muted).lineLimit(1)
+                        if #available(iOS 17.0, *) {
+                            NativeWatchWorkoutBPM(context: watchContext)
+                        }
+                    }
                 }
                 Spacer(minLength: 4)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -1638,6 +1648,12 @@ private struct NativeWorkoutStatusStrip: View {
         .frame(maxWidth: 530)
         .padding(.horizontal, 10)
         .padding(.top, 4)
+    }
+
+    private var progressText: String {
+        if !session.isRunning { return "计时已暂停" }
+        let total = session.totalSets
+        return total > 0 ? "\(session.completedSets)/\(total) 组" : "训练中"
     }
 
     private func timer(at now: Int) -> some View {

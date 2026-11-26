@@ -49,7 +49,8 @@ struct NativeWorkoutSmoke {
         expect(result.raw["clock"]["runningSince"] == .null, "A completed check-in stops the clock")
         expect(result.raw["futureSessionField"].string == "preserved", "Future session metadata survives editing")
         expect(result.plan.raw["futurePlanField"]["kept"].bool, "Future plan metadata survives editing")
-        expect(result.plan.exercises[0]["catalogueId"].string == "12345", "Catalogue and prescription fields survive")
+        expect(result.plan.exercises[0]["catalogueId"].string == "12345" &&
+               result.plan.exercises[0]["tempo"].string == "2-1-2", "Catalogue and prescription fields survive")
         let id = UUID().uuidString.lowercased()
         let entry = NativeWorkoutEntry(id: id, owner: "synthetic-owner", kind: "log", updated: "2026-11-24T00:00:00Z", data: result.raw)
         let encoded = try JSONEncoder().encode(entry)
@@ -228,6 +229,42 @@ struct NativeWorkoutSmoke {
         expect(superset.nextSet(after: b1) == a2 && superset.restBetween(b1, and: a2).seconds == 50 &&
                superset.restBetween(b1, and: a2).kind == "轮间休息", "Round rest uses the longest movement rest")
 
+        var numberedPlan = plan
+        var a1Move = firstMove
+        a1Move["sourceSlot"] = .string("A1")
+        a1Move["station"] = .string("哑铃区")
+        a1Move["sets"] = .number(2)
+        var a2Move = secondMove
+        a2Move["name"] = .string("A2 哑铃划船")
+        a2Move["block"] = .null
+        a2Move["station"] = a1Move["station"]
+        a2Move["sets"] = .number(3)
+        var a3Move = a1Move
+        a3Move["sourceSlot"] = .string("A3")
+        a3Move["block"] = .null
+        a3Move["sets"] = .number(1)
+        var warmupMove = a1Move
+        warmupMove["sourceSlot"] = .string("A-warmup")
+        warmupMove["sets"] = .number(1)
+        numberedPlan.raw["exercises"] = .array([warmupMove, a1Move, a3Move, a2Move])
+        var numbered = NativeWorkoutSession.start(plan: numberedPlan, planId: "numbered", now: started)
+        let numberedOrder = [NativeWorkoutSession.SetPosition(move: 0, row: 0), .init(move: 1, row: 0),
+                             .init(move: 3, row: 0), .init(move: 2, row: 0), .init(move: 1, row: 1),
+                             .init(move: 3, row: 1), .init(move: 3, row: 2)]
+        expect(!numbered.isInSameGroup(0, 1) && numbered.isInSameGroup(1, 3),
+               "Numbered slots can fill missing block metadata while keeping the phase warmup separate")
+        var previousPosition: NativeWorkoutSession.SetPosition?
+        for position in numberedOrder {
+            let encoded = try JSONEncoder().encode(numbered.raw)
+            numbered = try NativeWorkoutSession(raw: JSONDecoder().decode(NativeJSON.self, from: encoded))
+            expect(numbered.nextSet(after: previousPosition) == position,
+                   "Restored circuits alternate in numbered order and skip exhausted exercises")
+            expect(numbered.completeSet(at: position, after: previousPosition, now: started) != nil,
+                   "Numbered circuit completion records the expected row")
+            previousPosition = position
+        }
+        expect(numbered.nextSet(after: previousPosition) == nil, "A finished circuit does not loop to a completed set")
+
         var timedWorkout = NativeWorkoutSession.start(plan: plan, planId: "", now: started)
         expect(timedWorkout.restStatus(at: started) == nil && timedWorkout.runningRestDeadlineMilliseconds == nil,
                "A workout without a rest has no countdown or deadline")
@@ -287,6 +324,7 @@ struct NativeWorkoutSmoke {
         ## Synthetic lower body
         - 单侧低台下踩 3×8–10次，12.5 lb，休息 90 秒，节奏 30X0
         - 平板支撑 2组每组30秒
+        - 哑铃卧推 2组×5次，10 lb，节奏 2-1-2
         https://youtu.be/synthetic
         """, today: "2026-11-24")
         let training = NativePlan(raw: imported[0])
@@ -295,6 +333,24 @@ struct NativeWorkoutSmoke {
         expect(training.exercises[0]["unit"].string == "lb" && training.exercises[0]["weight"].number == 12.5, "Original weight and unit survive import")
         expect(training.exercises[0]["repsMax"].number == 10 && training.exercises[0]["restSeconds"].number == 90 && training.exercises[0]["tempo"].string == "3-0-X-0", "Rep ranges, rest and tempo survive import")
         expect(training.exercises[1]["seconds"].number == 30 && training.exercises[1]["reps"].number == 0, "Timed moves use seconds")
+        expect(training.exercises[2]["tempo"].string == "2-1-2" &&
+               NativeExerciseTempo.display(training.exercises[2])?.value == "2-1-2",
+               "Native text import preserves and displays three-phase tempo")
+        let legacyTempo = NativeExerciseTempo.display(training.exercises[0])
+        expect(legacyTempo?.value == "3-0-0" && legacyTempo?.prescribed == true &&
+               legacyTempo?.accessibilityDescription.contains("向心快速发力") == true,
+               "Legacy explosive tempo has a three-number presentation and retains its meaning")
+        expect(NativeExerciseTempo.fromCue("节拍：12 / 1 / 2") == "12-1-2" &&
+               NativeExerciseTempo.fromCue("节拍：2-0-1-0-5") == nil,
+               "Tempo accepts multi-digit legacy separators without reading only part of an invalid value")
+        var cueTempo = NativePreferenceKey.newMove(name: "哑铃卧推")
+        cueTempo["cue"] = .string("节奏：4–1–2–1，专注离心")
+        expect(NativeExerciseTempo.display(cueTempo)?.value == "4-1-2", "A prescribed cadence in imported cues survives")
+        cueTempo["cue"] = .null
+        expect(NativeExerciseTempo.display(cueTempo, category: training.category)?.prescribed == false &&
+               NativeExerciseTempo.display(cueTempo, category: training.category)?.value == "2-0-1" &&
+               NativeExerciseTempo.display(training.exercises[1], category: training.category) == nil,
+               "Repeated strength exercises can use a suggestion and timed holds keep their time prescription")
         let videos = try NativePlanImport.parse("https://b23.tv/test\nhttps://b23.tv/test", today: "2026-11-24")
         expect(videos.count == 1 && videos[0]["exercises"].array.isEmpty, "A unique video creates an exercise-free plan")
         let json = String(decoding: try JSONEncoder().encode(training.raw), as: UTF8.self)

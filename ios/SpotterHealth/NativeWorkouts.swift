@@ -2727,9 +2727,16 @@ private struct NativeSetTarget: Equatable {
 }
 
 private enum NativeEditorPanel: String, Identifiable {
-    case settings, note, add, finish, progress, demonstration
+    case settings, watch, sync, add, finish, demonstration
 
     var id: String { rawValue }
+    var detents: Set<PresentationDetent> {
+        switch self {
+        case .watch: return [.height(224), .large]
+        case .demonstration: return [.large]
+        default: return [.medium, .large]
+        }
+    }
 }
 
 struct NativeActiveWorkoutView: View {
@@ -2767,6 +2774,7 @@ struct NativeActiveWorkoutView: View {
     @State private var changedIdleTimer = false
     @State private var lastRestRemaining: Int?
     @State private var undoneSet: NativeWorkoutSession.SetPosition?
+    @State private var setToReveal: NativeWorkoutSession.SetPosition?
     @State private var setFeedback = UIImpactFeedbackGenerator(style: .light)
 
     private var needsIdleTimer: Bool {
@@ -2822,15 +2830,18 @@ struct NativeActiveWorkoutView: View {
         .sheet(item: $panel, onDismiss: finishPanelDismissal) { item in
             NavigationStack {
                 switch item {
-                case .note: NativeWorkoutNotePanel(store: store)
                 case .settings: NativeWorkoutSettingsPanel(store: store)
+                case .watch:
+                    if #available(iOS 17.0, *), let entry = store.active, let session = entry.session {
+                        NativeWorkoutWatchPanel(context: watchContext(entry, session: session), cardio: session.watchCardioActivity)
+                    }
+                case .sync: syncPanel
                 case .add: NativeWorkoutAddPanel(store: store) {
                     openedMove = max(0, (store.active?.session?.plan.exercises.count ?? 1) - 1)
                 }
-                case .progress, .demonstration:
+                case .demonstration:
                     if let panelMove {
-                        NativeExerciseProgressView(store: store, move: panelMove, showsClose: true,
-                                                   startsWithStats: item == .progress)
+                        NativeExerciseProgressView(store: store, move: panelMove, showsClose: true)
                     }
                 case .finish:
                     NativeWorkoutFinishPanel(store: store) { record in
@@ -2840,7 +2851,7 @@ struct NativeActiveWorkoutView: View {
                     }
                 }
             }
-            .presentationDetents(item == .progress || item == .demonstration ? [.large] : [.medium, .large])
+            .presentationDetents(item.detents)
             .presentationDragIndicator(.visible)
             .interactiveDismissDisabled(item == .finish && store.isBusy)
         }
@@ -2864,22 +2875,13 @@ struct NativeActiveWorkoutView: View {
 
     private func workout(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
         let compactHeight = verticalSizeClass == .compact
+        let next = nextSet(session)
         return VStack(spacing: 0) {
             if !compactHeight { editorHeader(entry, session: session) }
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if compactHeight { editorHeader(entry, session: session) }
-                        let total = session.rows.flatMap { $0 }.count + (session.plan.video.isEmpty ? 0 : 1)
-                        if total > 0 { ProgressView(value: Double(session.completedSets + (session.raw["finishedVideo"].bool ? 1 : 0)), total: Double(total)).tint(SpotterPalette.accent).padding(.horizontal, 2) }
-                        if !session.plan.raw["durationNote"].string.isEmpty { Text(session.plan.raw["durationNote"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
-                        if showNext, let next = nextSet(session) {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text("下一组").font(.system(size: 13))
-                                Text(session.plan.exercises[next.move]["name"].string).font(.system(size: 14, weight: .bold)).lineLimit(2)
-                                Spacer(minLength: 0); Text("第 \(next.row + 1) 组").font(.system(size: 13))
-                            }.padding(11).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
-                        }
                         if let cardio = session.cardioActivity { NativeWorkoutCardioFields(store: store, activity: cardio) }
                         if let video = URL(string: session.plan.video), !session.plan.video.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
@@ -2888,7 +2890,7 @@ struct NativeActiveWorkoutView: View {
                             }.font(.system(size: 14)).padding(13).spotterCard()
                         }
                         ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in
-                            exerciseCard(index, move: move, session: session).id(index)
+                            exerciseCard(index, move: move, session: session, nextRow: showNext && next?.move == index ? next?.row : nil)
                         }
                         if session.plan.exercises.isEmpty && session.raw["cardio"] == .null {
                             VStack(spacing: 12) { tile("dumbbell", size: 44); Text("添加动作，开始记录训练").font(.system(size: 15, weight: .semibold)); Button("添加动作") { panel = .add }.buttonStyle(SpotterNativeButtonStyle(primary: true)) }
@@ -2897,13 +2899,24 @@ struct NativeActiveWorkoutView: View {
                         if let error = store.errorMessage { Text(error).font(.system(size: 13)).foregroundStyle(.red) }
                     }.padding(14)
                 }
-                .onChange(of: undoneSet) { target in
-                    guard let target else { return }
-                    Task { @MainActor in
-                        await Task.yield()
-                        guard target == undoneSet else { return }
-                        withAnimation(motion) { scroll.scrollTo(target, anchor: .center) }
-                    }
+                .task(id: entry.key) {
+                    guard session.completedSets > 0, let next else { return }
+                    revealSet(.init(move: next.move, row: next.row))
+                }
+                .onChange(of: store.undoableSet) { completed in
+                    guard let completed, let session = store.active?.session else { return }
+                    undoneSet = nil
+                    guard let target = session.nextSet(after: completed),
+                          completed.move != target.move,
+                          autoAdvance || session.isInSameGroup(completed.move, target.move) else { return }
+                    revealSet(target)
+                }
+                .task(id: setToReveal) {
+                    guard let target = setToReveal else { return }
+                    await Task.yield()
+                    guard !Task.isCancelled, target == setToReveal, target.move == openedMove else { return }
+                    withAnimation(motion) { scroll.scrollTo(target, anchor: .center) }
+                    setToReveal = nil
                 }
             }
             .background(SpotterPalette.background).clipShape(UnevenTopRoundedShape(radius: 23))
@@ -2919,12 +2932,13 @@ struct NativeActiveWorkoutView: View {
     }
 
     private func editorHeader(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                HStack(spacing: 7) {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(NativeWorkoutView.duration(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1000))))
                             .font(.system(size: 43, weight: .heavy)).tracking(-2).monospacedDigit()
+                            .lineLimit(1).minimumScaleFactor(0.65)
                     }
                     .accessibilityIdentifier("workout-elapsed")
                     Button { store.toggleClock() } label: {
@@ -2939,20 +2953,42 @@ struct NativeActiveWorkoutView: View {
                         .accessibilityIdentifier("workout-clock-toggle")
                 }
                 Spacer(minLength: 5)
+                Button(action: undoLatestSet) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                        .background(SpotterPalette.card.opacity(0.8), in: Circle())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.spotterPress)
+                .opacity(store.undoableSet == nil ? 0.4 : 1)
+                .disabled(store.undoableSet == nil || store.isBusy || edit != nil)
+                .accessibilityLabel("撤销上一组")
+                .accessibilityIdentifier("workout-undo-set")
                 Button(store.isBusy ? "正在保存" : "结束训练") { finish(entry) }
                     .font(.system(size: 14, weight: .bold)).buttonStyle(SpotterNativeButtonStyle(primary: true))
+                    .fixedSize(horizontal: true, vertical: false)
                     .disabled(store.isBusy || edit != nil)
                     .accessibilityIdentifier("workout-finish")
             }
             HStack(alignment: .center, spacing: 10) {
-                if session.raw["planId"].string.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
-                        Image(systemName: "pencil.line").font(.system(size: 15)).foregroundStyle(SpotterPalette.muted)
-                        TextField("输入训练标题", text: Binding(get: { session.plan.title == "自由训练" ? "" : session.plan.title }, set: { value in store.mutate { $0.raw["plan"]["title"] = .string(value.trimmingCharacters(in: .whitespaces).isEmpty ? "自由训练" : String(value.prefix(100))) } }))
-                            .font(.system(size: 16, weight: .bold))
-                    }.padding(.horizontal, 9).padding(.vertical, 7).background(SpotterPalette.card.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
-                } else {
-                    VStack(alignment: .leading, spacing: 3) { Text(session.plan.category).font(.system(size: 11)).foregroundStyle(SpotterPalette.muted); Text(entry.title).font(.system(size: 18, weight: .bold)) }
+                        Text(session.plan.category).font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
+                        syncIndicator
+                        if #available(iOS 17.0, *) {
+                            NativeWatchWorkoutBPM(context: watchContext(entry, session: session))
+                        }
+                    }
+                    if session.raw["planId"].string.isEmpty {
+                        HStack(spacing: 5) {
+                            Image(systemName: "pencil.line").font(.system(size: 15)).foregroundStyle(SpotterPalette.muted)
+                            TextField("输入训练标题", text: Binding(get: { session.plan.title == "自由训练" ? "" : session.plan.title }, set: { value in store.mutate { $0.raw["plan"]["title"] = .string(value.trimmingCharacters(in: .whitespaces).isEmpty ? "自由训练" : String(value.prefix(100))) } }))
+                                .font(.system(size: 16, weight: .bold))
+                        }.padding(.horizontal, 9).padding(.vertical, 7).background(SpotterPalette.card.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Text(entry.title).font(.system(size: 18, weight: .bold))
+                    }
                 }
                 Spacer(minLength: 0)
                 if let cardio = session.cardioActivity {
@@ -2960,55 +2996,61 @@ struct NativeActiveWorkoutView: View {
                         .accessibilityHidden(true)
                 } else {
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text("\(session.completedSets)/\(session.rows.flatMap { $0 }.count) 组").font(.system(size: 14, weight: .bold))
+                        Text("\(session.completedSets)/\(session.totalSets) 组").font(.system(size: 14, weight: .bold))
                         Text("\(session.volumeKg.formatted(.number.precision(.fractionLength(0...1)))) kg 容量").font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
                     }
                 }
             }
-            if #available(iOS 17.0, *) {
-                NativeWatchHeartRateStrip(context: .init(owner: store.owner, workoutID: entry.id, isRunning: session.isRunning),
-                                          cardio: session.watchCardioActivity)
-            }
-            HStack(spacing: 8) {
-                NativeWorkoutSyncLabel(status: store.draftSyncStatus).lineLimit(2)
-                Spacer(minLength: 0)
-                if let position = store.undoableSet, session.plan.exercises.indices.contains(position.move) {
-                    Button(action: undoLatestSet) {
-                        Label("撤销上一组", systemImage: "arrow.uturn.backward").font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.spotterControl)
-                    .disabled(store.isBusy)
-                    .accessibilityIdentifier("workout-undo-set")
-                    .accessibilityHint("\(session.plan.exercises[position.move]["name"].string)，第 \(position.row + 1) 组")
-                }
-            }
-            if let problem = store.syncProblem, store.networkAvailable != false {
-                HStack {
-                    Text(problem).font(.caption2).foregroundStyle(SpotterPalette.muted)
-                    Spacer(minLength: 8)
-                    Button("重试") { Task { await store.syncLocalChanges() } }
-                        .font(.caption.weight(.semibold)).buttonStyle(.spotterControl).disabled(store.isSyncing)
-                }
-            }
             if session.raw["rest"] != .null { restTimer(session) }
-        }.padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 12)
+        }.padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
+    }
+
+    private func watchContext(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> NativeWatchWorkoutContext {
+        .init(owner: store.owner, workoutID: entry.id, isRunning: session.isRunning)
+    }
+
+    private var syncIndicator: some View {
+        let status = store.draftSyncStatus
+        return Button { panel = .sync } label: {
+            Image(systemName: status.icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(store.syncProblem != nil || status == .localSaveFailed ? .red : SpotterPalette.muted)
+                .frame(minWidth: 30, minHeight: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel(status.title)
+        .accessibilityHint("查看训练同步状态")
+        .accessibilityIdentifier("workout-sync-status")
+    }
+
+    private var syncPanel: some View {
+        Form {
+            NativeWorkoutSyncLabel(status: store.draftSyncStatus)
+            if let problem = store.syncProblem { Text(problem).font(.footnote) }
+            if store.draftSyncStatus != .synced, store.networkAvailable != false {
+                Button("重试") { Task { await store.syncLocalChanges() } }
+                    .disabled(store.isSyncing)
+            }
+        }
+        .navigationTitle("训练同步").navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { panel = nil } } }
     }
 
     private func restTimer(_ session: NativeWorkoutSession) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             if let rest = session.restStatus(at: Int(context.date.timeIntervalSince1970 * 1_000)) {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         restSummary(rest).fixedSize(horizontal: true, vertical: false)
-                        Spacer(minLength: 4)
+                        Spacer(minLength: 0)
                         restControls(rest)
                     }
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 0) {
                         restSummary(rest)
                         restControls(rest)
                     }
                 }
-                .padding(.top, 5)
                 .onAppear { lastRestRemaining = rest.remainingSeconds }
                 .onChange(of: rest.remainingSeconds) { remaining in
                     if (lastRestRemaining ?? 0) > 0, remaining == 0, phase == .active {
@@ -3022,10 +3064,11 @@ struct NativeActiveWorkoutView: View {
     }
 
     private func restSummary(_ rest: NativeWorkoutSession.RestStatus) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: 6) {
             Text(rest.remainingSeconds > 0 ? rest.kind : "休息结束").font(.caption.weight(.semibold))
             if rest.remainingSeconds > 0 {
-                Text(NativeWorkoutView.duration(rest.remainingSeconds * 1_000)).font(.subheadline.bold()).monospacedDigit()
+                Text(NativeWorkoutView.duration(rest.remainingSeconds * 1_000))
+                    .font(.subheadline.bold()).monospacedDigit().contentTransition(.numericText(countsDown: true))
             }
         }
         .accessibilityElement(children: .ignore)
@@ -3036,40 +3079,50 @@ struct NativeActiveWorkoutView: View {
     }
 
     private func restControls(_ rest: NativeWorkoutSession.RestStatus) -> some View {
-        HStack(spacing: 5) {
-            Button { store.mutate { $0.adjustRest(by: -15) } } label: { Text("−15 秒").font(.caption.weight(.semibold)) }
+        HStack(spacing: 4) {
+            restButton("−15 秒") { store.mutate { $0.adjustRest(by: -15) } }
                 .disabled(rest.remainingSeconds == 0)
                 .accessibilityLabel("减少休息 15 秒")
                 .accessibilityIdentifier("workout-rest-less")
-            Button { store.mutate { $0.adjustRest(by: 15) } } label: { Text("+15 秒").font(.caption.weight(.semibold)) }
+            restButton("+15 秒") { store.mutate { $0.adjustRest(by: 15) } }
                 .disabled(rest.remainingSeconds >= NativeWorkoutSession.maximumRestSeconds)
                 .accessibilityLabel("增加休息 15 秒")
                 .accessibilityIdentifier("workout-rest-more")
-            Button { store.mutate { $0.clearRest() } } label: {
-                Text(rest.remainingSeconds > 0 ? "跳过" : "关闭").font(.caption.weight(.semibold))
-            }
-            .accessibilityLabel(rest.remainingSeconds > 0 ? "跳过休息" : "关闭休息计时")
-            .accessibilityIdentifier("workout-rest-skip")
+            restButton(rest.remainingSeconds > 0 ? "跳过" : "关闭") { store.mutate { $0.clearRest() } }
+                .accessibilityLabel(rest.remainingSeconds > 0 ? "跳过休息" : "关闭休息计时")
+                .accessibilityIdentifier("workout-rest-skip")
         }
-        .buttonStyle(.spotterControl)
         .disabled(store.isBusy)
     }
 
-    private func exerciseCard(_ index: Int, move: NativeJSON, session: NativeWorkoutSession) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
+    private func restButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.caption.weight(.semibold))
+                .padding(.horizontal, 8).frame(minHeight: 26)
+                .background(SpotterPalette.card.opacity(0.8), in: Capsule())
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }.buttonStyle(.spotterPress)
+    }
+
+    private func exerciseCard(_ index: Int, move: NativeJSON, session: NativeWorkoutSession, nextRow: Int?) -> some View {
+        let rows = session.rows.indices.contains(index) ? session.rows[index] : []
+        return VStack(alignment: .leading, spacing: 4) {
             Button { withAnimation(motion) { openedMove = openedMove == index ? -1 : index; edit = nil } } label: {
                 HStack(spacing: 9) {
                     Text(move["sourceSlot"].string.isEmpty ? "\(index + 1)" : move["sourceSlot"].string).font(.system(size: 13, weight: .bold)).frame(width: 34, height: 30).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 8))
                     Text(move["name"].string).font(.system(size: 16, weight: .bold)).multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
-                    Text("\(session.rows.indices.contains(index) ? session.rows[index].filter { $0["done"].bool }.count : 0)/\(Int(move["sets"].number)) 组").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
+                    Text("\(rows.filter { $0["done"].bool }.count)/\(rows.count) 组")
+                        .font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
+                        .monospacedDigit().fixedSize()
                     Image(systemName: "chevron.down").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
                         .rotationEffect(.degrees(openedMove == index ? 180 : 0))
                 }
             }.buttonStyle(.spotterPress)
                 .accessibilityValue(openedMove == index ? "已展开" : "已收起")
+            exerciseSummary(index, move: move, category: session.plan.category)
             if openedMove == index {
-                let rows = session.rows.indices.contains(index) ? session.rows[index] : []
                 let warmup = NativeExerciseLabel(move).warmup
                 let previous = exerciseHistory.matching(.init(move)).first {
                     $0.isTimed == (move["seconds"].number > 0) &&
@@ -3077,15 +3130,17 @@ struct NativeActiveWorkoutView: View {
                 }
                 let reference = previous.map { NativeExerciseHistory.previousRows(for: rows, from: $0, move: move) }
                 let suggestion = session.plan.category == "力量训练" ? exerciseHistory.increase(for: move) : nil
-                VStack(alignment: .leading, spacing: 11) {
+                VStack(alignment: .leading, spacing: 8) {
                     if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted) }
-                    Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
-                    if showTempo && !move["tempo"].string.isEmpty { Text("节奏 \(move["tempo"].string)").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted) }
-                    exerciseHistoryActions(index, move: move, rows: rows, record: previous, reference: reference)
+                    if let previous, let reference, zip(rows, reference).contains(where: { row, source in
+                        source.map { NativeExerciseHistory.copied(row, from: $0, record: previous, move: move) != row } ?? false
+                    }) {
+                        reuseButton(index, move: move, record: previous).buttonStyle(.spotterControl)
+                    }
                     if let suggestion { progressionButton(index, move: move, rows: rows, suggestion: suggestion) }
                     ForEach(Array(rows.enumerated()), id: \.offset) { row, line in
                         setRow(index, row: row, move: move, line: line,
-                               previous: reference?[row], previousUnit: previous?.unit)
+                               previous: reference?[row], previousUnit: previous?.unit, isNext: row == nextRow)
                             .id(NativeWorkoutSession.SetPosition(move: index, row: row))
                     }
                     Button { withAnimation(motion) { store.mutate { $0.addSet(move: index) } } } label: { Label("增加一组", systemImage: "plus").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity) }
@@ -3095,50 +3150,46 @@ struct NativeActiveWorkoutView: View {
         }.padding(12).spotterCard()
     }
 
-    private func exerciseHistoryActions(_ index: Int, move: NativeJSON, rows: [NativeJSON],
-                                        record: NativeExerciseHistory.Record?, reference: [NativeJSON?]?) -> some View {
-        let action = Button {
-            edit = nil
-            panelMove = move
-            panel = .progress
-        } label: {
-            Label("动作进步", systemImage: "chart.line.uptrend.xyaxis")
-                .font(.caption.weight(.semibold))
-        }
-        let canCopy = record.map { previous in
-            zip(rows, reference ?? []).contains { row, source in
-                source.map { NativeExerciseHistory.copied(row, from: $0, record: previous, move: move) != row } ?? false
+    private func exerciseSummary(_ index: Int, move: NativeJSON, category: String) -> some View {
+        let summary = HStack(spacing: 6) {
+            Text(prescription(move)).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
+            if showTempo, let tempo = NativeExerciseTempo.display(move, category: category) {
+                Text(tempo.prescribed ? tempo.value : "建议 \(tempo.value)")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(accent.tint)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(SpotterPalette.wash, in: Capsule())
+                    .fixedSize()
+                    .accessibilityLabel(tempo.accessibilityDescription)
+                    .accessibilityIdentifier("workout-exercise-tempo-\(index)")
             }
-        } ?? false
+        }
         let demonstration = Button {
             edit = nil
             panelMove = move
             panel = .demonstration
         } label: {
             Label("动作演示", systemImage: "play.rectangle")
-                .font(.caption.weight(.semibold))
+                .font(.caption2.weight(.semibold)).fixedSize()
+                .padding(.horizontal, 8)
+                .frame(height: 25)
+                .background(SpotterPalette.background, in: Capsule())
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.spotterPress)
         .accessibilityIdentifier("workout-exercise-demonstration-\(index)")
         return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                if let record {
-                    Text("上次 · " + record.day).font(.caption).foregroundStyle(SpotterPalette.muted).fixedSize()
-                }
+            HStack(spacing: 6) {
+                summary.fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 0)
-                if canCopy, let record { reuseButton(index, move: move, record: record) }
                 demonstration
-                action
             }
-            VStack(alignment: .leading, spacing: 5) {
-                if let record { Text("上次 · " + record.day).font(.caption).foregroundStyle(SpotterPalette.muted) }
-                if canCopy, let record { reuseButton(index, move: move, record: record) }
-                HStack(spacing: 8) {
-                    demonstration
-                    action
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                summary
+                demonstration.frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .buttonStyle(.spotterControl)
     }
 
     private func reuseButton(_ index: Int, move: NativeJSON, record: NativeExerciseHistory.Record) -> some View {
@@ -3199,7 +3250,7 @@ struct NativeActiveWorkoutView: View {
     }
 
     private func setRow(_ moveIndex: Int, row: Int, move: NativeJSON, line: NativeJSON,
-                        previous: NativeJSON?, previousUnit: String?) -> some View {
+                        previous: NativeJSON?, previousUnit: String?, isNext: Bool) -> some View {
         HStack(alignment: .top, spacing: 7) {
             VStack(spacing: 3) {
                 Text("\(row + 1)").font(.system(size: 16, weight: .bold))
@@ -3229,30 +3280,39 @@ struct NativeActiveWorkoutView: View {
                 Image(systemName: line["done"].bool ? "checkmark.circle.fill" : "circle").font(.system(size: 24, weight: .medium)).frame(width: 38, height: 50)
                     .foregroundStyle(line["done"].bool ? SpotterPalette.accent : SpotterPalette.muted.opacity(0.55))
                     .scaleEffect(line["done"].bool ? 1.08 : 1)
-            }.buttonStyle(.spotterPress).accessibilityLabel("标记第\(row + 1)组\(line["done"].bool ? "未完成" : "完成")")
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityLabel("标记第\(row + 1)组\(line["done"].bool ? "未完成" : "完成")")
+            .accessibilityHint(isNext ? "下一组" : "")
         }
         .padding(7)
         .background(line["done"].bool ? SpotterPalette.wash : SpotterPalette.background, in: RoundedRectangle(cornerRadius: 11))
+        .overlay {
+            if isNext {
+                RoundedRectangle(cornerRadius: 11).strokeBorder(accent.tint.opacity(0.55)).allowsHitTesting(false)
+            }
+        }
         .animation(motion, value: line["done"].bool)
     }
 
     private func toggleDone(move: Int, row: Int) {
         edit = nil
-        guard store.toggleDone(move: move, row: row), let session = store.active?.session else { return }
+        guard store.toggleDone(move: move, row: row) else { return }
         setFeedback.impactOccurred()
-        let position = NativeWorkoutSession.SetPosition(move: move, row: row)
-        undoneSet = nil
-        guard autoAdvance, let next = session.nextSet(after: position) else { return }
-        withAnimation(motion) { openedMove = next.move }
     }
 
     private func undoLatestSet() {
         guard let position = store.undoLastCompletedSet() else { return }
         setFeedback.impactOccurred()
+        edit = nil
+        undoneSet = position
+        revealSet(position)
+    }
+
+    private func revealSet(_ position: NativeWorkoutSession.SetPosition) {
         withAnimation(motion) {
-            edit = nil
             openedMove = position.move
-            undoneSet = position
+            setToReveal = position
         }
     }
 
@@ -3290,7 +3350,11 @@ struct NativeActiveWorkoutView: View {
                 .buttonStyle(SpotterChoiceStyle(selected: true, horizontalPadding: 1))
                 .disabled(session.plan.exercises.count >= 30)
             }
-            footerAction("写心得", symbol: "square.and.pencil") { panel = .note }
+            if #available(iOS 17.0, *) {
+                footerAction("手表", symbol: "applewatch") { panel = .watch }
+                    .accessibilityHint("连接 Apple Watch 并查看实时心率")
+                    .accessibilityIdentifier("workout-watch")
+            }
             footerAction("退出", symbol: "rectangle.portrait.and.arrow.right", action: exitWorkout)
                 .disabled(store.isBusy)
                 .accessibilityHint("暂停计时并返回")
@@ -3420,7 +3484,6 @@ private struct NativeWorkoutNotePanel: View {
             Button("完成") { dismiss() }.buttonStyle(SpotterNativeButtonStyle(primary: true)).frame(maxWidth: .infinity, alignment: .trailing)
             Spacer()
         }.padding(18).background(SpotterPalette.background).navigationTitle("训练心得").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
     }
 }
 
@@ -3435,6 +3498,11 @@ private struct NativeWorkoutSettingsPanel: View {
                 HStack { Text("本次默认休息（秒）"); Spacer(); TextField("秒", value: $rest, format: .number).multilineTextAlignment(.trailing).keyboardType(.numberPad).frame(width: 70) }
                 HStack { Text("实际时长（分钟）"); Spacer(); TextField("使用计时", value: $minutes, format: .number).multilineTextAlignment(.trailing).keyboardType(.numberPad).frame(width: 70) }
                 Text("时长填 0 时使用训练计时。").font(.footnote).foregroundStyle(SpotterPalette.muted)
+            }
+            NavigationLink {
+                NativeWorkoutNotePanel(store: store)
+            } label: {
+                Label("训练心得", systemImage: "square.and.pencil")
             }
             Button("保存设置") {
                 store.mutate { $0.raw["defaultRestOverride"] = .number(max(0, min(600, rest.rounded()))); $0.raw["minutes"] = .number(max(0, min(720, minutes.rounded()))) }

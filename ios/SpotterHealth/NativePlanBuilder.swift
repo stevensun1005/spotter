@@ -25,7 +25,7 @@ struct NativePlanEditorPanel: View {
     private let reviewed: ((NativePlanDraft) -> Void)?
     private let start: ((NativePlanDraft) -> Void)?
 
-    private enum Field: Hashable { case title, manualMove, moveName(Int), number(Int, String) }
+    private enum Field: Hashable { case title, manualMove, moveName(Int), tempo(Int), number(Int, String) }
     private static let restChoices = [30, 45, 60, 90, 120, 180]
 
     init(store: NativeWorkoutStore, draft: NativePlanDraft, saved: @escaping (String) -> Void,
@@ -318,6 +318,17 @@ struct NativePlanEditorPanel: View {
                           value: move[timed ? "seconds" : "reps"].number, maximum: timed ? 18000 : 999, decimal: false)
                 numberBox(index, key: "weight", label: unit, value: move["weight"].number, maximum: 2000, decimal: true)
             }
+            TextField("节奏（例如 2-0-1）", text: Binding(
+                get: { move["tempo"].string },
+                set: { setMove(index, key: "tempo", value: $0.isEmpty ? .null : .string(String($0.prefix(80)))) }
+            ))
+            .font(.subheadline)
+            .keyboardType(.numbersAndPunctuation)
+            .focused($focusedField, equals: .tempo(index))
+            .padding(.horizontal, 10).padding(.vertical, 9)
+            .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 10))
+            .accessibilityLabel("动作节奏")
+            .accessibilityIdentifier("plan-editor-tempo-\(index)")
             HStack(spacing: 8) {
                 SpotterMenuPicker("重量单位", selection: Binding(get: { unit }, set: { setMove(index, key: "unit", value: .string($0)) }),
                                   options: [("kg", "kg"), ("lb", "lb")]) {

@@ -21,7 +21,11 @@ final class NativeTrainingLiveActivity {
     private var isUpdating = false
 
     func sync(workoutKey: String?, state: SpotterTrainingActivityAttributes.ContentState?, foreground: Bool) {
-        pending = Update(workoutKey: workoutKey, state: state, foreground: foreground)
+        let update = Update(workoutKey: workoutKey, state: state, foreground: foreground)
+        pending = update
+        // ActivityKit only starts from the foreground. Request before a later
+        // scene update can replace this snapshot in the asynchronous queue.
+        startIfNeeded(update)
         guard !isUpdating else { return }
         isUpdating = true
         Task {
@@ -35,8 +39,7 @@ final class NativeTrainingLiveActivity {
 
     private func apply(_ update: Update) async {
         let authorized = ActivityAuthorizationInfo().areActivitiesEnabled
-        let activities = Training.activities
-        for activity in activities where !authorized || activity.attributes.workoutKey != update.workoutKey {
+        for activity in currentActivities where !authorized || activity.attributes.workoutKey != update.workoutKey {
             if #available(iOS 16.2, *) {
                 await activity.end(nil, dismissalPolicy: .immediate)
             } else {
@@ -50,7 +53,7 @@ final class NativeTrainingLiveActivity {
         }
         guard authorized else { return }
 
-        if let activity = activities.first(where: { $0.attributes.workoutKey == workoutKey }) {
+        if let activity = currentActivities.first(where: { $0.attributes.workoutKey == workoutKey }) {
             if #available(iOS 16.2, *) {
                 let current = activity.content.state
                 let next = activityState(state, preservingRecentHeartFrom: current)
@@ -61,10 +64,19 @@ final class NativeTrainingLiveActivity {
             }
             return
         }
+        startIfNeeded(update)
+    }
 
+    private var currentActivities: [Training] {
+        Training.activities.filter { $0.activityState != .ended && $0.activityState != .dismissed }
+    }
+
+    private func startIfNeeded(_ update: Update) {
+        guard update.foreground, let workoutKey = update.workoutKey, let state = update.state else { return }
         // A user-dismissed activity stays dismissed for this workout.
         let defaults = UserDefaults.standard
-        guard update.foreground, defaults.string(forKey: Self.lastStartedKey) != workoutKey else { return }
+        guard defaults.string(forKey: Self.lastStartedKey) != workoutKey,
+              ActivityAuthorizationInfo().areActivitiesEnabled, currentActivities.isEmpty else { return }
         let attributes = SpotterTrainingActivityAttributes(workoutKey: workoutKey)
         do {
             if #available(iOS 16.2, *) {

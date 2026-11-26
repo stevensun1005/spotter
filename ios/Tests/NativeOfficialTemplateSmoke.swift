@@ -103,5 +103,36 @@ struct NativeOfficialTemplateSmoke {
             }
         }
         precondition(weeklySignatures.count > 1, "The explicit weeks must preserve their distinct prescriptions.")
+        guard let dayThree = program.sessions(in: 1).first(where: { $0.plan["title"].string.hasPrefix("W01 D3 ") }) else {
+            preconditionFailure("Missing W01 D3 in the official functional cycle.")
+        }
+        verifyDayThreeCircuit(NativePlan(raw: dayThree.plan), planID: dayThree.id)
+    }
+
+    private static func verifyDayThreeCircuit(_ plan: NativePlan, planID: String) {
+        let exercises = plan.exercises
+        let a1 = exercises.firstIndex { $0["sourceSlot"].string == "A1" }!
+        let a2 = exercises.firstIndex { $0["sourceSlot"].string == "A2" }!
+        let a3 = exercises.firstIndex { $0["sourceSlot"].string == "A3" }!
+        let now = 1_795_536_000_000
+        var workout = NativeWorkoutSession.start(plan: plan, planId: planID, now: now)
+        precondition(workout.isInSameGroup(a1, a2) && !workout.isInSameGroup(a1, a3),
+                     "W01 D3 alternates the paired mat exercises before going to the separately prescribed cable station.")
+        var previous: NativeWorkoutSession.SetPosition?
+        while let position = workout.nextSet(after: previous), NativeExerciseLabel(exercises[position.move]).warmup {
+            precondition(workout.completeSet(at: position, after: previous, now: now) != nil)
+            previous = position
+        }
+        for row in 0..<2 {
+            for move in [a1, a2] {
+                let position = NativeWorkoutSession.SetPosition(move: move, row: row)
+                precondition(workout.nextSet(after: previous) == position, "A1 and A2 should alternate within the round.")
+                precondition(workout.completeSet(at: position, after: previous, now: now) != nil)
+                previous = position
+            }
+        }
+        let cableStation = NativeWorkoutSession.SetPosition(move: a3, row: 0)
+        precondition(workout.nextSet(after: previous) == cableStation)
+        precondition(workout.restBetween(previous!, and: cableStation).kind == "换站")
     }
 }

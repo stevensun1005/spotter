@@ -379,12 +379,45 @@ extension NativeWatchHeartRate: WCSessionDelegate {
 }
 
 @available(iOS 17.0, *)
-struct NativeWatchHeartRateStrip: View {
+struct NativeWatchWorkoutBPM: View {
     @ObservedObject private var watch = NativeWatchHeartRate.shared
+    let context: NativeWatchWorkoutContext
+
+    var body: some View {
+        if let sample = watch.latest(for: context) {
+            TimelineView(.periodic(from: .now, by: 5)) { clock in
+                if sample.isFresh(at: clock.date) {
+                    Label(sample.bpm.formatted(), systemImage: "heart.fill")
+                        .font(.caption2.weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(SpotterPalette.accent)
+                        .accessibilityLabel("实时心率 \(sample.bpm) 次每分钟")
+                        .accessibilityIdentifier("workout-watch-header-bpm")
+                        .privacySensitive()
+                }
+            }
+        }
+    }
+}
+
+@available(iOS 17.0, *)
+struct NativeWorkoutWatchPanel: View {
+    @ObservedObject private var watch = NativeWatchHeartRate.shared
+    @Environment(\.dismiss) private var dismiss
     let context: NativeWatchWorkoutContext
     var cardio: NativeWorkoutSession.CardioActivity?
 
     var body: some View {
+        ScrollView {
+            connectionCard
+                .padding(16)
+        }
+        .background(SpotterPalette.background)
+        .navigationTitle("Apple Watch")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
+    }
+
+    private var connectionCard: some View {
         TimelineView(.periodic(from: .now, by: 5)) { clock in
             let connection = watch.state(for: context)
             let sample = watch.latest(for: context)
@@ -411,7 +444,7 @@ struct NativeWatchHeartRateStrip: View {
                 }
                 control(connection)
             }
-            .padding(7)
+            .padding(12)
             .background(SpotterPalette.card.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
         }
         .accessibilityElement(children: .contain)

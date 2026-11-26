@@ -47,7 +47,9 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 
 ### 训练、计划与详情
 
-- 训练计时根据起止时间和已累计时长计算，切到后台或锁屏不会自动暂停。可逐组记重量、次数、时长、左右侧及适用的 RPE。组间休息可调整、跳过或倒计时。完成组和训练前次表现可用于下一组参考。
+- 训练计时根据起止时间和已累计时长计算，切到后台或锁屏仍继续。可逐组记重量、次数、时长、左右侧及适用的 RPE。计时区下方的休息条可调整或跳过，左侧回转箭头撤销最近完成组，云朵状态在训练类型旁。底栏「更多 → 训练心得」保留随训练保存的笔记。
+- 超级组按轮次切换动作。例如 A1 第 1 组、A2 第 1 组、A1 第 2 组、A2 第 2 组。保留计划明确指定的分组和换站，旧计划可从动作编号推断同站分组。iPhone 与手表使用同一个组次排序，iPhone 自动展开下一动作，并可在「设置 → 训练偏好」高亮待完成组。[训练排序和休息规则](../ios/SpotterHealth/NativeWorkoutModels.swift)
+- 进行中的动作卡片可直接打开演示、历史与统计。三段动作节奏位于组次和重量旁，可在计划或模板的动作编辑区设定。旧四段数据保留，卡片显示前三段。没有指定节奏的适用力量动作会标出建议节奏。既有草稿、打卡和云端计划沿用原数据结构。[训练页](../ios/SpotterHealth/NativeWorkouts.swift) · [计划编辑器](../ios/SpotterHealth/NativePlanBuilder.swift)
 - iPhone 训练底栏的「退出」会暂停计时、保存草稿并返回，「最小化」会继续计时。重新打开暂停的训练仍保持暂停。右上角「结束训练」可保存有内容的训练，试练没有可打卡内容时可返回继续记录或删除这次草稿。
 - 训练页只保留训练操作。点「退出」后，首页或「我的计划」的训练卡片「…」菜单提供「重新开始」和「删除本次训练」，未打开的训练草稿提供「删除训练草稿」。底栏上方的状态条只用于返回训练。iOS 18 及以上可向左滑暂停中或未打开的训练草稿，再点「删除」确认。重开沿用训练项目并换新草稿 ID，删除只同步该次草稿的移除。当天排定的计划和之前的打卡会保留。[原生训练](../ios/SpotterHealth/NativeWorkouts.swift) · [全局状态条](../ios/SpotterHealth/NativeApp.swift)
 - 「训练周期」支持多个周、阶段、模板快照、复制周、进阶/减量和可选的 %1RM、目标 RPE。保存周期草稿与预览排期是同一流程的不同动作。确认时服务端核对当前 revision 和预览令牌，保护已完成、进行中及手动改动的训练。
@@ -97,7 +99,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 - 官方扩充以[公开原创条目](../cloudflare/features/exercises/spotter-catalogue-additions.json)和精确别名维护，统一生成目录索引、动作要点、器械和肌群数据。完全相同的动作复用原有 ID。主器材与所需附件都可用于动作库筛选。私人计划的排期、处方与账号记录留在所属账号中。
 - 动作库底部不展示授权和目录下载链接。随产品分发的第三方许可声明从账号设置查阅，已有素材的归属及许可证继续保留。
 - 标准示范随产品更新向所有账号提供，沿用「训练 → 动作库」入口。用户从已绑定的外部 Agent 为自定义动作生成示范时，结果按所属账号保存。覆盖统计按已登记且同时有 MP4 和 JPEG 的标准目录 ID 计算。
-- iPhone 动作详情的「历史」按训练列已完成组次，「统计」按日汇总训练容量和组数，并按有效组显示最大重量及设置中选择的 1RM 估算方法。两页只读本人记录，可加载更早的训练。动作匹配优先用准确目录 ID，个人动作和相近变式保持独立。「今日训练」的「动作演示」在开练前列出计划动作。进行中的训练也有「动作演示」，打开「要点」和可用示范。「动作进步」仍打开「统计」。对旧计划使用标准目录的旧 ID 映射或唯一精确名称。动作身份不一致时保留个人动作，未保存私人 GIF 时显示「此动作暂时没有演示动图」，读取失败可重试。变式使用目录已有分组、明确关联的个人变式，以及相同训练模式与主要肌群的参考动作。
+- iPhone 动作详情的「历史」按训练列已完成组次，「统计」按日汇总训练容量和组数，并按有效组显示最大重量及设置中选择的 1RM 估算方法。两页只读本人记录，可加载更早的训练。动作匹配优先用准确目录 ID，个人动作和相近变式保持独立。「今日训练」的「动作演示」在开练前列出计划动作。进行中可从动作卡片的「动作演示」打开「要点」和示范，再切到「历史」或「统计」。对旧计划使用标准目录的旧 ID 映射或唯一精确名称。动作身份不一致时保留个人动作，未保存私人 GIF 时显示「此动作暂时没有演示动图」，读取失败可重试。变式使用目录已有分组、明确关联的个人变式，以及相同训练模式与主要肌群的参考动作。
 - 维护者可用 [批量渲染脚本](../tools/render-exercise-demo-batch.mjs) 按本地清单生成候选素材。清单的 `kind` 为 `catalogue` 或 `private`，`items` 提供目录编号或不含账号数据的本地编号、相对运动配方路径及可选的封面相位。脚本离线执行并输出与实际渲染器版本对应的校验收据和五张关键帧总览。从源码目录执行 `node tools/render-exercise-demo-batch.mjs --manifest work/batch.json --output work/candidates --renderer <解压后的 renderer.html> --chrome <Chrome 路径>`。标准 MP4 使用 macOS 的 AVFoundation 编码。再次运行同一清单会核对校验收据。标准候选包含 MP4 和 JPEG，私人候选包含 GIF 并留在 Git 之外。核对动作、器械和支撑点后再登记标准素材。
 - [旧演示审计](../cloudflare/scripts/audit-exercise-animations.mjs) 按目录实际选中的动画统计，用 `--list-legacy` 列出仍选用旧动图的编号和器械，用 `--require-original-replacements` 检查旧动图清零、缺失或封面不匹配。按器械分组的 [配方源码](../tools/spotter-demo/) 覆盖自重、哑铃、绳索、杠铃、史密斯机、力量器械、弹力带、稳定球及有氧设备。核对关键帧后，用 [素材登记工具](../tools/spotter-demo/promote-reviewed-legacy.mjs) 验证每段视频和封面的校验和，再生成 iPhone 离线资源。Mac 批量离线渲染可用 `SPOTTER_DEMO_SYSTEM_GPU=1` 调用系统 GPU。
 - [有氧及负重行走配方生成器](../tools/spotter-demo/write-cardio-recipes.mjs) 可按精确目录编号把公开运动源码写成上述批量清单。渲染技能支持单车、跑步机、椭圆机、台阶机、划船机、跳绳、负重行走及实心球等器械和动作要素。
@@ -113,13 +115,13 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 使用方式 | 路径与数据边界 | 实现 |
 | --- | --- | --- |
 | iPhone 查看 Apple 健康 | 「设置 → 手表与健康 → 授权 Apple 健康」，由系统选择具体类别。健康和身体页面在前台支持读取刷新。系统样本取决于设备、系统可读类型和用户选择。 | [HealthKitReader](../ios/SpotterHealth/HealthKitReader.swift) · [NativeHealth](../ios/SpotterHealth/NativeHealth.swift) |
-| Apple Watch 实时训练 | iPhone 打开训练后，在「Apple Watch 心率」点「连接」。第一次在手表确认权限。在表上可看动作和组次、记录或撤销当前组、调节休息、暂停或继续。实时心率为当前训练内的配对设备通信，过期读数会隐藏。完成打卡从 iPhone 发起。 | [Watch App](../ios/SpotterWatch/SpotterWatchApp.swift) · [iPhone 镜像管理](../ios/SpotterHealth/NativeWatchHeartRate.swift) |
+| Apple Watch 实时训练 | iPhone 打开训练后，点底栏「手表 → 连接」。第一次在手表确认权限。手表可看动作和组次、记录当前组、调节休息、暂停或继续。实时读数为当前训练内的配对设备通信，在训练类型旁显示，过期时隐藏。完成打卡从 iPhone 发起。 | [Watch App](../ios/SpotterWatch/SpotterWatchApp.swift) · [iPhone 镜像管理](../ios/SpotterHealth/NativeWatchHeartRate.swift) |
 | 手表完成摘要与历史心率 | 打卡后按真实训练时间和连接令牌归属摘要，显示活跃热量、总热量和平均心率。总热量使用同段活跃与静息热量；缺项显示「—」。训练详情「训练心率」右上角的圆形同步按钮可补读曲线和相符的 Apple Watch 运动；正式记入的摘要和原始心率独立存储。训练热量只作训练展示。 | [Watch 数据协议](../ios/SpotterHealth/NativeWatchHeartRatePacket.swift) · [摘要补传](../ios/SpotterHealth/NativeWorkoutHealthSync.swift) · [摘要 API](../cloudflare/app/api/health/workout-summary/route.ts) |
 | Garmin、WHOOP、Google 和 RENPHO | 这些来源已写入 Apple 健康的受支持字段随 HealthKit 读取；源设备未写入的字段需要厂商能力。网页训练详情有 FIT/TCX、Apple 健康导出、WHOOP CSV/ZIP 和通用 CSV 入口。WHOOP 在线同步是网页功能，需要已配置的厂商 OAuth。RENPHO 分段肌肉和脂肪依赖支持分段的秤与可用导出，目前没有从 Apple 健康取得这类分段指标的入口。 | [设备说明](../ios/README.md) · [网页心率导入](../cloudflare/features/heart/) |
 | 独立 Node 的原生配对 | 网页生成五分钟的一次性配对码。手机在测试/自托管 HTTPS 地址使用 Keychain 设备令牌，按账号及窗口上传选定的心率、体重、活动和运动。重复样本与已写运动保持幂等。重新配对替换旧凭据，断开后旧设备失效。 | [Apple 设备 API](../app/api/health/apple/) · [配对与同步说明](health-device-sync.md) |
 | 私密 Sites 的 iPhone 历史导入 | 在 iPhone Safari 的打卡详情用快捷指令读取训练时段；预览后由网页账号保存。也支持网页文件流程，是否可用以已发布版为准。 | [Sites 接入差异](health-device-sync.md#两种现有接入的区别) |
 | 主屏小组件 | 长按 iPhone 主屏 → 添加小组件 → 搜索「训练搭子」。「搭子督练」支持小号或中号，小号并排查看本周进度。「今日饮食」和「我的训练周报」为中号。「年度训练热力图」为中号或大号。周报展示最近完整周；热力图展示最近 365 天。点摘要打开对应 App 页面。 | [Widget 卡片](../ios/SpotterWidget/SpotterWidget.swift) · [共享摘要](../ios/SpotterWidgetShared/) |
-| 锁屏实时活动和灵动岛 | 「设置 → 计时提醒 → 锁屏实时训练」。活动训练时显示时间和完成组数，展开可查看下一组、休息倒数和近期 Watch 心率。可点按回到进行中的训练。支持能力取决于 iOS 版本、设备和系统设置。 | [App ActivityKit 管理](../ios/SpotterHealth/NativeTrainingLiveActivity.swift) · [锁屏与灵动岛](../ios/SpotterWidget/SpotterWorkoutLiveActivity.swift) |
+| 锁屏实时活动和灵动岛 | 「设置 → 计时提醒 → 锁屏实时训练」。前台打开训练即注册活动，最小化和切到其他 App 时沿用。App 内的训练页顶部和最小化训练条提供计时、组数和近期手表心率。系统灵动岛显示时间和完成组数，展开可查看下一组、休息倒数和近期心率，点按回到训练。展示由 iOS 管理。 | [App ActivityKit 管理](../ios/SpotterHealth/NativeTrainingLiveActivity.swift) · [锁屏与灵动岛](../ios/SpotterWidget/SpotterWorkoutLiveActivity.swift) |
 
 主屏小组件使用当前账号的限时摘要，签出后清理。iOS 系统可以隐藏小组件敏感内容。健康说明中的模拟器编译或合成协议验证不能证明真机授权、实际心率及 Watch 后台队列已验证。[App 与设备核验](iphone-app.md)
 
@@ -207,6 +209,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | Cloudflare 98 | `cloudflare/features/notifications/server.ts` 在生产启用所有已登录账号，覆盖当前与以后注册的账号。通知收件箱、搭子提醒和好友打卡继续使用原接口和数据表。安装了支持系统推送的 iPhone 版本后可授权锁屏通知。 | 365 项 Cloudflare 测试和 25 项独立版测试、构建及类型检查通过。线上用临时账号验证新账号收件箱、两类通知、重复打卡去重、无关账号隔离及 APNs 配置可用。未登录访问返回 401。iPhone 真机锁屏送达待验证。 |
 | Spotter 原创 3D 开发分支 | 确立所有新增、重做动作的 3D 样片风格，覆盖项目规范、外部 Agent 文档、两端的复制提示词、技能下载包及工具返回说明。移除官方模板底部的编排参考和网页动作详情的内置站外参考。为 41 个原使用第三方示范的动作制作视频和封面，其中 11 个原 MP4、27 个原分帧和 3 个原 Flow 示范。沿用原目录动作 ID。旧视频及封面链接跳转到同一动作的原创新素材。 | 41 段视频均通过 Chrome 播放、画面变化、进度跳转与封面解码。全库 5,685 个条目都有可播放的演示，其中 Spotter 3D 视频 269 个，尚有 879 个旧动图等待准确的 3D 替代。Xcode 模拟器构建、原生动作库和模板冒烟、独立版与 Cloudflare 构建、25 项独立版测试和 375 项 Cloudflare 测试通过。已核对模拟器资源与网页视频一致，本地 Worker 验证 28 个旧地址及技能下载包。当前记录为开发分支，Cloudflare、Sites、TestFlight 和 App Store 仍是既有发布。 |
 | Spotter 全库旧动图替换 | 将剩余 863 个 Flow 动图和 16 个 Workout Guide 分帧动作逐一换成 Spotter 原创 3D 视频及截帧封面，目录编号不变。标准动作从同一映射读取，iPhone 离线包重生成。 | 审计显示 5,685 个目录动作均可播放，其中 1,148 个 Spotter 3D 视频、4,537 个原有 Spotter 绘制动画，旧动图选择数与缺失数均为 0。879 个替换视频通过 Chrome 播放、跳转、画面变化及封面解码。Xcode 模拟器构建及 12 组原生冒烟通过，App 包内 1,148 个视频与 Cloudflare 源文件逐字节一致。独立版 25 项测试、Cloudflare 375 项测试、两端生产构建及渲染配方测试通过。 |
+| Build 50 后的 iPhone 开发版 | 精简训练页并迁移手表、撤销与演示入口，训练卡片恢复三段节奏。超级组按轮次切换，手机与手表共用排序。前台及时注册 ActivityKit 活动。App 内使用训练页顶部和最小化训练条展示状态，切出时由灵动岛接续。 | iPhone 17 Pro 模拟器用合成训练验证轮换、撤销、演示、历史、手表入口和最小化后的持续计时。合成 ActivityKit 会话在系统主屏幕和 Safari 上显示计时及完成组数。真机锁屏、Apple Watch 连接与心率仍待设备验证。本次为本地开发验证。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
 
