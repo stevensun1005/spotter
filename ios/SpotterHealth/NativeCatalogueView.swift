@@ -762,7 +762,7 @@ private struct NativeCatalogueCardPreview: View {
     private func preview(_ media: Media) -> some View {
         switch media {
         case .video(let url):
-            NativeExerciseVideoPlayer(url: url, playing: true)
+            NativeExerciseVideoPlayer(url: url, playing: true, fills: true)
         case .gif(let frames):
             SpotterPalette.color(0x314839).overlay {
                 NativeExerciseGIFPlayer(frames: frames, playing: true)
@@ -1387,6 +1387,14 @@ private struct NativeCatalogueExerciseDemo: View {
             if case .drawing(let drawing) = self { return drawing.isReference }
             return false
         }
+
+        /// Spotter 3D demos are 16:9; matching the frame keeps the backdrop from showing as bars above and below.
+        var stageRatio: CGFloat {
+            if case .video = self { return Self.videoRatio }
+            return 5.0 / 3.0
+        }
+
+        static let videoRatio: CGFloat = 16.0 / 9.0
     }
 
     private var reducedMotion: Bool { reduceMotion || systemReduceMotion }
@@ -1399,7 +1407,7 @@ private struct NativeCatalogueExerciseDemo: View {
             if let media {
                 stage(media)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .aspectRatio(5.0 / 3.0, contentMode: .fit)
+                    .aspectRatio(media.stageRatio, contentMode: .fit)
                     .background(SpotterPalette.color(0x314839))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .accessibilityLabel("\(entry.name)动作示意")
@@ -1440,8 +1448,8 @@ private struct NativeCatalogueExerciseDemo: View {
         switch media {
         case .video(let url):
             ZStack {
-                NativeCatalogueCover(index: index, entry: entry, ratio: 5.0 / 3.0)
-                NativeExerciseVideoPlayer(url: url, playing: playing)
+                NativeCatalogueCover(index: index, entry: entry, ratio: Media.videoRatio)
+                NativeExerciseVideoPlayer(url: url, playing: playing, fills: true)
             }
         case .gif(let frames):
             NativeExerciseGIFPlayer(frames: frames, playing: playing)
@@ -1503,6 +1511,7 @@ private struct NativeExerciseFramePlayer<Content: View>: View {
 private struct NativeExerciseVideoPlayer: UIViewRepresentable {
     let url: URL
     let playing: Bool
+    var fills = false
 
     final class Surface: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
@@ -1541,7 +1550,7 @@ private struct NativeExerciseVideoPlayer: UIViewRepresentable {
     func makeUIView(context: Context) -> Surface {
         let view = Surface()
         view.playerLayer.player = context.coordinator.player
-        view.playerLayer.videoGravity = .resizeAspect
+        view.playerLayer.videoGravity = fills ? .resizeAspectFill : .resizeAspect
         return view
     }
 
