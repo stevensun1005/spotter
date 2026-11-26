@@ -289,24 +289,26 @@ private struct NativeGuideSpotlight: View {
                 .accessibilityIdentifier(anchored ? "spotter-guide-spotlight" : "spotter-guide-fallback")
             Text(guide.step.instruction).font(.subheadline).foregroundStyle(SpotterPalette.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                if guide.step.section != .coach {
-                    Button("跳过本节") {
-                        guide.skipSection(guide.step)
-                        leave()
+            if guide.step.section != .coach || !guide.step.followsTargetTap {
+                HStack(spacing: 8) {
+                    if guide.step.section != .coach {
+                        Button("跳过本节") {
+                            guide.skipSection(guide.step)
+                            leave()
+                        }
+                        .buttonStyle(.spotterPress)
+                        .font(.caption.weight(.semibold))
+                        .frame(minHeight: 44)
                     }
-                    .buttonStyle(.spotterPress)
-                    .font(.caption.weight(.semibold))
-                    .frame(minHeight: 44)
-                }
-                Spacer(minLength: 0)
-                if !guide.step.followsTargetTap {
-                    Button("下一步") {
-                        guide.advance(guide.step)
-                        leave()
+                    Spacer(minLength: 0)
+                    if !guide.step.followsTargetTap {
+                        Button("下一步") {
+                            guide.advance(guide.step)
+                            leave()
+                        }
+                        .buttonStyle(.spotterPrimaryControl)
+                        .accessibilityIdentifier("spotter-guide-next")
                     }
-                    .buttonStyle(.spotterPrimaryControl)
-                    .accessibilityIdentifier("spotter-guide-next")
                 }
             }
         }
