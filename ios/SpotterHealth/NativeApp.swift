@@ -789,7 +789,6 @@ private struct NativeSpotterTabs: View {
     @State private var showBody = false
     @State private var showTrainingLaunch = false
     @State private var showActiveWorkout = false
-    @State private var pausedWorkoutToDiscard: NativeWorkoutEntry?
     @State private var nextLaunch: TrainingLaunch?
     @State private var finishedWorkout: NativeWorkoutEntry?
     @State private var workoutReceipt: NativeWorkoutEntry?
@@ -1044,18 +1043,6 @@ private struct NativeSpotterTabs: View {
         }
         .modifier(NativePermissionReminder(controller: permissionOnboarding,
                                            canPresent: isAvailableForWidget && !showActiveWorkout && workouts.active == nil))
-        .alert("删除本次训练？", isPresented: Binding(
-            get: { pausedWorkoutToDiscard != nil },
-            set: { if !$0 { pausedWorkoutToDiscard = nil } }
-        ), presenting: pausedWorkoutToDiscard) { entry in
-            Button("删除本次训练", role: .destructive) {
-                guard workouts.active?.key == entry.key else { return }
-                _ = workouts.discardDraft(entry)
-            }
-            Button("取消", role: .cancel) {}
-        } message: { _ in
-            Text("将删除本次计时、组次和心得。已排的训练计划和以前的打卡会保留。")
-        }
         .alert("接受好友邀请？", isPresented: Binding(
             get: { inboundInviteConfirmation != nil },
             set: { if !$0 { inboundInviteConfirmation = nil } }
@@ -1433,8 +1420,7 @@ private struct NativeSpotterTabs: View {
 
             VStack(spacing: 0) {
                 if let active = workouts.active, let session = active.session, !showActiveWorkout {
-                    NativeWorkoutStatusStrip(title: active.displayTitle, session: session, open: openActiveWorkout,
-                                             discard: { pausedWorkoutToDiscard = active })
+                    NativeWorkoutStatusStrip(title: active.displayTitle, session: session, open: openActiveWorkout)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 dock
@@ -1617,53 +1603,37 @@ private struct NativeWorkoutStatusStrip: View {
     let title: String
     let session: NativeWorkoutSession
     let open: () -> Void
-    let discard: () -> Void
 
     var body: some View {
-        HStack(spacing: 2) {
-            Button(action: open) {
-                HStack(spacing: 10) {
-                    Image(systemName: session.isRunning ? "figure.strengthtraining.traditional" : "pause.fill")
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(accent.tint)
-                        .frame(width: 31, height: 31)
-                        .background(accent.selection, in: Circle())
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                        Text(session.isRunning ? "\(session.completedSets) 组已完成" : "计时已暂停")
-                            .font(.caption).foregroundStyle(SpotterPalette.muted).lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        timer(at: Int(context.date.timeIntervalSince1970 * 1_000))
-                    }
-                    Image(systemName: "chevron.up")
-                        .font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
-                        .accessibilityHidden(true)
+        Button(action: open) {
+            HStack(spacing: 10) {
+                Image(systemName: session.isRunning ? "figure.strengthtraining.traditional" : "pause.fill")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(accent.tint)
+                    .frame(width: 31, height: 31)
+                    .background(accent.selection, in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(session.isRunning ? "\(session.completedSets) 组已完成" : "计时已暂停")
+                        .font(.caption).foregroundStyle(SpotterPalette.muted).lineLimit(1)
                 }
-                .foregroundStyle(SpotterPalette.ink)
-                .padding(.leading, 12)
-                .padding(.trailing, session.isRunning ? 12 : 4)
-                .padding(.vertical, 6)
-                .frame(minHeight: 46)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.spotterGlassPress)
-            .accessibilityIdentifier("spotter-active-workout-strip")
-            .accessibilityHint("返回进行中的训练")
-            if !session.isRunning {
-                Button(role: .destructive, action: discard) {
-                    Image(systemName: "trash")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.red)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                Spacer(minLength: 4)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    timer(at: Int(context.date.timeIntervalSince1970 * 1_000))
                 }
-                .buttonStyle(.spotterPress)
-                .accessibilityLabel("删除本次训练")
-                .accessibilityIdentifier("workout-strip-delete-draft")
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
+                    .accessibilityHidden(true)
             }
+            .foregroundStyle(SpotterPalette.ink)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(minHeight: 46)
+            .contentShape(.rect)
         }
+        .buttonStyle(.spotterGlassPress)
+        .accessibilityIdentifier("spotter-active-workout-strip")
+        .accessibilityHint("返回进行中的训练")
         .spotterGlass(cornerRadius: 20, tint: accent.fill.opacity(0.20), interactive: motion != nil)
         .frame(maxWidth: 530)
         .padding(.horizontal, 10)

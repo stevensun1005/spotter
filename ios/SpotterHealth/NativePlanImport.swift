@@ -35,13 +35,13 @@ struct NativePlanImportView: View {
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) } }
         .toolbar(.visible, for: .navigationBar)
         .interactiveDismissDisabled(busy)
-        .sheet(item: $editing) { draft in
+        .fullScreenCover(item: $editing) { draft in
             NavigationStack {
                 NativePlanEditorPanel(imported: draft) { edited in
                     guard let index = previews.firstIndex(where: { $0.id == edited.id }) else { return }
                     previews[index] = edited
                 }
-            }.presentationDragIndicator(.visible)
+            }
         }
         .fileImporter(isPresented: $showingFiles, allowedContentTypes: [.json, .plainText]) { result in
             do {

@@ -1271,8 +1271,7 @@ enum NativeWidgetMealAction {
                 Text("我的常用餐")
             } footer: {
                 if !presets.isEmpty {
-                    if #available(iOS 18.0, *) { Text("向右滑动一份常用餐可打开删除操作。") }
-                    else { Text("向左滑动一份常用餐可打开删除操作。") }
+                    Text("向左滑动一份常用餐可打开删除操作。")
                 }
             }
             if let error { Section { Text(error).font(.footnote).foregroundStyle(.red) } }

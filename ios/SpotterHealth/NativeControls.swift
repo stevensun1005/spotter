@@ -90,13 +90,14 @@ private struct SpotterSwipeDelete: ViewModifier {
 
     private let actionWidth: CGFloat = 66
     private var isOpen: Bool { openRow == id }
-    private var direction: CGFloat { layoutDirection == .leftToRight ? 1 : -1 }
+    /// Swipe toward the leading edge (left in Chinese/English) to reveal 删除 on the trailing edge, like iOS lists.
+    private var direction: CGFloat { layoutDirection == .leftToRight ? -1 : 1 }
     private var reveal: CGFloat { min(actionWidth, max(0, (isOpen ? actionWidth : 0) + (drag ?? 0))) }
 
     func body(content: Content) -> some View {
         content
             .offset(x: direction * reveal)
-            .background(alignment: .leading) {
+            .background(alignment: .trailing) {
                 Group {
                     if isOpen {
                         Button(role: .destructive, action: delete) { actionLabel }

@@ -232,6 +232,7 @@ struct NativeCoachRecommendationSheet: View {
     @State private var exerciseToAdd: NativeCataloguePlanMove?
     @State private var queuedDraft: NativePlanDraft?
     @State private var draft: NativePlanDraft?
+    @State private var openedScheduledPlan = false
 
     private var reference: NativeCoachRecommendation { request.reference }
 
@@ -244,7 +245,12 @@ struct NativeCoachRecommendationSheet: View {
                 } else { missing }
             case .scheduled:
                 if let entry = store.plans.first(where: { $0.id == reference.key && $0.owner == store.owner }) {
-                    NavigationStack { NativePlanEditorPanel(store: store, draft: NativePlanDraft(entry: entry)) { _ in } }
+                    // 计划编辑页全屏打开；关闭后一并收起推荐页。
+                    Color.clear.onAppear {
+                        guard !openedScheduledPlan else { return }
+                        openedScheduledPlan = true
+                        draft = NativePlanDraft(entry: entry)
+                    }
                 } else { missing }
             case .exercise:
                 if let catalogue, let entry = catalogue.entry(withID: reference.key) {
@@ -269,7 +275,9 @@ struct NativeCoachRecommendationSheet: View {
                 exerciseToAdd = nil
             }
         }
-        .sheet(item: $draft) { value in
+        .fullScreenCover(item: $draft, onDismiss: {
+            if reference.kind == .scheduled { dismiss() }
+        }) { value in
             NavigationStack {
                 NativePlanEditorPanel(store: store, draft: value) { _ in }
             }

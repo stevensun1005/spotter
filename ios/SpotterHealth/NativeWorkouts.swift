@@ -680,6 +680,12 @@ final class NativeWorkoutStore: ObservableObject {
         begin(NativeWorkoutSession.start(plan: plan, planId: id))
     }
 
+    /// 从个人模板直接开始，不关联已排的计划。
+    func startUnscheduled(plan: NativePlan) {
+        guard active == nil, !isBusy else { return }
+        begin(NativeWorkoutSession.start(plan: plan, planId: ""))
+    }
+
     func startFreeWorkout(kind: String = "strength") {
         guard active == nil, !isBusy else { return }
         let cardio = kind == "incline" ? .incline : NativeWorkoutSession.CardioActivity(rawValue: kind)
@@ -1266,6 +1272,7 @@ struct NativeWorkoutView: View {
     @State private var earlierHistoryFailed = false
     @State private var showsMoves = false
     @State private var planEditor: NativePlanDraft?
+    @State private var queuedPlanStart: NativePlanDraft?
     @State private var planScheduleAction: PlanScheduleAction?
     @State private var templateAction: NativeTemplateAction?
     @State private var planNotice: String?
@@ -1273,6 +1280,7 @@ struct NativeWorkoutView: View {
     @State private var queuedCatalogueDraft: NativePlanDraft?
     @State private var recordSheet: RecordSheet?
     @State private var draftToDiscard: NativeWorkoutEntry?
+    @State private var draftToRestart: NativeWorkoutEntry?
     @State private var swipeDraftID: String?
     @State private var cheering = false
     @State private var cheerError: String?
@@ -1372,11 +1380,15 @@ struct NativeWorkoutView: View {
                     .presentationDragIndicator(.visible)
             }
         }
-        .sheet(item: $planEditor, onDismiss: {
+        .fullScreenCover(item: $planEditor, onDismiss: {
             guide?.advance(.planFields)
+            if let queued = queuedPlanStart {
+                queuedPlanStart = nil
+                startEditedPlan(queued)
+            }
         }) { draft in
             NavigationStack {
-                NativePlanEditorPanel(store: store, draft: draft) { day in
+                NativePlanEditorPanel(store: store, draft: draft, saved: { day in
                     if draft.isTemplate {
                         if showsAllPlans { trainingTab = "个人模板" }
                         planNotice = "模板已保存"
@@ -1385,9 +1397,8 @@ struct NativeWorkoutView: View {
                         completedPlans = false
                         if let date = nativePlanDate(day) { selectedDate = date }
                     }
-                }
+                }, start: { queuedPlanStart = $0 })
             }
-            .presentationDragIndicator(.visible)
         }
         .sheet(item: $planScheduleAction) { action in
             switch action {
@@ -1415,16 +1426,28 @@ struct NativeWorkoutView: View {
                 editCataloguePlan(pending.entry, in: plan)
             }
         }
-        .alert("删除训练草稿？", isPresented: Binding(
+        .alert(draftToDiscard?.key == store.active?.key ? "删除本次训练？" : "删除训练草稿？", isPresented: Binding(
             get: { draftToDiscard != nil },
             set: { if !$0 { draftToDiscard = nil } }
         ), presenting: draftToDiscard) { entry in
-            Button("删除草稿", role: .destructive) {
+            Button(entry.key == store.active?.key ? "删除本次训练" : "删除草稿", role: .destructive) {
                 withAnimation(motion) { _ = store.discardDraft(entry) }
             }
             Button("取消", role: .cancel) {}
         } message: { entry in
-            Text("「\(entry.title)」的计时和已填写组次将删除。原计划及已完成的打卡会保留。")
+            Text("「\(entry.title)」的计时、组次和心得将删除。已排的计划会保留，以前的打卡也会保留。")
+        }
+        .confirmationDialog("重新开始训练？", isPresented: Binding(
+            get: { draftToRestart != nil },
+            set: { if !$0 { draftToRestart = nil } }
+        ), titleVisibility: .visible, presenting: draftToRestart) { entry in
+            Button("重新开始", role: .destructive) {
+                swipeDraftID = nil
+                if store.restartPausedWorkout(entry) { openWorkout() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: { _ in
+            Text("将清空本次计时、组次和心得，保留训练项目并从零计时。已排的计划会保留。")
         }
         .task(id: selectedDay + (store.recentHistoryStart ?? "")) {
             guard !showsAllPlans, let start = weekDates.first, let end = weekDates.last else { return }
@@ -1898,7 +1921,12 @@ struct NativeWorkoutView: View {
             Spacer(minLength: 0)
             if !running {
                 SpotterMenu {
-                    Button("删除训练草稿", systemImage: "trash", role: .destructive) { draftToDiscard = entry }
+                    if current {
+                        Button("重新开始", systemImage: "arrow.counterclockwise") { draftToRestart = entry }
+                            .accessibilityIdentifier("workout-draft-restart")
+                    }
+                    Button(current ? "删除本次训练" : "删除训练草稿", systemImage: "trash", role: .destructive) { draftToDiscard = entry }
+                        .accessibilityIdentifier("workout-draft-delete")
                 } label: {
                     Image(systemName: "ellipsis").font(.body.weight(.semibold))
                         .frame(width: 22, height: 22)
@@ -2099,6 +2127,19 @@ struct NativeWorkoutView: View {
     private func editCataloguePlan(_ entry: NativeCatalogEntry, in plan: NativeWorkoutEntry?) {
         queuedCatalogueDraft = NativeCataloguePlanMove(entry: entry).draft(addingTo: plan, on: selectedDay)
         cataloguePlanMove = nil
+    }
+
+    private func startEditedPlan(_ draft: NativePlanDraft) {
+        guard store.active == nil, !store.isBusy else { return }
+        if draft.isTemplate {
+            var fields = draft.plan.object
+            fields["templateId"] = .string(draft.id)
+            fields["date"] = .string(NativeWorkoutSession.day())
+            store.startUnscheduled(plan: NativePlan(raw: .object(fields)))
+        } else {
+            store.start(plan: NativePlan(raw: draft.plan), id: draft.id)
+        }
+        if store.active != nil { openWorkout() }
     }
 
     private func openQueuedCataloguePlan() {
@@ -2728,15 +2769,9 @@ private enum NativeEditorPanel: String, Identifiable {
 
 struct NativeActiveWorkoutView: View {
     private enum WorkoutPrompt {
-        case empty, discard, restart
+        case empty
 
-        var title: String {
-            switch self {
-            case .empty: return "这次还没有可打卡的内容"
-            case .discard: return "删除本次训练？"
-            case .restart: return "重新开始训练？"
-            }
-        }
+        var title: String { "这次还没有可打卡的内容" }
     }
 
     @Environment(\.spotterAccent) private var accent
@@ -2811,27 +2846,13 @@ struct NativeActiveWorkoutView: View {
             get: { workoutPrompt != nil },
             set: { if !$0 { workoutPrompt = nil } }
         ), presenting: workoutPrompt) { prompt in
-            if prompt.kind == .restart {
-                Button("重新开始", role: .destructive) {
-                    guard store.restartPausedWorkout(prompt.draft) else { return }
-                    edit = nil
-                    openedMove = 0
-                    undoneSet = nil
-                    lastRestRemaining = nil
-                }
-            } else {
-                Button("删除本次训练", role: .destructive) {
-                    guard store.active?.key == prompt.draft.key, store.discardDraft(prompt.draft) else { return }
-                    dismiss()
-                }
+            Button("删除本次训练", role: .destructive) {
+                guard store.active?.key == prompt.draft.key, store.discardDraft(prompt.draft) else { return }
+                dismiss()
             }
-            Button(prompt.kind == .empty ? "返回记录" : "取消", role: .cancel) {}
-        } message: { prompt in
-            switch prompt.kind {
-            case .empty: Text("计时已暂停。可以返回补记完成组、跟练或有氧时长，也可以删除这次试练。已排的训练计划会保留。")
-            case .discard: Text("将删除本次计时、组次和心得。已排的训练计划和以前的打卡会保留。")
-            case .restart: Text("将清空本次计时、组次和心得，保留训练项目并从零计时。已排的训练计划会保留。")
-            }
+            Button("返回记录", role: .cancel) {}
+        } message: { _ in
+            Text("计时已暂停。可以返回补记完成组、跟练或有氧时长，也可以删除这次试练。已排的训练计划会保留。")
         }
         .sheet(item: $panel, onDismiss: finishPanelDismissal) { item in
             NavigationStack {
@@ -2924,11 +2945,8 @@ struct NativeActiveWorkoutView: View {
             ZStack(alignment: .bottom) {
                 if let edit { keypad(edit, session: session).transition(.move(edge: .bottom).combined(with: .opacity)) }
                 else {
-                    VStack(spacing: 0) {
-                        if !session.isRunning { pausedActions(entry) }
-                        actionBar(session)
-                    }
-                    .transition(.opacity)
+                    actionBar(session)
+                        .transition(.opacity)
                 }
             }
             .animation(motion, value: edit != nil)
@@ -3317,27 +3335,6 @@ struct NativeActiveWorkoutView: View {
         .padding(.horizontal, 10).padding(.vertical, 5)
     }
 
-    private func pausedActions(_ entry: NativeWorkoutEntry) -> some View {
-        HStack(spacing: 12) {
-            Button { prompt(.restart, for: entry) } label: {
-                Label("重新开始", systemImage: "arrow.counterclockwise")
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .accessibilityIdentifier("workout-restart")
-            Button(role: .destructive) { prompt(.discard, for: entry) } label: {
-                Label("删除本次训练", systemImage: "trash")
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .foregroundStyle(.red)
-            .accessibilityIdentifier("workout-delete-draft")
-        }
-        .font(.subheadline.weight(.semibold))
-        .buttonStyle(.spotterControl)
-        .disabled(store.isBusy)
-        .padding(.horizontal, 14)
-        .padding(.top, 6)
-    }
-
     private func prompt(_ prompt: WorkoutPrompt, for draft: NativeWorkoutEntry) {
         workoutPrompt = (prompt, draft)
     }
@@ -3443,7 +3440,7 @@ struct NativeActiveWorkoutView: View {
     }
 }
 
-private struct UnevenTopRoundedShape: Shape {
+struct UnevenTopRoundedShape: Shape {
     var radius: CGFloat
     func path(in rect: CGRect) -> Path { Path(UIBezierPath(roundedRect: rect, byRoundingCorners: [.topLeft, .topRight], cornerRadii: CGSize(width: radius, height: radius)).cgPath) }
 }
@@ -3756,11 +3753,12 @@ struct NativeWorkoutDetailView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @EnvironmentObject private var remarks: NativeSocialRemarks
     @State private var action: Action?
+    @State private var templateDraft: NativePlanDraft?
     @State private var savingProtein = false
     @State private var notice: String?
 
     private enum Action: String, Identifiable {
-        case share, edit, template
+        case share, edit
         var id: Self { self }
     }
 
@@ -3842,13 +3840,11 @@ struct NativeWorkoutDetailView: View {
                 case .edit:
                     NavigationStack { NativeWorkoutLogEditor(entry: current, store: store) }
                         .presentationDragIndicator(.visible)
-                case .template:
-                    if let plan = current.session?.plan {
-                        NavigationStack { NativePlanEditorPanel(store: store, draft: NativePlanDraft(copying: plan)) { _ in actionSaved() } }
-                            .presentationDragIndicator(.visible)
-                    }
                 }
             }
+        }
+        .fullScreenCover(item: $templateDraft) { draft in
+            NavigationStack { NativePlanEditorPanel(store: store, draft: draft) { _ in actionSaved() } }
         }
     }
 
@@ -3875,7 +3871,7 @@ struct NativeWorkoutDetailView: View {
             }
                 .buttonStyle(.spotterControl)
             if session.raw["cardio"] == .null && (!session.plan.exercises.isEmpty || !session.plan.video.isEmpty) {
-                Button { action = .template } label: {
+                Button { templateDraft = NativePlanDraft(copying: session.plan) } label: {
                     Label("另存为模板", systemImage: "bookmark").fixedSize(horizontal: singleLine, vertical: true)
                 }
                     .buttonStyle(.spotterControl)
@@ -4259,195 +4255,6 @@ struct NativePlanDraft: Identifiable {
             raw.removeValue(forKey: "week"); raw.removeValue(forKey: "day")
             plan = .object(raw)
         }
-    }
-}
-
-struct NativePlanEditorPanel: View {
-    let store: NativeWorkoutStore?
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.spotterGuide) private var guide
-    @State var draft: NativePlanDraft
-    @State private var moveName = ""
-    @State private var busy = false
-    @State private var error: String?
-    @State private var exercisePreview: NativeTemplateExercisePreview?
-    private let saved: (String) -> Void
-    private let reviewed: ((NativePlanDraft) -> Void)?
-    private var linked: Bool { !draft.isTemplate && !draft.plan["templateId"].string.isEmpty }
-
-    init(store: NativeWorkoutStore, draft: NativePlanDraft, saved: @escaping (String) -> Void) {
-        self.store = store
-        self._draft = State(initialValue: draft)
-        self.saved = saved
-        self.reviewed = nil
-    }
-
-    init(imported draft: NativePlanDraft, reviewed: @escaping (NativePlanDraft) -> Void) {
-        self.store = nil
-        self._draft = State(initialValue: draft)
-        self.saved = { _ in }
-        self.reviewed = reviewed
-    }
-
-    var body: some View {
-        Form {
-            Section("计划") {
-                TextField("计划名称", text: text("title", maximum: 100))
-                    .nativeGuideTarget(.planFields)
-                if !draft.isTemplate {
-                    DatePicker("训练日期", selection: Binding(get: { nativePlanDate(draft.plan["date"].string) ?? Date() }, set: { draft.plan["date"] = .string(NativeWorkoutSession.day($0)) }), displayedComponents: .date)
-                }
-                if !linked {
-                    SpotterMenuPicker("训练类型", selection: text("category", maximum: 20),
-                                      options: NativePlanImport.categories.map { ($0, $0) })
-                    HStack { Text("预计分钟"); Spacer(); TextField("分钟", value: number("minutes", maximum: 720), format: .number).keyboardType(.numberPad).multilineTextAlignment(.trailing).frame(width: 65) }
-                }
-                Toggle("与搭子共享计划", isOn: Binding(get: { draft.plan["shared"].bool }, set: { draft.plan["shared"] = .bool($0) }))
-                if linked { Text("动作和组数来自个人模板。修改动作仅适用于本次训练。").font(.footnote).foregroundStyle(SpotterPalette.muted) }
-            }
-            Section("动作") {
-                ForEach(Array(draft.plan["exercises"].array.enumerated()), id: \.offset) { index, move in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            TextField("动作名称", text: Binding(get: { move["name"].string }, set: { setMove(index, key: "name", value: .string(String($0.prefix(100)))) }))
-                                .font(.system(size: 15, weight: .semibold))
-                            if let store, !NativeExerciseLabel(move).name.isEmpty {
-                                if draft.isTemplate {
-                                    let rowID = "edit-template-exercise-\(index)"
-                                    Button {
-                                        exercisePreview = .init(id: rowID, move: move)
-                                    } label: { exercisePreviewIcon }
-                                        .buttonStyle(.spotterPress)
-                                        .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作演示")
-                                        .accessibilityIdentifier(rowID)
-                                } else {
-                                    NavigationLink {
-                                        NativeExerciseProgressView(store: store, move: move)
-                                    } label: { exercisePreviewIcon }
-                                        .buttonStyle(.spotterPress)
-                                        .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作演示")
-                                }
-                            }
-                        }
-                        HStack(spacing: 12) {
-                            moveNumber("组", index: index, key: "sets", value: move["sets"].number, maximum: 30)
-                            moveNumber("次", index: index, key: "reps", value: move["reps"].number, maximum: 999)
-                            moveNumber(move["unit"].string, index: index, key: "weight", value: move["weight"].number, maximum: 2000)
-                            moveNumber("秒", index: index, key: "seconds", value: move["seconds"].number, maximum: 18000)
-                        }
-                        if !move["cue"].string.isEmpty { Text(move["cue"].string).font(.caption).foregroundStyle(SpotterPalette.muted) }
-                        if reviewed != nil || draft.isTemplate {
-                            SpotterMenuPicker("重量单位", selection: Binding(get: { move["unit"].string }, set: { setMove(index, key: "unit", value: .string($0)) }),
-                                              options: [("kg", "kg"), ("lb", "lb")])
-                        }
-                    }.padding(.vertical, 6)
-                }
-                .onDelete { indices in
-                    var moves = draft.plan["exercises"].array
-                    moves.remove(atOffsets: indices)
-                    draft.plan["exercises"] = .array(moves)
-                    if linked { draft.plan["ownExercises"] = .bool(true) }
-                }
-                if draft.plan["category"].string == "有氧训练" {
-                    NativeCardioPlanPresets(add: appendMove)
-                        .disabled(draft.plan["exercises"].array.count >= 30)
-                }
-                HStack {
-                    TextField("添加动作名称", text: $moveName)
-                    Button { addMove() } label: { Image(systemName: "plus.circle.fill") }
-                        .accessibilityLabel("添加动作")
-                        .disabled(moveName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.plan["exercises"].array.count >= 30)
-                }
-            }
-            if !linked { Section("跟练视频") { TextField("粘贴 B 站或 YouTube 链接", text: text("video", maximum: 1200)).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled() } }
-            if let error { Section { Text(error).font(.footnote).foregroundStyle(.red) } }
-        }
-        .scrollContentBackground(.hidden).background(SpotterPalette.background).foregroundStyle(SpotterPalette.ink)
-        .nativeGuideLayer(.planEditor) { dismiss() }
-        .navigationTitle(reviewed != nil ? "核对计划" : draft.isTemplate ? "编辑模板" : draft.revision == nil ? "新建计划" : "编辑计划").navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(busy ? "保存中" : reviewed == nil ? "保存" : "完成核对") { Task { await commit() } }
-                    .fontWeight(.bold).disabled(busy || guide?.step == .planFields)
-            }
-        }
-        .sheet(item: $exercisePreview) { preview in
-            if let store { NativeTemplateExerciseSheet(store: store, move: preview.move) }
-        }
-    }
-
-    private var exercisePreviewIcon: some View {
-        Image(systemName: "play.rectangle")
-            .foregroundStyle(SpotterPalette.accent)
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
-    }
-
-    private func text(_ key: String, maximum: Int) -> Binding<String> {
-        Binding(get: { draft.plan[key].string }, set: { draft.plan[key] = .string(String($0.prefix(maximum))) })
-    }
-    private func number(_ key: String, maximum: Double) -> Binding<Double> {
-        Binding(get: { draft.plan[key].number }, set: { if $0.isFinite { draft.plan[key] = .number(min(maximum, max(0, $0.rounded()))) } })
-    }
-    private func setMove(_ index: Int, key: String, value: NativeJSON) {
-        var moves = draft.plan["exercises"].array
-        guard moves.indices.contains(index) else { return }
-        if key == "name", moves[index]["name"] != value {
-            var raw = moves[index].object; raw.removeValue(forKey: "catalogueId"); raw.removeValue(forKey: "sourceName"); moves[index] = .object(raw)
-        }
-        moves[index][key] = value; draft.plan["exercises"] = .array(moves)
-        if linked { draft.plan["ownExercises"] = .bool(true) }
-    }
-    private func moveNumber(_ label: String, index: Int, key: String, value: Double, maximum: Double) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
-            TextField(label, value: Binding(get: { value }, set: { entry in
-                guard entry.isFinite else { return }
-                let rounded = key == "weight" ? entry : entry.rounded()
-                let bounded = min(maximum, max(key == "sets" ? 1 : 0, rounded))
-                setMove(index, key: key, value: .number(bounded))
-            }), format: .number.precision(.fractionLength(0...2)))
-                .keyboardType(.decimalPad).textFieldStyle(.roundedBorder)
-        }
-    }
-    private func addMove() {
-        let name = String(moveName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
-        guard !name.isEmpty else { return }
-        appendMove(NativePreferenceKey.newMove(name: name))
-        moveName = ""
-    }
-
-    private func appendMove(_ move: NativeJSON) {
-        var moves = draft.plan["exercises"].array
-        guard moves.count < 30 else { return }
-        moves.append(move)
-        draft.plan["exercises"] = .array(moves)
-        if linked { draft.plan["ownExercises"] = .bool(true) }
-    }
-    private func commit() async {
-        if let reviewed {
-            do { try NativePlanImport.validate(draft.plan); reviewed(draft); dismiss() }
-            catch { self.error = error.localizedDescription }
-            return
-        }
-        guard let store else { return }
-        guard !draft.plan["title"].string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !draft.plan["exercises"].array.isEmpty || !draft.plan["video"].string.isEmpty else { error = "请填写计划名称，并至少添加一个动作或跟练视频。"; return }
-        busy = true; defer { busy = false }
-        if draft.isTemplate {
-            do { try await store.saveTemplate(id: draft.id, data: draft.plan, revision: draft.revision) }
-            catch {
-                self.error = error.localizedDescription
-                if (error as? NativeAPIError)?.statusCode == 409 { await store.load() }
-                return
-            }
-        } else if let message = await store.savePlan(id: draft.id, data: draft.plan, revision: draft.revision) {
-            error = message
-            return
-        }
-        saved(draft.plan["date"].string)
-        dismiss()
     }
 }
 
