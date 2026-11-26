@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildCardio } from './cardio-props.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const material = (color, roughness = .54, metalness = .05) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -547,6 +548,7 @@ export function createEquipment(options, sample) {
   const {bells = 0, cableCount = 0, rope = false, mat = false, step = false, bench = false, chestBench = false, barbell: hasBarbell = false, trapBar: hasTrapBar = false, stretchBand = false, highMount = false, pullUp = false, latBar = false, legCurl = false, band: hasBand = false, ankleCuff = false, landmine: hasLandmine = false} = options;
   const group = new THREE.Group();
   group.name = 'Original Spotter exercise equipment';
+  const updateCardio = buildCardio(group, options);
   const dumbbells = Array.from({ length: bells }, () => createDumbbell(group));
   const barbell = hasBarbell ? createBarbell(group) : null;
   const trapBar = hasTrapBar ? createTrapBar(group) : null;
@@ -568,6 +570,7 @@ export function createEquipment(options, sample) {
   const updateBand = hasBand ? createResistanceBand(group, world(sample(0).band.anchor), ankleCuff) : null;
 
   function update(pose) {
+    updateCardio?.(pose);
     const activeDumbbells = pose.dumbbells ?? [];
     dumbbells.forEach((bell, index) => {
       const source = activeDumbbells[index];

@@ -24,6 +24,9 @@ Optional per-frame fields:
 - `band` uses a fixed `anchor` and a moving `end`, each an `[x,y,z]` coordinate. Place the end between the hands when both hold the loop.
 - `cable-lat-bar` uses a single `cables` entry with the bar center as its end. `leg-curl` uses a per-frame `roller` center.
 - `landmine` uses `{pivot, end}` with a fixed pivot and an end that matches the athlete's grip through a consistent arc.
+- Cardio presets include `rig-bike`, `rig-treadmill`, `rig-run-belt`, `rig-elliptical`, `rig-stepmill`, `rig-rower` and `rig-jump-rope`. Use `machineTravel` (0–12) to advance treadmill belts, stepmill treads and rope rotation, aligned with the actor's foot contacts.
+- For carries, use `rig-single-carry`, `rig-kettles-carry`, `rig-trap-carry` or `rig-suitcase-bar`. The left hand holds the single carry variants. `rig-single-kettlebell` and `rig-goblet-plates` take a per-frame `bellCenter` and optional `bellTilt` in radians. Keep hands and bell movement in contact.
+- `rig-pass-ball` and `rig-slam-ball` take a per-frame `ballCenter`. Include release and contact keyframes. `rig-contact-wall` places a wall in front of the actor.
 - `followZ` moves the camera along the forward axis for continuous locomotion. The actor and camera should advance by the same amount across one loop.
 - `headDrop` provides a small correction in metres, for example when lying down.
 

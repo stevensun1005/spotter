@@ -2,7 +2,10 @@ const joints = ['hips', 'chest', 'neck', 'head', 'ls', 'le', 'lw', 'rs', 're', '
   'lh', 'lk', 'la', 'lt', 'rh', 'rk', 'ra', 'rt'];
 const optionalVectors = ['lGrip', 'rGrip', 'lFingers', 'rFingers', 'lPalmSide', 'rPalmSide'];
 const musclePattern = /^(?:(?:l|r):)?(?:lat|quad|glute|pec|core|shoulder|rearShoulder|forearm|triceps)$/;
-const validEquipment = new Set(['none', 'mat', 'step', 'dumbbell', 'dumbbells',
+const cardioEquipment = [
+  'rig-contact-wall', 'rig-suitcase-bar', 'rig-goblet-plates', 'rig-single-carry', 'rig-single-kettlebell', 'rig-pass-ball', 'rig-slam-ball', 'rig-bike', 'rig-treadmill', 'rig-run-belt', 'rig-elliptical', 'rig-stepmill', 'rig-rower', 'rig-kettles-carry', 'rig-trap-carry', 'rig-jump-rope',
+];
+const validEquipment = new Set([...cardioEquipment, 'none', 'mat', 'step', 'dumbbell', 'dumbbells',
   'mat-dumbbells', 'chest-bench-dumbbells', 'band', 'band-ankle', 'stretch-band', 'mat-stretch-band', 'high-stretch-band', 'barbell', 'trap-bar', 'bench', 'bench-barbell', 'bench-dumbbell', 'bench-dumbbells', 'neutral-pull-up', 'pull-up', 'cable', 'dual-cable', 'cable-lat-bar', 'leg-curl', 'rope', 'landmine']);
 
 function assert(condition, message) {
@@ -38,6 +41,22 @@ export function prepareRecipe(input) {
   const options = {
     bells: ({dumbbell: 1, dumbbells: 2, 'mat-dumbbells': 2, 'chest-bench-dumbbells': 2, 'bench-dumbbell': 1, 'bench-dumbbells': 2})[equipment] ?? 0,
     cableCount: ({cable: 1, 'cable-lat-bar': 1, 'dual-cable': 2, rope: 2})[equipment] ?? 0,
+    indoorBike: equipment === 'rig-bike',
+    treadmill: equipment === 'rig-treadmill' || equipment === 'rig-run-belt',
+    runningClip: equipment === 'rig-run-belt',
+    elliptical: equipment === 'rig-elliptical',
+    stepmill: equipment === 'rig-stepmill',
+    rower: equipment === 'rig-rower',
+    carryKettles: equipment === 'rig-kettles-carry' || equipment === 'rig-single-carry',
+    singleCarry: equipment === 'rig-single-carry',
+    trapCarry: equipment === 'rig-trap-carry',
+    jumpRope: equipment === 'rig-jump-rope',
+    projectile: equipment === 'rig-pass-ball' || equipment === 'rig-slam-ball',
+    targetWall: equipment === 'rig-pass-ball',
+    singleKettlebell: equipment === 'rig-single-kettlebell' || equipment === 'rig-goblet-plates',
+    heelPlates: equipment === 'rig-goblet-plates',
+    contactWall: equipment === 'rig-contact-wall',
+    suitcaseBar: equipment === 'rig-suitcase-bar',
     rope: equipment === 'rope',
     band: equipment === 'band' || equipment === 'band-ankle',
     ankleCuff: equipment === 'band-ankle',
@@ -80,6 +99,12 @@ export function prepareRecipe(input) {
         pose.planted[side] = number(frame.planted[side], 0, 1.25, 'support surface height');
       }
     }
+    if (options.singleKettlebell) {
+      pose.bellCenter = vector(frame.bellCenter, 'bellCenter');
+      pose.bellTilt = number(frame.bellTilt ?? 0, -2, 2, 'bellTilt');
+    }
+    if (options.projectile) pose.ballCenter = vector(frame.ballCenter, 'ballCenter');
+    pose.machineTravel = number(frame.machineTravel ?? 0, 0, 12, 'machineTravel');
     pose.headDrop = number(frame.headDrop ?? 0, -.09, .09, 'headDrop');
     pose.followZ = number(frame.followZ ?? 0, -2, 2, 'followZ');
     const bells = frame.dumbbells ?? [];
@@ -143,6 +168,12 @@ export function prepareRecipe(input) {
     for (const side of ['l', 'r']) {
       if (a.planted[side] === b.planted[side]) pose.planted[side] = a.planted[side];
     }
+    if (options.singleKettlebell) {
+      pose.bellCenter = blend(a.bellCenter, b.bellCenter, weight);
+      pose.bellTilt = mix(a.bellTilt, b.bellTilt, weight);
+    }
+    if (options.projectile) pose.ballCenter = blend(a.ballCenter, b.ballCenter, weight);
+    pose.machineTravel = mix(a.machineTravel, b.machineTravel, weight);
     pose.headDrop = mix(a.headDrop, b.headDrop, weight);
     pose.followZ = mix(a.followZ, b.followZ, weight);
     pose.dumbbells = a.dumbbells.map((bell, index) => ({
