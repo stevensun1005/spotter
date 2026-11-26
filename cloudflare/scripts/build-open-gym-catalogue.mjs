@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import corrections from "../features/exercises/catalog-corrections.json" with { type: "json" };
 import trainingGuides from "../features/exercises/training-guides.json" with { type: "json" };
 import reviewedDetails from "../features/exercises/reviewed-corrections-details.json" with { type: "json" };
+import spotterExercises from "../features/exercises/spotter-catalogue-additions.json" with { type: "json" };
 
 const upstream = resolve(process.argv[2] ?? "");
 const target = resolve(process.argv[3] ?? "public/open-gym");
@@ -92,6 +93,18 @@ for (const [id, correction] of Object.entries(corrections)) {
 }
 for (const [id, canonical] of Object.entries(variants)) {
   variants[id] = corrections[canonical]?.id ?? canonical;
+}
+
+const usedIDs = new Set([...catalog.map((row) => row.id), ...Object.keys(variants)]);
+for (const { detail, ...entry } of spotterExercises) {
+  if (!/^\d{4,6}$/.test(entry.id) || usedIDs.has(entry.id)) {
+    throw new Error("Unexpected first-party exercise ID: " + entry.id);
+  }
+  usedIDs.add(entry.id);
+  catalog.push(entry);
+  const segment = Math.floor(Number(entry.id) / 100);
+  if (!shards.has(segment)) shards.set(segment, {});
+  shards.get(segment)[entry.id] = detail;
 }
 
 await mkdir(join(target, "details"), { recursive: true });

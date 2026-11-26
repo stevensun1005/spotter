@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ExercisePicker } from "@/features/exercises/exercise-picker";
-import { fromCatalogue, useCatalogue } from "@/features/exercises/open-gym";
+import { fromCatalogue, useCatalogue, type ExerciseChoice } from "@/features/exercises/open-gym";
 import { exerciseTempo, tempoMaxLength, tempoNotationHint } from "@/features/exercises/tempo";
 import { Plus, Trash2 } from "lucide-react";
 import { defaultRest } from "@/features/training/sequence";
@@ -10,7 +10,8 @@ import { categories, prescribedWeight, type Move, type Plan } from "./model";
 import { resolvePlanTemplate } from "./template-link";
 import { addPlanMove, phaseOf, setMovePhase, type MovePhase } from "./move-phase";
 
-export function PlanFields({ value, change, template = false, templates, allowSharing = true }: {
+export function PlanFields({ value, change, template = false, templates, allowSharing = true, onExercise }: {
+  onExercise?: (choice: ExerciseChoice) => void;
   value: Plan; change: (plan: Plan) => void; template?: boolean; templates?: readonly { id: string; plan: Plan }[]; allowSharing?: boolean;
 }) {
   const [picker, setPicker] = useState<MovePhase | number>();
@@ -108,6 +109,8 @@ export function PlanFields({ value, change, template = false, templates, allowSh
           <button className="text-button" type="button" onClick={() => editMove(index, setMovePhase(item, phase === "warmup" ? "work" : "warmup"))}>
             {phase === "warmup" ? "转为正式动作" : "设为热身"}
           </button>
+          {onExercise && item.name.trim() && <button className="text-button" type="button"
+            onClick={() => onExercise({ ...item, trainingCategory: value.category })}>查看动作</button>}
           {(template || ownExercises) && <button className="text-button" type="button" aria-label={"替换动作 " + (index + 1)} onClick={() => setPicker(index)}>从动作库替换</button>}
         </div>
         <div className="field-grid">

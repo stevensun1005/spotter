@@ -887,7 +887,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
         {view === "plans" && <PlanSections key={planTab ?? "plans"} date={selected} templates={templates} initial={planTab}
           exerciseLibrary={<OpenGymCatalogue names={exerciseNames} profiles={profiles} choose={setExercise} quick={planExercise} />}
           schedule={newPlan} newTemplate={() => openTemplate()} edit={(row) => openTemplate(row.plan, row.id, row.updated)}
-          exerciseProfiles={profiles}><section className="card padded plans-list-card">
+          exerciseProfiles={profiles} onExercise={setExercise}><section className="card padded plans-list-card">
           <div className="section-head plans-list-heading">
             <h2>全部计划</h2>
             <div className="plans-list-actions">
@@ -1075,7 +1075,7 @@ export default function Dashboard({ viewer, requiresSignIn, initialDate, initial
         await refresh();
         setOverlay(null); go("plans"); setPlanTab("个人模板"); setToast("模板已保存");
       }); }}>
-        <div className="dialog-body"><PlanFields template value={overlay.item.data} change={(data) => setOverlay({ ...overlay, item: { ...overlay.item, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
+        <div className="dialog-body"><PlanFields template onExercise={setExercise} value={overlay.item.data} change={(data) => setOverlay({ ...overlay, item: { ...overlay.item, data } })} />{warning && <p className="inline-error" role="alert">{warning}</p>}</div>
         <div className="dialog-footer">{overlay.editing && <button type="button" className="button outline" disabled={busy} onClick={() => {
           if (!confirmRemoveTemplate) { setConfirmRemoveTemplate(true); return; }
           void act(async () => { await library.remove("template", overlay.item.id, overlay.item.revision); await refresh(); setOverlay(null); setToast("模板已删除"); });

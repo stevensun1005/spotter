@@ -302,5 +302,15 @@ export function catalogueExerciseByExactName(data: Catalog, value: string) {
 
 export function fromCatalogue(data: Catalog | undefined, choice: ExerciseChoice) {
   if (!data) return undefined;
-  return (choice.catalogueId ? catalogueExerciseById(data, choice.catalogueId) : catalogueExerciseByName(data, choice.name)) ?? undefined;
+  return (choice.catalogueId ? catalogueExerciseById(data, choice.catalogueId) :
+    catalogueExerciseByExactName(data, choice.name) ?? catalogueExerciseByName(data, choice.name)) ?? undefined;
+}
+
+export function plannedCatalogueExercise(data: Catalog | undefined, choice: ExerciseChoice) {
+  if (!data) return undefined;
+  const named = catalogueExerciseByExactName(data, choice.name);
+  const linked = choice.catalogueId ? catalogueExerciseById(data, choice.catalogueId) : undefined;
+  if (!linked) return named ?? undefined;
+  const reference = named ?? (choice.sourceName ? catalogueExerciseByExactName(data, choice.sourceName) : undefined);
+  return reference && reference.id !== linked.id ? undefined : linked;
 }

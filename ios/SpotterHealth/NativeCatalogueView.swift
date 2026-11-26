@@ -326,7 +326,6 @@ struct NativeCatalogueBrowser: View {
                                     .foregroundStyle(SpotterPalette.muted)
                                     .padding(8)
                             }
-                            catalogueAttribution
                         }
                         .padding(.bottom, 6)
                     }
@@ -345,20 +344,6 @@ struct NativeCatalogueBrowser: View {
                 }
             }
             .onChange(of: resultsVersion) { _ in scroll.scrollTo("spotter.catalogue.start", anchor: .top) }
-        }
-    }
-
-    @ViewBuilder
-    private var catalogueAttribution: some View {
-        if let notice = URL(string: AppConfiguration.defaultOrigin + "/open-gym/NOTICE.txt"),
-           let source = URL(string: AppConfiguration.defaultOrigin + "/open-gym/catalogue-source.zip") {
-            VStack(alignment: .leading, spacing: 6) {
-                Link("动作库授权和来源", destination: notice)
-                Link("下载目录源文件", destination: source)
-            }
-            .font(.caption2)
-            .foregroundStyle(SpotterPalette.accent)
-            .padding(.vertical, 6)
         }
     }
 
@@ -615,10 +600,10 @@ private func catalogueMetadata(for entry: NativeCatalogEntry, index: NativeCatal
     if entry.isPersonal {
         let area = entry.target.isEmpty ? entry.part : entry.part + ":" + entry.target
         let part = index.areas.flatMap { [$0] + ($0.children ?? []) }.first { $0.id == area && !$0.id.isEmpty }?.title ?? "待分类"
-        let equipment = index.label(entry.equipment)
+        let equipment = index.equipmentLabel(for: entry)
         return equipment.isEmpty ? part : part + " · " + equipment
     }
-    return [entry.target, entry.equipment].filter { !$0.isEmpty }.map(index.label).joined(separator: " · ")
+    return [index.label(entry.target), index.equipmentLabel(for: entry)].filter { !$0.isEmpty }.joined(separator: " · ")
 }
 
 private func catalogueIconButton(
@@ -1237,6 +1222,22 @@ private struct NativeCatalogueExercisePage: View {
             }
         }
         if let pinError { Text(pinError).font(.footnote).foregroundStyle(.red) }
+        if let index, let entry, !entry.muscles.isEmpty {
+            let sorted = entry.muscles.keys.sorted {
+                let left = entry.muscles[$0, default: 0], right = entry.muscles[$1, default: 0]
+                return left == right ? $0 < $1 : left > right
+            }
+            let primary = sorted.filter { entry.muscles[$0, default: 0] >= 75 }
+            let secondary = sorted.filter { (1..<75).contains(entry.muscles[$0, default: 0]) }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("参与肌群").font(.headline)
+                if !primary.isEmpty { LabeledContent("主要", value: primary.map(index.muscleLabel).joined(separator: "、")) }
+                if !secondary.isEmpty { LabeledContent("辅助", value: secondary.map(index.muscleLabel).joined(separator: "、")) }
+            }
+            .font(.subheadline)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14).spotterCard()
+        }
         if let index, let entry, let video = index.videoURL(for: entry) {
             Link(destination: video) { Label("打开动作示范", systemImage: "play.circle") }
                 .buttonStyle(.spotterControl)

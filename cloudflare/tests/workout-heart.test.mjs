@@ -268,7 +268,25 @@ test("complete openGym snapshot keeps IDs, translations, filtering and artwork s
   const { catalogueAreas, matchesCatalogueArea } = await import("../features/exercises/catalogue-areas.ts");
   const read = (name) => JSON.parse(readFileSync(new URL("public/open-gym/" + name, root), "utf8"));
   const { rows, variants } = read("index.json");
-  assert.equal(rows.length, 5630);
+  const additions = JSON.parse(readFileSync(new URL("features/exercises/spotter-catalogue-additions.json", root), "utf8"));
+  assert.equal(rows.length, 5630 + additions.length);
+  const { plannedCatalogueExercise } = await import("../features/exercises/catalogue-identity.ts");
+  const { spotterCatalogueVideo } = await import("../features/exercises/catalogue-video.ts");
+  const data = { rows, variants };
+  for (const entry of additions) {
+    assert.equal(plannedCatalogueExercise(data, { name: entry.name })?.id, entry.id);
+    assert.ok(spotterCatalogueVideo(entry.id), entry.id);
+    assert.ok(entry.equipment && entry.target && Object.keys(entry.muscles).length > 0, entry.id);
+    assert.ok(read("details/" + Math.floor(Number(entry.id) / 100) + ".json")[entry.id]?.steps?.length, entry.id);
+  }
+  const slider = additions.find((entry) => entry.needs?.includes("exercise sliders"));
+  assert.ok(slider);
+  assert.ok(filterRows(rows, { query: "", part: "", type: "", equipment: "exercise sliders", terms: [], any: true, gear: [] })
+    .rows.some((entry) => entry.id === slider.id));
+  for (const [name, id] of [["后脚抬高分腿蹲", "2290"], ["哑铃胸前屈肘伸臂", "0436"], ["站姿哑铃推肩", "0426"]]) {
+    assert.equal(plannedCatalogueExercise(data, { name })?.id, id);
+    assert.ok(spotterCatalogueVideo(id), id);
+  }
   assert.equal(Object.keys(variants).length, 924);
   assert.equal(new Set(rows.map((entry) => entry.id)).size, rows.length);
   const parts = new Set(rows.map((entry) => entry.part));

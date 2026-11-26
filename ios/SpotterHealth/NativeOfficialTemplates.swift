@@ -130,6 +130,7 @@ struct NativeOfficialTemplatePreview: View {
     @State private var draft: NativeTrainingProgram?
     @State private var showsDraft = false
     @State private var error: String?
+    @State private var exercisePreview: NativeTemplateExercisePreview?
 
     private var week: [Int: NativeOfficialTrainingTemplate.TrainingDay] {
         Dictionary(uniqueKeysWithValues: template.days.map { ($0.day, $0) })
@@ -179,6 +180,9 @@ struct NativeOfficialTemplatePreview: View {
         .navigationDestination(isPresented: $showsDraft) {
             if let draft { NativeOfficialProgramReview(draft: draft, store: store) }
         }
+        .sheet(item: $exercisePreview) { preview in
+            NativeTemplateExerciseSheet(store: store, move: preview.move)
+        }
     }
 
     private var overview: some View {
@@ -214,19 +218,13 @@ struct NativeOfficialTemplatePreview: View {
             Text("\(workout.category) · 约 \(workout.minutes) 分钟")
                 .font(.caption)
                 .foregroundStyle(SpotterPalette.muted)
-            ForEach(Array(workout.exercises.enumerated()), id: \.offset) { _, exercise in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(exercise.name).font(.subheadline.weight(.semibold))
-                    Text(exerciseDetails(exercise))
-                        .font(.caption)
-                        .foregroundStyle(SpotterPalette.muted)
-                    if let cue = exercise.cue {
-                        Text(cue).font(.caption).foregroundStyle(SpotterPalette.muted)
-                    }
+            ForEach(Array(workout.exercises.enumerated()), id: \.offset) { index, exercise in
+                let rowID = "official-template-exercise-\(workout.day)-\(index)"
+                NativeTemplateExerciseButton(name: exercise.name, prescription: exerciseDetails(exercise),
+                                             cue: exercise.cue ?? "") {
+                    exercisePreview = .init(id: rowID, move: exercise.move(unit: NativePreferenceKey.newMoveUnit))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(9)
-                .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityIdentifier(rowID)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -254,5 +252,53 @@ struct NativeOfficialTemplatePreview: View {
     private func exerciseDetails(_ exercise: NativeOfficialTrainingTemplate.Exercise) -> String {
         [exercise.prescription, exercise.restSeconds.map { "休息 \($0) 秒" },
          exercise.targetRpe.map { "目标 RPE \($0.formatted())" }].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+struct NativeTemplateExercisePreview: Identifiable {
+    let id: String
+    let move: NativeJSON
+}
+
+struct NativeTemplateExerciseButton: View {
+    let name: String
+    let prescription: String
+    let cue: String
+    let action: () -> Void
+    @Environment(\.spotterAccent) private var accent
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(name).font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.ink)
+                    Text(prescription).font(.caption).foregroundStyle(SpotterPalette.muted)
+                    if !cue.isEmpty { Text(cue).font(.caption).foregroundStyle(SpotterPalette.muted) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "play.rectangle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(accent.tint)
+                    .accessibilityHidden(true)
+            }
+            .padding(10)
+            .frame(minHeight: 44)
+            .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityHint("打开动作详情及演示")
+    }
+}
+
+struct NativeTemplateExerciseSheet: View {
+    let store: NativeWorkoutStore
+    let move: NativeJSON
+
+    var body: some View {
+        NavigationStack {
+            NativeExerciseProgressView(store: store, move: move, showsClose: true)
+        }
+        .presentationDragIndicator(.visible)
     }
 }

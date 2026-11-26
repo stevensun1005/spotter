@@ -103,7 +103,7 @@ struct NativeOfficialTrainingTemplate: Decodable, Identifiable {
         let catalogueId: String?
         let cue: String?
 
-        fileprivate func move(unit: String) -> NativeJSON {
+        func move(unit: String) -> NativeJSON {
             var fields: [String: NativeJSON] = [
                 "name": .string(name), "sets": .number(Double(sets)), "reps": .number(Double(reps ?? 0)),
                 "weight": .number(0), "unit": .string(unit), "seconds": .number(Double(seconds ?? 0)),

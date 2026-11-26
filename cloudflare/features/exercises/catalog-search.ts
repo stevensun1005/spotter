@@ -6,13 +6,17 @@ export function normalizeSearch(value: string) {
   return value.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s*\bv\s*(\d+)\b/g, " v$1").trim();
 }
 
-export function equipmentOptions(rows: readonly Pick<CatalogEntry, "equipment">[]) {
+export function equipmentOptions(rows: readonly Pick<CatalogEntry, "equipment" | "needs">[]) {
   const counts = new Map<string, number>();
-  for (const row of rows) if (row.equipment) counts.set(row.equipment, (counts.get(row.equipment) ?? 0) + 1);
+  for (const row of rows) {
+    for (const item of new Set([row.equipment, ...(row.needs ?? [])])) {
+      if (item) counts.set(item, (counts.get(item) ?? 0) + 1);
+    }
+  }
   return [...counts.keys()].sort((a, b) => counts.get(b)! - counts.get(a)! || a.localeCompare(b));
 }
 
-export function filterRows<T extends Pick<CatalogEntry, "id" | "name" | "en" | "part" | "target" | "equipment" | "type" | "muscles">>(rows: readonly T[], {
+export function filterRows<T extends Pick<CatalogEntry, "id" | "name" | "en" | "part" | "target" | "equipment" | "type" | "muscles" | "needs">>(rows: readonly T[], {
   query, part, type, equipment, terms, any, gear, families,
 }: {
   query: string; part: string; type: string; equipment: string; terms: string[]; any: boolean; gear: string[];
@@ -36,7 +40,7 @@ export function filterRows<T extends Pick<CatalogEntry, "id" | "name" | "en" | "
     if (!words.length) return true;
     const name = normalizeSearch(row.name);
     const english = normalizeSearch(row.en);
-    const category = normalizeSearch(label(row.part) + " " + label(row.equipment) + " " + label(row.target));
+    const category = normalizeSearch([row.part, row.equipment, row.target, ...(row.needs ?? [])].map(label).join(" "));
     const family = families?.get(row.id);
     if (preferredFamily && family?.id !== preferredFamily) return false;
     const commonNames = family ? [family.title, ...(family.aliases ?? [])].map(normalizeSearch) : [];
@@ -57,6 +61,6 @@ export function filterRows<T extends Pick<CatalogEntry, "id" | "name" | "en" | "
   const typed = activeType ? scoped.filter((row) => row.type === activeType) : scoped;
   const equipmentList = equipmentOptions(typed);
   const activeEquipment = equipmentList.includes(equipment) ? equipment : "";
-  const final = activeEquipment ? typed.filter((row) => row.equipment === activeEquipment) : typed;
+  const final = activeEquipment ? typed.filter((row) => row.equipment === activeEquipment || row.needs?.includes(activeEquipment)) : typed;
   return { rows: final, typeOptions, activeType, equipmentList, activeEquipment, score };
 }

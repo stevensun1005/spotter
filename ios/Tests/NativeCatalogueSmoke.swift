@@ -10,7 +10,7 @@ struct NativeCatalogueSmoke {
             assetsURL: root.appendingPathComponent("ios/SpotterHealth/NativeCatalogueAssets")
         )
         let standard = index.results()
-        precondition(standard.count == 5272)
+        precondition(standard.count == 5327)
         let barbell = standard.sections.first { $0.id == "barbell" }!
         precondition(barbell.rows.count == 447)
         precondition(barbell.rows.prefix(4).map(\.id) == ["1506", "4721", "11093", "5659"])
@@ -19,7 +19,7 @@ struct NativeCatalogueSmoke {
             precondition(index.coverData(for: row)?.prefix(2) == Data([0xff, 0xd8]), "JPEG artwork missing for " + row.id)
         }
         let personal = (1...61).map { index.makePersonal(name: "我的自订动作\($0)") }
-        precondition(index.results(personal: personal).count == 5333)
+        precondition(index.results(personal: personal).count == standard.count + personal.count)
         precondition(index.results(area: "custom:unclassified", personal: personal).count == 61)
         precondition(index.results(scope: .frequent, frequent: ["我的自订动作1"], personal: personal).count == 1)
         precondition(index.results(scope: .pinned, favorites: ["我的自订动作1"], personal: personal).sections.first?.id == "pinned")
@@ -69,6 +69,16 @@ struct NativeCatalogueSmoke {
         precondition(index.knows("barbell bench press"))
         precondition(index.entry(exactName: "A2 跪姿绳索三头下压（反握）") == nil)
         precondition(index.entry(exactName: "上斜俯卧哑铃展臂")?.id == "0326")
+        let publishedIDs = ["0426", "0436", "2290"] + (12100...12157).filter { ![12127, 12128, 12142].contains($0) }.map(String.init)
+        for id in publishedIDs {
+            let entry = index.entry(withID: id)!
+            let move = NativeJSON.object(["name": .string(entry.name)])
+            precondition(index.plannedExercise(move, library: [])?.id == entry.id)
+            precondition(!entry.equipment.isEmpty && !entry.target.isEmpty && !entry.muscles.isEmpty)
+            precondition(try! index.details(for: entry)?.steps.isEmpty == false)
+            precondition(index.bundledVideoURL(for: entry)?.isFileURL == true)
+        }
+
         let personal = index.makePersonal(name: "私人的测试动作")
         precondition(index.drawing(for: personal) == nil && index.animationData(for: personal) == nil && index.bundledVideoURL(for: personal) == nil)
     }

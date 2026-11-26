@@ -300,7 +300,6 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
             </div>}
             {data && rows.length === 0 && custom.length === 0 && <p className="empty-copy">
               {scope === "favorites" ? "暂无符合条件的置顶动作。" : scope === "chosen" ? "暂无符合条件的动作。" : "当前搜索和筛选条件下没有动作。"}</p>}
-            {!picker && <p className="catalogue-attribution"><a href="/open-gym/NOTICE.txt" target="_blank" rel="noreferrer">动作库授权和来源</a> · <a href="/open-gym/catalogue-source.zip" download>下载目录源文件</a></p>}
           </div>
           {showJumpRail && <nav className="catalogue-jumps" aria-label="器械分区导航">
             {sections.map(({ id, title, jumpLabel }) => <button key={id} type="button" title={title}

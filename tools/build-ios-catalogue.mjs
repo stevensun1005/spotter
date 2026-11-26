@@ -38,7 +38,7 @@ const uniqueFamilies = [...new Set(families.values())];
 const demos = new Map(index.rows.map((row) => [row.id, catalogueDemo(row)]));
 const coverSources = [...new Set([...demos.values()].map(catalogueCover).filter(Boolean))];
 const rasters = new Array(coverSources.length);
-const labels = [...new Set(index.rows.flatMap(({ part, equipment, target, type }) => [part, equipment, target, type]))];
+const labels = [...new Set(index.rows.flatMap(({ part, equipment, target, type, needs }) => [part, equipment, target, type, ...(needs ?? [])]))];
 const artwork = new Map();
 let coverCursor = 0;
 

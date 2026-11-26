@@ -98,6 +98,7 @@ struct NativeCatalogEntry: Identifiable, Sendable {
     let en: String
     let part: String
     let equipment: String
+    let needs: [String]
     let type: String
     let target: String
     let muscles: [String: Int]
@@ -109,6 +110,8 @@ struct NativeCatalogEntry: Identifiable, Sendable {
     fileprivate let normalizedName: String
     fileprivate let normalizedEnglish: String
 
+    var equipmentKeys: Set<String> { Set(([equipment] + needs).filter { !$0.isEmpty }) }
+
     var raw: NativeJSON {
         var fields: [String: NativeJSON] = ["name": .string(name), "en": .string(en),
                                              "hold": .bool(hold), "distance": .bool(distance)]
@@ -118,12 +121,13 @@ struct NativeCatalogEntry: Identifiable, Sendable {
 
     fileprivate init(id: String, name: String, en: String, part: String, equipment: String, type: String,
                      target: String, muscles: [String: Int], isPersonal: Bool, hasCover: Bool,
-                     hold: Bool = false, distance: Bool = false) {
+                     hold: Bool = false, distance: Bool = false, needs: [String] = []) {
         self.id = id
         self.name = name
         self.en = en
         self.part = part
         self.equipment = equipment
+        self.needs = needs
         self.type = type
         self.target = target
         self.muscles = muscles
@@ -232,6 +236,7 @@ struct NativeCatalogIndex: Sendable {
             let id, name, en, part, equipment, type, target: String
             let muscles: [String: Int]
             let hold, distance: Bool?
+            let needs: [String]?
         }
         let rows: [Row]
         let variants: [String: String]?
@@ -308,7 +313,8 @@ struct NativeCatalogIndex: Sendable {
         let rows = base.rows.map { row in
             NativeCatalogEntry(id: row.id, name: row.name, en: row.en, part: row.part, equipment: row.equipment,
                                type: row.type, target: row.target, muscles: row.muscles, isPersonal: false,
-                               hasCover: metadata.covers[row.id] != nil, hold: row.hold ?? false, distance: row.distance ?? false)
+                               hasCover: metadata.covers[row.id] != nil, hold: row.hold ?? false,
+                               distance: row.distance ?? false, needs: row.needs ?? [])
         }
         self.metadata = metadata
         self.assetsURL = assetsURL
@@ -336,7 +342,7 @@ struct NativeCatalogIndex: Sendable {
         sectionsByEquipment = Dictionary(metadata.sections.flatMap { section in section.equipment.map { ($0, section.id) } },
                                          uniquingKeysWith: { first, _ in first })
         searchContextByID = Dictionary(rows.map { row in
-            let terms = [row.part, row.equipment, row.target].map { metadata.labels[$0] ?? $0 }.joined(separator: " ")
+            let terms = ([row.part, row.equipment, row.target] + row.needs).map { metadata.labels[$0] ?? $0 }.joined(separator: " ")
             return (row.id, catalogSearchKey(terms))
         }, uniquingKeysWith: { first, _ in first })
         equipmentOptions = Self.equipmentChoices(in: rows)
@@ -376,6 +382,12 @@ struct NativeCatalogIndex: Sendable {
 
     func label(_ value: String) -> String { metadata.labels[value] ?? value }
     func muscleLabel(_ value: String) -> String { metadata.muscleLabels[value] ?? label(value) }
+
+    func equipmentLabel(for entry: NativeCatalogEntry) -> String {
+        var seen = Set<String>()
+        return ([entry.equipment] + entry.needs).filter { !$0.isEmpty && seen.insert($0).inserted }
+            .map(label).joined(separator: "、")
+    }
 
     func knows(_ name: String) -> Bool { knownNames.contains(nameKey(name)) }
 
@@ -528,7 +540,7 @@ struct NativeCatalogIndex: Sendable {
         let typed = activeType.isEmpty ? matching : matching.filter { $0.type == activeType }
         let allowedEquipment = Self.equipmentChoices(in: typed)
         let activeEquipment = allowedEquipment.contains(equipment) ? equipment : ""
-        let filtered = activeEquipment.isEmpty ? typed : typed.filter { $0.equipment == activeEquipment }
+        let filtered = activeEquipment.isEmpty ? typed : typed.filter { $0.equipmentKeys.contains(activeEquipment) }
         let included = Set(filtered.map(\.id))
         let sortRows = filtered.filter { !$0.isPersonal }.sorted { left, right in
             let leftScore = scores[left.id] ?? 0
@@ -588,10 +600,12 @@ struct NativeCatalogIndex: Sendable {
     }
 
     private static func equipmentChoices(in rows: [NativeCatalogEntry]) -> [String] {
-        let groups = Dictionary(grouping: rows.filter { !$0.equipment.isEmpty }, by: \.equipment)
-        return groups.keys.sorted { left, right in
-            let a = groups[left]?.count ?? 0
-            let b = groups[right]?.count ?? 0
+        let counts = rows.reduce(into: [String: Int]()) { counts, row in
+            for item in row.equipmentKeys { counts[item, default: 0] += 1 }
+        }
+        return counts.keys.sorted { left, right in
+            let a = counts[left, default: 0]
+            let b = counts[right, default: 0]
             return a == b ? left < right : a > b
         }
     }

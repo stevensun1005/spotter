@@ -3,13 +3,15 @@
 import { useState, type ReactNode } from "react";
 import { Bookmark, CalendarPlus, ClipboardList, Eye, Plus } from "lucide-react";
 import { isFollowAlong, type Plan } from "./model";
+import type { ExerciseChoice } from "@/features/exercises/open-gym";
 import type { ExerciseProfile, LibraryRow } from "@/features/library/model";
 import { TemplatePreview } from "./template-preview";
 
 const tabs = ["我的计划", "个人模板", "动作库"] as const;
 
-export function PlanSections({ children, templates, date, schedule, edit, newTemplate, initial, exerciseLibrary, exerciseProfiles }: {
+export function PlanSections({ children, templates, date, schedule, edit, newTemplate, initial, exerciseLibrary, exerciseProfiles, onExercise }: {
   children: ReactNode; exerciseLibrary: ReactNode; exerciseProfiles?: ExerciseProfile[];
+  onExercise: (choice: ExerciseChoice) => void;
   templates: Extract<LibraryRow, { kind: "template" }>[]; date: string; schedule: (plan: Plan) => void;
   edit: (row: Extract<LibraryRow, { kind: "template" }>) => void; newTemplate: () => void; initial?: typeof tabs[number];
 }) {
@@ -25,7 +27,10 @@ export function PlanSections({ children, templates, date, schedule, edit, newTem
       {row.plan.title}<Eye size={15} aria-hidden="true" />
     </button></h3>
     <p className="muted">{row.plan.category} · {row.plan.exercises.length} 个动作{row.plan.minutes ? " · " + row.plan.minutes + " 分钟" : ""}</p>
-    <p className="template-moves">{row.plan.exercises.slice(0, 4).map((item) => item.name).join("、") || "视频跟练"}</p>
+    <p className="template-moves">{row.plan.exercises.length ? row.plan.exercises.slice(0, 4).map((item, index) => <span key={index}>
+      {index > 0 && "、"}<button type="button" className="sequence-exercise"
+        onClick={() => onExercise({ ...item, trainingCategory: row.plan.category })}>{item.name}</button>
+    </span>) : "视频跟练"}</p>
     <div>
       <button className="button outline small" onClick={() => edit(row)}>编辑</button>
       <button className="button primary small" onClick={() => arrange(row)}><CalendarPlus size={16} /> 安排训练</button>
@@ -46,7 +51,7 @@ export function PlanSections({ children, templates, date, schedule, edit, newTem
         <div className="template-grid">{videos.map(renderTemplate)}</div>
       </section>}
     </>}
-    {preview && <TemplatePreview key={preview.id} plan={preview.plan} profiles={exerciseProfiles} close={() => setPreviewId(undefined)}
+    {preview && <TemplatePreview key={preview.id} plan={preview.plan} profiles={exerciseProfiles} onExercise={onExercise} close={() => setPreviewId(undefined)}
       edit={() => { setPreviewId(undefined); edit(preview); }} schedule={() => { setPreviewId(undefined); arrange(preview); }} />}
   </div>;
 }

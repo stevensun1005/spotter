@@ -1291,6 +1291,7 @@ struct NativeWorkoutView: View {
     private enum RecordSheet: Identifiable {
         case record(NativeWorkoutEntry), share(NativeWorkoutEntry), day(String, [NativeWorkoutEntry])
         case planMoves(NativeWorkoutEntry), planExercise(NativeJSON, id: String)
+        case templateMoves(NativeJSON)
 
         var id: String {
             switch self {
@@ -1299,6 +1300,7 @@ struct NativeWorkoutView: View {
             case .day(let day, _): return "day:\(day)"
             case .planMoves(let entry): return "planMoves:" + entry.id
             case .planExercise(_, let id): return "planExercise:" + id
+            case .templateMoves(let template): return "templateMoves:" + template["id"].string
             }
         }
     }
@@ -1364,6 +1366,9 @@ struct NativeWorkoutView: View {
                     .presentationDragIndicator(.visible)
             case .planExercise(let move, _):
                 NavigationStack { NativeExerciseProgressView(store: store, move: move, showsClose: true) }
+                    .presentationDragIndicator(.visible)
+            case .templateMoves(let template):
+                NavigationStack { NativePersonalTemplatePreview(plan: NativePlan(raw: template["plan"]), store: store) }
                     .presentationDragIndicator(.visible)
             }
         }
@@ -2195,15 +2200,32 @@ struct NativeWorkoutView: View {
         let moveNames = plan.exercises.prefix(4).map { $0["name"].string }.joined(separator: "、")
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                tile(isFollowAlong(plan.raw) ? "play.rectangle" : "list.clipboard", size: 38)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(plan.title).font(.headline)
-                    Text([plan.category, plan.exercises.isEmpty ? "" : "\(plan.exercises.count) 个动作",
-                          plan.raw["minutes"].number > 0 ? "\(Int(plan.raw["minutes"].number)) 分钟" : ""]
-                        .filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                Button {
+                    recordSheet = .templateMoves(template)
+                } label: {
+                    HStack(spacing: 10) {
+                        tile(isFollowAlong(plan.raw) ? "play.rectangle" : "list.clipboard", size: 38)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(plan.title).font(.headline)
+                            Text([plan.category, plan.exercises.isEmpty ? "" : "\(plan.exercises.count) 个动作",
+                                  plan.raw["minutes"].number > 0 ? "\(Int(plan.raw["minutes"].number)) 分钟" : ""]
+                                .filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                            if !moveNames.isEmpty { Text(moveNames).font(.subheadline).foregroundStyle(SpotterPalette.muted) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SpotterPalette.muted)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.spotterPress)
+                .accessibilityHint("打开模板详情和完整动作清单")
+                .accessibilityIdentifier("personal-template-detail")
                 SpotterMenu {
                     Button("改名", systemImage: "character.cursor.ibeam") {
                         templateAction = .init(template: template, operation: .rename)
@@ -2219,7 +2241,6 @@ struct NativeWorkoutView: View {
                 }
                 .accessibilityLabel("模板操作 \(plan.title)")
             }
-            if !moveNames.isEmpty { Text(moveNames).font(.subheadline).foregroundStyle(SpotterPalette.muted) }
             HStack {
                 Button {
                     planEditor = NativePlanDraft(template: template, day: selectedDay, schedule: false)
@@ -2280,6 +2301,49 @@ struct NativeWorkoutView: View {
     static func duration(_ milliseconds: Int) -> String {
         let seconds = max(0, milliseconds / 1000)
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct NativePersonalTemplatePreview: View {
+    let plan: NativePlan
+    let store: NativeWorkoutStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var exercisePreview: NativeTemplateExercisePreview?
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                Text(plan.title).font(.title2.weight(.heavy)).accessibilityAddTraits(.isHeader)
+                Text(plan.category).font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                if let url = URL(string: plan.video), url.scheme?.lowercased() == "https" {
+                    Link(destination: url) { Label("打开跟练视频", systemImage: "play.rectangle") }
+                }
+                if plan.exercises.isEmpty {
+                    Text("此模板尚未添加动作。").font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                } else {
+                    Text("动作清单").font(.headline).accessibilityAddTraits(.isHeader)
+                    ForEach(Array(plan.exercises.enumerated()), id: \.offset) { index, move in
+                        let rowID = "personal-template-exercise-\(index)"
+                        NativeTemplateExerciseButton(name: move["name"].string, prescription: prescription(move),
+                                                     cue: move["cue"].string) {
+                            exercisePreview = .init(id: rowID, move: move)
+                        }
+                        .accessibilityIdentifier(rowID)
+                    }
+                }
+            }
+            .padding(14)
+        }
+        .background(SpotterPalette.background)
+        .foregroundStyle(SpotterPalette.ink)
+        .navigationTitle("模板详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+        }
+        .sheet(item: $exercisePreview) { preview in
+            NativeTemplateExerciseSheet(store: store, move: preview.move)
+        }
     }
 }
 
@@ -4206,6 +4270,7 @@ struct NativePlanEditorPanel: View {
     @State private var moveName = ""
     @State private var busy = false
     @State private var error: String?
+    @State private var exercisePreview: NativeTemplateExercisePreview?
     private let saved: (String) -> Void
     private let reviewed: ((NativePlanDraft) -> Void)?
     private var linked: Bool { !draft.isTemplate && !draft.plan["templateId"].string.isEmpty }
@@ -4247,16 +4312,21 @@ struct NativePlanEditorPanel: View {
                             TextField("动作名称", text: Binding(get: { move["name"].string }, set: { setMove(index, key: "name", value: .string(String($0.prefix(100)))) }))
                                 .font(.system(size: 15, weight: .semibold))
                             if let store, !NativeExerciseLabel(move).name.isEmpty {
-                                NavigationLink {
-                                    NativeExerciseProgressView(store: store, move: move)
-                                } label: {
-                                    Image(systemName: "play.rectangle")
-                                        .foregroundStyle(SpotterPalette.accent)
-                                        .frame(width: 44, height: 44)
-                                        .contentShape(Rectangle())
+                                if draft.isTemplate {
+                                    let rowID = "edit-template-exercise-\(index)"
+                                    Button {
+                                        exercisePreview = .init(id: rowID, move: move)
+                                    } label: { exercisePreviewIcon }
+                                        .buttonStyle(.spotterPress)
+                                        .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作演示")
+                                        .accessibilityIdentifier(rowID)
+                                } else {
+                                    NavigationLink {
+                                        NativeExerciseProgressView(store: store, move: move)
+                                    } label: { exercisePreviewIcon }
+                                        .buttonStyle(.spotterPress)
+                                        .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作演示")
                                 }
-                                .buttonStyle(.spotterPress)
-                                .accessibilityLabel("查看 \(NativeExerciseLabel(move).name) 的动作演示")
                             }
                         }
                         HStack(spacing: 12) {
@@ -4302,7 +4372,18 @@ struct NativePlanEditorPanel: View {
                     .fontWeight(.bold).disabled(busy || guide?.step == .planFields)
             }
         }
+        .sheet(item: $exercisePreview) { preview in
+            if let store { NativeTemplateExerciseSheet(store: store, move: preview.move) }
+        }
     }
+
+    private var exercisePreviewIcon: some View {
+        Image(systemName: "play.rectangle")
+            .foregroundStyle(SpotterPalette.accent)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+    }
+
     private func text(_ key: String, maximum: Int) -> Binding<String> {
         Binding(get: { draft.plan[key].string }, set: { draft.plan[key] = .string(String($0.prefix(maximum))) })
     }

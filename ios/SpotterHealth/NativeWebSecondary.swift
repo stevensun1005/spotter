@@ -2479,6 +2479,10 @@ struct NativeSettings: View {
                     Divider()
                     Link(destination: privacy) { SecondaryRow(title: "隐私政策", icon: "shield") }.buttonStyle(.spotterPress)
                 }
+                if let notices = URL(string: account.api.origin + "/open-gym/NOTICE.txt") {
+                    Divider()
+                    Link(destination: notices) { SecondaryRow(title: "第三方许可声明", icon: "doc.text") }.buttonStyle(.spotterPress)
+                }
             }
 
             SecondaryGroup {
