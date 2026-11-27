@@ -2107,6 +2107,7 @@ private struct NativeBarcodeScannerView: View {
     }
 }
 
+@MainActor
 private func nativeCameraAllowed() async -> Bool {
     guard UIImagePickerController.isSourceTypeAvailable(.camera) else { return false }
     switch AVCaptureDevice.authorizationStatus(for: .video) {
