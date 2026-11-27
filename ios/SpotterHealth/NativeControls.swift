@@ -187,102 +187,52 @@ private struct SpotterHorizontalPan: UIGestureRecognizerRepresentable {
     }
 }
 
-struct SpotterGlassSegments<Option: Hashable>: View {
-    let options: [Option]
-    @Binding var value: Option
-    let title: (Option) -> String
-    let glass: Bool
-    let compact: Bool
-    let dense: Bool
-    let guideTarget: (Option) -> NativeGuideStep?
-    let accessibilityTitle: ((Option) -> String)?
-    @Environment(\.spotterAccent) private var accent
-    @Environment(\.spotterInteractionMotion) private var motion
+struct SpotterSegments<Option: Hashable>: View {
     @Environment(\.dynamicTypeSize) private var textSize
-    @Environment(\.isEnabled) private var enabled
-    @Environment(\.colorScheme) private var colorScheme
-    @Namespace private var selection
+    @Environment(\.spotterGuide) private var guide
+    @Binding private var value: Option
 
-    /// `dense` draws a 30 pt row (34 pt with its track), close to the system segmented control.
-    /// Accessibility text sizes keep the 44 pt rows.
-    init(options: [Option], value: Binding<Option>, glass: Bool = true, compact: Bool = false, dense: Bool = false,
+    private let label: String
+    private let options: [Option]
+    private let title: (Option) -> String
+    private let guideTarget: (Option) -> NativeGuideStep?
+
+    init(_ label: String, options: [Option], value: Binding<Option>,
          guideTarget: @escaping (Option) -> NativeGuideStep? = { _ in nil },
-         accessibilityTitle: ((Option) -> String)? = nil,
          title: @escaping (Option) -> String) {
+        self.label = label
         self.options = options
         _value = value
-        self.glass = glass
-        self.compact = compact
-        self.dense = dense
         self.guideTarget = guideTarget
-        self.accessibilityTitle = accessibilityTitle
         self.title = title
     }
 
-    private var isDense: Bool { dense && !textSize.isAccessibilitySize }
-
-    @ViewBuilder var body: some View {
-        if glass {
-            SpotterGlassGroup(spacing: 5) { buttons }
-                .padding(.horizontal, isDense ? 3 : 4)
-                .padding(.vertical, isDense ? 2 : compact ? 0 : 4)
-                .spotterGlass(cornerRadius: isDense ? 17 : compact ? 22 : 26, interactive: false)
-        } else {
-            buttons.padding(.horizontal, isDense ? 2 : 3)
-                .padding(.vertical, isDense ? 2 : compact ? 0 : 3)
-                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: isDense ? 10 : 14))
-        }
+    private var guidedOption: Option? {
+        guard let step = guide?.step else { return nil }
+        return options.first { guideTarget($0) == step }
     }
 
-    private var buttons: some View {
-        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 3)) : AnyLayout(HStackLayout(spacing: 3))
-        return layout {
+    var body: some View {
+        let target = guidedOption
+        let selection = Binding(get: { value }, set: { option in
+            value = option
+            if let step = guideTarget(option) { guide?.advance(step) }
+        })
+        let picker = Picker(label, selection: selection) {
             ForEach(options, id: \.self) { option in
-                let selected = option == value
-                Button {
-                    if !selected { value = option }
-                    if let target = guideTarget(option) { guide?.advance(target) }
-                } label: {
-                    label(for: option, selected: selected)
-                }
-                .buttonStyle(glass && selected ? .spotterGlassPress : .spotterPress)
-                .accessibilityLabel(accessibilityTitle?(option) ?? title(option))
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .nativeGuideTarget(guideTarget(option))
+                Text(title(option)).tag(option)
             }
         }
-        .animation(motion, value: value)
-    }
-
-    @Environment(\.spotterGuide) private var guide
-
-    @ViewBuilder private func label(for option: Option, selected: Bool) -> some View {
-        let label = Text(title(option))
-            .font(.caption.weight(selected ? .bold : .semibold))
-            .lineLimit(textSize.isAccessibilitySize ? 2 : 1)
-            .minimumScaleFactor(0.76)
-            .multilineTextAlignment(.center)
-            .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
-            .padding(.horizontal, 2)
-            .frame(maxWidth: .infinity, minHeight: isDense ? 30 : compact && !textSize.isAccessibilitySize ? 34 : 44)
 
         Group {
-            if !selected {
-                label
-            } else if glass, #available(iOS 26.0, *) {
-                label
-                    .glassEffect(.regular.tint(accent.fill.opacity(colorScheme == .dark ? 0.30 : 0.46))
-                        .interactive(enabled && motion != nil), in: Capsule())
-                    .glassEffectID("selection", in: selection)
+            if options.count > 5 || textSize.isAccessibilitySize {
+                picker.pickerStyle(.menu)
             } else {
-                label.background {
-                    Capsule().fill(accent.selection)
-                        .matchedGeometryEffect(id: "selection", in: selection)
-                }
+                picker.pickerStyle(.segmented).labelsHidden()
             }
         }
-        .frame(minHeight: isDense ? 30 : 44)
-        .contentShape(Capsule())
+        .frame(minHeight: 44)
+        .nativeGuideTarget(target.flatMap(guideTarget))
     }
 }
 
@@ -319,11 +269,7 @@ struct SpotterPickerLabel: View {
 }
 
 struct SpotterMenuPicker<Value: Hashable, Label: View>: View {
-    @Environment(\.spotterAccent) private var accent
-    @Environment(\.spotterInteractionMotion) private var motion
-    @Environment(\.dynamicTypeSize) private var dynamicType
     @Binding private var selection: Value
-    @State private var expanded = false
 
     private let title: String
     private let options: [(Value, String)]
@@ -337,71 +283,18 @@ struct SpotterMenuPicker<Value: Hashable, Label: View>: View {
     }
 
     var body: some View {
-        if #available(iOS 16.4, *) {
-            Button { expanded = true } label: { label }
-                .buttonStyle(.spotterControl)
-                .accessibilityLabel(title)
-                .accessibilityValue(currentTitle)
-                .popover(isPresented: $expanded) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(title).font(.caption.weight(.semibold))
-                            .foregroundStyle(SpotterPalette.muted)
-                            .padding(.horizontal, 9)
-                            .accessibilityAddTraits(.isHeader)
-                        if options.count > 5 || dynamicType.isAccessibilitySize {
-                            ScrollView { choices }.frame(maxHeight: 275)
-                        } else {
-                            choices
-                        }
-                    }
-                    .padding(11)
-                    .frame(idealWidth: 268, maxWidth: 290)
-                    .presentationCompactAdaptation(.popover)
-                }
-        } else {
-            SpotterMenu {
+        SpotterMenu {
+            Picker(title, selection: $selection) {
                 ForEach(options, id: \.0) { value, title in
-                    Button { choose(value) } label: {
-                        if value == selection { SwiftUI.Label(title, systemImage: "checkmark") }
-                        else { Text(title) }
-                    }
+                    Text(title).tag(value)
                 }
-            } label: { label }
-            .accessibilityLabel(title)
-            .accessibilityValue(currentTitle)
-        }
-    }
-
-    private var currentTitle: String { options.first { $0.0 == selection }?.1 ?? "" }
-
-    private var choices: some View {
-        LazyVStack(alignment: .leading, spacing: 3) {
-            ForEach(options, id: \.0) { value, title in
-                let selected = value == selection
-                Button { choose(value) } label: {
-                    HStack(spacing: 10) {
-                        Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
-                        Spacer(minLength: 1)
-                        if selected {
-                            Image(systemName: "checkmark").font(.caption.weight(.bold))
-                                .foregroundStyle(accent.tint).accessibilityHidden(true)
-                        }
-                    }
-                    .foregroundStyle(SpotterPalette.ink)
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .background(selected ? accent.selection : .clear, in: RoundedRectangle(cornerRadius: 10))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.spotterPress)
-                .accessibilityAddTraits(selected ? .isSelected : [])
             }
+            .pickerStyle(.inline)
+        } label: {
+            label
         }
-    }
-
-    private func choose(_ value: Value) {
-        withAnimation(motion) { selection = value }
-        expanded = false
+        .accessibilityLabel(title)
+        .accessibilityValue(options.first { $0.0 == selection }?.1 ?? "")
     }
 }
 

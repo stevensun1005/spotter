@@ -147,7 +147,6 @@ struct NativeCoachRecommendationQuery: Sendable {
 }
 
 enum NativeCoachRecommendationSource {
-    static let exerciseIndex = Task.detached(priority: .userInitiated) { try NativeCatalogIndex.load() }
 
     static func official(_ query: NativeCoachRecommendationQuery) -> [NativeCoachRecommendation] {
         guard let catalogue = try? NativeOfficialTrainingCatalogue.bundled.get() else { return [] }
@@ -263,7 +262,7 @@ struct NativeCoachRecommendationSheet: View {
         }
         .task(id: reference.id) {
             guard reference.kind == .exercise else { return }
-            catalogue = try? await NativeCoachRecommendationSource.exerciseIndex.value
+            catalogue = try? await NativeCatalogIndex.bundled()
             loading = false
             if request.startsWithAdd, let entry = catalogue?.entry(withID: reference.key) {
                 exerciseToAdd = NativeCataloguePlanMove(entry: entry)

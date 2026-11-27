@@ -363,6 +363,7 @@ struct NativeCoachView: View {
     @State private var planMode = false
     @State private var entryMeal = "加餐"
     @State private var mode: Mode = .coach
+    @State private var lastScrolledLayout: ConversationLayout?
     @State private var showOptions = false
     @State private var includePlans = false
     @State private var contextDate = Date.now
@@ -438,11 +439,15 @@ struct NativeCoachView: View {
             if isNutritionPhoto {
                 nutritionPhotoReview
             } else {
-                ZStack(alignment: .top) {
-                    if mode == .coach { conversation.transition(.opacity) }
-                    else { ownAI.transition(.opacity) }
+                NavigationStack {
+                    conversation
+                        .toolbar(.hidden, for: .navigationBar)
+                        .navigationDestination(isPresented: Binding(get: { mode == .own }, set: { presented in
+                            switchMode(presented ? .own : .coach)
+                        })) {
+                            ownAI.toolbar(.hidden, for: .navigationBar)
+                        }
                 }
-                .animation(reducesMotion ? nil : .easeInOut(duration: 0.2), value: mode)
             }
         }
         .foregroundStyle(CoachColors.text)
@@ -664,8 +669,11 @@ struct NativeCoachView: View {
     }
 
     private func switchMode(_ next: Mode) {
+        guard mode != next else { return }
         editingMessage = false
-        mode = next
+        var transaction = Transaction()
+        transaction.disablesAnimations = reducesMotion
+        withTransaction(transaction) { mode = next }
     }
 
     private var conversation: some View {
@@ -700,10 +708,12 @@ struct NativeCoachView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .task(id: layout) {
-                    // Wait for the latest reply layout before scrolling, including when steps update in place.
+                    guard lastScrolledLayout != layout else { return }
+                    // Let newly added replies lay out before scrolling to them.
                     do {
                         try await Task.sleep(for: .milliseconds(100))
                         proxy.scrollTo("latest", anchor: .bottom)
+                        lastScrolledLayout = layout
                     } catch {}
                 }
             }
@@ -818,7 +828,7 @@ struct NativeCoachView: View {
     private var nutritionPhotoMeal: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text("记入餐次").font(.subheadline.weight(.semibold))
-            SpotterGlassSegments(options: mealOptions.map(\.0), value: mealSelection, glass: false) { $0 }
+            SpotterSegments("记入餐次", options: mealOptions.map(\.0), value: mealSelection) { $0 }
                 .accessibilityElement(children: .contain).accessibilityIdentifier("nutrition-photo-meal")
                 .disabled(session.busy)
         }
@@ -1480,7 +1490,7 @@ struct NativeCoachView: View {
                 await store.load()
                 results = NativeCoachRecommendationSource.scheduled(query, owner: owner, entries: store.plans, day: spotterDay())
             case .exercise:
-                if let index = try? await NativeCoachRecommendationSource.exerciseIndex.value {
+                if let index = try? await NativeCatalogIndex.bundled() {
                     results = await Task.detached(priority: .userInitiated) { NativeCoachRecommendationSource.exercises(query, index: index) }.value
                 } else { results = [] }
             }
@@ -1828,8 +1838,7 @@ struct NativeCoachView: View {
                     messageTitle("sparkles", "用提示词整理计划")
                     Text("只有普通聊天时，可以让 AI 输出计划，再粘贴回来核对。")
                         .font(.subheadline).foregroundStyle(CoachColors.muted)
-                    SpotterGlassSegments(options: ["起草新计划", "整理已有计划"], value: $ownPromptMode) { $0 }
-                        .accessibilityLabel("AI 处理目标")
+                    SpotterSegments("AI 处理目标", options: ["起草新计划", "整理已有计划"], value: $ownPromptMode) { $0 }
                     HStack {
                         Button("复制计划提示词") {
                             UIPasteboard.general.string = externalPrompt
@@ -2666,10 +2675,9 @@ private struct NativePlanQuestions: View {
 
     private var movements: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SpotterGlassSegments(options: [false, true], value: $editingWarmup) {
+            SpotterSegments("动作类别", options: [false, true], value: $editingWarmup) {
                 $0 ? "热身动作（\(warmup.count)）" : "正式动作（\(work.count)）"
             }
-            .accessibilityLabel("动作类别")
             Button { search = ""; choosingMove = true } label: {
                 Label("从动作库添加", systemImage: "plus").font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -2691,8 +2699,8 @@ private struct NativePlanQuestions: View {
             }
             if work.isEmpty { Text("至少加入一个正式动作。").font(.caption).foregroundStyle(SpotterPalette.muted) }
         }
-        .animation(stepMotion, value: editingWarmup)
-        .animation(stepMotion, value: (editingWarmup ? warmup : work).map(\.id))
+        .animation(stepMotion, value: warmup.map(\.id))
+        .animation(stepMotion, value: work.map(\.id))
     }
 
     private var preferences: some View {

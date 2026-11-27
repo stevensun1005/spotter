@@ -4,7 +4,7 @@ import ImageIO
 import SwiftUI
 import UIKit
 
-private struct NativeCatalogueFilters: Equatable, Sendable {
+fileprivate struct NativeCatalogueFilters: Equatable, Sendable {
     var query = ""
     var area = ""
     var type = ""
@@ -16,11 +16,33 @@ private struct NativeCatalogueFilters: Equatable, Sendable {
     var scope: NativeCatalogScope = .all
 }
 
-private struct NativeCatalogueFilterRequest: Equatable, Sendable {
+fileprivate struct NativeCatalogueFilterRequest: Equatable, Sendable {
     let filters: NativeCatalogueFilters
     let gear: Set<String>
     let profiles: [NativeJSON]
     let names: [String]
+
+    func isSearchEdit(after previous: Self) -> Bool {
+        guard filters.query != previous.filters.query, !filters.query.isEmpty else { return false }
+        var otherFilters = filters
+        otherFilters.query = previous.filters.query
+        return otherFilters == previous.filters && gear == previous.gear
+            && profiles == previous.profiles && names == previous.names
+    }
+}
+
+fileprivate struct NativeCatalogueSnapshot: Sendable {
+    let request: NativeCatalogueFilterRequest
+    let results: NativeCatalogResults
+    let pinnedNames: Set<String>
+}
+
+@MainActor
+final class NativeCatalogueBrowsingState: ObservableObject {
+    @Published fileprivate var filters = NativeCatalogueFilters()
+    @Published fileprivate var snapshot: NativeCatalogueSnapshot?
+    @Published fileprivate var sectionLimits: [String: Int] = [:]
+    @Published fileprivate var scrollSection: String?
 }
 
 private enum NativeCatalogueSheet: Identifiable {
@@ -53,13 +75,11 @@ struct NativeCatalogueBrowser: View {
     @AppStorage(NativeGymPreferences.storageKey) private var gymPreferences = Data()
     @AppStorage(NativePreferenceKey.equipment) private var legacyEquipment = ""
     @AppStorage(NativePreferenceKey.exerciseLanguage) private var language = "zh"
+    @StateObject private var browsing: NativeCatalogueBrowsingState
     @State private var index: NativeCatalogIndex?
-    @State private var results: NativeCatalogResults?
-    @State private var filters = NativeCatalogueFilters()
     @State private var loadAttempt = 0
     @State private var loadFailed = false
-    @State private var resultsVersion = 0
-    @State private var sectionLimits: [String: Int] = [:]
+    @State private var requestedFilters: NativeCatalogueFilterRequest?
     @State private var sheet: NativeCatalogueSheet?
     @State private var pendingMove: NativeCatalogEntry?
     @FocusState private var searchFocused: Bool
@@ -67,18 +87,21 @@ struct NativeCatalogueBrowser: View {
     @ScaledMetric(relativeTo: .caption2) private var jumpRailWidth: CGFloat = 29
     @ScaledMetric(relativeTo: .caption2) private var jumpRailMinimumRowHeight: CGFloat = 30
 
-    private var profiles: [NativeJSON] {
-        store.libraryRows.filter { $0["kind"].string == "exercise" }.map { $0["item"] }
+    init(store: NativeWorkoutStore, browsing: NativeCatalogueBrowsingState? = nil,
+         addToPlan: @escaping (NativeCatalogEntry) -> Void) {
+        self.store = store
+        self.addToPlan = addToPlan
+        _browsing = StateObject(wrappedValue: browsing ?? NativeCatalogueBrowsingState())
     }
 
-    private var names: [String] {
-        let plans = store.plans.filter { $0.owner == store.owner }
-        return plans.flatMap { $0.data["exercises"].array.map { $0["name"].string } }
-            + store.logs.flatMap { $0.data["plan"]["exercises"].array.map { $0["name"].string } }
+    private var filters: NativeCatalogueFilters {
+        get { browsing.filters }
+        nonmutating set { browsing.filters = newValue }
     }
 
     private var request: NativeCatalogueFilterRequest {
-        NativeCatalogueFilterRequest(filters: filters, gear: selectedGear, profiles: profiles, names: names)
+        NativeCatalogueFilterRequest(filters: filters, gear: selectedGear, profiles: store.catalogueProfiles,
+                                     names: store.catalogueExerciseNames)
     }
 
     private var selectedGear: Set<String> {
@@ -91,6 +114,7 @@ struct NativeCatalogueBrowser: View {
     }
 
     var body: some View {
+        let request = request
         VStack(spacing: 8) {
             searchBar
             if let index {
@@ -99,8 +123,8 @@ struct NativeCatalogueBrowser: View {
                         areaRail(index)
                             .frame(width: min(91, max(62, geometry.size.width * 0.19)))
                         VStack(alignment: .leading, spacing: 7) {
-                            if let results {
-                                resultPane(results, index: index)
+                            if let snapshot = browsing.snapshot {
+                                resultPane(snapshot.results, index: index)
                             } else {
                                 ProgressView("正在加载动作…")
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -125,7 +149,7 @@ struct NativeCatalogueBrowser: View {
         .task(id: loadAttempt) {
             loadFailed = false
             do {
-                let data = try await Task.detached(priority: .userInitiated) { try NativeCatalogIndex.load() }.value
+                let data = try await NativeCatalogIndex.bundled()
                 if !Task.isCancelled { index = data }
             } catch {
                 if !Task.isCancelled { loadFailed = true }
@@ -146,7 +170,7 @@ struct NativeCatalogueBrowser: View {
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(SpotterPalette.muted)
                         .accessibilityHidden(true)
-                    TextField("搜索动作名称", text: $filters.query)
+                    TextField("搜索动作名称", text: $browsing.filters.query)
                         .font(.system(size: 15))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -263,7 +287,7 @@ struct NativeCatalogueBrowser: View {
                 Label(filters.scope == .frequent ? "显示全部动作" : "常用动作", systemImage: "clock.arrow.circlepath")
             }
             if !selectedGear.isEmpty {
-                Toggle("只显示我的器械", isOn: $filters.usesGear)
+                Toggle("只显示我的器械", isOn: $browsing.filters.usesGear)
             }
             Button {
                 searchFocused = false
@@ -296,7 +320,7 @@ struct NativeCatalogueBrowser: View {
             HStack(alignment: .top, spacing: 5) {
                 GeometryReader { bounds in
                     let viewport = NativeCataloguePreviewViewport(coordinateSpace: previewViewport, size: bounds.size)
-                    ScrollView {
+                    catalogueScroll {
                         LazyVStack(alignment: .leading, spacing: 12) {
                             Color.clear.frame(height: 0).id("spotter.catalogue.start")
                             if let name = newSearchName(in: index) {
@@ -317,7 +341,6 @@ struct NativeCatalogueBrowser: View {
                                     .padding(8)
                             }
                         }
-                        .padding(.bottom, 6)
                     }
                     .coordinateSpace(name: previewViewport)
                     .scrollDismissesKeyboard(.interactively)
@@ -329,11 +352,31 @@ struct NativeCatalogueBrowser: View {
                         withAnimation(allowsMotion ? .easeInOut(duration: 0.24) : nil) {
                             scroll.scrollTo(section.id, anchor: .top)
                         }
+                        browsing.scrollSection = section.id
                         focusedSection = section.id
                     }
                 }
             }
-            .onChange(of: resultsVersion) { _ in scroll.scrollTo("spotter.catalogue.start", anchor: .top) }
+            .onAppear {
+                if #unavailable(iOS 17.0), let section = browsing.scrollSection {
+                    scroll.scrollTo(section, anchor: .top)
+                }
+            }
+            .onChange(of: browsing.snapshot?.request.filters) { _ in
+                scroll.scrollTo("spotter.catalogue.start", anchor: .top)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func catalogueScroll<Rows: View>(@ViewBuilder rows: () -> Rows) -> some View {
+        if #available(iOS 17.0, *) {
+            ScrollView {
+                rows().scrollTargetLayout().padding(.bottom, 6)
+            }
+            .scrollPosition(id: $browsing.scrollSection, anchor: .top)
+        } else {
+            ScrollView { rows().padding(.bottom, 6) }
         }
     }
 
@@ -374,7 +417,7 @@ struct NativeCatalogueBrowser: View {
         _ section: NativeCatalogSection, index: NativeCatalogIndex, viewport: NativeCataloguePreviewViewport
     ) -> some View {
         let batch = filters.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 8 : 40
-        let limit = sectionLimits[section.id] ?? batch
+        let limit = browsing.sectionLimits[section.id] ?? batch
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Text(section.title)
@@ -392,7 +435,7 @@ struct NativeCatalogueBrowser: View {
                 }
             }
             if section.rows.count > limit {
-                Button("显示更多") { sectionLimits[section.id] = limit + batch }
+                Button("显示更多") { browsing.sectionLimits[section.id] = limit + batch }
                     .font(.system(size: 12, weight: .semibold))
                     .buttonStyle(SpotterNativeButtonStyle(primary: false))
                     .accessibilityLabel("显示更多 " + section.title)
@@ -413,7 +456,7 @@ struct NativeCatalogueBrowser: View {
             chinese + " · " + entry.en
         }
         let key = index.nameKey(entry.name)
-        let isPinned = profiles.contains { $0["pinned"].bool && index.nameKey($0["name"].string) == key }
+        let isPinned = browsing.snapshot?.pinnedNames.contains(key) == true
         let row = Button {
             let zoomSource = searchFocused ? nil : source
             searchFocused = false
@@ -508,7 +551,7 @@ struct NativeCatalogueBrowser: View {
             NativeCatalogueCustomEditor(store: store, index: index, name: name, knownNames: request.names,
                                         saved: dismissCreated)
         case .filters:
-            NativeCatalogueFiltersSheet(index: index, filters: $filters, savedGyms: $gymPreferences, legacyGear: legacyEquipment)
+            NativeCatalogueFiltersSheet(index: index, filters: $browsing.filters, savedGyms: $gymPreferences, legacyGear: legacyEquipment)
         }
     }
 
@@ -516,8 +559,8 @@ struct NativeCatalogueBrowser: View {
         let gear = filters.usesGear ? selectedGear : []
         return family.variants.filter { variant in
             if variant.id == initial.id { return true }
-            if let type = results?.activeType, !type.isEmpty, type != variant.type { return false }
-            if let equipment = results?.activeEquipment, !index.matchesEquipment(variant, equipment) { return false }
+            if let type = browsing.snapshot?.results.activeType, !type.isEmpty, type != variant.type { return false }
+            if let equipment = browsing.snapshot?.results.activeEquipment, !index.matchesEquipment(variant, equipment) { return false }
             if !gear.isEmpty, variant.equipment != "body weight", !gear.contains(variant.equipment) { return false }
             return index.matchesArea(variant, filters.area)
         }
@@ -528,7 +571,7 @@ struct NativeCatalogueBrowser: View {
         let key = index.nameKey(name)
         guard !key.isEmpty, name.count <= 100, !index.knows(name),
               !request.names.contains(where: { index.nameKey($0) == key }),
-              !profiles.contains(where: { index.nameKey($0["name"].string) == key }) else { return nil }
+              !store.catalogueProfiles.contains(where: { index.nameKey($0["name"].string) == key }) else { return nil }
         return name
     }
 
@@ -555,12 +598,16 @@ struct NativeCatalogueBrowser: View {
     }
 
     private func refresh(index: NativeCatalogIndex, request: NativeCatalogueFilterRequest) async {
-        if results != nil {
-            try? await Task.sleep(nanoseconds: 110_000_000)
+        let previous = requestedFilters
+        requestedFilters = request
+        guard browsing.snapshot?.request != request else { return }
+        if searchFocused, let previous, request.isSearchEdit(after: previous) {
+            do { try await Task.sleep(for: .milliseconds(110)) }
+            catch { return }
         }
         guard !Task.isCancelled else { return }
 
-        let result = await Task.detached(priority: .userInitiated) {
+        let job = Task.detached(priority: .userInitiated) { () -> NativeCatalogueSnapshot in
             let normalizedNames = request.names.map(index.exerciseName)
             var personal: [NativeCatalogEntry] = []
             var seen: Set<String> = []
@@ -580,17 +627,21 @@ struct NativeCatalogueBrowser: View {
             }
             let favorites = Set(request.profiles.filter { $0["pinned"].bool }.map { index.exerciseName($0["name"].string) })
             let options = request.filters
-            return index.results(query: options.query, area: options.area, type: options.type,
-                                 equipment: options.equipment, terms: options.usesMuscles ? options.muscles : [],
-                                 any: options.anyMuscle, gear: options.usesGear ? request.gear : [], scope: options.scope,
-                                 favorites: favorites, frequent: Set(normalizedNames), personal: personal,
-                                 byMuscle: options.usesMuscles)
-        }.value
+            let results = index.results(query: options.query, area: options.area, type: options.type,
+                                        equipment: options.equipment, terms: options.usesMuscles ? options.muscles : [],
+                                        any: options.anyMuscle, gear: options.usesGear ? request.gear : [], scope: options.scope,
+                                        favorites: favorites, frequent: Set(normalizedNames), personal: personal,
+                                        byMuscle: options.usesMuscles)
+            return NativeCatalogueSnapshot(request: request, results: results, pinnedNames: Set(favorites.map(index.nameKey)))
+        }
+        let snapshot = await withTaskCancellationHandler { await job.value } onCancel: { job.cancel() }
 
         guard !Task.isCancelled else { return }
-        results = result
-        sectionLimits = [:]
-        resultsVersion += 1
+        if browsing.snapshot?.request.filters != request.filters {
+            browsing.sectionLimits = [:]
+            browsing.scrollSection = nil
+        }
+        browsing.snapshot = snapshot
     }
 }
 
@@ -823,10 +874,10 @@ private struct NativeCatalogueFiltersSheet: View {
                         muscleFilters
                             .transition(.opacity)
                     }
-                    filterChips("动作类型", options: index.types, selection: filters.type,
-                                blank: "全部类型", label: index.label) { filters.type = $0 }
-                    filterChips("器械", options: index.equipmentGroupOptions.map(\.id), selection: filters.equipment,
-                                blank: "全部器械", label: index.equipmentFilterLabel) { filters.equipment = $0 }
+                    SpotterMenuPicker("动作类型", selection: $filters.type,
+                                      options: [("", "全部类型")] + index.types.map { ($0, index.label($0)) })
+                    SpotterMenuPicker("器械", selection: $filters.equipment,
+                                      options: [("", "全部器械")] + index.equipmentGroupOptions.map { ($0.id, $0.title) })
                     SpotterDisclosure("我的器械 · \(preferences.gym.name)") {
                         Toggle("只显示我的器械", isOn: $filters.usesGear).padding(.vertical, 8)
                         NativeGymEquipmentGrid(preferences: preferences, toggle: { key in updateGear { $0.toggle(key) } },
@@ -864,7 +915,7 @@ private struct NativeCatalogueFiltersSheet: View {
 
     private var muscleFilters: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SpotterGlassSegments(options: [false, true], value: $filters.anyMuscle, glass: false) {
+            SpotterSegments("肌肉匹配方式", options: [false, true], value: $filters.anyMuscle) {
                 $0 ? "任意命中" : "同时命中"
             }
             .accessibilityLabel("肌肉匹配")
@@ -885,18 +936,6 @@ private struct NativeCatalogueFiltersSheet: View {
 
     private func toggleMuscle(_ term: String) {
         if !filters.muscles.insert(term).inserted { filters.muscles.remove(term) }
-    }
-
-    private func filterChips(
-        _ title: String, options: [String], selection: String, blank: String,
-        label: @escaping (String) -> String, choose: @escaping (String) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.headline)
-            chipGrid([""] + options) { option in
-                catalogueChip(option.isEmpty ? blank : label(option), selected: selection == option) { choose(option) }
-            }
-        }
     }
 
     private func chipGrid<T: View>(_ options: [String], @ViewBuilder item: @escaping (String) -> T) -> some View {
@@ -1072,10 +1111,8 @@ private struct NativeCatalogueExercisePage: View {
     @ObservedObject var store: NativeWorkoutStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
-    @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dynamicTypeSize) private var textSize
     @Namespace private var previewCoordinateSpace
-    @Namespace private var detailTabSelection
     let index: NativeCatalogIndex?
     let entry: NativeCatalogEntry?
     let move: NativeJSON
@@ -1186,36 +1223,7 @@ private struct NativeCatalogueExercisePage: View {
     }
 
     private var tabs: some View {
-        let layout = textSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(spacing: 3)) : AnyLayout(HStackLayout(spacing: 3))
-        return layout {
-            ForEach(NativeExerciseDetailTab.allCases, id: \.self) { section in
-                let selected = tab == section
-                Button { tab = section } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: section.icon).accessibilityHidden(true)
-                        Text(section.title).fixedSize(horizontal: true, vertical: false)
-                    }
-                    .font(.caption.weight(selected ? .bold : .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
-                    .background {
-                        if selected {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(SpotterPalette.card)
-                                .matchedGeometryEffect(id: "selected", in: detailTabSelection)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.spotterPress)
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityIdentifier("catalogue-detail-section-" + section.rawValue)
-            }
-        }
-        .padding(3)
-        .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 13))
-        .animation(motion, value: tab)
+        SpotterSegments("动作详情分区", options: NativeExerciseDetailTab.allCases, value: $tab, title: \.title)
     }
 
     @ViewBuilder private var guidance: some View {
@@ -1715,7 +1723,7 @@ struct NativeExerciseProgressView: View {
             }
         }
         .task {
-            let index = try? await NativeCatalogIndex.bundled.value
+            let index = try? await NativeCatalogIndex.bundled()
             if !Task.isCancelled {
                 catalogue = index
                 loadedCatalogue = true

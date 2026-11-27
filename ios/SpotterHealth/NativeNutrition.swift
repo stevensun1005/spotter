@@ -41,7 +41,7 @@ enum NutritionShortcut: String, CaseIterable, Identifiable {
 }
 
 struct NutritionPayload: Decodable {
-    struct Values: Decodable {
+    struct Values: Decodable, Sendable {
         var calories: Double = 0
         var protein: Double = 0
         var carbs: Double = 0
@@ -479,7 +479,10 @@ struct NativeHomeNutrition: View {
                     if let onCollapse { NativeHomeNutritionCollapseButton(action: onCollapse) }
                 }
             Divider().overlay(SpotterPalette.line)
-            NutritionShortcuts(onMainMeal: { destination = .logger(.suggestedMainMeal) },
+            NutritionShortcuts(onMainMeal: {
+                // The guide demonstrates selecting breakfast in the native picker.
+                destination = .logger(guide?.step == .mainMeal ? .lunch : .suggestedMainMeal)
+            },
                                onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
                                onFavorites: { destination = .favorites },
                                onPhoto: { photoCapture = NutritionPhotoRequest(day: spotterDay()) })
@@ -898,7 +901,7 @@ struct NativeNutritionDetail: View {
         case .protein:
             NativeNutritionProtein(api: api, owner: owner, day: day)
         case .stats:
-            NativeNutritionStats(api: api, day: date)
+            NativeNutritionStats(api: api, owner: owner, day: date)
         case .copy:
             NativeNutritionCopy(api: api, owner: owner, destination: date, suggestedMeal: mealNow, dateBounds: dateBounds)
         case .favorites:
@@ -1790,11 +1793,11 @@ private struct NativeNutritionEditor: View {
                         }
                     } else if shortcut == .water {
                         field("饮水量（ml）", value: $quantity)
-                        SpotterGlassSegments(options: ["150", "250", "500", "750"], value: $quantity, glass: false) { "\($0) ml" }
+                        SpotterSegments("饮水量", options: ["150", "250", "500", "750"], value: $quantity) { "\($0) ml" }
                             .accessibilityElement(children: .contain)
                             .accessibilityLabel("常用饮水量")
                     } else {
-                        SpotterGlassSegments(options: [false, true], value: $imperialWeight, glass: false) { $0 ? "磅" : "公斤" }
+                        SpotterSegments("体重单位", options: [false, true], value: $imperialWeight) { $0 ? "磅" : "公斤" }
                             .accessibilityElement(children: .contain)
                             .accessibilityLabel("单位")
                         field(imperialWeight ? "体重（lb）" : "体重（kg）", value: $quantity)
@@ -2320,64 +2323,107 @@ private struct NativeNutritionProteinServing: Identifiable {
 @MainActor
 private struct NativeNutritionStats: View {
     private struct Export: Decodable { let library: [NutritionPayload.Row] }
-    private struct Point: Identifiable { let id: String; let total: NutritionPayload.Values }
+    private struct Point: Identifiable, Sendable { let id: String; let total: NutritionPayload.Values }
+    private struct Snapshot {
+        let owner: String
+        let day: String
+        let points: [Point]
+        let loadedAt: Date
+    }
+
     let api: NativeAPI
+    let owner: String
     let day: Date
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var range = 7
     @State private var metric = NutritionMetric.calories
-    @State private var points: [Point] = []
+    @State private var snapshot: Snapshot?
+    @State private var refreshRevision = 0
     @State private var busy = true
     @State private var error: String?
 
+    private var loadKey: String { "\(owner)/\(spotterDay(day))/\(refreshRevision)" }
+
+    private var pointsForRange: [Point]? {
+        guard let snapshot, snapshot.owner == owner, snapshot.day == spotterDay(day) else { return nil }
+        return Array(snapshot.points.suffix(range))
+    }
+
     var body: some View {
+        let request = loadKey
         NativeNutritionSheet(title: "饮食统计") {
             Section {
-                SpotterGlassSegments(options: [7, 14, 30], value: $range) { "近 \($0) 天" }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("区间")
+                SpotterSegments("统计区间", options: [7, 14, 30], value: $range) { "近 \($0) 天" }
                 SpotterMenuPicker("指标", selection: $metric, options: NutritionMetric.allCases.map { ($0, $0.title) })
             }
             Section(metric.title) {
-                if busy { ProgressView("正在读取…") }
-                else if let error { Button(error) { Task { await load(range) } }.foregroundStyle(SpotterPalette.accent) }
-                else {
-                    Chart(points) { point in
-                        BarMark(x: .value("日期", String(point.id.suffix(5))), y: .value(metric.title, metric[point.total]))
-                            .foregroundStyle(SpotterPalette.accent)
-                    }
-                    .chartXAxis {
-                        AxisMarks(values: points.enumerated().filter { $0.offset.isMultiple(of: range > 7 ? 5 : 2) }.map { String($0.element.id.suffix(5)) })
-                    }
-                    .frame(height: 175)
-                    .animation(reduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.24), value: metric)
-                    let average = points.isEmpty ? 0 : points.reduce(0) { $0 + metric[$1.total] } / Double(points.count)
-                    Text("每日平均 \(nutritionNumber(average)) \(metric.unit)").font(.footnote).foregroundStyle(.secondary)
+                if let points = pointsForRange { chart(points) }
+                if busy {
+                    ProgressView(pointsForRange == nil ? "正在读取…" : "正在更新…")
+                } else if let error {
+                    Button(error) { refreshRevision &+= 1 }.foregroundStyle(SpotterPalette.accent)
                 }
             }
         }
-        .task(id: range) { await load(range) }
+        .task(id: request) { await load(request) }
+        .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in refreshRevision &+= 1 }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, !busy else { return }
+            if let snapshot, Date.now.timeIntervalSince(snapshot.loadedAt) < 60 { return }
+            refreshRevision &+= 1
+        }
     }
 
-    private func load(_ days: Int) async {
+    @ViewBuilder private func chart(_ points: [Point]) -> some View {
+        Chart(points) { point in
+            BarMark(x: .value("日期", String(point.id.suffix(5))), y: .value(metric.title, metric[point.total]))
+                .foregroundStyle(SpotterPalette.accent)
+        }
+        .chartXAxis {
+            AxisMarks(values: points.enumerated().filter { $0.offset.isMultiple(of: range > 7 ? 5 : 2) }.map { String($0.element.id.suffix(5)) })
+        }
+        .frame(height: 175)
+        .animation(reduceMotion || systemReduceMotion ? nil : .easeInOut(duration: 0.24), value: metric)
+        let average = points.isEmpty ? 0 : points.reduce(0) { $0 + metric[$1.total] } / Double(points.count)
+        Text("每日平均 \(nutritionNumber(average)) \(metric.unit)").font(.footnote).foregroundStyle(.secondary)
+    }
+
+    private func load(_ request: String) async {
+        guard !Task.isCancelled, request == loadKey else { return }
         busy = true
         error = nil
-        defer { if !Task.isCancelled && range == days { busy = false } }
-        let dates = (1 - days...0).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: day).map(spotterDay) }
+        defer { if !Task.isCancelled && request == loadKey { busy = false } }
+        let dates = (-29...0).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: day).map(spotterDay) }
         guard let start = dates.first, let end = dates.last else { return }
         do {
-            let data = try await api.spotterRead("/api/data?scope=nutrition&from=\(start)&to=\(end)", as: Export.self)
-            guard !Task.isCancelled, range == days else { return }
-            let byDay = Dictionary(grouping: data.library.filter { $0.date != nil }, by: { $0.date ?? "" })
-            points = dates.map { key in Point(id: key, total: NutritionPayload(rows: byDay[key] ?? []).totals(on: key)) }
+            let path = "/api/data?scope=nutrition&from=\(start)&to=\(end)"
+            let data = try await api.request(path, method: "GET", json: nil, for: owner)
+            guard !Task.isCancelled, request == loadKey else { return }
+            let points = try await Task.detached(priority: .utility) {
+                let export = try JSONDecoder().decode(Export.self, from: data)
+                let byDay = Dictionary(grouping: export.library.filter { $0.date != nil }, by: { $0.date ?? "" })
+                return dates.map { key in Point(id: key, total: NutritionPayload(rows: byDay[key] ?? []).totals(on: key)) }
+            }.value
+            guard !Task.isCancelled, request == loadKey else { return }
+            snapshot = Snapshot(owner: owner, day: end, points: points, loadedAt: .now)
         } catch is CancellationError {
-        } catch { if !Task.isCancelled && range == days { self.error = "饮食统计读取失败，点此重试。" } }
+        } catch {
+            guard !Task.isCancelled, request == loadKey else { return }
+            if let issue = error as? NativeAPIError {
+                switch issue {
+                case .accountChanged: snapshot = nil
+                default: if issue.statusCode == 401 { snapshot = nil }
+                }
+            }
+            self.error = pointsForRange == nil ? "饮食统计读取失败，点此重试。" : "更新失败，显示上次数据。点此重试。"
+        }
     }
 }
 
-struct NativeNutritionFood: Identifiable {
-    struct Facts: Decodable, Equatable {
+struct NativeNutritionFood: Identifiable, Equatable, Sendable {
+    struct Facts: Decodable, Equatable, Sendable {
         var calories: Double
         var protein: Double
         var carbs: Double
@@ -2722,7 +2768,7 @@ extension NativeNutritionFood {
         return catalog.isEmpty ? fallback : catalog
     }()
 
-    fileprivate static let builtInByID = Dictionary(builtIn.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    static let builtInByID = Dictionary(builtIn.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
     /// The original everyday list. Recommendations rank only these, like the web nutrition tools.
     static let core: [Self] = {

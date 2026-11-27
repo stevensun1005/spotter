@@ -211,6 +211,117 @@ private enum SecondaryMetric: String, CaseIterable, Hashable {
     }
 }
 
+private struct SecondaryStatistics: Sendable {
+    struct Selection: Equatable, Sendable {
+        let subject: String
+        let current: ClosedRange<String>
+        let comparison: ClosedRange<String>?
+    }
+
+    struct Request: Equatable, Sendable {
+        let selection: Selection
+        let revision: Int
+    }
+
+    struct Totals: Sendable {
+        var volume = 0.0
+        var sessions = 0.0
+        var minutes = 0.0
+        var sets = 0.0
+
+        mutating func add(_ entry: NativeWorkoutEntry) {
+            let session = entry.session
+            volume += session?.volumeKg ?? 0
+            sessions += 1
+            minutes += Double(entry.durationMinutes)
+            sets += Double(session?.completedSets ?? 0)
+        }
+
+        mutating func add(_ totals: Self) {
+            volume += totals.volume
+            sessions += totals.sessions
+            minutes += totals.minutes
+            sets += totals.sets
+        }
+
+        func value(for metric: SecondaryMetric) -> Double {
+            switch metric {
+            case .volume: return volume
+            case .sessions: return sessions
+            case .minutes: return minutes
+            case .sets: return sets
+            }
+        }
+    }
+
+    struct Slice: Sendable {
+        let entries: [NativeWorkoutEntry]
+        let totals: Totals
+        let daily: [(day: String, totals: Totals)]
+
+        init(_ entries: [NativeWorkoutEntry], days: ClosedRange<String>) {
+            self.entries = entries.filter { days.contains($0.day) }
+            var byDay: [String: Totals] = [:]
+            for entry in self.entries {
+                if Task.isCancelled { break }
+                byDay[entry.day, default: .init()].add(entry)
+            }
+            daily = byDay.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+            var combined = Totals()
+            for day in daily { combined.add(day.totals) }
+            totals = combined
+        }
+    }
+
+    let request: Request
+    let logs: [NativeWorkoutEntry]
+    let current: Slice
+    let comparison: Slice?
+
+    init(request: Request, entries: [NativeWorkoutEntry]) {
+        self.request = request
+        let logs = entries.filter { $0.kind == "log" && $0.owner == request.selection.subject }
+        self.logs = logs
+        current = Slice(logs, days: request.selection.current)
+        comparison = request.selection.comparison.map { Slice(logs, days: $0) }
+    }
+}
+
+@MainActor
+private final class SecondaryHistoryCache: ObservableObject {
+    struct Request: Equatable {
+        let days: ClosedRange<String>
+        let partner: String
+        let sharedFrom: String
+        let trainingShared: Bool
+
+        @MainActor init(from: String, through: String, store: NativeWorkoutStore) {
+            days = from...through
+            partner = store.partnerID
+            sharedFrom = store.room["partnerCheckinsFrom"].string
+            trainingShared = store.room["partnerTrainingShared"] != .bool(false)
+        }
+
+        func covers(_ other: Self) -> Bool {
+            partner == other.partner && sharedFrom == other.sharedFrom &&
+                trainingShared == other.trainingShared &&
+                days.lowerBound <= other.days.lowerBound && days.upperBound >= other.days.upperBound
+        }
+    }
+
+    private var loaded: [(request: Request, expires: Date)] = []
+
+    func load(_ request: Request, store: NativeWorkoutStore, force: Bool = false) async {
+        loaded.removeAll { $0.expires <= .now }
+        if !force, loaded.contains(where: { $0.request.covers(request) }) { return }
+        if force { loaded.removeAll() }
+        guard await store.loadHistory(from: request.days.lowerBound, through: request.days.upperBound),
+              !Task.isCancelled else { return }
+        loaded.removeAll { request.covers($0.request) }
+        loaded.append((request, .now.addingTimeInterval(30)))
+    }
+}
+
 enum NativeWidgetStatsRequest: Equatable {
     case history, weekly, year
 }
@@ -230,6 +341,8 @@ struct NativeSpotterStats: View {
     private enum Period: String, CaseIterable { case week = "周", month = "月", quarter = "季", year = "年", recent = "最近", custom = "自定义" }
     private enum Compare: String, CaseIterable { case previous = "上一周期", year = "上年同期", off = "关闭对比" }
 
+    @StateObject private var historyCache = SecondaryHistoryCache()
+    @State private var statistics: SecondaryStatistics?
     @State private var page = Page.overview
     @State private var period = Period.week
     @State private var step = 0
@@ -245,12 +358,7 @@ struct NativeSpotterStats: View {
     @State private var showsWeek = false
     @State private var selectedWorkout: NativeWorkoutEntry?
 
-    private var sharedLogs: [NativeWorkoutEntry] {
-        guard let partner else { return [] }
-        return store.entries.filter { $0.kind == "log" && $0.owner == partner.id }
-    }
-
-    private var subjectLogs: [NativeWorkoutEntry] { partnerSelected && partner != nil ? sharedLogs : store.logs }
+    private var subjectID: String { (partnerSelected ? partner?.id : nil) ?? store.owner }
     private var range: ClosedRange<Date> { range(at: step) }
     private var completeComparison: ClosedRange<Date> {
         if comparison == .year {
@@ -296,10 +404,29 @@ struct NativeSpotterStats: View {
 
     private func rangeCount(_ interval: ClosedRange<Date>) -> Int { max(1, SecondaryDate.days(interval.lowerBound, through: interval.upperBound)) }
 
-    private func logs(_ interval: ClosedRange<Date>) -> [NativeWorkoutEntry] {
-        let from = spotterDay(interval.lowerBound)
-        let to = spotterDay(interval.upperBound)
-        return subjectLogs.filter { $0.day >= from && $0.day <= to }
+    private var statisticsRequest: SecondaryStatistics.Request? {
+        guard rangeCount(range) <= 3_660 else { return nil }
+        let current = spotterDay(elapsedRange.lowerBound)...spotterDay(elapsedRange.upperBound)
+        let previous = comparison == .off
+            ? nil : spotterDay(comparedRange.lowerBound)...spotterDay(comparedRange.upperBound)
+        return .init(selection: .init(subject: subjectID, current: current, comparison: previous),
+                     revision: store.widgetRevision)
+    }
+
+    private func prepareStatistics(_ request: SecondaryStatistics.Request) async {
+        guard !Task.isCancelled, statistics?.request != request else { return }
+        let entries = request.selection.subject == store.owner ? store.logs : store.entries
+        let worker = Task.detached(priority: .userInitiated) {
+            SecondaryStatistics(request: request, entries: entries)
+        }
+        let result = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        if !Task.isCancelled, statisticsRequest == request {
+            statistics = result
+        }
     }
 
     private func label(_ interval: ClosedRange<Date>, short: Bool = false) -> String {
@@ -327,43 +454,46 @@ struct NativeSpotterStats: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
-            SpotterGlassSegments(options: Page.allCases, value: $page, dense: true, title: \.rawValue)
+        let request = page == .overview ? statisticsRequest : nil
+        return VStack(spacing: 6) {
+            SpotterSegments("统计页面", options: Page.allCases, value: $page, title: \.rawValue)
                 .padding(.horizontal, 14)
             if page == .overview {
                 ScrollView {
-                    overview
+                    overview(request)
                         .frame(maxWidth: 620)
                         .padding(.horizontal, 14).padding(.bottom, 16)
                         .frame(maxWidth: .infinity)
                 }
-                .refreshable { await store.load(); await loadStatsHistory(); await loadPartner() }
-                .transition(.opacity)
+                .refreshable {
+                    await store.load()
+                    await loadStatsHistory(force: true)
+                    await loadPartner()
+                }
             } else {
-                SecondaryHistory(store: store)
+                SecondaryHistory(store: store, historyCache: historyCache)
                     .frame(maxWidth: 680)
                     .padding(.horizontal, 14).padding(.bottom, 5)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity)
             }
         }
         .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(SpotterPalette.ink)
         .background(SpotterPalette.background)
-        .animation(motion, value: page)
         .onAppear(perform: openWidgetStats)
         .onChange(of: widgetStatsRequest?.wrappedValue) { _ in openWidgetStats() }
         .task { await loadPartner() }
+        .task(id: request) {
+            if let request { await prepareStatistics(request) }
+        }
         .task(id: page == .overview ? historyKey : nil) {
             if page == .overview { await loadStatsHistory() }
         }
         .sheet(isPresented: $editingDates) {
             SecondaryDateRangeSheet(start: customStart, end: customEnd) { start, end in
-                withAnimation(motion) {
-                    customStart = start
-                    customEnd = end
-                }
+                customStart = start
+                customEnd = end
             }
         }
         .sheet(isPresented: $showsWeek) { weekDetails }
@@ -396,12 +526,8 @@ struct NativeSpotterStats: View {
         }
     }
 
-    private var historyKey: String {
-        "\(spotterDay(elapsedRange.lowerBound))|\(spotterDay(elapsedRange.upperBound))|\(comparison.rawValue)|\(spotterDay(comparedRange.lowerBound))|\(spotterDay(comparedRange.upperBound))"
-    }
-
-    private func loadStatsHistory() async {
-        guard rangeCount(range) <= 3_660 else { return }
+    private var historyKey: SecondaryHistoryCache.Request? {
+        guard rangeCount(range) <= 3_660 else { return nil }
         let recentYear = SecondaryDate.shift(elapsedRange.upperBound, -364)
         var first = min(elapsedRange.lowerBound, recentYear)
         var last = elapsedRange.upperBound
@@ -409,7 +535,12 @@ struct NativeSpotterStats: View {
             first = min(first, comparedRange.lowerBound)
             last = max(last, comparedRange.upperBound)
         }
-        await store.loadHistory(from: spotterDay(first), through: spotterDay(last))
+        return .init(from: spotterDay(first), through: spotterDay(last), store: store)
+    }
+
+    private func loadStatsHistory(force: Bool = false) async {
+        guard let historyKey else { return }
+        await historyCache.load(historyKey, store: store, force: force)
     }
 
     private var canStepForward: Bool {
@@ -429,25 +560,32 @@ struct NativeSpotterStats: View {
         } else { step += delta }
     }
 
-    private var overview: some View {
-        let current = logs(elapsedRange)
-        let former = comparison == .off ? nil : logs(comparedRange)
-        let subjectID = (partnerSelected ? partner?.id : nil) ?? store.owner
-        return LazyVStack(spacing: 9) {
+    private func overview(_ request: SecondaryStatistics.Request?) -> some View {
+        LazyVStack(spacing: 9) {
             rangePicker
-            if rangeCount(range) > 3_660 {
-                SecondaryNotice(message: "请选择有效日期，范围最长 10 年。", warning: true)
-            } else {
+            if let request {
                 if period == .week, !partnerSelected { weekProgress }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 7), GridItem(.flexible(), spacing: 7)], spacing: 7) {
-                    ForEach(SecondaryMetric.allCases, id: \.self) { tile($0, current: current, former: former) }
+                if let statistics,
+                   statistics.request.selection.subject == request.selection.subject,
+                   statistics.request.selection.current == request.selection.current {
+                    let current = statistics.current
+                    let former = statistics.request.selection.comparison == request.selection.comparison
+                        ? statistics.comparison : nil
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 7), GridItem(.flexible(), spacing: 7)], spacing: 7) {
+                        ForEach(SecondaryMetric.allCases, id: \.self) { tile($0, current: current, former: former) }
+                    }
+                    comparisonCard(current: current, former: former)
+                    trendCard(current: current, former: former)
+                    SecondaryActivityCalendar(entries: statistics.logs, end: min(range.upperBound, SecondaryDate.today))
+                    SecondaryMusclePanel(entries: current.entries, subjectFigure: store.anatomyVariant(for: subjectID))
+                        .id(subjectID)
+                    SecondaryPerformance(entries: current.entries, compared: former?.entries) { selectedWorkout = $0 }
+                } else {
+                    ProgressView("正在计算训练统计…")
+                        .frame(maxWidth: .infinity, minHeight: 80)
                 }
-                comparisonCard(current: current, former: former)
-                trendCard(current: current, former: former)
-                SecondaryActivityCalendar(entries: subjectLogs, end: min(range.upperBound, SecondaryDate.today))
-                SecondaryMusclePanel(entries: current, subjectFigure: store.anatomyVariant(for: subjectID))
-                    .id(subjectID)
-                SecondaryPerformance(entries: current, compared: former) { selectedWorkout = $0 }
+            } else {
+                SecondaryNotice(message: "请选择有效日期，范围最长 10 年。", warning: true)
             }
         }
     }
@@ -459,7 +597,7 @@ struct NativeSpotterStats: View {
     private var rangePicker: some View {
         let large = textSize.isAccessibilitySize
         return VStack(alignment: .leading, spacing: 5) {
-            SpotterGlassSegments(options: Period.allCases, value: $period, compact: true, dense: true, title: \.rawValue)
+            SpotterSegments("统计周期", options: Period.allCases, value: $period, title: \.rawValue)
                 .onChange(of: period) { value in
                     step = 0
                     if value == .custom { editingDates = true }
@@ -486,16 +624,18 @@ struct NativeSpotterStats: View {
             } else {
                 rangeStepper(compact: true)
             }
-        }.padding(6).secondaryCard().animation(motion, value: period)
+        }.padding(6).secondaryCard()
     }
 
-    private var showsPartner: Bool { partner != nil && !sharedLogs.isEmpty }
+    private var showsPartner: Bool {
+        guard let id = partner?.id else { return false }
+        return store.entries.contains { $0.kind == "log" && $0.owner == id }
+    }
 
     @ViewBuilder private var partnerSwitch: some View {
         if let partner {
             let name = remarks.name(for: partner.id, fallback: partner.name)
-            SpotterGlassSegments(options: [false, true], value: $partnerSelected, glass: false, compact: true, dense: true,
-                                 accessibilityTitle: { $0 ? "搭子 \(name)" : "我" }) {
+            SpotterSegments("统计对象", options: [false, true], value: $partnerSelected) {
                 $0 ? name : "我"
             }
         }
@@ -607,10 +747,10 @@ struct NativeSpotterStats: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func tile(_ key: SecondaryMetric, current: [NativeWorkoutEntry], former: [NativeWorkoutEntry]?) -> some View {
+    private func tile(_ key: SecondaryMetric, current: SecondaryStatistics.Slice, former: SecondaryStatistics.Slice?) -> some View {
         let lead = key == .volume
-        let value = key.value(in: current)
-        let difference = former.map { value - key.value(in: $0) } ?? 0
+        let value = current.totals.value(for: key)
+        let difference = former.map { value - $0.totals.value(for: key) } ?? 0
         return VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(key == .sessions ? "训练次数 / 天数" : key.rawValue).font(.caption.weight(.semibold)).lineLimit(1)
@@ -620,10 +760,10 @@ struct NativeSpotterStats: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(statNumber(value)).font(.title2.weight(.heavy)).monospacedDigit().minimumScaleFactor(0.65).lineLimit(1)
                     .foregroundStyle(lead ? Color.white : SpotterPalette.ink)
-                Text(key.unit + (key == .sessions ? " · \(Set(current.map(\.day)).count) 天" : "")).font(.caption.weight(.medium)).lineLimit(1)
+                Text(key.unit + (key == .sessions ? " · \(current.daily.count) 天" : "")).font(.caption.weight(.medium)).lineLimit(1)
             }
             if let former {
-                Text(former.isEmpty ? "对比期暂无记录" : "较对比期 \(difference > 0 ? "+" : "")\(statNumber(difference)) \(key.unit)")
+                Text(former.entries.isEmpty ? "对比期暂无记录" : "较对比期 \(difference > 0 ? "+" : "")\(statNumber(difference)) \(key.unit)")
                     .font(.caption2).lineLimit(1)
             }
         }
@@ -633,9 +773,9 @@ struct NativeSpotterStats: View {
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(SpotterPalette.line, lineWidth: lead ? 0 : 1).allowsHitTesting(false))
     }
 
-    private func comparisonCard(current: [NativeWorkoutEntry], former: [NativeWorkoutEntry]?) -> some View {
-        let value = metric.value(in: current) / Double(metric == .volume ? rangeCount(elapsedRange) : 1)
-        let prior = former.map { metric.value(in: $0) / Double(metric == .volume ? rangeCount(comparedRange) : 1) } ?? 0
+    private func comparisonCard(current: SecondaryStatistics.Slice, former: SecondaryStatistics.Slice?) -> some View {
+        let value = current.totals.value(for: metric) / Double(metric == .volume ? rangeCount(elapsedRange) : 1)
+        let prior = former.map { $0.totals.value(for: metric) / Double(metric == .volume ? rangeCount(comparedRange) : 1) } ?? 0
         let scale = max(1, value, prior)
         return VStack(alignment: .leading, spacing: 9) {
             SecondaryActionHeader(title: "周期对比") {
@@ -646,8 +786,8 @@ struct NativeSpotterStats: View {
                 Label("按本期已过去的天数对比", systemImage: "calendar.badge.clock")
                     .font(.caption2.weight(.medium)).foregroundStyle(SpotterPalette.muted)
             }
-            comparisonRow("本期", value: value, scale: scale, period: elapsedRange, empty: current.isEmpty)
-            if let former { comparisonRow("对比期", value: prior, scale: scale, period: comparedRange, empty: former.isEmpty) }
+            comparisonRow("本期", value: value, scale: scale, period: elapsedRange, empty: current.entries.isEmpty)
+            if let former { comparisonRow("对比期", value: prior, scale: scale, period: comparedRange, empty: former.entries.isEmpty) }
         }.padding(12).secondaryCard()
     }
 
@@ -668,17 +808,17 @@ struct NativeSpotterStats: View {
         SecondarySelectionMenu(label: title, options: SecondaryMetric.allCases, selection: value, title: \.rawValue)
     }
 
-    private func trendCard(current: [NativeWorkoutEntry], former: [NativeWorkoutEntry]?) -> some View {
+    private func trendCard(current: SecondaryStatistics.Slice, former: SecondaryStatistics.Slice?) -> some View {
         let points = max(2, min(120, max(rangeCount(elapsedRange), former == nil ? 0 : rangeCount(comparedRange))))
         let here = cumulative(current, in: elapsedRange, points: points)
         let before = former.map { cumulative($0, in: comparedRange, points: points) }
         return VStack(alignment: .leading, spacing: 9) {
             SecondaryActionHeader(title: "累计趋势") { metricSelect("趋势指标", value: $trend) }
             HStack(spacing: 23) {
-                trendTotal("本期累计", value: trend.value(in: current))
-                if let former { trendTotal("对比期累计", value: trend.value(in: former)) }
+                trendTotal("本期累计", value: current.totals.value(for: trend))
+                if let former { trendTotal("对比期累计", value: former.totals.value(for: trend)) }
             }
-            if current.isEmpty && (former?.isEmpty ?? true) {
+            if current.entries.isEmpty && (former?.entries.isEmpty ?? true) {
                 SecondaryNotice(message: "这个周期打卡后，这里会显示累计曲线。")
             } else {
                 Chart(0..<points, id: \.self) { index in
@@ -711,13 +851,16 @@ struct NativeSpotterStats: View {
         }.foregroundStyle(SpotterPalette.accent)
     }
 
-    private func cumulative(_ entries: [NativeWorkoutEntry], in interval: ClosedRange<Date>, points: Int) -> [Double] {
-        let daily = Dictionary(grouping: entries, by: \.day).mapValues { trend.value(in: $0) }.sorted { $0.key < $1.key }
+    private func cumulative(_ slice: SecondaryStatistics.Slice, in interval: ClosedRange<Date>, points: Int) -> [Double] {
+        let daily = slice.daily
         var cursor = 0
         var total = 0.0
         return (0..<points).map { index in
             let day = spotterDay(SecondaryDate.shift(interval.lowerBound, (rangeCount(interval) - 1) * index / (points - 1)))
-            while cursor < daily.count, daily[cursor].key <= day { total += daily[cursor].value; cursor += 1 }
+            while cursor < daily.count, daily[cursor].day <= day {
+                total += daily[cursor].totals.value(for: trend)
+                cursor += 1
+            }
             return total
         }
     }
@@ -1140,8 +1283,7 @@ struct SecondaryAnatomy: View {
     var body: some View {
         VStack(spacing: 8) {
             if subjectFigure == nil {
-                SpotterGlassSegments(options: Figure.allCases, value: $manualFigure, glass: false, title: \.title)
-                    .accessibilityLabel("肌群图体型")
+                SpotterSegments("肌群图体型", options: Figure.allCases, value: $manualFigure, title: \.title)
             }
             if loaded, !artwork.isEmpty {
                 HStack(spacing: 9) {
@@ -1456,7 +1598,7 @@ struct SecondaryMusclePanel: View {
             if !participationOnly {
                 Text("肌群训练分布").font(.headline)
                 Text("按完成的正式组计数，不含热身。每组可能训练多个肌群。").font(.caption).foregroundStyle(SpotterPalette.muted)
-                SpotterGlassSegments(options: Layer.allCases, value: $layer, glass: false, title: \.rawValue)
+                SpotterSegments("肌群参与程度", options: Layer.allCases, value: $layer, title: \.rawValue)
             }
             if let catalogue {
                 if participationOnly {
@@ -1616,7 +1758,7 @@ private struct SecondaryPerformance: View {
         let gain = mostImproved(current, compared: prior)
         return VStack(alignment: .leading, spacing: 10) {
             Text("动作表现").font(.headline)
-            SpotterGlassSegments(options: Metric.allCases, value: $metric, glass: false, title: \.rawValue)
+            SpotterSegments("动作表现指标", options: Metric.allCases, value: $metric, title: \.rawValue)
             if let gain {
                 Button { onRecord(gain.lift.entry) } label: {
                     HStack(spacing: 7) {
@@ -1702,6 +1844,7 @@ private struct SecondaryPerformance: View {
 @MainActor
 private struct SecondaryHistory: View {
     @ObservedObject var store: NativeWorkoutStore
+    let historyCache: SecondaryHistoryCache
     @Environment(\.spotterInteractionMotion) private var motion
     @EnvironmentObject private var remarks: NativeSocialRemarks
     @ScaledMetric(relativeTo: .caption) private var dateHeight: CGFloat = 29
@@ -1774,6 +1917,7 @@ private struct SecondaryHistory: View {
 
     var body: some View {
         let records = grouped
+        let request = SecondaryHistoryCache.Request(from: spotterDay(gridStart), through: spotterDay(gridEnd), store: store)
         return GeometryReader { size in
             let chrome = navigationButtonSize + weekdayHeight + legendHeight + cardInset * 2
                 + sectionSpacing * 3 + CGFloat(weeks - 1) * weekSpacing
@@ -1792,9 +1936,7 @@ private struct SecondaryHistory: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("训练月历")
         .onChange(of: partnerID) { _ in scope = .all }
-        .task(id: month) {
-            await store.loadHistory(from: spotterDay(gridStart), through: spotterDay(gridEnd))
-        }
+        .task(id: request) { await historyCache.load(request, store: store) }
         .sheet(item: $selection, onDismiss: endOrdering) { selection in
             NavigationStack {
                 switch selection {
@@ -3635,6 +3777,8 @@ struct NativeFriends: View {
     @State private var social: SecondarySocial?
     @State private var feed: SecondaryFriendFeed?
     @State private var feedError: String?
+    @State private var feedExpires: Date?
+    @State private var feedLoad: Task<Void, Never>?
     @State private var feedRevision = 0
     @State private var pendingCheer: PendingCheer?
     @State private var dialog: Dialog?
@@ -3702,20 +3846,16 @@ struct NativeFriends: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    SpotterGlassSegments(options: NativeFriendsPage.allCases, value: $page,
+                    SpotterSegments("好友页面", options: NativeFriendsPage.allCases, value: $page,
                                          guideTarget: { $0 == .privacy ? .privacy : nil }, title: \.rawValue)
                     notificationButton
                 }
                 if dialog == nil, let notice { SecondaryNotice(message: notice, warning: error).transition(.opacity) }
-                ZStack(alignment: .topLeading) {
-                    switch page {
-                    case .contacts: contacts
-                    case .feed: feedContent
-                    case .privacy: privacy
-                    }
+                switch page {
+                case .contacts: contacts
+                case .feed: feedContent
+                case .privacy: privacy
                 }
-                .transition(.opacity)
-                .animation(motion, value: page)
             }.secondaryPage()
         }
         .foregroundStyle(SpotterPalette.ink).background(SpotterPalette.background)
@@ -3727,13 +3867,16 @@ struct NativeFriends: View {
         .task(id: page) {
             if page == .feed { await loadFeed() }
         }
+        .onDisappear {
+            if feedLoad != nil { cancelFeedLoad() }
+        }
         .task(id: guide?.step) {
             if guide?.step == .findBuddy { page = .contacts }
         }
         .refreshable {
             async let refreshRemarks: Void = remarks.refresh()
             await load()
-            if page == .feed { await loadFeed() }
+            if page == .feed { await loadFeed(force: true) }
             await refreshRemarks
         }
         .navigationDestination(isPresented: Binding(get: { notificationDestination != nil }, set: { if !$0 { notificationDestination = nil } })) {
@@ -3916,7 +4059,7 @@ struct NativeFriends: View {
             } else if let feedError {
                 VStack(alignment: .leading, spacing: 10) {
                     SecondaryNotice(message: feedError, warning: true)
-                    Button("重新读取") { Task { await loadFeed() } }.buttonStyle(SecondaryButtonStyle())
+                    Button("重新读取") { Task { await loadFeed(force: true) } }.buttonStyle(SecondaryButtonStyle())
                 }.padding(14).secondaryCard()
             } else {
                 ProgressView("正在读取朋友圈…")
@@ -3924,8 +4067,6 @@ struct NativeFriends: View {
                     .secondaryCard(radius: 18)
             }
         }
-        .animation(motion, value: feed?.days.map { $0.items.count })
-        .animation(motion, value: feedError)
     }
 
     @ViewBuilder private var receivedCheers: some View {
@@ -4190,10 +4331,8 @@ struct NativeFriends: View {
             } else {
                 SecondaryNotice(message: betaSocialDefaults ? "在这里完成添加后，默认可见训练打卡与详情。可在好友资料里开启饮食分享。" :
                                     "添加后默认互相分享训练打卡、详情和饮食记录状态，具体范围遵循双方的分享设置。")
-                SpotterGlassSegments(options: InviteTab.allCases, value: $inviteTab, title: \.rawValue)
-                ZStack(alignment: .topLeading) {
-                    if inviteTab == .search { searchPanel } else { codePanel }
-                }.transition(.opacity).animation(motion, value: inviteTab)
+                SpotterSegments("邀请方式", options: InviteTab.allCases, value: $inviteTab, title: \.rawValue)
+                if inviteTab == .search { searchPanel } else { codePanel }
             }
         }
     }
@@ -4396,48 +4535,74 @@ struct NativeFriends: View {
         catch { report(error.localizedDescription, failure: true) }
     }
 
-    private func invalidateFeed() {
-        feedRevision += 1
-        feed = nil
-        feedError = nil
+    private func cancelFeedLoad() {
+        feedRevision &+= 1
+        feedLoad?.cancel()
+        feedLoad = nil
     }
 
-    private func loadFeed() async {
-        feedRevision += 1
-        let revision = feedRevision
+    private func invalidateFeed() {
+        cancelFeedLoad()
+        feed = nil
         feedError = nil
-        do {
-            let value = try await api.spotterRead(feedPath, as: SecondaryFriendFeed.self)
-            if !Task.isCancelled, revision == feedRevision { feed = value }
+        feedExpires = nil
+    }
+
+    private func loadFeed(force: Bool = false) async {
+        guard pendingCheer == nil else { return }
+        if let feedLoad {
+            await feedLoad.value
+            return
         }
-        catch is CancellationError { }
-        catch let reason as URLError where reason.code == .cancelled { }
-        catch { if !Task.isCancelled, revision == feedRevision { feedError = error.localizedDescription } }
+        if !force, let feedExpires, feedExpires > .now { return }
+        feedError = nil
+        let revision = feedRevision
+        let task = Task {
+            defer { if revision == feedRevision { feedLoad = nil } }
+            do {
+                let value = try await api.spotterRead(feedPath, as: SecondaryFriendFeed.self)
+                guard !Task.isCancelled, revision == feedRevision else { return }
+                acceptFeed(value)
+            } catch is CancellationError { }
+            catch let error as URLError where error.code == .cancelled { }
+            catch {
+                if !Task.isCancelled, revision == feedRevision { feedError = error.localizedDescription }
+            }
+        }
+        feedLoad = task
+        await task.value
+    }
+
+    private func acceptFeed(_ value: SecondaryFriendFeed) {
+        feed = value
+        feedExpires = .now.addingTimeInterval(30)
     }
 
     private func updateCheer(_ item: SecondaryFriendFeed.Day.Item, cheer: SecondaryFriendFeed.Day.Item.Cheer, day: String) async {
         guard !isOwn(item), cheer.available, pendingCheer == nil else { return }
         let active = !cheer.given
         let value = SecondaryFriendFeed.Day.Item.Cheer(count: max(0, cheer.count + (active ? 1 : -1)), given: active, available: true)
-        feedRevision += 1
+        cancelFeedLoad()
         let revision = feedRevision
         withAnimation(motion) {
             pendingCheer = PendingCheer(friend: item.id, date: day, value: value)
             feedError = nil
         }
-        defer { withAnimation(motion) { pendingCheer = nil } }
+        var needsRefresh = false
         do {
             let body: [String: Any] = ["action": "feed-cheer", "friend": item.id, "date": day, "active": active, "expectedOwner": owner]
             let result = try await api.request(feedPath, method: "POST", json: JSONSerialization.data(withJSONObject: body), for: owner)
             let updated = try JSONDecoder().decode(SecondaryFriendFeed.self, from: result)
             if revision == feedRevision {
-                withAnimation(motion) { feed = updated }
-            } else if page == .feed {
-                await loadFeed()
+                acceptFeed(updated)
+            } else {
+                needsRefresh = true
             }
         } catch is CancellationError { }
         catch let reason as URLError where reason.code == .cancelled { }
         catch { if revision == feedRevision { feedError = error.localizedDescription } }
+        withAnimation(motion) { pendingCheer = nil }
+        if (needsRefresh || feed == nil), page == .feed { await loadFeed(force: true) }
     }
 
     private func findFriends() async {

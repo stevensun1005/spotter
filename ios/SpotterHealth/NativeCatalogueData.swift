@@ -317,6 +317,22 @@ enum NativeCatalogScope: Equatable, Sendable {
     case all, pinned, frequent
 }
 
+private actor NativeCatalogBundleCache {
+    private var pending: Task<NativeCatalogIndex, Error>?
+
+    func index() async throws -> NativeCatalogIndex {
+        if let pending { return try await pending.value }
+        let load = Task.detached(priority: .userInitiated) { try NativeCatalogIndex.load() }
+        pending = load
+        do {
+            return try await load.value
+        } catch {
+            pending = nil
+            throw error
+        }
+    }
+}
+
 struct NativeCatalogIndex: Sendable {
     private struct RawIndex: Decodable {
         struct Row: Decodable {
@@ -384,7 +400,11 @@ struct NativeCatalogIndex: Sendable {
     var types: [String] { metadata.types }
     var groups: [NativeCatalogGroup] { metadata.groups }
 
-    static let bundled = Task.detached(priority: .userInitiated) { try load() }
+    private static let bundleCache = NativeCatalogBundleCache()
+
+    static func bundled() async throws -> Self {
+        try await bundleCache.index()
+    }
 
     static func load() throws -> Self {
         guard let index = Bundle.main.url(forResource: "index", withExtension: "json"),

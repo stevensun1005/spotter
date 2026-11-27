@@ -42,6 +42,16 @@ private struct NativeWorkoutSyncLabel: View {
     }
 }
 
+fileprivate struct NativeWorkoutScheduleIndex {
+    let plansByDay: [String: [NativeWorkoutEntry]]
+    let pendingByDay: [String: [NativeWorkoutEntry]]
+    let recordsByDay: [String: [NativeWorkoutEntry]]
+    let completions: [NativeWorkoutEntry.Key: [NativeWorkoutEntry]]
+    let scheduledDays: Set<String>
+    let pendingPlans: [NativeWorkoutEntry]
+    let completedRecords: [NativeWorkoutEntry]
+}
+
 @MainActor
 final class NativeWorkoutStore: ObservableObject {
     @Published private(set) var widgetRevision = 0
@@ -66,13 +76,22 @@ final class NativeWorkoutStore: ObservableObject {
     @Published private(set) var proteinProducts: [NativeJSON] = []
     @Published private(set) var defaultProteinProductID: String?
     @Published private(set) var tracksWorkoutProtein = false
-    @Published private(set) var libraryRows: [NativeJSON] = []
-    @Published private(set) var room: NativeJSON = .null
+    @Published private(set) var libraryRows: [NativeJSON] = [] {
+        didSet { catalogueProfiles = libraryRows.filter { $0["kind"].string == "exercise" }.map { $0["item"] } }
+    }
+    @Published private(set) var room: NativeJSON = .null {
+        didSet {
+            if oldValue["partner"]["id"] != room["partner"]["id"]
+                || oldValue["partnerTrainingShared"] != room["partnerTrainingShared"] {
+                scheduleIndexCache = nil
+            }
+        }
+    }
     @Published private(set) var viewerName = "我"
     @Published private var viewerAnatomyVariant: NativeAnatomyVariant?
     @Published private(set) var recentHistoryStart: String?
     @Published private var completedPlanIds: Set<String> = [] {
-        didSet { widgetRevision &+= 1 }
+        didSet { scheduleIndexCache = nil; widgetRevision &+= 1 }
     }
     @Published private var discardedDrafts: [String] = []
     let owner: String
@@ -97,6 +116,11 @@ final class NativeWorkoutStore: ObservableObject {
     private(set) var plans: [NativeWorkoutEntry] = []
     private(set) var logs: [NativeWorkoutEntry] = []
     private(set) var plansByKey: [NativeWorkoutEntry.Key: NativeWorkoutEntry] = [:]
+    private(set) var catalogueProfiles: [NativeJSON] = []
+    private(set) var catalogueExerciseNames: [String] = []
+    private var plannedExerciseNames: [String] = []
+    private var sharedLogsByOwner: [String: [NativeWorkoutEntry]] = [:]
+    private var scheduleIndexCache: NativeWorkoutScheduleIndex?
     private var savedDrafts: [NativeWorkoutEntry] = []
     private var savedLogs: [NativeWorkoutEntry] = []
     private(set) var widgetOverviewDay: String?
@@ -138,7 +162,31 @@ final class NativeWorkoutStore: ObservableObject {
     }
     var partnerLogs: [NativeWorkoutEntry] {
         guard !partnerID.isEmpty, room["partnerTrainingShared"] != .bool(false) else { return [] }
-        return entries.filter { $0.kind == "log" && $0.owner == partnerID }
+        return sharedLogsByOwner[partnerID] ?? []
+    }
+
+    fileprivate var scheduleIndex: NativeWorkoutScheduleIndex {
+        if let scheduleIndexCache { return scheduleIndexCache }
+        let shared = partnerLogs
+        let completedRecords = (logs + shared).sorted(by: newestRecord)
+        let completions = Dictionary(grouping: completedRecords.compactMap { record in
+            record.planKey.map { (key: $0, record: record) }
+        }, by: { $0.key }).mapValues { $0.map { $0.record } }
+        let pendingPlans = plans.filter {
+            completions[$0.key] == nil && ($0.owner != owner || !hasCompletedPlan(id: $0.id))
+        }.sorted { $0.day < $1.day }
+        let records = logs + shared.filter { $0.planKey.flatMap { plansByKey[$0] } != nil }
+        let index = NativeWorkoutScheduleIndex(
+            plansByDay: Dictionary(grouping: plans, by: \.day),
+            pendingByDay: Dictionary(grouping: pendingPlans, by: \.day),
+            recordsByDay: Dictionary(grouping: records, by: \.day),
+            completions: completions,
+            scheduledDays: Set(plans.map(\.day)).union(logs.map(\.day)),
+            pendingPlans: pendingPlans,
+            completedRecords: completedRecords
+        )
+        scheduleIndexCache = index
+        return index
     }
 
     func anatomyVariant(for personID: String) -> NativeAnatomyVariant? {
@@ -159,6 +207,9 @@ final class NativeWorkoutStore: ObservableObject {
         plansByKey = Dictionary(plans.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         savedDrafts = entries.filter { $0.kind == "draft" && $0.owner == owner && !discardedDrafts.contains($0.id) }
         savedLogs = entries.filter { $0.kind == "log" && $0.owner == owner }
+        sharedLogsByOwner = Dictionary(grouping: entries.filter { $0.kind == "log" && $0.owner != owner }, by: \.owner)
+        plannedExerciseNames = plans.filter { $0.owner == owner }
+            .flatMap { $0.data["exercises"].array.map { $0["name"].string } }
         rebuildLogs()
     }
 
@@ -176,6 +227,7 @@ final class NativeWorkoutStore: ObservableObject {
     }
 
     private func rebuildLogs() {
+        scheduleIndexCache = nil
         let pendingIds = Set(pendingCheckins.map(\.id))
         logs = (pendingCheckins + savedLogs.filter { !pendingIds.contains($0.id) })
             .map { record in
@@ -185,6 +237,9 @@ final class NativeWorkoutStore: ObservableObject {
             .sorted { $0.started > $1.started }
             .map(\.record)
         localCompletedPlanIds = Set(logs.compactMap { $0.planKey?.id })
+        catalogueExerciseNames = Set(plannedExerciseNames + logs.flatMap {
+            $0.data["plan"]["exercises"].array.map { $0["name"].string }
+        }).sorted()
     }
 
     init(api: NativeAPI, owner: String) {
@@ -485,16 +540,19 @@ final class NativeWorkoutStore: ObservableObject {
         Task { await refreshWidgetHistory() }
     }
 
-    func loadHistory(from: String, through: String) async {
-        guard from <= through, let first = nativePlanDate(from), let last = nativePlanDate(through) else { return }
+    @discardableResult
+    func loadHistory(from: String, through: String) async -> Bool {
+        guard from <= through, let first = nativePlanDate(from), let last = nativePlanDate(through) else { return false }
         var start = first
         while start <= last, !Task.isCancelled {
-            guard let bound = Calendar.current.date(byAdding: .day, value: 3_660, to: start) else { return }
+            guard let bound = Calendar.current.date(byAdding: .day, value: 3_660, to: start) else { return false }
             let end = min(bound, last)
-            guard await loadHistoryPage(from: NativeWorkoutSession.day(start), through: NativeWorkoutSession.day(end)) else { return }
-            guard end < last, let next = Calendar.current.date(byAdding: .day, value: 1, to: end) else { return }
+            guard await loadHistoryPage(from: NativeWorkoutSession.day(start), through: NativeWorkoutSession.day(end)) else { return false }
+            if end == last { return !Task.isCancelled }
+            guard let next = Calendar.current.date(byAdding: .day, value: 1, to: end) else { return false }
             start = next
         }
+        return false
     }
 
     func loadOlderHistoryIfNeeded(from: String, through: String) async {
@@ -1243,6 +1301,7 @@ final class NativeWorkoutStore: ObservableObject {
     }
 }
 
+@MainActor
 struct NativeWorkoutView: View {
     @ObservedObject var store: NativeWorkoutStore
     var openWorkout: () -> Void
@@ -1267,6 +1326,7 @@ struct NativeWorkoutView: View {
     @State private var selectedDate = Date()
     @State private var trainingTab = "我的计划"
     @State private var completedPlans = false
+    @StateObject private var catalogueBrowsing = NativeCatalogueBrowsingState()
     @State private var earlierHistoryAnchor: String?
     @State private var loadingEarlierHistory = false
     @State private var earlierHistoryFailed = false
@@ -1313,10 +1373,6 @@ struct NativeWorkoutView: View {
 
     private var selectedDay: String { NativeWorkoutSession.day(selectedDate) }
     private var partnerDisplayName: String { remarks.name(for: store.partnerID, fallback: store.partnerName) }
-    private var visibleLogs: [NativeWorkoutEntry] { store.logs + store.partnerLogs }
-    private var completions: [NativeWorkoutEntry.Key: [NativeWorkoutEntry]] {
-        Dictionary(grouping: visibleLogs.filter { $0.planKey != nil }, by: { $0.planKey ?? $0.key })
-    }
 
     var body: some View {
         Group {
@@ -1326,7 +1382,7 @@ struct NativeWorkoutView: View {
                         .padding(.horizontal, 14)
                         .padding(.top, 12)
                     if trainingTab == "动作库" {
-                        NativeCatalogueBrowser(store: store) { entry in
+                        NativeCatalogueBrowser(store: store, browsing: catalogueBrowsing) { entry in
                             cataloguePlanMove = NativeCataloguePlanMove(entry: entry)
                         }
                         .padding(.horizontal, 14)
@@ -1443,9 +1499,9 @@ struct NativeWorkoutView: View {
         } message: { _ in
             Text("将清空本次计时、组次和心得，保留训练项目并从零计时。已排的计划会保留。")
         }
-        .task(id: selectedDay + (store.recentHistoryStart ?? "")) {
-            guard !showsAllPlans, let start = weekDates.first, let end = weekDates.last else { return }
-            await store.loadOlderHistoryIfNeeded(from: NativeWorkoutSession.day(start), through: NativeWorkoutSession.day(end))
+        .task(id: currentWeekStart + (store.recentHistoryStart ?? "")) {
+            guard !showsAllPlans, let end = weekDates.last else { return }
+            await store.loadOlderHistoryIfNeeded(from: currentWeekStart, through: NativeWorkoutSession.day(end))
         }
     }
 
@@ -1474,19 +1530,14 @@ struct NativeWorkoutView: View {
 
     @ViewBuilder private var todayLanding: some View {
         let today = NativeWorkoutSession.day()
-        let byPlan = completions
-        let dayPlans = store.plans.filter {
-            $0.day == selectedDay && byPlan[$0.key] == nil && ($0.owner != store.owner || !store.hasCompletedPlan(id: $0.id))
-        }
+        let schedule = store.scheduleIndex
+        let dayPlans = schedule.pendingByDay[selectedDay, default: []]
             .sorted { ($0.owner == store.owner ? 0 : 1) < ($1.owner == store.owner ? 0 : 1) }
-        let scheduledCompletions = store.plans.filter { $0.day == selectedDay && byPlan[$0.key] != nil }
-            .flatMap { plan in
-                let matches = byPlan[plan.key] ?? []
-                return matches.contains { $0.day == selectedDay } ? [] : Array(matches.sorted(by: newestRecord).prefix(1))
-            }
-        let dayRecords = (store.logs.filter { $0.day == selectedDay } + store.partnerLogs.filter {
-            $0.day == selectedDay && $0.planKey.flatMap { store.plansByKey[$0] } != nil
-        } + scheduledCompletions).sorted(by: newestRecord)
+        let scheduledCompletions = schedule.plansByDay[selectedDay, default: []].compactMap { plan in
+            let matches = schedule.completions[plan.key, default: []]
+            return matches.contains { $0.day == selectedDay } ? nil : matches.first
+        }
+        let dayRecords = (schedule.recordsByDay[selectedDay, default: []] + scheduledCompletions).sorted(by: newestRecord)
         if let openNutrition { nutritionPanel(openNutrition) }
         else if openSettings != nil { HStack { Spacer(); settingsButton } }
         if !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
@@ -1550,7 +1601,7 @@ struct NativeWorkoutView: View {
                 .font(.subheadline).foregroundStyle(SpotterPalette.muted)
             if let next = store.nextPlan(after: selectedDay), let date = nativePlanDate(next.day) {
                 Button {
-                    withAnimation(motion) { selectedDate = date}
+                    selectedDate = date
                 } label: {
                     HStack(spacing: 8) {
                         Text("下次 · \(shortDay(next.day))").font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
@@ -1712,21 +1763,23 @@ struct NativeWorkoutView: View {
     }
 
     private var weekStrip: some View {
-        let scheduledDays = Set(store.plans.map(\.day)).union(store.logs.map(\.day))
+        let scheduledDays = store.scheduleIndex.scheduledDays
         return VStack(spacing: 12) {
-            HStack {
-                Text("训练日程").font(.system(size: 18, weight: .bold))
-                Spacer()
-                HStack(spacing: 4) {
-                    Button { shiftWeek(-7) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("上一周")
-                    Button { shiftWeek(7) } label: { Image(systemName: "chevron.right") }.accessibilityLabel("下一周")
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    Text("训练日程").font(.system(size: 18, weight: .bold))
+                    Spacer()
+                    weekActions
                 }
-                .buttonStyle(.spotterControl)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("训练日程").font(.system(size: 18, weight: .bold))
+                    weekActions
+                }
             }
             HStack(spacing: 3) {
                 ForEach(Array(weekDates.enumerated()), id: \.offset) { offset, date in
                     let day = NativeWorkoutSession.day(date)
-                    Button { withAnimation(motion) { selectedDate = date} } label: {
+                    Button { selectedDate = date } label: {
                         VStack(spacing: 4) {
                             Text("周\(["一", "二", "三", "四", "五", "六", "日"][offset])").font(.system(size: 11, weight: .semibold))
                             Text(date.formatted(.dateTime.day())).font(.system(size: 19, weight: .bold))
@@ -1742,6 +1795,27 @@ struct NativeWorkoutView: View {
         }.padding(14).spotterCard()
     }
 
+    private var weekActions: some View {
+        HStack(spacing: 2) {
+            DatePicker("选择训练日期", selection: $selectedDate, displayedComponents: .date)
+                .labelsHidden()
+                .datePickerStyle(.compact)
+            Button { shiftWeek(-7) } label: {
+                Image(systemName: "chevron.left").frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel("上一周")
+            Button { shiftWeek(7) } label: {
+                Image(systemName: "chevron.right").frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel("下一周")
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private var currentWeekStart: String {
+        weekDates.first.map { NativeWorkoutSession.day($0) } ?? selectedDay
+    }
+
     private var weekDates: [Date] {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = .current
         let offset = (calendar.component(.weekday, from: selectedDate) + 5) % 7
@@ -1749,9 +1823,7 @@ struct NativeWorkoutView: View {
         return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: first) }
     }
     private func shiftWeek(_ days: Int) {
-        withAnimation(motion) {
-            selectedDate = Calendar.current.date(byAdding: .day, value: days, to: selectedDate) ?? selectedDate
-        }
+        selectedDate = Calendar.current.date(byAdding: .day, value: days, to: selectedDate) ?? selectedDate
     }
 
     private func hero(_ entry: NativeWorkoutEntry) -> some View {
@@ -2085,8 +2157,8 @@ struct NativeWorkoutView: View {
 
     private var trainingTabs: some View {
         let tabs = showOfficialTemplates ? ["我的计划", "个人模板", "官方模板", "动作库"] : ["我的计划", "个人模板", "动作库"]
-        return SpotterGlassSegments(options: tabs, value: $trainingTab,
-                                    guideTarget: { $0 == "官方模板" ? .officialTemplates : nil }) { $0 }
+        return SpotterSegments("训练页面", options: tabs, value: $trainingTab,
+                               guideTarget: { $0 == "官方模板" ? .officialTemplates : nil }) { $0 }
     }
 
     private func editCataloguePlan(_ entry: NativeCatalogEntry, in plan: NativeWorkoutEntry?) {
@@ -2140,10 +2212,10 @@ struct NativeWorkoutView: View {
                         .nativeGuideTarget(.newPlan)
                     }
                 }
-                SpotterGlassSegments(options: [false, true], value: $completedPlans, glass: false) { $0 ? "已完成" : "待训练" }
+                SpotterSegments("计划状态", options: [false, true], value: $completedPlans) { $0 ? "已完成" : "待训练" }
             }.padding(12).spotterCard()
             if completedPlans {
-                let records = visibleLogs.sorted(by: newestRecord)
+                let records = store.scheduleIndex.completedRecords
                 if records.isEmpty { emptyCard("还没有已完成的训练", symbol: "list.clipboard") }
                 else { completedRows(records) }
                 if let before = earlierHistoryAnchor ?? store.recentHistoryStart {
@@ -2156,10 +2228,7 @@ struct NativeWorkoutView: View {
                     if earlierHistoryFailed { Text("暂时无法读取较早的打卡，请联网重试。").font(.footnote).foregroundStyle(SpotterPalette.muted) }
                 }
             } else {
-                let byPlan = completions
-                let plans = store.plans.filter {
-                    byPlan[$0.key] == nil && ($0.owner != store.owner || !store.hasCompletedPlan(id: $0.id))
-                }.sorted { $0.day < $1.day }
+                let plans = store.scheduleIndex.pendingPlans
                 let sessions = plans.filter { !isFollowAlong($0.data) }
                 let videos = plans.filter { isFollowAlong($0.data) }
                 if plans.isEmpty { emptyCard("还没有训练计划", symbol: "list.clipboard") }
@@ -3620,7 +3689,7 @@ private struct NativeWorkoutAddPanel: View {
         .task {
             let recent = Array(store.logs.prefix(60))
             histories = await Task.detached(priority: .userInitiated) { Self.prepareHistory(recent) }.value
-            do { index = try await NativeCatalogIndex.bundled.value }
+            do { index = try await NativeCatalogIndex.bundled() }
             catch { catalogueFailed = true }
         }
         .task(id: searchKey + (index == nil ? "" : "#")) { await search() }

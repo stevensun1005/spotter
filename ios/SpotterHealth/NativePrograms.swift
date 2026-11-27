@@ -265,7 +265,6 @@ private struct NativeProgramService {
 
 @MainActor
 private struct NativeTrainingProgramEditor: View {
-    @Environment(\.spotterInteractionMotion) private var motion
     let rules: NativeProgramRules
     let store: NativeWorkoutStore?
     let templates: [NativeProgramTemplate]
@@ -279,6 +278,7 @@ private struct NativeTrainingProgramEditor: View {
     @Environment(\.spotterAccent) private var accent
     @State private var record: NativeProgramRecord?
     @State private var draft: NativeTrainingProgram
+    @State private var sessionsByWeek: [Int: [NativeTrainingProgram.Session]]
     @State private var week = 1
     @State private var sheet: Sheet?
     @State private var confirm: Confirmation?
@@ -302,10 +302,11 @@ private struct NativeTrainingProgramEditor: View {
         self.didSchedule = didSchedule
         _record = State(initialValue: record)
         _draft = State(initialValue: draft)
+        _sessionsByWeek = State(initialValue: Self.indexedSessions(draft))
     }
 
     private var dirty: Bool { record?.program != draft }
-    private var sessions: [NativeTrainingProgram.Session] { draft.sessions(in: week) }
+    private var sessions: [NativeTrainingProgram.Session] { sessionsByWeek[week, default: []] }
     private var availableDays: [Int] { (1...7).filter { day in !sessions.contains { $0.day == day } } }
 
     var body: some View {
@@ -357,23 +358,7 @@ private struct NativeTrainingProgramEditor: View {
     }
 
     private var weekPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 7) {
-                ForEach(1...max(1, draft.weeks), id: \.self) { number in
-                    weekButton(number)
-                }
-            }
-
-        }.accessibilityLabel("周期周次")
-    }
-
-    private func weekButton(_ number: Int) -> some View {
-        let selected = week == number
-        return Button { withAnimation(motion) { week = number } } label: {
-            Text("第 \(number) 周").font(.footnote.weight(.semibold)).lineLimit(1)
-        }
-        .buttonStyle(SpotterChoiceStyle(selected: selected))
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        SpotterSegments("周期周次", options: Array(1...max(1, draft.weeks)), value: $week) { "第 \($0) 周" }
     }
 
     private var weekContent: some View {
@@ -458,16 +443,16 @@ private struct NativeTrainingProgramEditor: View {
                 NativeProgramPlanEditor(plan: session.plan, date: draft.date(week: session.week, day: session.day), store: store) { plan in
                     var updated = session
                     updated.plan = plan
-                    draft.replace(updated)
-                    message = nil
-                    issue = nil
+                    var next = draft
+                    next.replace(updated)
+                    change(next)
                 }
             case .newSession(let day):
                 let date = draft.date(week: week, day: day)
                 NativeProgramPlanEditor(plan: NativePlanDraft(day: date).plan, date: date, store: store, templates: templates) { plan in
-                    draft.replace(.init(week: week, day: day, plan: plan))
-                    message = nil
-                    issue = nil
+                    var next = draft
+                    next.replace(.init(week: week, day: day, plan: plan))
+                    change(next)
                 }
             case .metadata:
                 NativeProgramMetadataEditor(draft: draft, save: change)
@@ -493,15 +478,20 @@ private struct NativeTrainingProgramEditor: View {
 
     private func change(_ next: NativeTrainingProgram) {
         draft = next
-        week = min(week, next.weeks)
+        sessionsByWeek = Self.indexedSessions(next)
+        week = min(week, max(1, next.weeks))
         message = nil
         issue = nil
+    }
+
+    private static func indexedSessions(_ program: NativeTrainingProgram) -> [Int: [NativeTrainingProgram.Session]] {
+        Dictionary(grouping: program.sessions, by: \.week).mapValues { $0.sorted { $0.day < $1.day } }
     }
 
     private func saveDraft() async throws -> NativeProgramRecord {
         let saved = try await service.save(draft, revision: record?.revision)
         record = saved
-        draft = saved.program
+        change(saved.program)
         didSave(saved)
         return saved
     }

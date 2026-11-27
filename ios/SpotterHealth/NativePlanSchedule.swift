@@ -116,6 +116,7 @@ struct NativePlanMoveSheet: View {
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var target: Date
     @State private var shift = false
+    @State private var pendingReviewShift: Bool?
     @State private var review: Review?
     @State private var operation: Operation?
     @State private var problem: String?
@@ -176,7 +177,7 @@ struct NativePlanMoveSheet: View {
                             Task { await commit(review) }
                         }
                         .buttonStyle(SpotterNativeButtonStyle(primary: true))
-                        .disabled(busy || store.isBusy)
+                        .disabled(busy || store.isBusy || pendingReviewShift != nil)
                     }
                 }.padding(14)
                     .animation(motion, value: review != nil)
@@ -200,7 +201,7 @@ struct NativePlanMoveSheet: View {
         VStack(alignment: .leading, spacing: 13) {
             DatePicker("新日期", selection: $target, displayedComponents: .date)
             if canShift {
-                scopePicker(selection: extendsCycle) { shift = $0 }
+                scopePicker(selection: $shift)
             }
             if extendsCycle {
                 Text("保留原间隔，跳过休息日和已占用的日期。已开始及已打卡的训练保留原日期。")
@@ -243,28 +244,34 @@ struct NativePlanMoveSheet: View {
             if canShift {
                 let date = review.choice.date
                 let nextAvailable = review.choice.nextAvailable
-                scopePicker(selection: review.choice.shift) { newShift in
-                    Task { await inspect(plan, date: date, shift: newShift, nextAvailable: nextAvailable) }
-                }
+                scopePicker(selection: Binding(get: { pendingReviewShift ?? review.choice.shift }, set: { newShift in
+                    guard pendingReviewShift == nil, !busy, !store.isBusy, newShift != review.choice.shift else { return }
+                    pendingReviewShift = newShift
+                    Task {
+                        await inspect(plan, date: date, shift: newShift, nextAvailable: nextAvailable)
+                        pendingReviewShift = nil
+                    }
+                }))
             }
-            if operation == .preview {
+            if operation == .preview || pendingReviewShift != nil {
                 ProgressView("正在核对日期…").font(.footnote)
-            }
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(review.preview.changes) { change in
-                    changeRow(change)
-                    if change.id != review.preview.changes.last?.id { Divider().overlay(SpotterPalette.line) }
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(review.preview.changes) { change in
+                        changeRow(change)
+                        if change.id != review.preview.changes.last?.id { Divider().overlay(SpotterPalette.line) }
+                    }
                 }
             }
             Button("修改日期") { self.review = nil; problem = nil }
                 .buttonStyle(SpotterNativeButtonStyle(primary: false))
         }
         .padding(14).spotterCard()
-        .disabled(busy || store.isBusy)
+        .disabled(busy || store.isBusy || pendingReviewShift != nil)
     }
 
-    private func scopePicker(selection: Bool, choose: @escaping @MainActor @Sendable (Bool) -> Void) -> some View {
-        SpotterGlassSegments(options: [false, true], value: Binding(get: { selection }, set: choose), glass: false) {
+    private func scopePicker(selection: Binding<Bool>) -> some View {
+        SpotterSegments("移动训练的范围", options: [false, true], value: selection) {
             $0 ? "后续一起顺延" : "只移动这一堂"
         }
     }
@@ -309,7 +316,7 @@ struct NativePlanMoveSheet: View {
     }
 
     private func commit(_ review: Review) async {
-        guard !busy, !store.isBusy else { return }
+        guard pendingReviewShift == nil, !busy, !store.isBusy else { return }
         operation = .commit
         problem = nil
         defer { operation = nil }

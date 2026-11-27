@@ -1462,7 +1462,7 @@ private struct NativeSpotterTabs: View {
                 .nativeGuideLayer(.tabContent)
                 .toolbar(.hidden, for: .navigationBar)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if active { quickActions.background(.bar) }
+                    if active { quickActions }
                 }
         }
     }
@@ -1489,36 +1489,31 @@ private struct NativeSpotterTabs: View {
     private var quickActions: some View {
         let active = workouts.active
         return HStack(spacing: 8) {
-            if let active, let session = active.session {
-                NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
-                                         watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
-                                         open: openActiveWorkout)
-            } else {
-                Button(action: openTrainingLaunch) {
-                    Label(active == nil ? "开始训练" : "继续训练", systemImage: "play.fill")
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(Rectangle())
+            Group {
+                if let active, let session = active.session {
+                    NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
+                                             watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
+                                             open: openActiveWorkout)
+                } else {
+                    Button(action: openTrainingLaunch) {
+                        Label(active == nil ? "开始训练" : "继续训练", systemImage: "play.fill")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.spotterPress)
+                    .disabled(active == nil && workouts.isBusy)
+                    .accessibilityIdentifier("spotter-dock-play")
                 }
-                .buttonStyle(.spotterPress)
-                .disabled(active == nil && workouts.isBusy)
-                .accessibilityIdentifier("spotter-dock-play")
             }
-
-            Divider().frame(height: 19).accessibilityHidden(true)
+            .background(.bar, in: Capsule())
 
             Button { openCoach(startFromGuide: guideStep == .coach) } label: {
-                Group {
-                    if active?.session == nil {
-                        Label("AI 教练", systemImage: "sparkles")
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Image(systemName: "sparkles").frame(width: 44)
-                    }
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+                Image(systemName: "sparkles")
+                    .frame(width: 44, height: 44)
+                    .spotterGlass(in: Circle(), tint: accent.selection, interactive: allowsMotion)
+                    .contentShape(Circle())
             }
-            .buttonStyle(.spotterPress)
+            .buttonStyle(.spotterGlassPress)
             .accessibilityLabel("打开 AI 教练")
             .accessibilityIdentifier("spotter-quick-coach")
             .nativeGuideTarget(.coach)
@@ -1527,7 +1522,8 @@ private struct NativeSpotterTabs: View {
         .foregroundStyle(accent.tint)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
     }
 }
 

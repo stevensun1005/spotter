@@ -8,7 +8,7 @@ import Vision
 // MARK: - Built-in food catalog
 
 /// A household portion from the shared food catalog, e.g. "1 个（中）" = 50 g.
-struct NativeFoodPortion: Codable, Hashable, Identifiable {
+struct NativeFoodPortion: Codable, Hashable, Identifiable, Sendable {
     let name: String
     let grams: Double
 
@@ -95,10 +95,10 @@ extension NativeNutritionFood {
     /// no match. Whole-alias and later-word matches share a tier, so "steak" finds striploin steak before
     /// "steak sauce". The web's `searchFoods` ranks the first five tiers the same way. The last two help when
     /// someone types several foods or a sentence, such as "鸡胸 米饭" or "我吃了米饭".
-    @MainActor func searchRank(_ query: NativeFoodSearchQuery) -> Int? {
+    func searchRank(_ query: NativeFoodSearchQuery, keys preparedKeys: [NativeFoodSearchKey]? = nil) -> Int? {
         let needle = query.needle
         guard !needle.isEmpty else { return 0 }
-        let keys = NativeFoodSearchIndex.keys(for: self)
+        let keys = preparedKeys ?? NativeFoodSearchIndex.keys(for: self)
         guard let name = keys.first else { return nil }
         let aliases = keys.dropFirst()
         if name.key == needle { return 0 }
@@ -183,30 +183,62 @@ struct NativeFoodSearchQuery {
     }
 }
 
-@MainActor
 private enum NativeFoodSearchIndex {
-    private static var cache: [String: [NativeFoodSearchKey]] = [:]
+    private struct IndexedFood {
+        let food: NativeNutritionFood
+        let keys: [NativeFoodSearchKey]
+
+        init(_ food: NativeNutritionFood) {
+            self.food = food
+            self.keys = NativeFoodSearchIndex.keys(for: food)
+        }
+    }
+
+    private static let catalog = NativeNutritionFood.builtIn.map(IndexedFood.init)
+    private static let catalogByID = Dictionary(
+        catalog.map { ($0.food.id, $0) }, uniquingKeysWith: { first, _ in first }
+    )
 
     static func keys(for food: NativeNutritionFood) -> [NativeFoodSearchKey] {
-        let cacheKey = food.id + "\n" + food.name
-        if let keys = cache[cacheKey] { return keys }
-        let keys = ([food.name] + food.aliases).map(NativeFoodSearchKey.init).filter { !$0.key.isEmpty }
-        cache[cacheKey] = keys
-        return keys
+        ([food.name] + food.aliases).map(NativeFoodSearchKey.init).filter { !$0.key.isEmpty }
+    }
+
+    static func matching(_ foods: [NativeNutritionFood], text: String, includeCatalog: Bool) -> [NativeNutritionFood] {
+        let query = NativeFoodSearchQuery(text)
+        guard !query.needle.isEmpty else { return includeCatalog ? foods + NativeNutritionFood.builtIn : foods }
+
+        let indexed = foods.map { food in
+            if !food.isPersonal, let existing = catalogByID[food.id] { return existing }
+            return IndexedFood(food)
+        }
+        let candidates = includeCatalog ? indexed + catalog : indexed
+        // Each rank has a bucket for everyday foods and one for branded foods. Append in source order.
+        var matches = Array(repeating: [NativeNutritionFood](), count: 14)
+        for (index, candidate) in candidates.enumerated() {
+            if index.isMultiple(of: 32), Task.isCancelled { return [] }
+            guard let rank = candidate.food.searchRank(query, keys: candidate.keys) else { continue }
+            let bucket = rank * 2 + (candidate.food.brand == nil ? 0 : 1)
+            matches[bucket].append(candidate.food)
+        }
+        return Array(matches.joined().prefix(80))
     }
 }
+
+private let nativeFoodQueryPatterns: [(NSRegularExpression, name: Int, grams: Int)] = {
+    // Keep g/grams out of Latin words and prevent a trailing amount from beginning inside another number.
+    let amount = "(\\d+(?:\\.\\d+)?)\\s*(?:公克|克|(?:grams?|g)(?!\\p{Script=Latin}))"
+    let patterns = [("^(.+?)\\s*(?<![\\d.])" + amount + "$", 1, 2), ("^" + amount + "\\s*(.+)$", 2, 1)]
+    return patterns.compactMap { pattern, name, grams in
+        (try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])).map { ($0, name, grams) }
+    }
+}()
 
 /// Splits "鸡胸肉 150g" or "150 克 米饭" into the food name and an optional gram amount.
 private func nativeFoodQuery(_ input: String) -> (name: String, grams: Double?) {
     let value = input.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
-    // "g" and "grams" must not run into a Latin word, so "150 grams", "100 granola" and "100 gâteau" are not
-    // read as food "s", "ranola" or "âteau". Chinese may follow directly, as in "150g鸡胸肉".
-    let amount = "(\\d+(?:\\.\\d+)?)\\s*(?:公克|克|(?:grams?|g)(?!\\p{Script=Latin}))"
-    // The lookbehind keeps the amount from starting inside a number, so "150g" is not read as food "1" with 50 g,
-    // while names that end in a digit, such as "V8 200g", still split correctly.
-    for (pattern, nameGroup, gramsGroup) in [("^(.+?)\\s*(?<![\\d.])" + amount + "$", 1, 2), ("^" + amount + "\\s*(.+)$", 2, 1)] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+    let range = NSRange(value.startIndex..., in: value)
+    for (regex, nameGroup, gramsGroup) in nativeFoodQueryPatterns {
+        guard let match = regex.firstMatch(in: value, range: range),
               let nameRange = Range(match.range(at: nameGroup), in: value),
               let gramsRange = Range(match.range(at: gramsGroup), in: value),
               let grams = Double(value[gramsRange]), (0.1...3_000).contains(grams) else { continue }
@@ -429,9 +461,20 @@ private struct NativeMealSelectionView<Content: View>: View {
 
 @MainActor
 struct NativeMealLogger: View {
-    fileprivate enum Tab: String, CaseIterable, Identifiable {
+    fileprivate enum Tab: String, CaseIterable, Identifiable, Sendable {
         case search = "搜索", custom = "自定义", favorites = "收藏", templates = "固定模版"
         var id: Self { self }
+    }
+
+    private struct SearchRequest: Equatable, Sendable {
+        let tab: Tab
+        let text: String
+        let foods: [NativeNutritionFood]
+    }
+
+    private struct SearchResult {
+        let request: SearchRequest
+        let foods: [NativeNutritionFood]
     }
 
     fileprivate enum Sheet: Identifiable {
@@ -461,6 +504,7 @@ struct NativeMealLogger: View {
     let payload: NutritionPayload
     let onSaved: (NativeQuickMealReceipt?) -> Void
     private let recentsByMeal: [NutritionShortcut: [NativeRecentServing]]
+    private let savedPersonal: [NativeNutritionFood]
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
@@ -471,6 +515,7 @@ struct NativeMealLogger: View {
     @State private var mealSelection: NativeMealSelection
     @State private var tab = Tab.search
     @State private var query = ""
+    @State private var searchResults: [Tab: SearchResult] = [:]
     @State private var category: String
     @State private var group: String?
     @State private var basket: [NativeMealLoggerItem] = []
@@ -495,11 +540,13 @@ struct NativeMealLogger: View {
     @State private var unconfirmed: [String: Set<Data>] = [:]
     @State private var templateName = ""
     @FocusState private var searchFocused: Bool
-    @Namespace private var tabLine
 
     private static let catalog = NativeFoodCatalog.shared
     private static let foods = NativeNutritionFood.builtIn
     private static let foodsByCategory = Dictionary(grouping: foods) { $0.category ?? "" }
+    private static let foodsByGroup = foodsByCategory.mapValues { foods in
+        Dictionary(grouping: foods) { $0.group ?? "" }
+    }
 
     init(api: NativeAPI, owner: String, date: String, meal: NutritionShortcut, payload: NutritionPayload,
          onSaved: @escaping (NativeQuickMealReceipt?) -> Void) {
@@ -509,40 +556,49 @@ struct NativeMealLogger: View {
         self.payload = payload
         self.onSaved = onSaved
         self.recentsByMeal = payload.recentServingsByMeal()
-        _mealSelection = State(initialValue: NativeMealSelection(meal.isMeal ? meal : .snack))
-        _category = State(initialValue: Self.catalog?.categories.first?.id ?? "")
-    }
-
-    /// Read from the live payload so foods that load after the sheet opens still appear.
-    private var personal: [NativeNutritionFood] {
-        let added = Set(addedPersonal.map(\.id))
-        return addedPersonal + payload.rows.compactMap { row in
-            guard row.kind == "food", let id = row.id, !added.contains(id), let name = row.name, let facts = row.per100g else { return nil }
+        self.savedPersonal = payload.rows.compactMap { row in
+            guard row.kind == "food", let id = row.id, let name = row.name, let facts = row.per100g else { return nil }
             var food = NativeNutritionFood(id: id, name: name, facts: facts)
             food.isPersonal = true
             food.emoji = "⭐️"
             return food
         }
+        _mealSelection = State(initialValue: NativeMealSelection(meal.isMeal ? meal : .snack))
+        _category = State(initialValue: Self.catalog?.categories.first?.id ?? "")
+    }
+
+    /// A refreshed payload still supplies saved foods, while entries from this sheet take precedence.
+    private var personal: [NativeNutritionFood] {
+        guard !addedPersonal.isEmpty else { return savedPersonal }
+        let added = Set(addedPersonal.map(\.id))
+        return addedPersonal + savedPersonal.filter { !added.contains($0.id) }
+    }
+
+    private var favoriteFoods: [NativeNutritionFood] {
+        let personalByID = Dictionary(personal.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return favorites.compactMap { personalByID[$0] ?? NativeNutritionFood.builtInByID[$0] }
     }
 
     private var store: NativeFoodLocalStore { .init(api: api, owner: owner) }
     private var templateStore: NativeFavoriteMealStore { .init(api: api, owner: owner) }
     private var guiding: Bool { guide?.step.presentation == .mealEditor }
     private var meal: NutritionShortcut { mealSelection.meal }
-    private var allFoods: [NativeNutritionFood] { personal + Self.foods }
     private var totals: NativeNutritionFood.Facts {
         basket.reduce(.init(calories: 0, protein: 0, carbs: 0, fat: 0)) { $0.adding($1.facts) }
     }
 
     var body: some View {
+        let search = nativeFoodQuery(query)
+        let request = foodSearch(for: search.name)
         NavigationStack {
             VStack(spacing: 0) {
                 header
                 mealChoice.padding(.horizontal, 14).padding(.top, 6)
                 searchField.padding(.horizontal, 14).padding(.top, 10)
-                tabs.padding(.top, 6)
+                SpotterSegments("食物来源", options: Tab.allCases, value: $tab, title: \.rawValue)
+                    .padding(.horizontal, 14).padding(.top, 6)
                 Divider().overlay(SpotterPalette.line)
-                content.frame(maxHeight: .infinity)
+                content(search, request: request).frame(maxHeight: .infinity)
                 bottomBar
             }
             .background(SpotterPalette.background.ignoresSafeArea())
@@ -559,6 +615,9 @@ struct NativeMealLogger: View {
         .task {
             favorites = store.favorites
             templates = (try? templateStore.load()) ?? []
+        }
+        .task(id: request) {
+            if let request { await updateSearch(request) }
         }
         .sheet(item: $sheet, onDismiss: openQueuedCover) { item in sheetView(item) }
         .fullScreenCover(item: $cover, onDismiss: handleCoverResult) { item in coverView(item) }
@@ -622,10 +681,8 @@ struct NativeMealLogger: View {
 
     private var mealChoice: some View {
         NativeMealSelectionView(selection: mealSelection) { meal in
-            SpotterGlassSegments(options: NutritionShortcut.allCases.filter(\.isMeal), value: meal, glass: false, compact: true,
-                                 guideTarget: { $0 == .breakfast ? .mealChoice : nil }) { $0.rawValue }
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("记入餐次")
+            SpotterSegments("记入餐次", options: NutritionShortcut.allCases.filter(\.isMeal), value: meal,
+                            guideTarget: { $0 == .breakfast ? .mealChoice : nil }, title: \.rawValue)
         }
         .disabled(busy)
     }
@@ -663,63 +720,51 @@ struct NativeMealLogger: View {
         .nativeGuideTarget(.mealFields)
     }
 
-    private var tabs: some View {
-        HStack(spacing: 0) {
-            ForEach(Tab.allCases) { option in
-                let selected = option == tab
-                Button {
-                    withAnimation(motion) { tab = option }
-                } label: {
-                    VStack(spacing: 5) {
-                        Text(option.rawValue)
-                            .font(.subheadline.weight(selected ? .bold : .medium))
-                            .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
-                            .lineLimit(1).minimumScaleFactor(0.8)
-                        ZStack {
-                            Capsule().fill(Color.clear).frame(width: 22, height: 3)
-                            if selected {
-                                Capsule().fill(accent.tint).frame(width: 22, height: 3)
-                                    .matchedGeometryEffect(id: "tab", in: tabLine)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.spotterPress)
-                .accessibilityAddTraits(selected ? .isSelected : [])
-            }
-        }
-        .padding(.horizontal, 8)
-    }
-
     // MARK: Content
 
-    @ViewBuilder private var content: some View {
-        let search = nativeFoodQuery(query)
+    private func foodSearch(for text: String) -> SearchRequest? {
+        guard !text.isEmpty else { return nil }
         switch tab {
-        case .search:
-            if search.name.isEmpty { browser } else { results(search) }
-        case .custom: customTab(search.name)
-        case .favorites: favoritesTab(search.name)
-        case .templates: templatesTab(search.name)
+        case .search, .custom: return SearchRequest(tab: tab, text: text, foods: personal)
+        case .favorites: return SearchRequest(tab: tab, text: text, foods: favoriteFoods)
+        case .templates: return nil
         }
     }
 
-    /// Within a rank, everyday and personal foods come before chain and brand items, then list order applies,
-    /// so "apple pie" means apple pie before a chain's.
-    private func matches(_ foods: [NativeNutritionFood], _ text: String, limit: Int = 80) -> [NativeNutritionFood] {
-        let query = NativeFoodSearchQuery(text)
-        guard !query.needle.isEmpty else { return foods }
-        let ranked = foods.enumerated().compactMap { index, food -> (order: (Int, Int, Int), food: NativeNutritionFood)? in
-            guard let rank = food.searchRank(query) else { return nil }
-            return ((rank, food.brand == nil ? 0 : 1, index), food)
+    private func updateSearch(_ request: SearchRequest) async {
+        guard searchResults[request.tab]?.request != request else { return }
+        let search = Task.detached(priority: .userInitiated) {
+            NativeFoodSearchIndex.matching(request.foods, text: request.text, includeCatalog: request.tab == .search)
         }
-        return Array(ranked.sorted { $0.order < $1.order }.prefix(limit).map { $0.food })
+        let foods = await withTaskCancellationHandler {
+            await search.value
+        } onCancel: {
+            search.cancel()
+        }
+        guard !Task.isCancelled else { return }
+        searchResults[request.tab] = SearchResult(request: request, foods: foods)
     }
 
-    private func results(_ search: (name: String, grams: Double?)) -> some View {
-        let found = matches(allFoods, search.name)
+    @ViewBuilder private func content(_ search: (name: String, grams: Double?), request: SearchRequest?) -> some View {
+        let result = searchResults[tab]
+        if let request, result?.request != request {
+            ProgressView("正在搜索食物…").frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            switch tab {
+            case .search:
+                if let result, request != nil { results(search, found: result.foods) }
+                else { browser }
+            case .custom:
+                customTab(search.name, foods: request == nil ? personal : result?.foods ?? [])
+            case .favorites:
+                favoritesTab(search.name, foods: request == nil ? favoriteFoods : result?.foods ?? [])
+            case .templates:
+                templatesTab(search.name)
+            }
+        }
+    }
+
+    private func results(_ search: (name: String, grams: Double?), found: [NativeNutritionFood]) -> some View {
         return ScrollView {
             LazyVStack(spacing: 10) {
                 if found.isEmpty {
@@ -762,10 +807,8 @@ struct NativeMealLogger: View {
                 ForEach(categories) { item in
                     let active = item.id == selected
                     Button {
-                        withAnimation(motion) {
-                            category = item.id
-                            group = nil
-                        }
+                        category = item.id
+                        group = nil
                     } label: {
                         VStack(spacing: 4) {
                             Text(item.emoji).font(.system(size: 21)).accessibilityHidden(true)
@@ -792,8 +835,7 @@ struct NativeMealLogger: View {
     }
 
     private func categoryList(_ current: NativeFoodCatalog.Category) -> some View {
-        let inCategory = Self.foodsByCategory[current.id] ?? []
-        let shown = group.map { selected in inCategory.filter { $0.group == selected } } ?? inCategory
+        let shown = group.map { Self.foodsByGroup[current.id]?[$0] ?? [] } ?? (Self.foodsByCategory[current.id] ?? [])
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 if current.id == Self.catalog?.categories.first?.id && group == nil {
@@ -835,9 +877,7 @@ struct NativeMealLogger: View {
     }
 
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            withAnimation(motion) { action() }
-        } label: {
+        Button(action: action) {
             Text(title).font(.footnote.weight(selected ? .bold : .medium))
                 .foregroundStyle(selected ? SpotterPalette.deep : SpotterPalette.ink)
                 .padding(.horizontal, 12).frame(minHeight: 34)
@@ -876,9 +916,8 @@ struct NativeMealLogger: View {
         }
     }
 
-    private func customTab(_ text: String) -> some View {
-        let mine = matches(personal, text)
-        return ScrollView {
+    private func customTab(_ text: String, foods: [NativeNutritionFood]) -> some View {
+        ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Button { sheet = .custom(NativeCustomFoodDraft(name: text)) } label: {
@@ -893,12 +932,12 @@ struct NativeMealLogger: View {
                 Text("自定义食物按每 100 g 保存到「我的食物」，网页和 iPhone 都能搜到。只记这一次的菜可以直接填写本餐数值。")
                     .font(.caption).foregroundStyle(SpotterPalette.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                if mine.isEmpty {
+                if foods.isEmpty {
                     emptyState(text.isEmpty ? "还没有自定义食物" : "「我的食物」里没有「\(text)」",
                                detail: "扫码或拍营养标签后保存，下次直接搜索。") { EmptyView() }
                 } else {
-                    Text("我的食物 · \(mine.count)").font(.subheadline.weight(.semibold)).padding(.top, 4)
-                    ForEach(mine) { card($0) }
+                    Text("我的食物 · \(foods.count)").font(.subheadline.weight(.semibold)).padding(.top, 4)
+                    ForEach(foods) { card($0) }
                 }
             }
             .padding(14)
@@ -906,16 +945,14 @@ struct NativeMealLogger: View {
         .scrollDismissesKeyboard(.interactively)
     }
 
-    private func favoritesTab(_ text: String) -> some View {
-        let byID = Dictionary(allFoods.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let starred = matches(favorites.compactMap { byID[$0] }, text)
-        return ScrollView {
+    private func favoritesTab(_ text: String, foods: [NativeNutritionFood]) -> some View {
+        ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
-                if starred.isEmpty {
+                if foods.isEmpty {
                     emptyState(text.isEmpty ? "还没有收藏" : "收藏里没有「\(text)」",
                                detail: "点开任意食物，在右上角点星标即可收藏。收藏保存在这台 iPhone。") { EmptyView() }
                 } else {
-                    ForEach(starred) { card($0) }
+                    ForEach(foods) { card($0) }
                 }
             }
             .padding(14)
@@ -1805,7 +1842,7 @@ private struct NativeCustomFoodEditor: View {
                         .disabled(busy)
                 }
                 Section {
-                    SpotterGlassSegments(options: [NativeCustomFoodDraft.Basis.per100g, .serving], value: $draft.basis, glass: false) {
+                    SpotterSegments("营养数值单位", options: [NativeCustomFoodDraft.Basis.per100g, .serving], value: $draft.basis) {
                         $0 == .per100g ? "每 100 g" : "每份"
                     }
                     .accessibilityElement(children: .contain).accessibilityLabel("营养数值的基准")

@@ -485,7 +485,7 @@ private struct NativeAppleBodyTrends: View {
             } else if let readings {
                 let comparisons = comparisons(in: readings)
                 if !readings.values.isEmpty {
-                    SpotterGlassSegments(options: [30, 90], value: $window, glass: false) { "近 \($0) 天" }
+                    SpotterSegments("体成分时间范围", options: [30, 90], value: $window) { "近 \($0) 天" }
                 }
                 if comparisons.isEmpty {
                     caption(readings.values.isEmpty
