@@ -250,3 +250,5 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 2026-11-26 发布记录。1.0.1 Build 52 以提交 `0ebab9f572c4b5eb09fcb60c8621eba8fb87fa28` 构建，包含 PR #1–#4 和 5,685 个原创 3D 动作演示。独立版 29 项测试、Cloudflare 378 项测试、iOS 原生冒烟和模拟器打包均通过。签名归档核对了 App、Widget、Watch、灵动岛声明、生产推送和 5,685 段视频，视频与仓库的网页源文件逐字节一致。食物库的 972 个名称逐一通过原生搜索测试。真机锁屏和相机扫码待设备验证。App 连接 Cloudflare 98。Build 52 于多伦多时间 21:31 上传到 App Store Connect，Apple 完成处理后已分配到「训练搭子内测」组，构建标记为 Internal，状态为 Testing。外测、正式 App Store 和网页未执行发布。
 
 2026-11-26 发布记录。1.0.1 Build 53 从 `fb6c3cf36699004c6ee5aa48b26edd16360e712f` 构建，包含 Build 52、iPhone 演示压缩、中文器械筛选及右侧索引调整、外部 Agent 提示词和教学更新。独立版 29 项测试、Cloudflare 378 项测试、iOS 原生冒烟与模拟器打包通过。使用隔离的 iPhone SE 第三代模拟器核对动作库及筛选页。归档核对 Apple Watch、小组件、灵动岛、生产推送签名、共用帮助资料与 5,685 个包内视频。已部署的 Agent 读取端点对无凭据请求返回 401。Build 53 已加入「训练搭子内测」，App Store Connect 显示 `Testing`。本次发布范围是 TestFlight 内测，归档的 Cloudflare 基线仍为 98。
+
+2026-11-26 外测发布记录。Build 53 的功能和资源以 1.0.1 Build 54 送交「训练搭子公开外测」审核。使用 `f2582437aabfe08f1180812982f0d271c5263d06` 归档，通过 Xcode 参数设置构建号。核对 iPhone App、小组件及 Apple Watch 的可执行文件 UUID 与 Build 53 一致，App 本体为 312,075,017 字节，归档包含 5,685 段原创演示。经授权撤回 Build 50 的待审提交后，Build 54 显示 `Waiting for Review`，批准后由 TestFlight 自动通知测试者。
