@@ -70,6 +70,7 @@ struct NativeFoodCatalog: Decodable {
             food.category = item.category
             food.group = item.group
             food.portions = (item.portions ?? []).filter { $0.grams > 0 && $0.grams <= 3_000 }
+            food.brand = item.brand.flatMap { $0.isEmpty ? nil : $0 }
             food.detail = [item.brand, item.en].compactMap { $0 }.filter { !$0.isEmpty }.first
             if let key = item.src, let source = sources[key] {
                 if let ref = item.ref, let host = URL(string: ref)?.host, ref.hasPrefix("https://") {
@@ -89,10 +90,13 @@ extension NativeNutritionFood {
             .filter { $0.isLetter || $0.isNumber }
     }
 
-    /// Lower is better: exact name, exact alias, name start, inside the name, alias start, inside an alias,
-    /// then every typed word somewhere, then a longer phrase that contains the name. `nil` means no match.
-    /// Ties keep catalog order. The web's `searchFoods` ranks the same way.
-    @MainActor func searchRank(_ needle: String, tokens: [String]) -> Int? {
+    /// Lower is better: exact name, exact alias, name start, a word inside the name, any alias from the start of
+    /// one of its words, then every typed word somewhere, then a longer phrase that contains the name. `nil` means
+    /// no match. Whole-alias and later-word matches share a tier, so "steak" finds striploin steak before
+    /// "steak sauce". The web's `searchFoods` ranks the first five tiers the same way. The last two help when
+    /// someone types several foods or a sentence, such as "鸡胸 米饭" or "我吃了米饭".
+    @MainActor func searchRank(_ query: NativeFoodSearchQuery) -> Int? {
+        let needle = query.needle
         guard !needle.isEmpty else { return 0 }
         let keys = NativeFoodSearchIndex.keys(for: self)
         guard let name = keys.first else { return nil }
@@ -100,42 +104,82 @@ extension NativeNutritionFood {
         if name.key == needle { return 0 }
         if aliases.contains(where: { $0.key == needle }) { return 1 }
         if name.key.hasPrefix(needle) { return 2 }
-        if name.contains(needle) { return 3 }
-        if aliases.contains(where: { $0.starts(with: needle) }) { return 4 }
-        if aliases.contains(where: { $0.contains(needle) }) { return 5 }
-        if tokens.count > 1, tokens.allSatisfy({ token in keys.contains { $0.contains(token) } }) { return 6 }
-        if keys.contains(where: { $0.key.count >= 2 && needle.contains($0.key) }) { return 7 }
+        if name.fromAWord(needle) { return 3 }
+        if aliases.contains(where: { $0.fromAWord(needle) }) { return 4 }
+        if query.tokens.count > 1, query.tokens.allSatisfy({ token in keys.contains { $0.fromAWord(token) } }) { return 5 }
+        if keys.contains(where: { $0.key.count >= 2 && query.runs.contains($0.key) }) { return 6 }
         return nil
     }
 }
 
-/// A searchable label. Latin-script labels match from the start of a word, so "tea" does not find
-/// "sirloin steak" while "big mac" still finds "McDonald's Big Mac".
+/// A searchable label. Labels match from the start of a word, so "tea" does not find "sirloin steak" and "pie"
+/// does not find "Rice Krispies", while "big mac" still finds "McDonald's Big Mac" and "饭" finds "米饭".
 struct NativeFoodSearchKey {
     let key: String
-    /// For Latin-script labels, the label joined from each word onward: "big mac" gives "bigmac" and "mac".
-    let fromWords: [String]?
+    /// The label joined from each word onward: "big mac" gives "bigmac" and "mac", and "米饭" gives "米饭" and "饭".
+    let fromWords: [String]
 
     init(_ label: String) {
-        key = NativeNutritionFood.searchKey(label)
-        let eastAsian = label.unicodeScalars.contains { scalar in
-            scalar.properties.isIdeographic || (0x3040...0x30FF).contains(scalar.value) || (0xAC00...0xD7AF).contains(scalar.value)
-        }
-        if eastAsian {
-            fromWords = nil
-        } else {
-            let words = label.folding(options: [.widthInsensitive, .diacriticInsensitive, .caseInsensitive], locale: .current)
-                .split(whereSeparator: { !($0.isLetter || $0.isNumber) }).map(String.init)
-            fromWords = words.indices.map { words[$0...].joined() }
-        }
+        let words = Self.words(label)
+        key = words.joined()
+        fromWords = words.indices.map { words[$0...].joined() }
     }
 
-    func starts(with needle: String) -> Bool {
-        key.hasPrefix(needle) || (fromWords?.contains { $0.hasPrefix(needle) } ?? false)
+    /// True when the needle starts at the beginning of one of the label's words.
+    func fromAWord(_ needle: String) -> Bool {
+        fromWords.contains { $0.hasPrefix(needle) }
     }
 
-    func contains(_ needle: String) -> Bool {
-        fromWords == nil ? key.contains(needle) : starts(with: needle)
+    /// The label's words after folding width, case and accents. Latin words stay whole, and each Chinese,
+    /// Japanese or Korean character is a word of its own. Joined, they equal `NativeNutritionFood.searchKey`.
+    static func words(_ label: String) -> [String] {
+        var words: [String] = []
+        var run = ""
+        for character in label.folding(options: [.widthInsensitive, .diacriticInsensitive, .caseInsensitive], locale: .current) {
+            guard character.isLetter || character.isNumber else {
+                if !run.isEmpty { words.append(run); run = "" }
+                continue
+            }
+            if character.unicodeScalars.contains(where: isEastAsian) {
+                if !run.isEmpty { words.append(run); run = "" }
+                words.append(String(character))
+            } else {
+                run.append(character)
+            }
+        }
+        if !run.isEmpty { words.append(run) }
+        return words
+    }
+
+    private static func isEastAsian(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.properties.isIdeographic || (0x3040...0x30FF).contains(scalar.value)
+            || (0x1100...0x11FF).contains(scalar.value) || (0xAC00...0xD7AF).contains(scalar.value)
+    }
+}
+
+/// What someone typed in the food search, folded the same way as food labels.
+struct NativeFoodSearchQuery {
+    let needle: String
+    /// The query split at spaces and commas.
+    let tokens: [String]
+    /// Every run of up to 12 whole words in the query, joined: "egg plant" gives "egg", "plant" and "eggplant",
+    /// so a food named "egg" matches it while "eggplant" alone does not.
+    let runs: Set<String>
+
+    init(_ text: String) {
+        needle = NativeNutritionFood.searchKey(text)
+        tokens = text.split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == "，" })
+            .map { NativeNutritionFood.searchKey(String($0)) }.filter { !$0.isEmpty }
+        let words = Array(NativeFoodSearchKey.words(text).prefix(80))
+        var runs = Set<String>()
+        for start in words.indices {
+            var run = ""
+            for word in words[start...].prefix(12) {
+                run += word
+                runs.insert(run)
+            }
+        }
+        self.runs = runs
     }
 }
 
@@ -155,7 +199,9 @@ private enum NativeFoodSearchIndex {
 /// Splits "鸡胸肉 150g" or "150 克 米饭" into the food name and an optional gram amount.
 private func nativeFoodQuery(_ input: String) -> (name: String, grams: Double?) {
     let value = input.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
-    let amount = "(\\d+(?:\\.\\d+)?)\\s*(?:公克|克|grams?|g)"
+    // "g" and "grams" must not run into a Latin word, so "150 grams", "100 granola" and "100 gâteau" are not
+    // read as food "s", "ranola" or "âteau". Chinese may follow directly, as in "150g鸡胸肉".
+    let amount = "(\\d+(?:\\.\\d+)?)\\s*(?:公克|克|(?:grams?|g)(?!\\p{Script=Latin}))"
     // The lookbehind keeps the amount from starting inside a number, so "150g" is not read as food "1" with 50 g,
     // while names that end in a digit, such as "V8 200g", still split correctly.
     for (pattern, nameGroup, gramsGroup) in [("^(.+?)\\s*(?<![\\d.])" + amount + "$", 1, 2), ("^" + amount + "\\s*(.+)$", 2, 1)] {
@@ -197,11 +243,12 @@ struct NativeFoodLocalStore {
         (UserDefaults.standard.dictionary(forKey: barcodesKey) as? [String: String])?[code]
     }
 
-    /// `known` lists the personal food ids that still exist, so mappings to deleted foods are dropped first.
-    func remember(barcode code: String, food id: String, known: Set<String>) {
+    /// `known` lists every personal food id that still exists, so mappings to deleted foods are dropped first.
+    /// Pass `nil` while the account's foods have not loaded, and only the 500-code limit applies.
+    func remember(barcode code: String, food id: String, known: Set<String>?) {
         var codes = (UserDefaults.standard.dictionary(forKey: barcodesKey) as? [String: String]) ?? [:]
         codes[code] = id
-        if codes.count > 500 { codes = codes.filter { $0.key == code || known.contains($0.value) } }
+        if codes.count > 500, let known { codes = codes.filter { $0.key == code || known.contains($0.value) } }
         while codes.count > 500, let stale = codes.keys.first(where: { $0 != code }) { codes[stale] = nil }
         UserDefaults.standard.set(codes, forKey: barcodesKey)
     }
@@ -633,14 +680,16 @@ struct NativeMealLogger: View {
         }
     }
 
+    /// Within a rank, everyday and personal foods come before chain and brand items, then list order applies,
+    /// so "apple pie" means apple pie before a chain's.
     private func matches(_ foods: [NativeNutritionFood], _ text: String, limit: Int = 80) -> [NativeNutritionFood] {
-        let needle = NativeNutritionFood.searchKey(text)
-        guard !needle.isEmpty else { return foods }
-        let tokens = text.split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == "，" })
-            .map { NativeNutritionFood.searchKey(String($0)) }.filter { !$0.isEmpty }
-        return Array(foods.enumerated().compactMap { index, food -> (Int, Int, NativeNutritionFood)? in
-            food.searchRank(needle, tokens: tokens).map { ($0, index, food) }
-        }.sorted { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 }.prefix(limit).map(\.2))
+        let query = NativeFoodSearchQuery(text)
+        guard !query.needle.isEmpty else { return foods }
+        let ranked = foods.enumerated().compactMap { index, food -> (order: (Int, Int, Int), food: NativeNutritionFood)? in
+            guard let rank = food.searchRank(query) else { return nil }
+            return ((rank, food.brand == nil ? 0 : 1, index), food)
+        }
+        return Array(ranked.sorted { $0.order < $1.order }.prefix(limit).map { $0.food })
     }
 
     private func results(_ search: (name: String, grams: Double?)) -> some View {
@@ -1084,7 +1133,10 @@ struct NativeMealLogger: View {
                                    }) { food, grams in
                 addedPersonal.removeAll { $0.id == food.id }
                 addedPersonal.insert(food, at: 0)
-                if let code = draft.barcode { store.remember(barcode: code, food: food.id, known: Set(personal.map(\.id))) }
+                if let code = draft.barcode {
+                    // An empty payload has not loaded yet, so it cannot say which saved foods still exist.
+                    store.remember(barcode: code, food: food.id, known: payload.rows.isEmpty ? nil : Set(personal.map(\.id)))
+                }
                 if let grams { add(food, grams: grams) } else { show("已存入「我的食物」") }
             }
         case .manual:
@@ -1616,23 +1668,41 @@ struct NativeCustomFoodDraft {
         fat = nutritionInput((facts.fat * 10).rounded() / 10)
     }
 
-    /// Returns false when the label had values but neither "per 100 g" nor a serving weight was read.
+    /// Returns false when the label had values but neither "per 100 g" nor a serving weight is known.
     /// Canadian labels list values per serving, so the editor then waits for the serving weight.
+    /// A serving weight read from an earlier photo or typed in stays when this photo shows none.
     @discardableResult
     mutating func merge(_ reading: NativeLabelReader.Reading) -> Bool {
         guard !reading.isEmpty else { return true }
-        if reading.per100g {
-            basis = .per100g
-        } else {
-            basis = .serving
-            servingGrams = reading.servingGrams.map(nutritionInput) ?? ""
-            if consumed.isEmpty, let grams = reading.servingGrams { consumed = nutritionInput(grams) }
+        func usable(_ grams: Double?) -> Double? { grams.flatMap { (0.1...3_000).contains($0) ? $0 : nil } }
+        let previous = usable(nutritionValue(servingGrams))
+        let read = usable(reading.servingGrams)
+        let target: Basis = reading.per100g ? .per100g : .serving
+        if target != basis {
+            // Values already filled in use the other basis. Convert them with the serving weight they were
+            // entered with (to per 100 g) or the one this photo shows (to per serving), or clear them when it
+            // is unknown, so per-100 g and per-serving numbers never mix.
+            let grams = target == .per100g ? previous : (read ?? previous)
+            func convert(_ text: inout String) {
+                guard let value = nutritionValue(text) else { return }
+                guard let grams else { text = ""; return }
+                let converted = target == .serving ? value * grams / 100 : value * 100 / grams
+                text = nutritionInput((converted * 10).rounded() / 10)
+            }
+            convert(&calories)
+            convert(&protein)
+            convert(&carbs)
+            convert(&fat)
+            basis = target
         }
+        // A weight in brackets on a per-100 g photo may be the package weight, so only per-serving photos set it.
+        if let read, target == .serving { servingGrams = nutritionInput(read) }
+        if target == .serving, consumed.isEmpty, let read { consumed = nutritionInput(read) }
         if let value = reading.calories { calories = nutritionInput(value) }
         if let value = reading.protein { protein = nutritionInput(value) }
         if let value = reading.carbs { carbs = nutritionInput(value) }
         if let value = reading.fat { fat = nutritionInput(value) }
-        return reading.per100g || reading.servingGrams != nil
+        return reading.per100g || nutritionValue(servingGrams) != nil
     }
 }
 

@@ -2395,6 +2395,8 @@ struct NativeNutritionFood: Identifiable {
     var portions: [NativeFoodPortion] = []
     var source: String? = nil
     var detail: String? = nil
+    /// The chain or brand of a catalog item. Search lists everyday foods before branded ones that match as well.
+    var brand: String? = nil
     var isPersonal = false
 
     init(id: String, name: String, aliases: [String] = [], facts: Facts) {

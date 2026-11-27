@@ -50,8 +50,23 @@ test("food search puts the food a name or everyday word means first", () => {
     rice: "fdc-169757", 米饭: "fdc-169757", 面包: "fdc-172688", bread: "fdc-172688", 燕麦粥: "fdc-173905", porridge: "fdc-173905",
     牛排: "usda-23391", 热狗: "usda-21118", "hot dog": "usda-21118", hamburger: "usda-21109", 汉堡: "usda-21109",
     "big mac": "ca-mcdonald-s-big-mac", 芝士: "usda-01009", 冰淇淋: "usda-19095",
+    // Everyday foods come before chain items that match just as well.
+    "apple pie": "usda-18301", 苹果批: "usda-18301", "onion rings": "ca-onion-rings-breaded-and-fried-fast-food",
+    "chicken strips": "usda-21401", 鸡柳: "usda-21401", 芝士汉堡: "usda-21091", 芝士披萨: "ca-cheese-pizza-medium-12-inch-1-6-fast-food",
+    薯條: "ca-french-fries-fast-food", 鸡翅: "usda-05103", 辣肠披萨: "usda-21302", 黑咖啡: "usda-14209",
+    // A whole alias does not outrank the same word later in another food's alias ("steak sauce", "pea soup").
+    steak: "usda-23388", duck: "usda-05140", peas: "usda-11313", mushrooms: "usda-11260",
+    // Accents are optional.
+    "creme sure": "usda-01178", fletan: "usda-15036", "bagel de montreal": "ca-st-viateur-bagel-st-viateur-montreal-style-sesame-bagel",
   };
   for (const [query, id] of Object.entries(expected)) assert.equal(searchFoods(query)[0].id, id, query);
-  // English matches whole words from their start, so "tea" finds tea and not "sirloin steak".
+  for (const food of foods.filter(({ brand }) => !brand)) {
+    for (const alias of food.aliases) assert.ok(!searchFoods(alias)[0].brand, `${food.name} ${alias}`);
+  }
+  // English matches whole words from their start, also beside Chinese text, so "tea" finds tea and not
+  // "sirloin steak", and "pie" does not find "Rice Krispies".
   assert.ok(searchFoods("tea").slice(0, 5).every(({ name }) => name.includes("茶")));
+  for (const [query, id] of [["pie", "usda-08065"], ["pie", "usda-19438"], ["ham", "usda-18173"], ["bar", "ca-cadbury-cadbury-wunderbar"]]) {
+    assert.ok(!searchFoods(query).some((food) => food.id === id), `${query} ${id}`);
+  }
 });

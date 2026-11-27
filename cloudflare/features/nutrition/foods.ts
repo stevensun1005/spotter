@@ -44,26 +44,33 @@ export const foods: readonly Food[] = (catalog.foods as readonly CatalogFood[]).
 // oils, snacks and restaurant items does not crowd out simple whole foods.
 export const coreFoods: readonly Food[] = foods.filter(({ id }) => id.startsWith("fdc-"));
 
+// Folds width, case and accents, so "creme brulee" finds "crème brûlée" and "ＲＯＬＬＥＤ" finds "rolled".
+function foldFoodText(value: string) {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").normalize("NFC").toLowerCase();
+}
+
 function normalizeFoodName(value: string) {
-  return value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return foldFoodText(value).replace(/[^\p{L}\p{N}]/gu, "");
 }
 
-/** `fromWords` holds a Latin-script label joined from each word onward: "big mac" gives "bigmac" and "mac". */
-type SearchKey = { key: string; fromWords?: readonly string[] };
+const eastAsianOrRun = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[^\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 
-const hanOrKana = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+/** A label's words: Latin words stay whole and each Chinese, Japanese or Korean character is a word of its own. */
+function foodWords(value: string) {
+  return foldFoodText(value).split(/[^\p{L}\p{N}]+/u).flatMap((chunk) => chunk.match(eastAsianOrRun) ?? []);
+}
 
-// Latin-script labels match from the start of a word, so "tea" does not find "sirloin steak"
-// while "big mac" still finds "McDonald's Big Mac".
+/** `fromWords` holds the label joined from each word onward: "big mac" gives "bigmac" and "mac". */
+type SearchKey = { key: string; fromWords: readonly string[] };
+
+// Labels match from the start of a word, so "tea" does not find "sirloin steak" and "pie" does not find
+// "Rice Krispies", while "big mac" still finds "McDonald's Big Mac" and "饭" finds "米饭".
 function searchKey(label: string): SearchKey {
-  const key = normalizeFoodName(label);
-  if (hanOrKana.test(label)) return { key };
-  const words = label.normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  return { key, fromWords: words.map((_, index) => words.slice(index).join("")) };
+  const words = foodWords(label);
+  return { key: normalizeFoodName(label), fromWords: words.map((_, index) => words.slice(index).join("")) };
 }
 
-const startsWith = ({ key, fromWords }: SearchKey, needle: string) => key.startsWith(needle) || Boolean(fromWords?.some((rest) => rest.startsWith(needle)));
-const includes = (label: SearchKey, needle: string) => label.fromWords ? startsWith(label, needle) : label.key.includes(needle);
+const fromAWord = ({ fromWords }: SearchKey, needle: string) => fromWords.some((rest) => rest.startsWith(needle));
 
 const searchKeys = new WeakMap<Food, { name: SearchKey; aliases: SearchKey[] }>();
 
@@ -76,26 +83,30 @@ function keysOf(food: Food) {
   return keys;
 }
 
-/** Lower ranks first: exact name, exact alias, name start, inside the name, alias start, inside an alias. */
+/**
+ * Lower ranks first: exact name, exact alias, name start, a word inside the name, then any alias from the
+ * start of one of its words. Whole-alias and later-word matches share a tier, so "steak" finds striploin
+ * steak before "steak sauce". The iPhone app ranks these five the same way and adds two looser tiers.
+ */
 function searchRank(food: Food, needle: string) {
   const { name, aliases } = keysOf(food);
   if (name.key === needle) return 0;
   if (aliases.some(({ key }) => key === needle)) return 1;
   if (name.key.startsWith(needle)) return 2;
-  if (includes(name, needle)) return 3;
-  if (aliases.some((alias) => startsWith(alias, needle))) return 4;
-  if (aliases.some((alias) => includes(alias, needle))) return 5;
+  if (fromAWord(name, needle)) return 3;
+  if (aliases.some((alias) => fromAWord(alias, needle))) return 4;
   return undefined;
 }
 
-// Ties keep catalog order, so the original 22 foods come first among equal matches.
+// Within a rank, everyday foods come before chain and brand items, then catalog order applies, so the
+// original 22 foods come first among equal matches and "apple pie" means apple pie before a chain's.
 export function searchFoods(query: string, choices: readonly Food[] = foods): Food[] {
   const needle = normalizeFoodName(query);
   if (!needle) return [...choices];
 
   return choices.map((food) => ({ food, rank: searchRank(food, needle) }))
     .filter((match): match is { food: Food; rank: number } => match.rank !== undefined)
-    .sort((a, b) => a.rank - b.rank)
+    .sort((a, b) => a.rank - b.rank || Number(Boolean(a.food.brand)) - Number(Boolean(b.food.brand)))
     .map(({ food }) => food);
 }
 
