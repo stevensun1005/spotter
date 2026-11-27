@@ -34,8 +34,8 @@ iOS 26 及以上的 AI 教练星星使用系统 `Tab` 的 `.search` 角色，独
 
 | 入口 | 用户操作 | 实现位置 |
 | --- | --- | --- |
-| 今日 → 饮食记录 | 从饮食卡片看当天热量、蛋白质、碳水、脂肪和饮水。点卡片进入明细，点卡片右上角的叉收起，点圆形饮食图标展开。快捷项为「记录正餐」「加餐」「饮水」「常用餐」「拍照记录」，其中「记录正餐」和「加餐」打开记餐页。 | [首页训练和饮食容器](../ios/SpotterHealth/NativeWorkouts.swift) · [饮食](../ios/SpotterHealth/NativeNutrition.swift) · [记餐页](../ios/SpotterHealth/NativeMealLogger.swift) |
-| 今日 → 训练日程、今日训练 | 在一周日程中选日期，或打开系统日期选择器跳转。本人当天计划可点「动作演示」按顺序查看动作详情，也可继续训练草稿或在已完成项点「查看记录」。同日其他计划可从计划菜单打开演示。计划菜单允许移动或删除，打卡历史保留。 | [首页训练](../ios/SpotterHealth/NativeWorkouts.swift) · [计划改期](../ios/SpotterHealth/NativePlanSchedule.swift) |
+| 今日 → 饮食记录 | 从饮食卡片看当天热量、蛋白质、碳水、脂肪和饮水。点卡片进入明细，在顶部周历选一天或打开月历跳转。明细用中央圆环显示当天已摄入热量和目标，两侧显示剩余或超出的热量及饮水，下方列出碳水、蛋白质和脂肪进度。五个饮食快捷入口放在每日汇总和餐食列表之间。点卡片右上角的叉收起，点圆形饮食图标展开。快捷项为「记录正餐」「加餐」「饮水」「常用餐」「拍照记录」，其中「记录正餐」和「加餐」打开记餐页。 | [首页训练和饮食容器](../ios/SpotterHealth/NativeWorkouts.swift) · [饮食](../ios/SpotterHealth/NativeNutrition.swift) · [记餐页](../ios/SpotterHealth/NativeMealLogger.swift) |
+| 今日 → 训练日程、今日训练 | 在周一至周日的日期圆环中选一天，或打开系统日期选择器跳转。本人当天计划可点「动作演示」按顺序查看动作详情，也可继续训练草稿或在已完成项点「查看记录」。同日其他计划可从计划菜单打开演示。计划菜单允许移动或删除，打卡历史保留。 | [首页训练](../ios/SpotterHealth/NativeWorkouts.swift) · [计划改期](../ios/SpotterHealth/NativePlanSchedule.swift) |
 | 训练 → 我的计划 | 「新建计划」打开与训练页同版式的全屏编辑页：顶部是计划名、日期和类型，中间是动作卡片，底栏提供「更多」「开始训练」「添加动作」「统一休息」。「添加动作」打开带部位栏和器械分区栏的动作库，可连续添加。「开始训练」先保存再开练。iPhone 的编辑计划、个人模板编辑与安排、导入核对都使用这个编辑页。「添加计划」含「AI 教练起草」「粘贴已有内容」「训练周期」。可以导入训练文字、计划 JSON 或受支持的跟练链接，先核对再保存。「待训练」列表在底部集中展示已排期的「跟练视频」。 | [训练视图](../ios/SpotterHealth/NativeWorkouts.swift) · [计划导入](../ios/SpotterHealth/NativePlanImport.swift) |
 | 训练 → 个人模板 | 可新建、从计划或打卡另存，也可用模板「安排训练」。打开个人模板后可点每个动作名查看弹出的动作卡片。iPhone 用「改名」「编辑动作」或「编辑模板」更新，网页点「编辑」进入「编辑模板」。两端删除均需确认，已保存的跟练链接均列于底部「跟练视频」。 | [原生训练与模板](../ios/SpotterHealth/NativeWorkouts.swift) · [个人模板服务](../cloudflare/features/library/server.ts) |
 | 训练 → 官方模板 | 官方模板默认可见，可到「设置 → 功能模块」关闭。「训练目标」「训练水平」筛选默认均为全部。打开模板查看各周运动日与休息日，点动作名弹出动作卡片。「功能性训练」「高级」中的 12 周功能性力量训练可切换到任一周。设「周期开始日」后点「使用这个模板」，经排期预览和确认才加入日历。开发版移除了列表底部的编排参考和链接。 | [官方模板](../ios/SpotterHealth/NativeOfficialTemplates.swift) · [模板资源](../ios/SpotterHealth/Resources/official-training-templates.json) · [周期编排](../ios/SpotterHealth/NativePrograms.swift) |
@@ -44,6 +44,8 @@ iOS 26 及以上的 AI 教练星星使用系统 `Tab` 的 `.search` 角色，独
 | 统计 → 训练统计 / 打卡历史 | 顶部「训练统计」「打卡历史」使用系统分段。周期菜单可选周、月、季、年、最近或自定义，下方是日期切换。有可查看的搭子记录时，「我」和搭子名字（有备注时显示备注）的切换并排在日期右侧，标题放不下时移到日期下一行。今年以外的周、最近和自定义范围在标题里带年份，跨年时起止都带年份。辅助功能大字号使用系统选择菜单。按所选范围回顾训练容量、次数/天数、时长和完成组数。历史以月历显示自己的训练及对方允许共享的记录。点日期或打卡看详情。 | [统计与月历](../ios/SpotterHealth/NativeWebSecondary.swift) · [网页统计](../cloudflare/features/stats/) · [网页历史](../cloudflare/features/history/) |
 | 好友 → 联系人 / 朋友圈 / 权限设置 | 「添加好友」「找搭子」通过账号用户名搜索，普通好友也可用邀请链接。联系人详情按日查看共享训练和饮食，可为对方设置私人备注，并设定本人给对方的权限。朋友圈显示自己和好友近期可见的打卡及加油。「权限设置」只保留朋友圈开关，不再列出联系人。 | [好友界面](../ios/SpotterHealth/NativeWebSecondary.swift) · [好友规则](../cloudflare/features/friends/) · [搭子模型](../cloudflare/features/pair/) |
 | 底栏最右侧星星 → AI 教练 | iOS 16–25 的星星在底栏上方右侧。可自由对话、点推荐操作、用计划问答生成草稿、拍照或从相册附图。向上展开可进入大面板。App 进程运行期间保持当前对话，完全退出后重新打开时从新对话开始。 | [入口位置](../ios/SpotterHealth/NativeApp.swift) · [原生教练](../ios/SpotterHealth/NativeCoach.swift) · [推荐卡片](../ios/SpotterHealth/NativeCoachRecommendations.swift) · [网页教练](../cloudflare/features/ai-coach/) |
+
+饮食详情和首页训练日程共用 [SwiftUI 日期圆环](../ios/SpotterHealth/NativeControls.swift)。同一张周历卡内用左右箭头翻周，点中间的中文日期打开系统月历。选中日用浅色胶囊标出，今天用实心小点，有记录或安排但进度为零时用空心小点。VoiceOver 同时读出日期和每日进度。饮食按当天摄入热量占当日目标的比例闭环。仅记饮水或没有可用的热量目标时，以小点标出已记录。训练按当天已完成计划比例闭环，按计划区分重复打卡，无计划的本人训练也能点亮当天。饮食环复用本人 `/api/data?scope=nutrition&from=…&to=…` 的周范围和已有营养目标，单日仍由 `/api/library` 提供明细。训练环沿用已有日程索引和历史加载。
 
 ### 训练、计划与详情
 
@@ -191,6 +193,8 @@ iOS 26 及以上的 AI 教练星星使用系统 `Tab` 的 `.search` 角色，独
 
 | 版本 | 功能与实现 | 核对 |
 | --- | --- | --- |
+| iPhone 开发版 · 饮食记录 | `NativeNutrition.swift` 在日期卡下显示中央热量环、热量余量与饮水、三项宏量进度条。五个快捷入口放到餐食列表上方，记录、营养目标与账号权限沿用现有接口。 | 待验证。 |
+| iPhone 开发版 · 日期进度环 | 饮食详情和首页训练日程使用同款周历卡、中文日期、月历和细轨进度环，选中和当天分别标记。实现位于 `NativeControls.swift`、`NativeNutrition.swift` 和 `NativeWorkouts.swift`，沿用既有账号权限及 API。 | 在 375 点宽的 iPhone 模拟器用合成记录核对两处日期栏、选日、翻周、打开和关闭月历、热量与计划进度、重复训练打卡和仅饮水标记。Xcode 编译、原生冒烟、独立版生产构建及 29 项测试、共用帮助的 19 项 API 测试通过。 |
 | 1.0 Build 40 | 使用引导用 SwiftUI 锚点聚焦真实按钮。扩充有氧选项，Watch 用镜像和 WatchConnectivity 补传完训摘要。Agent API 增加按权限读取和记餐。AI 教练在两端使用共用帮助资料回答导航问题。 | Xcode 模拟器以合成账号验证 14 步引导及用量为零时的操作问答。服务端测试覆盖训练匹配、权限、账号隔离与写入去重。实际心率及断连恢复待配对设备验证。 |
 | 1.0 Build 41 | `NativeAvatarStore` 统一当前会话中的头像。本人保存或移除后立即更新，其他头像在切页、回到前台、恢复网络或前台每 60 秒刷新。新增外部 Agent 四步教学、真实入口引导、统一提示词及连接创建回执。待训练和个人模板都提供跟练视频分区。App 和网页提供模板改名、修改动作及确认删除。Cloudflare 提供模板变更预览与提交，以及个人动作 GIF 的写入与读取。 | iPhone 模拟器通过头像刷新、四步教学及模板管理验证。Cloudflare 测试覆盖 GIF 权限与账号隔离、去重及模板事务回滚。 |
 | 1.0 Build 41 动作复用 | 外部 Agent 写入计划、周期、模板、个人动作和 GIF 前查本账号动作库。只按标准目录 ID、已登记别名或规范化名称复用同一动作。保留握法等独立变式和原组次处方。iPhone 与网页提示词及教学使用同样的规则。 | Cloudflare 95 源码为 `91b476a`。服务端 362 项测试通过，覆盖原始记录保护、账号隔离、重试与动作变式。 |

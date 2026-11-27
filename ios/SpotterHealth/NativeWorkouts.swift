@@ -47,7 +47,6 @@ fileprivate struct NativeWorkoutScheduleIndex {
     let pendingByDay: [String: [NativeWorkoutEntry]]
     let recordsByDay: [String: [NativeWorkoutEntry]]
     let completions: [NativeWorkoutEntry.Key: [NativeWorkoutEntry]]
-    let scheduledDays: Set<String>
     let pendingPlans: [NativeWorkoutEntry]
     let completedRecords: [NativeWorkoutEntry]
 }
@@ -181,7 +180,6 @@ final class NativeWorkoutStore: ObservableObject {
             pendingByDay: Dictionary(grouping: pendingPlans, by: \.day),
             recordsByDay: Dictionary(grouping: records, by: \.day),
             completions: completions,
-            scheduledDays: Set(plans.map(\.day)).union(logs.map(\.day)),
             pendingPlans: pendingPlans,
             completedRecords: completedRecords
         )
@@ -1324,6 +1322,7 @@ struct NativeWorkoutView: View {
     @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
     @AppStorage(NativePreferenceKey.officialTemplates) private var showOfficialTemplates = true
     @State private var selectedDate = Date()
+    @State private var showScheduleCalendar = false
     @State private var trainingTab = "我的计划"
     @State private var completedPlans = false
     @StateObject private var catalogueBrowsing = NativeCatalogueBrowsingState()
@@ -1409,6 +1408,9 @@ struct NativeWorkoutView: View {
         }
         .onChange(of: showOfficialTemplates) { enabled in
             if !enabled && trainingTab == "官方模板" { trainingTab = "我的计划" }
+        }
+        .sheet(isPresented: $showScheduleCalendar) {
+            SpotterWeekCalendarSheet(selection: $selectedDate, title: "选择训练日期")
         }
         .sheet(item: $recordSheet) { screen in
             switch screen {
@@ -1763,53 +1765,39 @@ struct NativeWorkoutView: View {
     }
 
     private var weekStrip: some View {
-        let scheduledDays = store.scheduleIndex.scheduledDays
-        return VStack(spacing: 12) {
+        let schedule = store.scheduleIndex
+        return VStack(spacing: 6) {
             ViewThatFits(in: .horizontal) {
-                HStack {
-                    Text("训练日程").font(.system(size: 18, weight: .bold))
-                    Spacer()
-                    weekActions
+                HStack(spacing: 8) {
+                    weekTitle
+                    Spacer(minLength: 0)
+                    weekNavigation
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("训练日程").font(.system(size: 18, weight: .bold))
-                    weekActions
+                    weekTitle
+                    weekNavigation
                 }
             }
-            HStack(spacing: 3) {
-                ForEach(Array(weekDates.enumerated()), id: \.offset) { offset, date in
-                    let day = NativeWorkoutSession.day(date)
-                    Button { selectedDate = date } label: {
-                        VStack(spacing: 4) {
-                            Text("周\(["一", "二", "三", "四", "五", "六", "日"][offset])").font(.system(size: 11, weight: .semibold))
-                            Text(date.formatted(.dateTime.day())).font(.system(size: 19, weight: .bold))
-                            Circle().fill(SpotterPalette.accent).frame(width: 4, height: 4)
-                                .opacity(scheduledDays.contains(day) ? 1 : 0)
-                        }.frame(maxWidth: .infinity).padding(.vertical, 7)
-                    }
-                    .buttonStyle(SpotterChoiceStyle(selected: day == selectedDay, horizontalPadding: 0, minimumWidth: 0))
-                    .accessibilityLabel(day)
-                    .accessibilityAddTraits(day == selectedDay ? .isSelected : [])
-                }
+            .padding(.horizontal, 6)
+            SpotterWeekDateStrip(days: weekDates.map { weekDay($0, schedule: schedule) }, selection: selectedDate) {
+                selectedDate = $0
             }
-        }.padding(14).spotterCard()
+        }
+        .padding(8)
+        .spotterCard()
     }
 
-    private var weekActions: some View {
-        HStack(spacing: 2) {
-            DatePicker("选择训练日期", selection: $selectedDate, displayedComponents: .date)
-                .labelsHidden()
-                .datePickerStyle(.compact)
-            Button { shiftWeek(-7) } label: {
-                Image(systemName: "chevron.left").frame(width: 44, height: 44).contentShape(Rectangle())
-            }
-            .accessibilityLabel("上一周")
-            Button { shiftWeek(7) } label: {
-                Image(systemName: "chevron.right").frame(width: 44, height: 44).contentShape(Rectangle())
-            }
-            .accessibilityLabel("下一周")
+    private var weekTitle: some View {
+        Text("训练日程")
+            .font(.system(size: 18, weight: .bold))
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var weekNavigation: some View {
+        SpotterWeekNavigation(selection: selectedDate, calendarLabel: "选择训练日期", onMove: { shiftWeek($0 * 7) }) {
+            showScheduleCalendar = true
         }
-        .buttonStyle(.borderless)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var currentWeekStart: String {
@@ -1817,11 +1805,22 @@ struct NativeWorkoutView: View {
     }
 
     private var weekDates: [Date] {
-        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = .current
-        let offset = (calendar.component(.weekday, from: selectedDate) + 5) % 7
-        let first = calendar.date(byAdding: .day, value: -offset, to: calendar.startOfDay(for: selectedDate)) ?? selectedDate
-        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: first) }
+        SpotterWeekDateStrip.dates(containing: selectedDate)
     }
+
+    private func weekDay(_ date: Date, schedule: NativeWorkoutScheduleIndex) -> SpotterWeekDateStrip.Day {
+        let day = NativeWorkoutSession.day(date)
+        let planCount = Set(schedule.plansByDay[day, default: []].map(\.key)).count
+        if planCount > 0 {
+            let pendingCount = Set(schedule.pendingByDay[day, default: []].map(\.key)).count
+            let completed = planCount - pendingCount
+            return .init(date: date, progress: Double(completed) / Double(planCount),
+                         accessibilityStatus: "已完成 \(completed)/\(planCount) 项训练", showsMarker: completed == 0)
+        }
+        let checkedIn = schedule.recordsByDay[day, default: []].contains { $0.owner == store.owner }
+        return .init(date: date, progress: checkedIn ? 1 : 0, accessibilityStatus: checkedIn ? "已训练" : "没有安排训练")
+    }
+
     private func shiftWeek(_ days: Int) {
         selectedDate = Calendar.current.date(byAdding: .day, value: days, to: selectedDate) ?? selectedDate
     }

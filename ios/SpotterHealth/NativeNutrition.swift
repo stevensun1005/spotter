@@ -183,6 +183,10 @@ struct NutritionPayload: Decodable {
     }
 }
 
+private struct NativeNutritionExport: Decodable {
+    let library: [NutritionPayload.Row]
+}
+
 struct NativeRecentServing: Identifiable {
     let food: NativeNutritionFood
     let grams: Double
@@ -356,6 +360,168 @@ private struct NativeNutritionSummary: View {
     }
 }
 
+private struct NativeNutritionDailySummary: View {
+    private typealias Values = NutritionPayload.Values
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.dynamicTypeSize) private var textSize
+    @ScaledMetric(relativeTo: .title2) private var ringSize = 132.0
+
+    let totals: NutritionPayload.Values?
+    let targets: NutritionPayload.Values?
+
+    private var goal: Double { targets?.calories ?? 0 }
+    private var progress: Double { ratio(totals?.calories, goal: goal) }
+    private var remaining: Double? { goal > 0 ? totals.map { goal - $0.calories } : nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("饮食记录").font(.headline).accessibilityAddTraits(.isHeader)
+            if textSize.isAccessibilitySize {
+                stackedEnergy
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        remainingMetric.frame(minWidth: 64, maxWidth: .infinity)
+                        calorieRing
+                        waterMetric.frame(minWidth: 64, maxWidth: .infinity)
+                    }
+                    stackedEnergy
+                }
+            }
+            Divider().overlay(SpotterPalette.line)
+            if textSize.isAccessibilitySize {
+                VStack(spacing: 10) { macros }
+            } else {
+                HStack(alignment: .top, spacing: 12) { macros }
+            }
+        }
+        .padding(14)
+        .spotterCard(radius: 20)
+    }
+
+    private var stackedEnergy: some View {
+        VStack(spacing: 12) {
+            calorieRing
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    remainingMetric.frame(minWidth: 70, maxWidth: .infinity)
+                    waterMetric.frame(minWidth: 70, maxWidth: .infinity)
+                }
+                VStack(spacing: 8) {
+                    remainingMetric
+                    waterMetric
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var calorieRing: some View {
+        let diameter = min(ringSize, 188)
+        let fill = min(progress, 1)
+        let eaten = totals.map { nutritionNumber($0.calories) } ?? "—"
+        let percent = progress.formatted(.percent.precision(.fractionLength(0)))
+        let goalText = goal > 0 ? "/ \(nutritionNumber(goal)) 千卡" : "千卡"
+        return ZStack {
+            Circle().fill(accent.selection.opacity(0.40))
+            Circle().strokeBorder(accent.tint.opacity(0.15), lineWidth: 9)
+            if fill > 0 {
+                Circle().inset(by: 4.5).trim(from: 0, to: fill)
+                    .stroke(accent.tint, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            VStack(spacing: 2) {
+                Text(goal > 0 ? "已摄入 · \(percent)" : "已摄入")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(accent.tint)
+                Text(eaten).font(.title.weight(.bold).monospacedDigit())
+                    .contentTransition(motion == nil ? .identity : .numericText())
+                Text(goalText).font(.caption2).foregroundStyle(SpotterPalette.muted)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.65)
+            .padding(14)
+        }
+        .frame(width: diameter, height: diameter)
+        .animation(motion, value: fill)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("已摄入热量")
+        .accessibilityValue(totals == nil ? "数据暂不可用" : "\(eaten) \(goalText)" + (goal > 0 ? " · \(percent)" : ""))
+        .accessibilityIdentifier("nutrition-daily-calories")
+    }
+
+    private var remainingMetric: some View {
+        let exceeded = (remaining ?? 0) < 0
+        let amount = remaining.map { "\(nutritionNumber(abs($0))) 千卡" }
+        return sideMetric(exceeded ? "超出目标" : "剩余热量", symbol: exceeded ? "exclamationmark" : "bolt",
+                          value: amount ?? (totals == nil ? "—" : "未设目标"), color: accent.tint)
+    }
+
+    private var waterMetric: some View {
+        let amount = totals.map { "\(nutritionNumber($0.water)) mL" }
+        return sideMetric("已饮水", symbol: "drop", value: amount ?? "—", color: SpotterPalette.color(0x14868a))
+    }
+
+    private func sideMetric(_ title: String, symbol: String, value: String, color: Color) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: symbol)
+                .font(.caption.weight(.semibold)).foregroundStyle(color)
+                .frame(width: 27, height: 27)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                .accessibilityHidden(true)
+            Text(value).font(.caption.weight(.bold).monospacedDigit())
+            Text(title).font(.caption2).foregroundStyle(SpotterPalette.muted)
+        }
+        .multilineTextAlignment(.center)
+        .lineLimit(1)
+        .minimumScaleFactor(0.70)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(value)
+    }
+
+    @ViewBuilder private var macros: some View {
+        macro("碳水", id: "carbs", key: \.carbs, tint: 0x7764c3)
+        macro("蛋白质", id: "protein", key: \.protein, tint: 0xbd632f)
+        macro("脂肪", id: "fat", key: \.fat, tint: 0xbd5061)
+    }
+
+    private func macro(_ title: String, id: String, key: KeyPath<Values, Double>, tint: UInt32) -> some View {
+        let intake = totals?[keyPath: key]
+        let goal = targets?[keyPath: key] ?? 0
+        let amount = intake.map(nutritionNumber) ?? "—"
+        let value = goal > 0 ? "\(amount) / \(nutritionNumber(goal)) g" : "\(amount) g"
+        let fill = min(ratio(intake, goal: goal), 1)
+        let color = SpotterPalette.color(tint)
+        return VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.caption.weight(.semibold))
+            Text(value).font(.caption2.monospacedDigit()).foregroundStyle(SpotterPalette.muted)
+                .lineLimit(1).minimumScaleFactor(0.72)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(color.opacity(0.16))
+                    if fill > 0 {
+                        Capsule().fill(color).frame(width: geometry.size.width * CGFloat(fill))
+                    }
+                }
+            }
+            .frame(height: 5)
+            .animation(motion, value: fill)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(intake == nil ? "数据暂不可用" : value)
+        .accessibilityIdentifier("nutrition-daily-macro-\(id)")
+    }
+
+    private func ratio(_ value: Double?, goal: Double) -> Double {
+        guard let value, value.isFinite, goal.isFinite, goal > 0 else { return 0 }
+        let fraction = value / goal
+        return fraction.isFinite ? max(fraction, 0) : 0
+    }
+}
+
 func nutritionNumber(_ value: Double) -> String {
     value.formatted(.number.precision(.fractionLength(0...1)))
 }
@@ -365,6 +531,8 @@ func nutritionCalories(protein: Double, carbs: Double, fat: Double) -> Double {
 }
 
 private struct NutritionShortcuts: View {
+    enum Placement { case home, dashboard }
+
     @Environment(\.spotterAccent) private var accent
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.spotterGuide) private var guide
@@ -372,9 +540,10 @@ private struct NutritionShortcuts: View {
     let onSelect: (NutritionShortcut) -> Void
     let onFavorites: () -> Void
     let onPhoto: () -> Void
+    var placement: Placement = .home
 
     private let buttonWidth: CGFloat = 44
-    private let spacing: CGFloat = 3
+    private var spacing: CGFloat { placement == .dashboard ? 6 : 3 }
 
     var body: some View {
         if textSize.isAccessibilitySize {
@@ -399,15 +568,22 @@ private struct NutritionShortcuts: View {
             onMainMeal()
             guide?.advance(.mainMeal)
         }
-        button("加餐", icon: Image(NutritionShortcut.snack.icon)) { onSelect(.snack) }
-        button("饮水", icon: Image(NutritionShortcut.water.icon)) { onSelect(.water) }
+        button("加餐", icon: placement == .dashboard ? Image(systemName: "carrot") : Image(NutritionShortcut.snack.icon)) {
+            onSelect(.snack)
+        }
+        button("饮水", icon: placement == .dashboard ? Image(systemName: "drop") : Image(NutritionShortcut.water.icon)) {
+            onSelect(.water)
+        }
         button("常用餐", icon: Image(systemName: "star"), action: onFavorites)
         button("拍照记录", icon: Image(systemName: "camera"), action: onPhoto)
     }
 
-    private func button(_ title: String, icon: Image, guideTarget: NativeGuideStep? = nil,
-                        action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    @ViewBuilder private func button(_ title: String, icon: Image, guideTarget: NativeGuideStep? = nil,
+                                     action: @escaping () -> Void) -> some View {
+        let shape = RoundedRectangle(cornerRadius: placement == .dashboard ? 13 : 10)
+        let primary = placement == .dashboard && guideTarget == .mainMeal
+        let background = placement == .home ? SpotterPalette.wash : (primary ? accent.selection : SpotterPalette.card)
+        let control = Button(action: action) {
             VStack(spacing: 4) {
                 icon.renderingMode(.template).resizable().scaledToFit()
                     .frame(width: 18, height: 18).foregroundStyle(accent.tint)
@@ -417,12 +593,22 @@ private struct NutritionShortcuts: View {
                     .minimumScaleFactor(0.75)
             }
             .frame(minWidth: buttonWidth, maxWidth: .infinity, minHeight: 51)
-            .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(background, in: shape)
+            .overlay {
+                if placement == .dashboard {
+                    shape.strokeBorder(SpotterPalette.line).allowsHitTesting(false)
+                }
+            }
+            .contentShape(shape)
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(title)
         .nativeGuideTarget(guideTarget)
+        if primary {
+            control.accessibilityIdentifier("nutrition-detail-log-meal")
+        } else {
+            control
+        }
     }
 }
 
@@ -571,6 +757,18 @@ enum NativeNutritionWidgetEntry {
 
 @MainActor
 struct NativeNutritionDetail: View {
+    private struct WeekRequest: Equatable {
+        let owner: String
+        let start: String
+        let end: String
+        let revision: Int
+    }
+
+    private struct WeekSnapshot {
+        let request: WeekRequest
+        let payload: NutritionPayload
+    }
+
     @Environment(\.spotterAccent) private var accent
     let api: NativeAPI
     let owner: String
@@ -578,12 +776,13 @@ struct NativeNutritionDetail: View {
     var initialWidgetEntry: NativeNutritionWidgetEntry? = nil
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @Environment(\.spotterReduceMotion) private var reduceMotion
     @Environment(\.spotterInteractionMotion) private var motion
     @State private var date = Date.now
     @State private var payload = NutritionPayload(rows: [])
     @State private var loadedDate = ""
+    @State private var weekSnapshot: WeekSnapshot?
+    @State private var failedWeekRequest: WeekRequest?
+    @State private var weekLoadID: UUID?
     @State private var loadError: String?
     @State private var mutationError: String?
     @State private var destination: NutritionDestination?
@@ -620,7 +819,12 @@ struct NativeNutritionDetail: View {
     private var ready: Bool { loadedDate == day && loadError == nil }
     private var rows: [NutritionPayload.Row] { payload.entries(on: day).filter { $0.entry?.type != "measurement" } }
     private var mealNow: NutritionShortcut { .suggestedMeal }
-    private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
+    private var weekDates: [Date] { SpotterWeekDateStrip.dates(containing: date) }
+    private var weekRequest: WeekRequest {
+        let dates = weekDates
+        return WeekRequest(owner: owner, start: dates.first.map(spotterDay) ?? day,
+                           end: dates.last.map(spotterDay) ?? day, revision: reloadRevision)
+    }
     private var dateBounds: ClosedRange<Date> {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
@@ -630,10 +834,16 @@ struct NativeNutritionDetail: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header.padding(.bottom, 12)
-            nutritionScroll
-            toolbar.padding(.top, 6)
+        let request = weekRequest
+        return VStack(spacing: 0) {
+            VStack(spacing: 6) {
+                header(request)
+                weekStrip(request)
+            }
+            .padding(8)
+            .spotterCard()
+            .padding(.bottom, 12)
+            nutritionScroll(request)
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -641,6 +851,7 @@ struct NativeNutritionDetail: View {
         .tint(accent.tint)
         .background(SpotterPalette.background.ignoresSafeArea())
         .task(id: "\(day)/\(reloadRevision)") { await load(day) }
+        .task(id: request) { await loadWeek(request) }
         .onAppear {
             guard !didOpenWidgetEntry, let initialWidgetEntry else { return }
             didOpenWidgetEntry = true
@@ -657,21 +868,10 @@ struct NativeNutritionDetail: View {
             NativeNutritionPhotoCapture(api: api, owner: owner, nutritionDate: request.day, initialMeal: request.meal.rawValue)
         }
         .sheet(isPresented: $showDate) {
-            NavigationStack {
-                ScrollView {
-                    DatePicker("选择日期", selection: $date, in: dateBounds, displayedComponents: .date)
-                        .datePickerStyle(.graphical)
-                        .padding(16)
-                }
-                .navigationTitle("选择饮食日期")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { NutritionDismissButton { showDate = false } } }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            SpotterWeekCalendarSheet(selection: $date, title: "选择饮食日期", bounds: dateBounds)
         }
         .onChange(of: day) { _ in
-            showDate = false
+            loadError = nil
             mutationError = nil
             deleteCandidate = nil
         }
@@ -682,11 +882,14 @@ struct NativeNutritionDetail: View {
         }
     }
 
-    private var nutritionScroll: some View {
-        ScrollView {
+    private func nutritionScroll(_ request: WeekRequest) -> some View {
+        let current = ready ? payload : cachedWeekPayload(for: request)
+        let workoutIDs = logs.map { Set($0.filter { $0.owner == owner && $0.day == day }.map(\.id)) }
+        return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                NativeNutritionSummary(payload: payload, date: day, logs: logs)
-                    .padding(14).spotterCard(radius: 18)
+                NativeNutritionDailySummary(totals: current?.totals(on: day),
+                                            targets: current?.targets(on: day, countingWorkoutIDs: workoutIDs))
+                mealActions
                 if let quickMeal {
                     NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
                         .id(quickMeal.id).transition(.opacity)
@@ -713,32 +916,89 @@ struct NativeNutritionDetail: View {
             .padding(.bottom, 4)
         }
         .clipped()
-        .refreshable { await load(day) }
+        .refreshable {
+            let request = weekRequest
+            await load(day)
+            await loadWeek(request)
+        }
     }
 
-    private var header: some View {
-        SpotterGlassGroup {
-            HStack(spacing: 7) {
-                iconButton("arrow.left", "返回", glass: true) { dismiss() }
-                Spacer(minLength: 0)
-                iconButton("chevron.left", "前一天", glass: true) { move(-1) }.disabled(date <= dateBounds.lowerBound)
-                Button { showDate = true } label: {
-                    Text(day == spotterDay() ? "今天" : day)
-                        .font(.subheadline.weight(.semibold)).monospacedDigit().lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .contentTransition(allowsMotion ? .numericText() : .identity)
-                        .padding(.horizontal, 10).frame(minWidth: 58, minHeight: 44)
-                        .contentShape(Capsule())
-                        .spotterGlass(in: Capsule(), tint: accent.selection.opacity(0.65), interactive: allowsMotion)
-                }
-                .buttonStyle(.spotterGlassPress)
-                .accessibilityLabel("选择饮食日期，\(day)")
-                iconButton("chevron.right", "后一天", glass: true) { move(1) }.disabled(date >= dateBounds.upperBound)
-                Spacer(minLength: 0)
-                iconButton("slider.horizontal.3", "饮食设置", glass: true) { destination = .settings }
+    private func header(_ request: WeekRequest) -> some View {
+        HStack(spacing: 2) {
+            headerButton("arrow.left", label: "返回") { dismiss() }
+            Spacer(minLength: 0)
+            SpotterWeekNavigation(selection: date, calendarLabel: "选择饮食日期",
+                                  canGoBack: request.start > spotterDay(dateBounds.lowerBound),
+                                  canGoForward: request.end < spotterDay(dateBounds.upperBound), onMove: moveWeek) {
+                showDate = true
+            }
+            Spacer(minLength: 0)
+            headerButton("slider.horizontal.3", label: "饮食设置") { destination = .settings }
+        }
+    }
+
+    private func headerButton(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel(label)
+    }
+
+    private func weekStrip(_ request: WeekRequest) -> some View {
+        let bounds = dateBounds
+        let weeklyPayload = cachedWeekPayload(for: request)
+        let workoutIDs = logs.map { logs in
+            logs.reduce(into: [String: Set<String>]()) { result, log in
+                let day = log.day
+                guard log.owner == owner, request.start <= day, day <= request.end else { return }
+                result[day, default: []].insert(log.id)
             }
         }
-        .animation(motion, value: day)
+        let days = weekDates.map { date in
+            guard bounds.contains(date) else {
+                return SpotterWeekDateStrip.Day(date: date, accessibilityStatus: "不可选", isEnabled: false)
+            }
+            let key = spotterDay(date)
+            return weekDay(date, payload: key == day && ready ? payload : weeklyPayload,
+                           workoutIDs: workoutIDs.map { $0[key] ?? [] }, failed: failedWeekRequest == request)
+        }
+        return SpotterWeekDateStrip(days: days, selection: date) { selected in
+            if spotterDay(selected) != day { date = selected }
+        }
+    }
+
+    private func cachedWeekPayload(for request: WeekRequest) -> NutritionPayload? {
+        guard let snapshot = weekSnapshot, snapshot.request.owner == request.owner,
+              snapshot.request.start == request.start, snapshot.request.end == request.end else { return nil }
+        return snapshot.payload
+    }
+
+    private func weekDay(_ date: Date, payload: NutritionPayload?, workoutIDs: Set<String>?,
+                         failed: Bool) -> SpotterWeekDateStrip.Day {
+        guard let payload else {
+            return .init(date: date, accessibilityStatus: failed ? "饮食进度暂不可用" : "正在读取饮食进度")
+        }
+        let key = spotterDay(date)
+        let entries = payload.entries(on: key)
+        if entries.contains(where: { $0.entry?.type == "meal" }) {
+            let totals = payload.totals(on: key)
+            let goal = payload.targets(on: key, countingWorkoutIDs: workoutIDs).calories
+            let calories = nutritionNumber(totals.calories)
+            if goal > 0 {
+                return .init(date: date, progress: totals.calories / goal,
+                             accessibilityStatus: "\(calories) / \(nutritionNumber(goal)) 千卡", showsMarker: totals.calories <= 0)
+            }
+            return .init(date: date, accessibilityStatus: "\(calories) 千卡，未设置热量目标", showsMarker: true)
+        }
+        if entries.contains(where: { $0.entry?.type == "water" }) {
+            let water = payload.totals(on: key).water
+            return .init(date: date, accessibilityStatus: "已记饮水 \(nutritionNumber(water)) 毫升", showsMarker: true)
+        }
+        return .init(date: date, accessibilityStatus: "暂无饮食记录")
     }
 
     private var shareText: String {
@@ -830,29 +1090,22 @@ struct NativeNutritionDetail: View {
         return ((entry.grams.map { [measure($0, "g")] } ?? []) + values).joined(separator: " · ")
     }
 
-    private var toolbar: some View {
+    private var mealActions: some View {
         NutritionShortcuts(onMainMeal: { destination = .logger(nil) },
                            onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
                            onFavorites: { destination = .favorites },
-                           onPhoto: { photoCapture = NutritionPhotoRequest(day: day) })
-        .spotterGlassToolbar()
-        .padding(.bottom, 3)
+                           onPhoto: { photoCapture = NutritionPhotoRequest(day: day) },
+                           placement: .dashboard)
     }
 
-    private func iconButton(_ icon: String, _ label: String, glass: Bool = false, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            let symbol = Image(systemName: icon).font(.system(size: 16, weight: .medium))
+            Image(systemName: icon).font(.system(size: 16, weight: .medium))
                 .frame(width: 44, height: 44)
-            Group {
-                if glass {
-                    symbol.spotterGlass(in: Circle(), tint: accent.selection.opacity(0.34), interactive: allowsMotion)
-                } else {
-                    symbol.background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
-                }
-            }
-            .contentShape(Rectangle())
+                .background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
         }
-        .buttonStyle(glass ? .spotterGlassPress : .spotterPress)
+        .buttonStyle(.spotterPress)
         .accessibilityLabel(label)
     }
 
@@ -932,8 +1185,9 @@ struct NativeNutritionDetail: View {
         destination = next
     }
 
-    private func move(_ days: Int) {
-        if let next = Calendar.current.date(byAdding: .day, value: days, to: date), dateBounds.contains(next) { date = next }
+    private func moveWeek(_ offset: Int) {
+        guard let next = Calendar.current.date(byAdding: .day, value: offset * 7, to: date) else { return }
+        date = min(max(next, dateBounds.lowerBound), dateBounds.upperBound)
     }
 
     private func load(_ day: String) async {
@@ -946,6 +1200,30 @@ struct NativeNutritionDetail: View {
         } catch is CancellationError {
         } catch {
             if day == self.day, !Task.isCancelled { loadError = error.localizedDescription }
+        }
+    }
+
+    private func loadWeek(_ request: WeekRequest) async {
+        guard !Task.isCancelled, request == weekRequest else { return }
+        let loadID = UUID()
+        weekLoadID = loadID
+        failedWeekRequest = nil
+        do {
+            let path = "/api/data?scope=nutrition&from=\(request.start)&to=\(request.end)"
+            let data = try await api.request(path, method: "GET", json: nil, for: request.owner)
+            let rows = try JSONDecoder().decode(NativeNutritionExport.self, from: data).library
+            guard !Task.isCancelled, loadID == weekLoadID, request == weekRequest else { return }
+            weekSnapshot = WeekSnapshot(request: request, payload: NutritionPayload(rows: rows))
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled, loadID == weekLoadID, request == weekRequest else { return }
+            if let issue = error as? NativeAPIError {
+                switch issue {
+                case .accountChanged: weekSnapshot = nil
+                default: if issue.statusCode == 401 { weekSnapshot = nil }
+                }
+            }
+            failedWeekRequest = request
         }
     }
 
@@ -2319,7 +2597,6 @@ private struct NativeNutritionProteinServing: Identifiable {
 
 @MainActor
 private struct NativeNutritionStats: View {
-    private struct Export: Decodable { let library: [NutritionPayload.Row] }
     private struct Point: Identifiable, Sendable { let id: String; let total: NutritionPayload.Values }
     private struct Snapshot {
         let owner: String
@@ -2399,7 +2676,7 @@ private struct NativeNutritionStats: View {
             let data = try await api.request(path, method: "GET", json: nil, for: owner)
             guard !Task.isCancelled, request == loadKey else { return }
             let points = try await Task.detached(priority: .utility) {
-                let export = try JSONDecoder().decode(Export.self, from: data)
+                let export = try JSONDecoder().decode(NativeNutritionExport.self, from: data)
                 let byDay = Dictionary(grouping: export.library.filter { $0.date != nil }, by: { $0.date ?? "" })
                 return dates.map { key in Point(id: key, total: NutritionPayload(rows: byDay[key] ?? []).totals(on: key)) }
             }.value
