@@ -2966,7 +2966,8 @@ private struct NativeTimerPreferences: View {
             NativeSettingToggle(title: "训练时保持常亮", detail: "训练页面打开且计时进行时延缓自动锁屏。", value: $keepAwake)
             if #available(iOS 16.1, *) {
                 Divider()
-                NativeSettingToggle(title: "锁屏实时训练", detail: "在锁屏和灵动岛显示下一组、完成组数和休息倒计时。", value: $showsTrainingLiveActivity)
+                NativeSettingToggle(title: "锁屏实时训练", detail: "在锁屏和灵动岛显示下一组、完成组数和休息倒计时。离开训练搭子后，灵动岛才会出现。", value: $showsTrainingLiveActivity)
+                if showsTrainingLiveActivity { NativeLiveActivityStatus(manager: .shared) }
             }
         }
     }
@@ -2978,6 +2979,31 @@ private struct NativeTimerPreferences: View {
         backgroundRestAlerts = allowed
         notificationDenied = !allowed
         askingForNotifications = false
+    }
+}
+
+@available(iOS 16.1, *)
+private struct NativeLiveActivityStatus: View {
+    @ObservedObject var manager: NativeTrainingLiveActivity
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        if !manager.systemEnabled {
+            Divider()
+            Button {
+                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            } label: {
+                SecondaryRow(title: "打开 iPhone 设置", detail: "iPhone 已关闭训练搭子的实时活动。在设置里打开「实时活动」后，锁屏和灵动岛才会显示训练。", icon: "bolt.slash")
+            }.buttonStyle(.spotterPress)
+        } else if manager.dismissedCurrentWorkout {
+            Divider()
+            Button { manager.showCurrentWorkoutAgain() } label: {
+                SecondaryRow(title: "重新显示本次训练", detail: "本次训练的实时活动已从锁屏移除。点按后会重新显示在锁屏和灵动岛。", icon: "arrow.clockwise")
+            }.buttonStyle(.spotterPress)
+        } else if let problem = manager.requestProblem {
+            Divider()
+            SecondaryRow(title: "实时活动没有开始", detail: problem, icon: "exclamationmark.triangle", accessory: nil)
+        }
     }
 }
 

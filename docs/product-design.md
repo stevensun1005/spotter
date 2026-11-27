@@ -122,7 +122,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 独立 Node 的原生配对 | 网页生成五分钟的一次性配对码。手机在测试/自托管 HTTPS 地址使用 Keychain 设备令牌，按账号及窗口上传选定的心率、体重、活动和运动。重复样本与已写运动保持幂等。重新配对替换旧凭据，断开后旧设备失效。 | [Apple 设备 API](../app/api/health/apple/) · [配对与同步说明](health-device-sync.md) |
 | 私密 Sites 的 iPhone 历史导入 | 在 iPhone Safari 的打卡详情用快捷指令读取训练时段；预览后由网页账号保存。也支持网页文件流程，是否可用以已发布版为准。 | [Sites 接入差异](health-device-sync.md#两种现有接入的区别) |
 | 主屏小组件 | 长按 iPhone 主屏 → 添加小组件 → 搜索「训练搭子」。「搭子督练」支持小号或中号，小号并排查看本周进度。「今日饮食」和「我的训练周报」为中号。「年度训练热力图」为中号或大号。周报展示最近完整周；热力图展示最近 365 天。点摘要打开对应 App 页面。 | [Widget 卡片](../ios/SpotterWidget/SpotterWidget.swift) · [共享摘要](../ios/SpotterWidgetShared/) |
-| 锁屏实时活动和灵动岛 | 「设置 → 计时提醒 → 锁屏实时训练」。前台打开训练即注册活动，最小化和切到其他 App 时沿用。App 内的训练页顶部和最小化训练条提供计时、组数和近期手表心率。系统灵动岛显示时间和完成组数，展开可查看下一组、休息倒数和近期心率，点按回到训练。展示由 iOS 管理。 | [App ActivityKit 管理](../ios/SpotterHealth/NativeTrainingLiveActivity.swift) · [锁屏与灵动岛](../ios/SpotterWidget/SpotterWorkoutLiveActivity.swift) |
+| 锁屏实时活动和灵动岛 | 「设置 → 计时提醒 → 锁屏实时训练」。在训练进入前台时立即请求。App 内的训练页顶部和最小化训练条展示计时、组数和可用心率。离开 App 后灵动岛显示时间和完成组数，展开可查看下一组、休息倒数和近期 Watch 心率。可点按回到进行中的训练。iPhone 设置关闭了 App 的「实时活动」时，开关下方显示「打开 iPhone 设置」。App 运行期间在锁屏划掉本次训练后显示「重新显示本次训练」，iOS 拒绝请求时显示原因。系统结束的活动在下次回到前台时重新开始。手机锁定时 iOS 在后台唤醒 App 读不到钥匙串，此时保留登录状态和实时活动，解锁通知或下次打开 App 时重新恢复账号。支持能力取决于 iOS 版本、设备和系统设置。 | [App ActivityKit 管理](../ios/SpotterHealth/NativeTrainingLiveActivity.swift) · [锁屏与灵动岛](../ios/SpotterWidget/SpotterWorkoutLiveActivity.swift) · [状态行](../ios/SpotterHealth/NativeWebSecondary.swift) · [归档检查](../tools/verify-ios-archive.mjs) |
 
 主屏小组件使用当前账号的限时摘要，签出后清理。iOS 系统可以隐藏小组件敏感内容。健康说明中的模拟器编译或合成协议验证不能证明真机授权、实际心率及 Watch 后台队列已验证。[App 与设备核验](iphone-app.md)
 
@@ -167,7 +167,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 1. 确认目标环境、账号和代码分支。设计有用户可见入口变化时，同时更新本文与 [产品帮助资料](../cloudflare/shared/product-help.json)。新增 API、权限或字段时更新对应业务文档、模型和运行手册。
 2. 根目录运行 `npm test` 与 `npm run build`。Cloudflare 变更在 `cloudflare/` 分别执行 `npm test`、`npm run build`，有构建部署变化时跑 `npm run cf:dry-run`。
 3. 原生改动运行 `npm run test:ios-app`、Xcode 模拟器构建，交互改动核对点击、恢复、无网情况、小屏和减少动态效果。Node 健康同步协议可运行 `npm run test:health-native`，模拟权限和数据使用合成账号。
-4. 最终打包前获取需要的远端代码，执行 `npm run ios:source-check` 和 `npm run ios:package`，记录源码和 Cloudflare 后端版本。使用 [App 构建说明](iphone-app.md#构建) 和 [Cloudflare 部署说明](../cloudflare/README.md#cloudflare-部署) 核对适用配置。
+4. 最终打包前获取需要的远端代码，执行 `npm run ios:source-check` 和 `npm run ios:package`，记录源码和 Cloudflare 后端版本。Xcode 归档后、上传 TestFlight 前运行 `npm run ios:verify-archive`，核对 Release 归档里的小组件扩展、灵动岛界面、`NSSupportsLiveActivities` 和 Watch App。使用 [App 构建说明](iphone-app.md#构建) 和 [Cloudflare 部署说明](../cloudflare/README.md#cloudflare-部署) 核对适用配置。
 5. 真机验收单独记录 iPhone、Apple Watch、系统授权、后台补传、APNs、登录绑定和开发/分发签名的实际状态。合成测试只填写合成结果，按目标环境验证供应商 OAuth 与已部署 API。
 
 | 渠道 | 验证与发布记录 |
@@ -215,6 +215,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | Spotter 标准动作库 · 原创 3D 全覆盖 | 逐一重绘并核对剩余 4,033 个动作的动作轨迹、器械、握法和支撑点。保留目录 ID，网页和 iPhone 共用素材映射，封面采用成片实帧。 | 全库 5,685 个动作均选用同 ID 的原创 3D 视频，线条动画与旧动图选择数均为 0。4,033 个新视频均通过 AVFoundation 解码及封面检查，模拟器包内 5,685 个视频与网页源文件逐字节一致。原生冒烟、独立版和 Cloudflare 构建及共 400 项应用测试通过。 |
 | Build 50 后的 iPhone 开发版 | 精简训练页并迁移手表、撤销与演示入口，训练卡片恢复三段节奏。超级组按轮次切换，手机与手表共用排序。前台及时注册 ActivityKit 活动。App 内使用训练页顶部和最小化训练条展示状态，切出时由灵动岛接续。 | iPhone 17 Pro 模拟器用合成训练验证轮换、撤销、演示、历史、手表入口和最小化后的持续计时。合成 ActivityKit 会话在系统主屏幕和 Safari 上显示计时及完成组数。真机锁屏、Apple Watch 连接与心率仍待设备验证。本次为本地开发验证。 |
 | Build 50 后的 iPhone 与网页 | 统计页压缩顶部控件。`SpotterGlassSegments` 新增 `dense` 行高和按选项的无障碍名称，页面切换、周期和日期行降到约 30 pt。日期标题改为单行，跨年时保留结束年份。「我」和搭子名字的切换并到日期行右侧，放不下时移到下一行（iPhone 用 `ViewThatFits`，网页用 `.stats-range-row` 换行）。「好友 → 权限设置」移除「好友分享范围」联系人列表，改为一行提示到联系人资料里调整。动作库移除横排的置顶与器械快捷条：iPhone 把置顶、常用、我的器械和高级筛选并入搜索框旁的筛选菜单，网页把「置顶」放进范围切换。数据、接口和权限不变。 | 网页：Cloudflare 构建、类型检查和 375 项测试通过。Playwright 在 375、393 和 1280 宽度核对周、季、最近 365 天和自定义四种状态，统计顶部在手机宽度从约 200 px 降到约 130 px，跨年标题让搭子切换换行，动作库只剩「精选动作」「置顶」「常用动作」。iPhone：本次在没有 Xcode 的云端修改，Swift 代码只做了人工和多路静态审查，尚未经过模拟器构建、原生冒烟或真机查看，发布前需在 Mac 上运行 `npm run ios:source-check`、`npm run ios:package` 并核对三个界面。 |
+| Build 50 后的 iPhone 源码：灵动岛 | `NativeTrainingLiveActivity` 去掉 Build 26 起的「每个训练只请求一次」记录，升级后自动清除。系统结束、超时或开关重开后，同一训练在下次回到前台时重新请求。App 运行期间在锁屏直接划掉的活动保留到本次训练结束，可在设置里重新显示；App 未运行时划掉的，下次打开 App 时重新出现。监听 `activityEnablementUpdates` 和 `activityStateUpdates`，用 `os.Logger`（`app.spotter.health` / `LiveActivity`）记录开关、请求失败和状态变化。「设置 → 计时提醒」在开关下方显示系统关闭、已划掉或请求失败。`NativeAccount` 在钥匙串因锁屏不可读时标记 `isSessionLocked`，不再当作退出登录清除实时活动和小组件账号，回到前台或解锁后重试恢复。新增 `npm run ios:verify-archive` 检查 Xcode Release 归档，`ios:package` 同时核对实时活动声明及类型。 | 根目录生产构建和 29 项测试、Cloudflare 375 项测试通过。新增 4 项测试覆盖：工程在 Debug 与 Release 都编入并嵌入灵动岛扩展、两个 scheme 归档 Release、旧记录不再写入，以及归档检查能识别缺少扩展、`NSSupportsLiveActivities` 或灵动岛界面。Swift 文件通过语法解析和独立逐行复查，复查补上了 `import Combine`。此环境没有 Xcode，模拟器构建、`npm run test:ios-app` 和真机灵动岛待在 Mac 上验证。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
 

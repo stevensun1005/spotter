@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { checkAppSource } from "./check-app-source.mjs";
+import { checkAppBundle } from "./ios-app-bundle.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const baselines = ["origin/main", "origin/codex/health-device-sync", "origin/codex/spotter-iphone-app"];
@@ -38,22 +39,8 @@ function checkedWebRelease(plist) {
 }
 
 function checkedExtensions() {
-  const host = readPlist(join(app, "Info.plist"));
-  const widget = readPlist(join(app, "PlugIns", "SpotterWidget.appex", "Info.plist"));
-  if (widget.CFBundleIdentifier !== `${host.CFBundleIdentifier}.widget` ||
-      widget.CFBundleVersion !== host.CFBundleVersion ||
-      widget.CFBundleShortVersionString !== host.CFBundleShortVersionString ||
-      widget.NSExtension?.NSExtensionPointIdentifier !== "com.apple.widgetkit-extension") {
-    throw new Error("模拟器 App 缺少同版本的训练搭子小组件。");
-  }
-  const watch = readPlist(join(app, "Watch", "SpotterWatch.app", "Info.plist"));
-  if (watch.CFBundleIdentifier !== `${host.CFBundleIdentifier}.watchkitapp` ||
-      watch.CFBundleVersion !== host.CFBundleVersion ||
-      watch.CFBundleShortVersionString !== host.CFBundleShortVersionString ||
-      watch.WKCompanionAppBundleIdentifier !== host.CFBundleIdentifier || watch.WKApplication !== true ||
-      !watch.WKBackgroundModes?.includes("workout-processing")) {
-    throw new Error("模拟器 App 缺少同版本、可用于训练的 Apple Watch 配套 App。");
-  }
+  const problems = checkAppBundle(join(root, app));
+  if (problems.length) throw new Error("模拟器 App 不完整：" + problems.join(" "));
 }
 
 function checkedSource() {

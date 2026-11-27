@@ -66,6 +66,8 @@
 
 iOS 16.1 及以上在打开当前训练时启动锁屏实时活动，最小化到首页或切到其他 App 时沿用同一个活动。App 内在训练页顶部或最小化训练条显示计时、组数和可用的手表心率。切到系统主屏幕或其他 App 后，支持灵动岛的机型可显示训练计时和完成组数，展开后可查看下一组、休息倒计时与近期 Apple Watch 心率。点按回到训练。「设置 → 计时提醒 → 锁屏实时训练」可关闭。
 
+实时活动只能在 App 位于前台时开始，灵动岛在离开 App 后出现。iPhone 设置里关闭了训练搭子的「实时活动」时，「锁屏实时训练」下方显示「打开 iPhone 设置」。App 运行期间在锁屏划掉本次训练后，本次训练不再自动显示，设置里出现「重新显示本次训练」。iOS 拒绝请求时显示原因。系统结束的活动，以及 App 未运行时被划掉的活动，会在下次打开 App 时重新开始。连接 Mac 后可在「控制台」按子系统 `app.spotter.health`、类别 `LiveActivity` 查看开关、请求和状态记录。
+
 ## 构建
 
 ```sh
@@ -78,6 +80,8 @@ npm run ios:package
 ```
 
 `ios:package` 在构建前后核对 `origin/main`、健康同步分支和 iPhone 开发分支，并核对 App 连接的 Cloudflare 提交。产物位于 `outputs/`，包括模拟器 ZIP 和构建清单。iPhone 安装使用 Xcode 签名或 TestFlight。
+
+`ios:package` 只检查模拟器 Debug 构建。Xcode 执行 Product → Archive 后，上传前运行 `npm run ios:verify-archive`。它默认检查 `~/Library/Developer/Xcode/Archives` 中最新的 Spotter 归档，也可以传入 `.xcarchive` 路径。检查内容包括 `PlugIns/SpotterWidget.appex` 的标识和版本、扩展是否编入 `SpotterWorkoutLiveActivity`、主程序与扩展是否共用 `SpotterTrainingActivityAttributes`、`NSSupportsLiveActivities`，以及 Watch App。构建号与源码不同时会提示。
 
 TestFlight 使用同一 **Spotter** scheme 的 Release 归档，分发目标是 App Store Connect 的 `app.spotter.health` 应用。主 App 的签名描述文件须支持 HealthKit、Sign in with Apple 和 Associated Domains。随 App 一起归档的 `app.spotter.health.watchkitapp` 也需要自己的 HealthKit 签名。Apple Developer 中的 App Group `group.app.spotter.health` 需分配给 `app.spotter.health` 和 `app.spotter.health.widget`。原生 Apple 服务端使用 `APPLE_OAUTH_NATIVE_CLIENT_ID=app.spotter.health`。网页的 Apple Services ID 与原生 App ID 在同一 Apple Developer 配置下管理，详情见 [登录配置](cloudflare-login.md)。
 
