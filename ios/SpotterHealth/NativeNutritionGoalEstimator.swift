@@ -145,14 +145,18 @@ struct NativeNutritionGoalBody: Decodable, Sendable {
 
     /// The values the estimate needs as of a day, or nil while height, age, sex or weight is missing.
     func snapshot(on day: String) -> Snapshot? {
+        Self.snapshot(profile: profile, weightKg: latest(weights, through: day)?.value,
+                      bodyFatPercent: NativeNutritionGoalRules.latestBodyFat(bodyFat, through: day)?.value, on: day)
+    }
+
+    static func snapshot(profile: NativeJSON, weightKg: Double?, bodyFatPercent: Double? = nil, on day: String) -> Snapshot? {
         let heightCm = profile["heightCm"].number
         let sex = profile["sex"].string
         guard heightCm > 0, let savedAge = Int(exactly: profile["age"].number), savedAge > 0,
-              sex == "male" || sex == "female", let weight = latest(weights, through: day) else { return nil }
-        let bodyFatPercent = NativeNutritionGoalRules.latestBodyFat(bodyFat, through: day)?.value
+              sex == "male" || sex == "female", let weightKg else { return nil }
         return Snapshot(heightCm: heightCm,
                         age: NativeNutritionGoalInput.age(savedAge, recordedOn: profile["ageAsOf"].string, on: day),
-                        male: sex == "male", weightKg: weight.value, bodyFatPercent: bodyFatPercent)
+                        male: sex == "male", weightKg: weightKg, bodyFatPercent: bodyFatPercent)
     }
 }
 
@@ -201,9 +205,11 @@ struct NativeNutritionGoalEstimator: View {
     private let targetWeightKg: Double?
     private let plannedWorkouts: [NativeWorkoutEntry]?
     private let onApply: (NativeNutritionGoalEstimate) -> Void
+    private let onBodyProfileSaved: @MainActor (NativeAnatomyVariant?) -> Void
     @Binding private var savedChoice: NativeNutritionGoalChoice
     @State private var choice: NativeNutritionGoalChoice
 
+    @State private var showsBodyProfile = false
     @State private var bodyData: NativeNutritionGoalBody?
     @State private var intake: [String: Double]?
     @State private var loading = true
@@ -223,12 +229,14 @@ struct NativeNutritionGoalEstimator: View {
 
     init(api: NativeAPI, owner: String, choice: Binding<NativeNutritionGoalChoice>, targetWeightKg: Double?,
          plannedWorkouts: [NativeWorkoutEntry]? = nil,
+         onBodyProfileSaved: @escaping @MainActor (NativeAnatomyVariant?) -> Void,
          onApply: @escaping (NativeNutritionGoalEstimate) -> Void) {
         self.api = api
         self.owner = owner
         self.targetWeightKg = targetWeightKg
         self.plannedWorkouts = plannedWorkouts
         self.onApply = onApply
+        self.onBodyProfileSaved = onBodyProfileSaved
         _savedChoice = choice
         _choice = State(initialValue: choice.wrappedValue)
         let healthPreferences = NativeHealthPreferences(origin: api.origin, owner: owner)
@@ -320,6 +328,9 @@ struct NativeNutritionGoalEstimator: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { applyBar(resolved) }
             .navigationTitle("按身体数据计算")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(isPresented: $showsBodyProfile) {
+                NativeBodyData(api: api, owner: owner, returnsToNutritionEstimate: true, onProfileSaved: onBodyProfileSaved)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { NutritionDismissButton { dismiss() } }
             }
@@ -327,7 +338,10 @@ struct NativeNutritionGoalEstimator: View {
         .foregroundStyle(SpotterPalette.ink)
         .tint(accent.tint)
         .presentationDragIndicator(.visible)
-        .task(id: owner) { await load() }
+        .task(id: showsBodyProfile) {
+            guard !showsBodyProfile else { return }
+            await load(refreshBody: bodyData != nil || loadError != nil)
+        }
         .task(id: healthKey) { await readHealthActivity(healthKey) }
         .onChange(of: usesCalendar) { includesCalendar in
             if !includesCalendar, bodyData?.snapshot(on: today) != nil {
@@ -346,35 +360,52 @@ struct NativeNutritionGoalEstimator: View {
         Binding(get: { choice.effectiveTrainingDays }, set: { choice.trainingDays = $0 })
     }
 
-    private func profileCard(_ resolved: Resolved) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            heading("身体档案", icon: "person.crop.circle")
-            if let snapshot = resolved.snapshot {
-                let details = [
-                    "\(nutritionNumber(snapshot.heightCm)) cm",
-                    "\(amount(snapshot.weightKg)) kg",
-                    "\(snapshot.age) 岁",
-                    snapshot.bodyFatPercent.map { "体脂 \(nutritionNumber($0))%" }
-                ].compactMap { $0 }
-                Text(details.joined(separator: " · "))
-                    .font(.subheadline.weight(.medium).monospacedDigit())
-                    .accessibilityIdentifier("nutrition-estimator-profile")
-            } else if loading {
-                ProgressView("正在读取身体数据…")
-                    .font(.footnote)
-            } else if let loadError {
-                Text(loadError).font(.footnote).foregroundStyle(SpotterPalette.muted)
-                Button("重试") { Task { await load(retry: true) } }
-                    .buttonStyle(.spotterControl)
-            } else {
-                Text("在「设置」点顶部账号卡片，再进「身体档案」。保存身高、年龄和性别，并在「记录身体测量」记一次体重。")
-                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
-                    .accessibilityIdentifier("nutrition-estimator-missing-profile")
+    @ViewBuilder private func profileCard(_ resolved: Resolved) -> some View {
+        if !loading && resolved.snapshot == nil && loadError == nil {
+            Button { showsBodyProfile = true } label: {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        heading("身体档案", icon: "person.crop.circle")
+                        Text("补齐身高、年龄、性别和体重后继续估算")
+                            .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        .foregroundStyle(accent.tint).accessibilityHidden(true)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .spotterCard(radius: 20)
             }
+            .buttonStyle(.spotterPress)
+            .accessibilityIdentifier("nutrition-estimator-open-body-profile")
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                heading("身体档案", icon: "person.crop.circle")
+                if loading {
+                    ProgressView("正在读取身体数据…")
+                        .font(.footnote)
+                } else if let snapshot = resolved.snapshot {
+                    let details = [
+                        "\(nutritionNumber(snapshot.heightCm)) cm",
+                        "\(amount(snapshot.weightKg)) kg",
+                        "\(snapshot.age) 岁",
+                        snapshot.bodyFatPercent.map { "体脂 \(nutritionNumber($0))%" }
+                    ].compactMap { $0 }
+                    Text(details.joined(separator: " · "))
+                        .font(.subheadline.weight(.medium).monospacedDigit())
+                        .accessibilityIdentifier("nutrition-estimator-profile")
+                } else if let loadError {
+                    Text(loadError).font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    Button("重试") { Task { await load(retry: true) } }
+                        .buttonStyle(.spotterControl)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .spotterCard(radius: 20)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .spotterCard(radius: 20)
     }
 
     private func settingsCard(schedule: NativeNutritionCalendarActivity?) -> some View {
@@ -875,10 +906,11 @@ struct NativeNutritionGoalEstimator: View {
         timeZone = TimeZone.current.identifier
     }
 
-    private func load(retry: Bool = false) async {
-        if bodyData == nil {
-            guard retry || loadError == nil else { return }
+    private func load(retry: Bool = false, refreshBody: Bool = false) async {
+        if refreshBody || bodyData == nil {
+            guard retry || refreshBody || loadError == nil else { return }
             loading = true
+            bodyData = nil
             loadError = nil
             // A cancelled run leaves the spinner to the run that replaced it.
             defer { if !Task.isCancelled { loading = false } }

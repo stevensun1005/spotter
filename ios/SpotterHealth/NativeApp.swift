@@ -1172,7 +1172,7 @@ private struct NativeSpotterTabs: View {
                                   initialWidgetEntry: widgetNutritionEntry, week: nutritionWeek, onDateChange: { date in
                 nutritionDetailDate = date
                 if nutritionUsesHomeDate { homeDate = date }
-            })
+            }, onBodyProfileSaved: workouts.useSavedAnatomyVariant)
         }
         .sheet(isPresented: $showRest, onDismiss: { Task { await workouts.load() } }) {
             NativeRestSchedule(api: account.api, owner: owner)

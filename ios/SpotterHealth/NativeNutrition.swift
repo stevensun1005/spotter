@@ -399,6 +399,7 @@ private struct NativeNutritionDailySummary: View {
     let targets: NutritionPayload.Values?
     var onOpen: (() -> Void)? = nil
     var onCollapse: (() -> Void)? = nil
+    var compactHeader = false
 
     private var goal: Double { targets?.calories ?? 0 }
     private var progress: Double { ratio(totals?.calories, goal: goal) }
@@ -406,18 +407,9 @@ private struct NativeNutritionDailySummary: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            heading
-            if textSize.isAccessibilitySize {
-                stackedEnergy
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        remainingMetric.frame(minWidth: 64, maxWidth: .infinity)
-                        calorieRing
-                        waterMetric.frame(minWidth: 64, maxWidth: .infinity)
-                    }
-                    stackedEnergy
-                }
+            VStack(alignment: .leading, spacing: compactHeader ? 4 : 12) {
+                heading
+                energySummary
             }
             Divider().overlay(SpotterPalette.line)
             if textSize.isAccessibilitySize {
@@ -426,8 +418,25 @@ private struct NativeNutritionDailySummary: View {
                 HStack(alignment: .top, spacing: 12) { macros }
             }
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.top, compactHeader ? 5 : 14)
+        .padding(.bottom, 14)
         .spotterCard(radius: 20)
+    }
+
+    @ViewBuilder private var energySummary: some View {
+        if textSize.isAccessibilitySize {
+            stackedEnergy
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    remainingMetric.frame(minWidth: 64, maxWidth: .infinity)
+                    calorieRing
+                    waterMetric.frame(minWidth: 64, maxWidth: .infinity)
+                }
+                stackedEnergy
+            }
+        }
     }
 
     private var heading: some View {
@@ -691,7 +700,7 @@ struct NativeHomeNutrition: View {
         return VStack(alignment: .leading, spacing: 14) {
             NativeNutritionDailySummary(totals: current?.totals(on: day),
                                         targets: current?.targets(on: day, countingWorkoutIDs: workoutIDs),
-                                        onOpen: onOpen, onCollapse: onCollapse)
+                                        onOpen: onOpen, onCollapse: onCollapse, compactHeader: true)
             if let error {
                 Button("重新读取饮食记录") { Task { await load(day) } }
                     .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).accessibilityHint(error)
@@ -770,6 +779,7 @@ struct NativeNutritionDetail: View {
     private let plannedWorkouts: [NativeWorkoutEntry]?
     var initialWidgetEntry: NativeNutritionWidgetEntry? = nil
     private let onDateChange: ((Date) -> Void)?
+    private let onBodyProfileSaved: @MainActor (NativeAnatomyVariant?) -> Void
     private let ownsNutritionWeek: Bool
 
     @Environment(\.dismiss) private var dismiss
@@ -794,13 +804,15 @@ struct NativeNutritionDetail: View {
 
     init(api: NativeAPI, owner: String, logs: [NativeWorkoutEntry]? = nil, plannedWorkouts: [NativeWorkoutEntry]? = nil,
          initialDate: Date = .now, initialWidgetEntry: NativeNutritionWidgetEntry? = nil, week: NativeNutritionWeek? = nil,
-         onDateChange: ((Date) -> Void)? = nil) {
+         onDateChange: ((Date) -> Void)? = nil,
+         onBodyProfileSaved: @escaping @MainActor (NativeAnatomyVariant?) -> Void = { _ in }) {
         self.api = api
         self.owner = owner
         self.logs = logs
         self.plannedWorkouts = plannedWorkouts
         self.initialWidgetEntry = initialWidgetEntry
         self.onDateChange = onDateChange
+        self.onBodyProfileSaved = onBodyProfileSaved
         self.ownsNutritionWeek = week == nil
         _nutritionWeek = StateObject(wrappedValue: week ?? NativeNutritionWeek(api: api, owner: owner))
         _date = State(initialValue: initialDate)
@@ -1115,7 +1127,7 @@ struct NativeNutritionDetail: View {
             }
         case .goals, .goalEstimate, .cycle, .energy:
             NativeNutritionPlanning(api: api, owner: owner, day: day, payload: payload, logs: logs ?? [],
-                                    plannedWorkouts: plannedWorkouts, destination: item)
+                                    plannedWorkouts: plannedWorkouts, destination: item, onBodyProfileSaved: onBodyProfileSaved)
         case .recipes, .recommendations, .voice:
             NativeNutritionIdeas(api: api, owner: owner, day: day, mealNow: mealNow,
                                  payload: payload, logs: logs ?? [], destination: item) { food, meal, grams in
@@ -2282,6 +2294,7 @@ private struct NativeNutritionPlanning: View {
     let destination: NutritionDestination
     let logs: [NativeWorkoutEntry]
     let plannedWorkouts: [NativeWorkoutEntry]?
+    let onBodyProfileSaved: @MainActor (NativeAnatomyVariant?) -> Void
     static let carbKinds = ["低碳", "中碳", "高碳"]
     static let weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
@@ -2297,7 +2310,8 @@ private struct NativeNutritionPlanning: View {
     @State private var error: String?
 
     init(api: NativeAPI, owner: String, day: String, payload: NutritionPayload, logs: [NativeWorkoutEntry],
-         plannedWorkouts: [NativeWorkoutEntry]?, destination: NutritionDestination) {
+         plannedWorkouts: [NativeWorkoutEntry]?, destination: NutritionDestination,
+         onBodyProfileSaved: @escaping @MainActor (NativeAnatomyVariant?) -> Void) {
         self.api = api
         self.owner = owner
         self.day = day
@@ -2305,6 +2319,7 @@ private struct NativeNutritionPlanning: View {
         self.destination = destination
         self.logs = logs.filter { $0.day == day && $0.owner == owner }
         self.plannedWorkouts = plannedWorkouts
+        self.onBodyProfileSaved = onBodyProfileSaved
         _showsGoalEstimator = State(initialValue: destination.id == "goal-estimate")
         let base = payload.rows.first { $0.kind == "targets" }?.values ?? .init()
         let saved = payload.rows.first { $0.kind == "nutrition-plan" }?.carbCycle
@@ -2349,7 +2364,8 @@ private struct NativeNutritionPlanning: View {
             NativeNutritionGoalEstimator(
                 api: api, owner: owner, choice: $goalChoice,
                 targetWeightKg: payload.rows.first(where: { $0.kind == "targets" })?.targetWeightKg,
-                plannedWorkouts: plannedWorkouts
+                plannedWorkouts: plannedWorkouts,
+                onBodyProfileSaved: onBodyProfileSaved
             ) { estimate in
                 fields[.calories] = nutritionInput(estimate.calories)
                 fields[.protein] = nutritionInput(estimate.protein)

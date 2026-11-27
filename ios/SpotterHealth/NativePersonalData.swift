@@ -209,6 +209,7 @@ struct NativeBodyData: View {
     let api: NativeAPI
     let owner: String
     var showsClose = false
+    var returnsToNutritionEstimate = false
     var onProfileSaved: @MainActor (NativeAnatomyVariant?) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
@@ -232,10 +233,15 @@ struct NativeBodyData: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                if returnsToNutritionEstimate {
+                    Text("保存身体档案和体重后，会回到热量估算。")
+                        .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                }
                 profileCard
+                if returnsToNutritionEstimate { measurementCard }
                 NativeAppleBodyTrends(origin: api.origin, owner: owner)
                     .id(api.origin + "\n" + owner)
-                measurementCard
+                if !returnsToNutritionEstimate { measurementCard }
                 if ready { trendCard.transition(.opacity.combined(with: .offset(y: 8))) }
                 if let message { Text(message).font(.footnote).foregroundStyle(SpotterPalette.muted) }
                 if loading && !ready { ProgressView("正在读取身体数据…") }
@@ -249,8 +255,9 @@ struct NativeBodyData: View {
         }
         .background(SpotterPalette.background.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
-        .navigationTitle("身体数据")
+        .navigationTitle(returnsToNutritionEstimate ? "身体档案" : "身体数据")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(returnsToNutritionEstimate && busy)
         .toolbar {
             if showsClose {
                 ToolbarItem(placement: .cancellationAction) {
@@ -379,14 +386,15 @@ struct NativeBodyData: View {
         nextID = UUID().uuidString.lowercased()
     }
 
-    private func load(updateProfile: Bool) async {
-        guard !loading else { return }
+    @discardableResult
+    private func load(updateProfile: Bool) async -> Bool {
+        guard !loading else { return false }
         loading = true
         defer { loading = false }
         do {
-            let data = try await api.spotterRead("/api/library?section=body", as: NativeBodyLibrary.self)
+            let data = try await api.request("/api/library?section=body", method: "GET", json: nil, for: owner)
             try Task.checkCancellation()
-            library = data
+            library = try JSONDecoder().decode(NativeBodyLibrary.self, from: data)
             if !ready { message = nil }
             ready = true
             if updateProfile {
@@ -399,9 +407,21 @@ struct NativeBodyData: View {
                 let storedSex = values["sex"].string
                 sex = ["male", "female"].contains(storedSex) ? storedSex : ""
             }
+            return true
         } catch is CancellationError {
-            return
-        } catch { message = error.localizedDescription }
+            return false
+        } catch {
+            message = error.localizedDescription
+            return false
+        }
+    }
+
+    private func returnToEstimateIfReady() {
+        guard returnsToNutritionEstimate else { return }
+        let day = spotterDay()
+        let weight = library.measurements["weight"]?.last { $0.day <= day }?.value
+        guard NativeNutritionGoalBody.snapshot(profile: profile?["values"] ?? .null, weightKg: weight, on: day) != nil else { return }
+        dismiss()
     }
 
     private func saveProfile() async {
@@ -430,7 +450,7 @@ struct NativeBodyData: View {
             ])
             onProfileSaved(savedFigure)
             message = "身体档案已保存到云端。"
-            await load(updateProfile: true)
+            if await load(updateProfile: true) { returnToEstimateIfReady() }
         } catch { message = error.localizedDescription }
     }
 
@@ -449,8 +469,9 @@ struct NativeBodyData: View {
             ])
             clearReading()
             message = "已保存到云端。"
-            await load(updateProfile: false)
+            let reloaded = await load(updateProfile: false)
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+            if reloaded { returnToEstimateIfReady() }
         } catch { message = error.localizedDescription }
     }
 }

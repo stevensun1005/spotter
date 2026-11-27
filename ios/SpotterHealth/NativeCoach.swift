@@ -574,7 +574,8 @@ struct NativeCoachView: View {
                     if let date = nativePlanDate(day) {
                         let currentStore = workoutStore.flatMap { $0.owner == owner ? $0 : nil }
                         NativeNutritionDetail(api: api, owner: owner, logs: currentStore?.logs,
-                                              plannedWorkouts: currentStore?.nutritionPlannedWorkouts, initialDate: date)
+                                              plannedWorkouts: currentStore?.nutritionPlannedWorkouts, initialDate: date,
+                                              onBodyProfileSaved: { currentStore?.useSavedAnatomyVariant($0) })
                     }
                 }
             }
