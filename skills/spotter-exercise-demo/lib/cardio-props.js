@@ -1,4 +1,5 @@
 import * as T from 'three';
+import { curvedTreadmillHeight } from './cardio-motion.js';
 
 const material=(color,roughness=.53,metalness=.16)=>new T.MeshStandardMaterial({color,roughness,metalness});
 const pale=material(0xa8b5a9,.51,.22), green=material(0x496254,.72), black=material(0x303836,.85), silver=material(0xd4dad5,.33,.45), band=material(0x3f7565,.8,0);
@@ -34,6 +35,54 @@ function crossCylinder(group,mat,r,len,center){
 }
 
 export function buildCardio(group,options){
+ if(options.reclinedBike){
+  for(const z of [-.735,.59])crossCylinder(group,black,.036,.685,[0,.042,z]);
+  fixedBar(group,pale,.051,[0,.078,-.738],[0,.088,.60]);
+  fixedBar(group,pale,.052,[0,.087,-.410],[0,.572,-.438]);
+  fixedBar(group,pale,.058,[0,.10,.337],[0,.273,.614]);
+  box(group,black,[.358,.074,.384],[0,.571,-.454]);
+  box(group,black,[.371,.618,.076],[0,.797,-.688]).rotation.x=-.590;
+  for(const x of [-.290,.290]){
+   fixedBar(group,green,.023,[x,.630,-.467],[x,.635,-.226]);
+   fixedBar(group,pale,.023,[x,.60,-.459],[0,.564,-.459]);
+  }
+  crossCylinder(group,black,.207,.212,[0,.276,.539]);
+  crossCylinder(group,green,.169,.237,[0,.276,.539]);
+  fixedBar(group,pale,.033,[0,.287,.605],[0,.686,.720]);
+  box(group,green,[.169,.048,.131],[0,.682,.716]).rotation.x=-.378;
+  const pedals=[-1,1].map(sign=>({sign,shaft:cylinder(group,silver,.022,1,[0,0,0]),
+    deck:box(group,black,[.103,.025,.158],[0,0,0])}));
+  return pose=>{
+   for(const {sign,shaft,deck} of pedals){
+    const [x,y,z]=pose[sign===1?'la':'ra'];
+    deck.position.set(x,y-.055,z+.064);
+    connect(shaft,vec([sign*.129,.372,.356]),vec([sign*.134,y-.055,z+.064]));
+   }
+  };
+ }
+ if(options.assaultTreadmill){
+  for(const x of [-.429,.429]){
+   box(group,green,[.116,.122,1.83],[x,.082,.018]);
+   fixedBar(group,pale,.036,[x,.210,.748],[x,1.145,.780]);
+   fixedBar(group,black,.032,[x,1.156,.764],[x*.82,1.156,.390]);
+   for(let index=0;index<10;index++){
+    const a=-.855+index*.171,b=a+.171;
+    fixedBar(group,green,.048,[x,curvedTreadmillHeight(a)-.044,a],[x,curvedTreadmillHeight(b)-.044,b]);
+   }
+  }
+  for(const z of [-.811,.808])crossCylinder(group,black,.095,.792,[0,curvedTreadmillHeight(z)-.112,z]);
+  fixedBar(group,pale,.028,[-.421,1.157,.769],[.421,1.157,.769]);
+  box(group,green,[.298,.045,.179],[0,1.210,.770]).rotation.x=-.35;
+  box(group,black,[.237,.010,.120],[0,1.235,.777]).rotation.x=-.35;
+  const slats=Array.from({length:34},(_,index)=>box(group,index%3===0?green:black,[.749,.034,.055],[0,0,0]));
+  return pose=>{
+   for(const [index,slat] of slats.entries()){
+    const z=.855-(index*.0503+(pose.machineTravel??0))%1.710;
+    slat.position.set(0,curvedTreadmillHeight(z)-.015,z);
+    slat.rotation.x=-Math.atan(.524*z/(.856*.856));
+   }
+  };
+ }
  if(options.indoorBike){
   for(const z of [-.48,.42]){
    const rail=crossCylinder(group,black,.027,.60,[0,.038,z]);
@@ -111,6 +160,10 @@ export function buildCardio(group,options){
   for(const [a,b] of [[[0,.10,.50],[0,.86,.65]],[[0,.86,.65],[0,1.09,.56]]])fixedBar(group,pale,.047,a,b);
   box(group,green,[.20,.041,.15],[0,1.084,.555]).rotation.x=-.37;
   box(group,black,[.15,.016,.09],[0,1.104,.557]).rotation.x=-.37;
+  if(options.ellipticalFixed)for(const x of [-.228,.228]){
+   fixedBar(group,pale,.023,[x*.40,.930,.650],[x,1.289,.431]);
+   fixedBar(group,black,.026,[x,1.291,.493],[x,1.291,.345]);
+  }
   const pedals=Object.fromEntries(['l','r'].map((side)=>{
    const sg=side==='l'?1:-1;
    const cradle=box(group,black,[.103,.033,.273],[0,0,0]);
@@ -133,8 +186,9 @@ export function buildCardio(group,options){
     connect(link,crank,foot);
     const front=vec([sg*.172,foot.y-.021,.523+ankle[2]*.68]);
     connect(guide,foot,front);
-    connect(taller,front,vec(hand));
-    rubber.position.copy(vec(hand));
+    const handle=options.ellipticalFixed?vec([sg*.184,1.244,.339-ankle[2]*.45]):vec(hand);
+    connect(taller,front,handle);
+    rubber.position.copy(handle);
     rubber.quaternion.copy(taller.quaternion);
    }
   };
@@ -279,6 +333,7 @@ export function buildCardio(group,options){
    box(group,pale,[.835,.045,.545],[.172,.895,.534]);
    for(const x of [-.192,.530]) for(const z of [.318,.754]) box(group,black,[.046,.880,.046],[x,.440,z]);
   }
+  if(massage==='massage-headrest')box(group,pale,[.286,.105,.273],[0,.055,-.519]);
   if(options.targetWall){
    const height=options.tallTargetWall?2.93:1.77;
    const targetHeight=options.tallTargetWall?2.52:1.30;

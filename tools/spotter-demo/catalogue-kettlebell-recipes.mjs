@@ -793,11 +793,17 @@ function floorPlank(t,{mode='pushup',deep=false}={}) {
   const u=wave(t);
   const push=!rowing&&!drag?u:0;
   const line=rowing?.063*wave(half):0;
-  const p=person([drag?-.063*(t<.5?1:-1)*wave(half):0,.543-.219*push,-.264],1.355-.363*push, line);
+  const hipsY=.543-(deep?.303:.259)*push;
+  const ankleY=.119;
+  const ankleZ=-1.107;
+  const rise=hipsY-ankleY;
+  const stance=drag?.283:.210;
+  const hipDepth=ankleZ+Math.sqrt(.839**2-rise**2-(stance-.104)**2);
+  const p=person([drag?-.036*(t<.5?1:-1)*wave(half):0,hipsY,hipDepth],1.348+.230*push,line);
   const gripY=.227;
   for(const [side,sign] of sides){
-    foot(p,side,sign,[sign*(drag?.283:.210),.096,-1.095],false);
-    p[side+'t']=add(p[side+'a'],[0,-.087,.105]);
+    [p[side+'k'],p[side+'a']]=limb(p[side+'h'],[sign*stance,ankleY,ankleZ],[sign*.22,.47,.14],.422,.424);
+    p[side+'t']=add(p[side+'a'],[0,-.109,.097]);
     const resting=[sign*.238,gripY,.281];
     const activeDrag=drag&&side===active;
     const dragAcross=t<.5?-1:1;
@@ -931,7 +937,7 @@ function deadliftHandOff(t) {
 
 function kettlebellSidePlank(t) {
   const height=arc(t,[[0,[0]],[.23,[1]],[.81,[1]],[1,[0]]])[0];
-  const p=body([0,.212+.180*height,-.202],1.173+.380*height,0,Math.PI/2);
+  const p=body([0,.212+.180*height,-.202],1.173+.380*height,0,-Math.PI/2);
   p.planted={};p.kettlebells=[];
   for (const [side,sign] of sides) {
     foot(p,side,sign,[sign*.043,.109+sign*.033,-.929],false);
@@ -1132,6 +1138,25 @@ const items = [
   ['1567',clean,{single:true,floorStart:true,open:true},'kettlebell-left',['l:shoulder','glute']],
   ['0543',bellDiagonalRaise,{},'kettlebell-left',['shoulder','core']],
   ['5862',bellWristCurl,{seated:true},'bench-kettlebell-left',['l:forearm']],
+  ['0521',floorPlank,{floor:true,mode:'row',alternate:true},'kettlebells',['lat','core','biceps']],
+  ['4444',assistedSplitBell,{},'assisted-split-kettlebell-left',['l:quad','l:glute']],
+  ['4167',bandedBellSwing,{},'kettlebell-banded-swing',['glute','hamstring']],
+  ['0524',windmillVariation,{bentPress:true},'kettlebell-left',['l:shoulder','core']],
+  ['4230',bellGetUp,{floor:true,toKnee:true,bottoms:true},'mat-kettlebell-left',['l:shoulder','core','glute']],
+  ['3864',bellBurpee,{floor:true},'kettlebell-left',['pec','quad','core']],
+  ['3579',deckSquat,{},'mat-kettlebell-left',['quad','glute','core']],
+  ['3580',floorPlank,{floor:true,deep:true},'kettlebells',['pec','triceps','core']],
+  ['0530',windmillVariation,{alternate:true},'kettlebells',['shoulder','core','hamstring']],
+  ['2751',deficitBellSquat,{sumo:true},'wide-step-kettlebell-left',['quad','glute','adductor']],
+  ['5301',deficitBellSquat,{},'step-kettlebell-left',['quad','glute']],
+  ['3323',bellGetUp,{floor:true},'mat-kettlebell-left',['l:shoulder','core']],
+  ['7229',floorPlank,{floor:true,mode:'drag',alternate:true},'kettlebell-left',['core','shoulder']],
+  ['4521',floorPlank,{floor:true},'kettlebells',['pec','triceps']],
+  ['2753',deficitBellSquat,{band:true},'step-banded-kettlebell-left',['quad','glute']],
+  ['5879',kettlebellSidePlank,{floor:true},'mat-kettlebell-left',['core','l:shoulder']],
+  ['10561',deadliftHandOff,{alternate:true},'kettlebell-left',['l:hamstring','l:glute','core']],
+  ['10367',tibialisBell,{seated:true},'bench-kettlebell-left',['l:calf']],
+  ['4057',bellGetUp,{floor:true,handOnly:true},'mat-kettlebell-left',['l:shoulder','core']],
 ];
 const [directory,...requested]=process.argv.slice(2);
 if(!directory) throw new Error('Pass an output directory and optional catalogue IDs.');
@@ -1145,6 +1170,16 @@ const failed=[];
 for(const [id,move,settings,equipment,muscles] of selected){
   const recipe=id+'.json';
   const camera=move===swing&&settings.overhead?{yaw:63,elevation:13,focus:[0,1.08,.02],height:2.55}
+    : move===floorPlank || move===kettlebellSidePlank?{yaw:69,elevation:22,focus:[0,.40,-.30],height:1.63}
+    : move===bellBurpee?{yaw:66,elevation:18,focus:[0,.84,-.42],height:2.29}
+    : move===deckSquat?{yaw:65,elevation:19,focus:[0,.83,.02],height:2.20}
+    : move===assistedSplitBell?{yaw:61,elevation:15,focus:[-.10,.86,1.68],height:2.16}
+    : move===bellGetUp?settings.toKnee?{yaw:62,elevation:22,focus:[-.06,.78,.19],height:2.25}
+      :{yaw:62,elevation:24,focus:[-.06,.62,.19],height:1.94}
+    : move===windmillVariation?{yaw:25,elevation:15,focus:[0,1.01,.06],height:2.30}
+    : move===tibialisBell?{yaw:60,elevation:21,focus:[.10,.66,1.46],height:1.55}
+    : move===deficitBellSquat?{yaw:60,elevation:14,focus:[0,1.03,.51],height:2.36}
+    : move===bandedBellSwing?{yaw:66,elevation:15,focus:[0,.91,-.34],height:2.26}
     : move===bellWristCurl?{yaw:62,elevation:20,focus:[.10,.70,1.40],height:1.69}
     : move===bellBoxSquat?{yaw:66,elevation:17,focus:[0,.96,.70],height:2.34}
     : move===bellBoxStep?{yaw:64,elevation:17,focus:[0,1.10,.38],height:2.40}
@@ -1159,7 +1194,7 @@ for(const [id,move,settings,equipment,muscles] of selected){
     : settings.setting?{yaw:53,elevation:15,focus:[0,.82,-.07],height:2.02}
       : {yaw:settings.floor?62:48,elevation:16,focus:[0,settings.floor?.48:settings.seated?.76:.98,.035],
         height:settings.floor?1.65:settings.seated?1.90:2.34};
-  const data={version:1,durationMs:settings.alternate?5650:move===carry?3240:move===bellCurtsy?5900:move===slingshot&&settings.fast?2850:4050,equipment,muscles,camera,
+  const data={version:1,durationMs:move===bellGetUp || move===bellBurpee || move===deckSquat ? 6450 : move===kettlebellSidePlank ? 5800 :settings.alternate?5650:move===carry?3240:move===bellCurtsy?5900:move===slingshot&&settings.fast?2850:4050,equipment,muscles,camera,
     keyframes:Array.from({length:61},(_,i)=>({at:i/60,...move(i/60,settings)}))};
   try{prepareRecipe(data);await writeFile(resolve(output,recipe),JSON.stringify(data)+'\n');
     jobs.push({id,recipe,posterAt:settings.alternate?.25:.47});}

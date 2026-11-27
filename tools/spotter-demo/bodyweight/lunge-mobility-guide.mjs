@@ -30,10 +30,10 @@ export function lungeMobilityGuideMotion(guide, profile) {
     const advance = gap(f);
     const breathing = profile.hold ? .012 * Math.sin(phase * Math.PI * 4) : 0;
     const frontSign = profile.front === "right" ? -1 : 1;
-    const hipZ = mode === "hinge" ? mix(.084, -.262, stretch) : mode === "split" ? -.010 : dynamic ? mix(0, .031, advance) : .054 + shift;
+    const hipZ = mode === "ankle" ? .014 + .148 * bend : mode === "hinge" ? profile.heelForward ? -.223 : mix(.084, -.262, stretch) : mode === "split" ? -.010 : dynamic ? mix(0, .031, advance) : .054 + shift;
     const hipY = dynamic ? .893 - .350 * drop : mode === "split" ? .873 - (profile.shallow ? .205 : .337) * drop
-      : mode === "high" ? .601 + breathing : floorArms ? .341 + breathing : mode === "hinge" ? .419 + .058 * stretch : .518 + breathing - (profile.side ? .063 * drop : 0);
-    const pitch = floorArms ? mode === "elbows" ? 1.45 : mode === "tRotate" ? 1.28 : .94
+      : mode === "ankle" ? .494 - .019 * bend + breathing : mode === "high" ? .601 + breathing : floorArms ? .341 + breathing : mode === "hinge" ? .419 + (profile.heelForward ? .026 : .058) * stretch : .518 + breathing - (profile.side ? .063 * drop : 0);
+    const pitch = mode === "ankle" ? .16 + .29 * bend : floorArms ? mode === "elbows" ? 1.45 : mode === "tRotate" ? 1.28 : .94
       : mode === "hinge" ? .91 - .235 * bend : profile.tilt ? .071 : .036;
     const yaw = mode === "prayer" ? frontSign * (.39 + .52 * bend) : mode === "upRotate" || mode === "tRotate" ? frontSign * (.18 + .051 * bend) : 0;
     const sideAngle = mode === "upRotate" || mode === "tRotate" ? frontSign * -.43 : profile.arc ? frontSign * .24 : 0;
@@ -42,11 +42,11 @@ export function lungeMobilityGuideMotion(guide, profile) {
     for (const [side, sign] of sides) {
       const inFront = sign === frontSign;
       const length = dynamic ? advance : 1;
-      const footZ = inFront ? mix(.062, mode === "hinge" ? .511 : .354, length) : mix(.062, profile.rearStraight ? -.763 : rearAir ? -.687 : -.581, length);
+      const footZ = inFront ? mix(.062, mode === "hinge" ? profile.heelForward ? .563 : .511 : .354, length) : mix(.062, profile.rearStraight ? -.763 : rearAir ? -.687 : -.581, length);
       const width = profile.side && inFront ? .224 + .310 * drop : .136;
       const upperHeel = mode === "split" && profile.heel && inFront ? .095 * clamp(1 - drop * 2.1) * clamp((phase - .38) * 3.70) : 0;
       const ankle = [sign * width, inFront ? .110 + upperHeel : .105 + .040 * length * Number(rearAir), footZ];
-      const toe = inFront ? [sign * .016, -.067 - upperHeel * .61 + .048 * stretch, .128] : [sign * .013, profile.rearStraight ? -.131 : -.092, .107];
+      const toe = inFront ? [sign * .016, profile.heelForward ? .086 : -.067 - upperHeel * .61 + .048 * stretch, .128] : [sign * .013, profile.rearStraight ? -.131 : -.092, .107];
       const kneeOnGround = !inFront && !rearAir && (!dynamic || drop > .87);
       if (kneeOnGround) {
         pose[side + "k"] = [sign * .119, .111, footZ + .402];
@@ -54,13 +54,15 @@ export function lungeMobilityGuideMotion(guide, profile) {
         pose[side + "t"] = add(ankle, toe);
       } else {
         const kneeGuide = [sign * .048, inFront ? .128 : -.67, 1];
-        leg(pose, side, ankle, kneeGuide, toe, (inFront && upperHeel < .005 || !inFront && profile.rearStraight) ? .024 : undefined);
+        leg(pose, side, ankle, kneeGuide, toe, (inFront && upperHeel < .005 && !profile.heelForward || !inFront && profile.rearStraight) ? .024 : undefined);
       }
       const shoulder = pose[side + "s"];
       let wrist = add(hips, [sign * .164, .102, .067]);
       let elbow = [sign * .81, -.46, -.28];
       let fingers = [0, -.56, .83];
-      if (mode === "high" || mode === "reach") {
+      if (mode === "ankle") {
+        wrist = inFront ? add(pose[side + "k"], [sign * .036, .056, .027]) : add(hips, [sign * .142, .104, .078]);
+      } else if (mode === "high" || mode === "reach") {
         const reaching = profile.single != null;
         const lift = !reaching || !inFront;
         wrist = lift ? add(shoulder, [sign * (profile.arc ? .272 : -.066), .577, .024])

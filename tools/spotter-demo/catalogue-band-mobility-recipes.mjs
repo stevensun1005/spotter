@@ -57,16 +57,16 @@ function standingAnkleBand(phase,profile){
   const {mode,loop,hinge,balance,extreme,sideWidth,hand='one'}=profile;
   const t=rep(phase,profile.hold?.23:.39,profile.hold?.72:.56);
   const upper=mode==='abduct'||mode==='crossAbduct'||mode==='bentSide';
-  const anterior=mode==='flex'||mode==='knee'||mode==='toe';
+  const anterior=mode==='flex'||mode==='march'||mode==='knee'||mode==='toe';
   const crouch=hinge?profile.hingeAngle??.78:profile.lean??.034;
   const pose=stand([.046,hinge?.792:.857,hinge?-.090:-.019],crouch);
   plant(pose,'l', [.166,floor,.049]);
-  const direction = mode==='flex' ? .692*t : mode==='extension' ? -(extreme?.699:.560)*t : .034;
+  const direction = mode==='march'?1.61*t:mode==='flex' ? .803*t : mode==='extension' ? -(extreme?.699:.560)*t : .034;
   const theta= mode==='knee' ? -.947 : mode==='curl' ? -1.553-.125*t : -Math.PI/2+direction;
   const spread=upper ? (mode==='crossAbduct'?mix(.116,-.547,t):-(sideWidth??.567)*t) : -.026;
   const upperDirection=unit([Math.sin(spread),Math.sin(theta)*Math.cos(spread),Math.cos(theta)*Math.cos(spread)]);
   pose.rk=add(pose.rh,scale(upperDirection,.422));
-  const lower = mode==='knee' ? mix(-1.712,-.079,t) : mode==='curl' ? mix(-1.600,-2.95,t)
+  const lower = mode==='knee' ? mix(-1.712,-.079,t) : mode==='curl' ? mix(-1.600,-2.95,t) : mode==='march' ? -1.56
     : mode==='bentSide'? -2.68 : theta-.017;
   const lowerDirection=unit([Math.sin(spread),Math.sin(lower)*Math.cos(spread),Math.cos(lower)*Math.cos(spread)]);
   pose.ra=add(pose.rk,scale(lowerDirection,.421));
@@ -121,7 +121,7 @@ function seatedBandFoot(phase,{mode,chair,hold,hand,other }){
     plant(pose,side,foot);
     if(!training){continue;}
     const turning=mode==='eversion'||mode==='inversion'||mode==='rotate';
-    const d=mode==='inversion'?-1:1;
+    const d=mode==='inversion'||mode==='rotate'?-1:1;
     const toe=turning?[d*.104*t,mix(.081,.102,t),mix(.104,.074,t)] :
       [0,mode==='plantar'?mix(.101,-.062,t):mix(-.05,.101,t),mode==='plantar'?mix(.083,.125,t):mix(.123,.088,t)];
     pose.rt=add(pose.ra,toe);
@@ -161,7 +161,7 @@ function shoulderBandMotion(phase,{mode,high,side,one,post,half,chair,hold,gripS
   const face=mode==='face';
   const crunch=mode==='crunch'||mode==='kneel-crunch';
   const inFront=mode==='row'||face||rot||crunch;
-  const anchor=sideStretch || rot?[mode==='adduct'?-1.10:1.07,high?1.92:post?.61:1.11,.117]
+  const anchor=sideStretch || rot?[mode==='adduct'||mode==='internal'?-1.10:1.07,high?1.92:post?.61:1.11,.117]
     :[0,crunch?2.014:face?Math.max(1.01,pose.chest[1]+.185):1.12,1.143];
   for(const[s,sign]of sides){
     if((one||sideStretch||rot)&&s==='l') {
@@ -188,13 +188,13 @@ function shoulderBandMotion(phase,{mode,high,side,one,post,half,chair,hold,gripS
       grip(pose,s,add(pose.head,[sign*.124,-.089,.035]),[sign*.62,-.61,.53],[0,1,0]);
       continue;
     } else if(sideStretch){
-      const start=mode==='flex'?[sign*.059,-.579,.05]:[sign*.563,-.072,.105];
-      const end=mode==='adduct'?[.092,-.582,.064]:mode==='flex'?[sign*.015,.339,.483]:[sign*.565,.167,.068];
+      const start=mode==='flex'?[sign*.059,-.579,.05]:mode==='side-reach'?[.269,-.061,.528]:[sign*.563,-.072,.105];
+      const end=mode==='adduct'?[.092,-.582,.064]:mode==='flex'?[sign*.015,.339,.483]:[-.554,-.109,-.176];
       offset=scale(unit(blend(start,end,t)),.592);
     } else if(mode==='pullapart'){
       offset=scale(unit(blend([-sign*.058,.018,.59],[sign*.572,.018,-.108],t)),.598);
     } else if(mode==='pass'){
-      const angle=mix(.254,3.73,t);
+      const angle=mix(.219,5.68,t);
       offset=[sign*.404,-.440*Math.cos(angle),.440*Math.sin(angle)];
     } else {
       offset=[sign*.053,mix(-.229,-.193,t),mix(.56,.115,t)];
@@ -213,11 +213,11 @@ register(standingAnkleBand,'post-braced-stretch-band',['r:glute'],standCam,[
   ['4034',{mode:'extension',extreme:true,camera:{yaw:61}}],
   ['0901',{mode:'extension',camera:{yaw:68}}],
   ['11570',{mode:'extension',loop:true,equipment:'braced-stretch-band',camera:{yaw:73}}],
-  ['1507',{mode:'flex',muscles:['r:quad'],camera:{yaw:-52}}],
-  ['0927',{mode:'flex',muscles:['r:quad'],camera:{yaw:-67},lean:-.021}],
+  ['1507',{mode:'march',muscles:['r:quad'],camera:{yaw:71}}],
+  ['0927',{mode:'flex',muscles:['r:quad'],camera:{yaw:74},lean:-.021}],
   ['1021',{mode:'flex',loop:true,equipment:'braced-stretch-band',muscles:['r:quad'],camera:{yaw:68}}],
   ['3903',{mode:'extension',hinge:true,hingeAngle:.51,hand:'two',equipment:'post-hinge-stretch-band',camera:{yaw:54}}],
-  ['2161',{mode:'extension',loop:true,equipment:'braced-stretch-band',camera:{yaw:45}}],
+  ['2161',{mode:'extension',loop:true,equipment:'braced-stretch-band',camera:{yaw:-68}}],
   ['7281',{mode:'extension',loop:true,equipment:'braced-stretch-band',extreme:true,camera:{yaw:66}}],
   ['6798',{mode:'extension',loop:true,balance:true,equipment:'stretch-band',camera:{yaw:-65}}],
   ['7204',{mode:'extension',loop:true,balance:true,equipment:'stretch-band',extreme:true,camera:{yaw:60}}],
@@ -271,11 +271,11 @@ register(shoulderBandMotion,'post-stretch-band',['r:shoulder'],standCam,[
   ['5607',{mode:'face',muscles:['rearShoulder','trap'],camera:{yaw:69}}],
   ['4195',{mode:'face',half:true,muscles:['rearShoulder','trap'],camera:{yaw:64,focus:[0,.73,.36]}}],
   ['4445',{mode:'face',chair:true,equipment:'post-seat-stretch-band',muscles:['rearShoulder','trap'],camera:{yaw:66,focus:[0,.78,.35]}}],
-  ['4080',{mode:'kneel-crunch',muscles:['core'],depth:.88,camera:{yaw:66,focus:[0,.94,.35],height:2.40}}],
-  ['4720',{mode:'kneel-crunch',muscles:['core'],depth:1.08,camera:{yaw:67,focus:[0,.94,.35],height:2.43}}],
-  ['5202',{mode:'kneel-crunch',muscles:['core'],depth:1.02,camera:{yaw:59,focus:[0,.94,.34],height:2.40}}],
-  ['5206',{mode:'kneel-crunch',muscles:['core'],depth:1.12,camera:{yaw:55,focus:[0,.94,.36],height:2.42}}],
-  ['5203',{mode:'crunch',muscles:['core'],depth:.855,camera:{yaw:61,focus:[0,1.01,.32],height:2.45}}],
+  ['4080',{mode:'kneel-crunch',muscles:['core'],depth:.88,camera:{yaw:66,focus:[0,1.06,.35],height:2.60}}],
+  ['4720',{mode:'kneel-crunch',muscles:['core'],depth:1.08,camera:{yaw:67,focus:[0,1.06,.35],height:2.62}}],
+  ['5202',{mode:'kneel-crunch',muscles:['core'],depth:1.02,camera:{yaw:59,focus:[0,1.07,.34],height:2.60}}],
+  ['5206',{mode:'kneel-crunch',muscles:['core'],depth:1.12,camera:{yaw:55,focus:[0,1.08,.36],height:2.61}}],
+  ['5203',{mode:'crunch',muscles:['core'],depth:.855,camera:{yaw:61,focus:[0,1.10,.32],height:2.62}}],
   ['4412',{mode:'pullapart',gripStyle:'over',equipment:'stretch-band',muscles:['rearShoulder','trap'],camera:{yaw:26}}],
   ['2930',{mode:'pullapart',gripStyle:'under',equipment:'stretch-band',muscles:['rearShoulder','trap'],camera:{yaw:23}}],
   ['8365',{mode:'pass',equipment:'stretch-band',camera:{yaw:47,focus:[0,1.08,.19],height:2.48}}],

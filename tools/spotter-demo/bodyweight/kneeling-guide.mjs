@@ -40,7 +40,7 @@ export function kneelingGuideMotion(guide, profile) {
       const tilt = mode === "circle" ? (hip[0] - origin[2][0]) * .009 : 0;
       const circleForward = mode === "circle" ? (origin[2][1] - hip[1]) * .020 : 0;
       const roll = mode === "turn" ? (forward(frame) - .5) * 1.38 : 0;
-      const hips = [tilt, .108 + .414 * Math.cos(arc) + tone, -.13 - .414 * Math.sin(arc) + .049 * extend + circleForward];
+      const hips = [tilt, .108 + .414 * Math.cos(arc) + tone, -.13 - .414 * Math.sin(arc) + (profile.hipDrive ? .165 * pelvis(frame) + .089 * Math.sin(Math.PI * phase) ** 2 : 0) + .049 * extend + circleForward];
       const pose = stand(hips, -.018 - (mode === "camel" ? 1.26 : .73) * extend - circleForward * .54, roll, -tilt * .62);
       for (const [side, sign] of sides) {
         if (mode === "turn" && sign > 0) {

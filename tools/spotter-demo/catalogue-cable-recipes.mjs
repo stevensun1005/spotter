@@ -1819,8 +1819,8 @@ function crouchedCable(phase,option){
   const box=kind==='boxHinge'||kind==='stepLunge';
   const lunge=kind==='stepLunge';
   const zercher=kind==='zercher';
-  const hip=[0,kneeling?.484-.159*t:(box?.211:0)+.869-(zercher?.36:lunge?.402:stretch?.23:box?.05:.103)*t,
-    (belt?.089:0)-(zercher?.191:kneeling?.294:lunge?.168:box?.115:.251)*t];
+  const hip=[0,kneeling?.484-.159*t:(box?.211:0)+.869+(box&&!lunge?.038:0)-(zercher?.36:lunge?.402:stretch?.23:box?.015:.103)*t,
+    (belt?.089:0)-(zercher?.191:kneeling?.294:lunge?.168:box?.088:.251)*t];
   const pose=torso(hip,(zercher?.061:stretch?.079:.045)+(zercher?.222:stretch?.548:lunge?.242:1.17)*t);
   if(kneeling)kneel(pose);
   else if(box){
@@ -2019,9 +2019,9 @@ function sideCableFloor(phase,{mode,top=.92}) {
   const sideLeg=mode==='incline-leg'||mode==='floor-kick';
   const legWork=sideLeg||mode==='incline-kick';
   const supine=mode==='incline-kick';
-  const trunk=incline?(supine?-1.13:-1.251):plank?-1.36:-1.558;
-  const hipY=incline?.514:plank?.416:.143;
-  const hip=[0,hipY,.209];
+  const trunk=incline?(supine?-1.028:-1.024):plank?-1.36:-1.558;
+  const hipY=incline?.581:plank?.416:.143;
+  const hip=[0,hipY,incline?.248:.209];
   const pose=torso(hip,trunk,0,supine?0:-.240);
   pose.planted={};
   if(!supine){
@@ -2043,7 +2043,7 @@ function sideCableFloor(phase,{mode,top=.92}) {
   }
   if(incline) {
     pose.neck=add(pose.neck,[0,.032,.031]);
-    pose.head=add(pose.head,[0,.127,.114]);
+    pose.head=add(pose.head,[0,.089,.063]);
   }
   if(plank) {
     arm(pose,'l',[.278,.045,-.167],[.08,-.92,-.62],[0,0,1],[1,-.05,0]);

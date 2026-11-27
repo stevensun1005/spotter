@@ -91,7 +91,11 @@ export function supineExtendedGuideMotion(guide, profile) {
     const sway = profile.lateral ? .157 * Math.sin(swing) * lift : 0;
     const pose = mode === "heelTap" ? stand([0, centerY, -.271], angle, roll) : torso([sway, centerY, -.271], angle);
     pose.headDrop = mode === "neck" ? .044 - .105 * headLift(frame) : mode === "heelTap" ? -.014 : .023;
-    if (mode === "neck") pose.headAim = [0, .03 + .68 * headLift(frame), -.98];
+    if (mode === "neck") {
+      const neck = profile.floatHead ? Math.max(headLift(frame), .81 * Math.sin(Math.PI * phase) ** 2) : headLift(frame);
+      pose.head[1] += profile.floatHead ? .036 * neck : 0;
+      pose.headAim = [0, .03 + .68 * neck, -.98];
+    }
     const rollPhase = mode === "wiper" ? (moveSide(frame) - .5) * 1.90 : 0;
     const down = mode === "figure" && profile.down;
     const stretch = mode === "hamstring" ? Math.max(ankleLifts[0](frame), kneeLifts[0](frame) * .89) : 0;
@@ -183,7 +187,7 @@ export function supineExtendedGuideMotion(guide, profile) {
       } else if (mode === "wiper" || mode === "crossover") {
         wrist = add(shoulder, [sign * .607, -.048, .034]);
         fingers = [sign, -.022, .016];
-      } else if (mode === "neck") {
+      } else if (mode === "neck" && !profile.floatHead) {
         wrist = add(pose.head, [sign * .094, -.019 + .097 * headLift(frame), -.074]);
         fingers = [-sign * .82, .196, -.421];
       } else if (mode === "tuck" || mode === "cocoon" || down || mode === "hamstring") {

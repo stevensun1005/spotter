@@ -41,6 +41,15 @@ function buildFoamRoller(group) {
   for (const y of [-.286,.286]) drum(group,gray,.040,.006,y);
 }
 
+function buildMassageStick(group) {
+  drum(group,gray,.011,.406);
+  for(let i=-4;i<=4;i++)drum(group,green,.027,.019,.022*i,24);
+  for(const side of [-1,1]) {
+    drum(group,rubber,.019,.094,side*.161,24);
+    for(let i=-2;i<=2;i++)drum(group,rubber,.022,.003,side*.161+i*.015,24);
+  }
+}
+
 function buildWheel(group) {
   drum(group,gray,.015,.461);
   for (const y of [-.167,.167]) {
@@ -59,7 +68,7 @@ function buildWheel(group) {
   }
 }
 
-function buildTire(scene) {
+export function buildTire(scene) {
   const group = new THREE.Group();
   scene.add(group);
   const section = [
@@ -89,7 +98,7 @@ function buildTire(scene) {
 }
 
 export function buildCatalogueSmallProp(scene, kind) {
-  if (kind === 'bosu') {
+  if (kind === 'bosu' || kind === 'bosu-medicine') {
     balanceDome(scene);
     return null;
   }
@@ -98,7 +107,19 @@ export function buildCatalogueSmallProp(scene, kind) {
   const roller=new THREE.Group();
   scene.add(roller);
   if (kind.startsWith('foam')) buildFoamRoller(roller);
+  else if (kind.startsWith('tiger-tail')) buildMassageStick(roller);
   else buildWheel(roller);
+  if (kind==='tiger-tail-table') {
+    place(scene,new THREE.BoxGeometry(.755,.051,.556),green,.143,.895,.589);
+    for(const x of [-.182,.471])for(const z of [.351,.822]){
+      place(scene,new THREE.BoxGeometry(.051,.875,.054),gray,x,.435,z);
+    }
+  }
+  if (kind==='tiger-tail-bench') {
+    place(scene,new THREE.BoxGeometry(.306,.032,.100),rubber,.202,.440,.947);
+    for(const x of [.084,.311])place(scene,new THREE.BoxGeometry(.026,.474,.051),gray,x,.682,.947);
+    place(scene,new THREE.BoxGeometry(.289,.026,.034),gray,.198,.924,.947);
+  }
   if (kind === 'foam-long') roller.scale.y = 1.73;
   if (kind === 'foam-wall') {
     place(scene,new THREE.BoxGeometry(1.24,2.36,.072),green,0,1.18,1.385);

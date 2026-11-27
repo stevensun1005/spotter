@@ -247,14 +247,318 @@ function assistedRollout(phase,{ ring, diagonal }) {
   return pose;
 }
 
+
+function groundedSuspensionRow(phase,option){
+  const {bent,elevated,wide,ring,under,weighted,transition,power,one}=option;
+  const t=rep(phase,.41,.58);
+  const footY=(elevated?.439:.0)+.075;
+  const footZ=bent?.444:.891;
+  const up=mix(bent?.405:elevated?.542:.273,elevated?.705:bent?.638:.602,t);
+  const twist=power?.548*(1-t):0;
+  const hips=[0,up,footZ-(bent?.512:.753)];
+  const pose=stand(hips,mix(elevated?-1.555:-1.48,-1.095,t),twist);
+  pose.straps=[];
+  const wideHands=transition?mix(.348,.189,t):wide?.350:.181;
+  for(const[s,sign]of sides){
+    leg(pose,s,[sign*.147,footY,footZ],[sign*.176,.96,.168],[sign*.014,elevated?-.061:.087,.108],elevated?.439:0);
+    if(one&&s==='l'){
+      arm(pose,s,add(pose.chest,[mix(.371,.042,t),mix(-.195,.099,t),.198+.337*t]),[.77,-.16,-.42]);
+      continue;
+    }
+    const anchor=[sign*(ring?.277:.163),2.306,bent?-.605:-.462];
+    const shoulder=pose[s+'s'];
+    let desired=[sign*wideHands,shoulder[1]+mix(.543,.129,t),shoulder[2]+.114+.073*t];
+    if(power)desired=add(desired,[-.133*(1-t),.011,.071*(1-t)]);
+    contact(pose,s,anchor,elevated?1.184:bent?1.270:1.449,desired,[sign*(wide?.84:.69),-.54,-.54],
+      under?'under':ring?'neutral':'wide');
+  }
+  if(weighted){
+    const center=add(blend(pose.hips,pose.chest,.27),[0,.177,.038]);
+    pose.dumbbells=[{center,axis:[0,1,-.12]}];
+  }
+  return pose;
+}
+
+function hangingSuspension(phase,option){
+  const {mode,ring,wide,one,archer,assist,knees,over,sideGrip}=option;
+  const t=rep(phase,.37,.59);
+  const up=over?ramp(phase,.26,.50)*(1-ramp(phase,.53,.77)):0;
+  if(mode==='pullover'||mode==='cat'){
+    const skin=mode==='cat';
+    const tuck = ramp(t,.08,.48)*(1-ramp(t,.71,.96));
+    const rollover=ramp(t,.63,1);
+    const angle = skin ? mix(.035,5.52,t) : mix(.021,2.967,ramp(t,0,.63)) + 3.164*rollover;
+    const shoulder=[0,skin?mix(1.616,1.783,t):1.616+.488*ramp(t,0,.63)+.492*rollover,
+      skin?mix(.067,-.23,t):mix(.067,.345,ramp(t,0,.59))-.259*rollover];
+    const pose=stand(add(shoulder,[0,-.502*Math.cos(angle),-.502*Math.sin(angle)]),angle);
+    pose.straps=[];
+    for(const[s,sign]of sides) {
+      const thigh=skin?mix(-1.53,4.73,t)+1.15*tuck:mix(-1.54,1.64,ramp(t,0,.64))+3.09*rollover+1.20*tuck;
+      legAngles(pose,s,sign,thigh,thigh-1.27*tuck-.16,.020);
+      const anchor=[sign*.272,2.763,.177];
+      const end=[sign*.287,skin?2.215:mix(2.20,2.184,t),skin?mix(.191,-.03,t):mix(.191,.347,t)];
+      contact(pose,s,anchor,.586,end,[sign*.68,-.45,-.58],'neutral');
+    }
+    return pose;
+  }
+  const alternate=mode==='rock';
+  const wave=alternate?Math.sin(2*Math.PI*phase)*.153*t:0;
+  const inverted=mode==='pullover'||mode==='cat'||mode==='elevator';
+  const elevator=mode==='elevator';
+  const lift=over?.481*t+.608*up:.442*t;
+  const base=assist?.421:elevator?2.159:over?1.092:.949;
+  const arch=archer?-.288*t:one?-.086:0;
+  const y=elevator?base+.151*t:base+lift;
+  const pitch=elevator?Math.PI-.088:.033+(over?.403*up:.154*t)+wave+(inverted?2.48*t:0);
+  const pose=stand([arch,y,.038+(over?.237*up:inverted?.019+.303*t:.061*t)],pitch,
+    archer?-.191*t:sideGrip?-.285*t:0);
+  pose.straps=[];
+  for(const[s,sign]of sides){
+    if(!assist){
+      const legAngle=elevator?Math.PI/2:inverted?mix(-1.55,mode==='cat'?2.10:1.418,t):-1.55+(knees?.607*t:.086*t);
+      const shin=elevator?Math.PI/2-.029:inverted?mix(-1.56,mode==='cat'?1.301:1.365,t):legAngle-(knees?1.17:.031);
+      legAngles(pose,s,sign,legAngle,shin,.020);
+    }else{
+      leg(pose,s,[sign*.148,.083,.491-.049*t],[sign*.175,.88,.291],[sign*.013,-.074,.133],0);
+    }
+    if(one&&s==='l'){
+      arm(pose,s,add(pose.chest,[.061,-.099,.222]),[.657,-.669,-.21]);
+      continue;
+    }
+    const length=assist?1.015:elevator?1.039:over?.607:wide?.394:.347;
+    const anchor=[sign*(ring ? (wide?.435:elevator?.292:.277) : .146),over?2.747:2.309,assist?.384:.219];
+    const external=archer&&s==='l';
+    const target=elevator?[sign*.307,1.146,.154]:assist?add(pose[s+'s'],[sign*.047,mix(.554,.137,t),.202]):
+      (over?add(pose[s+'s'],[sign*.071,mix(.603,-.561,up),mix(.055,-.057,up)]):
+        external?[.507,2.011,.239]:add(pose[s+'s'],[sign*(wide?.197:.052),mix(.607,.064,t),.076+.032*t]));
+    contact(pose,s,anchor,length,target,[sign*(external?.367:.73),external?-.94:-.53,over?.795*up-.72:-.722],
+      option.under?'under':ring||option.neutral?'neutral':'wide',external?.445:.141);
+  }
+  if(option.band){
+    const sleeve=pose.straps[0].end;
+    const contact=add(pose.ra,[.016,-.046,.059]);
+    pose.bandPath=[add(sleeve,[.034,.096,.014]),add(contact,[.051,0,.027]),add(contact,[-.047,-.005,.027]),
+      add(sleeve,[-.047,.095,.015]),add(sleeve,[.034,.096,.014])];
+  }
+  return pose;
+}
+
+function dippingSuspension(phase,option){
+  const {chest,assist,ring,hold,low}=option;
+  const t=rep(phase,hold?.24:.41,hold?.72:.58);
+  const belly=low?.438:.855;
+  const depth=chest?.285:.274;
+  const y=belly-(assist?.188:depth)*t+.013*Math.sin(phase*Math.PI*2)*(hold?1:0);
+  const pitch=low?1.319+(hold?.030:.124*t):chest?.117+.325*t:.029+.107*t;
+  const pose=stand([0,y,low?-.359:mix(.031,.132,t)],pitch);
+  pose.straps=[];
+  for(const[s,sign]of sides){
+    if(low){
+      leg(pose,s,[sign*.149,.078,-1.12],[sign*.089,-.297,1],[sign*.012,-.065,-.126],0);
+    }else if(assist){
+      leg(pose,s,[sign*.161,.078,.260],[sign*.102,.12,.91],[sign*.014,-.071,.139],0);
+    }else{
+      const knee=add(pose[s+'h'],[sign*.034,-.407,.105]);
+      pose[s+'k']=knee;
+      pose[s+'a']=add(knee,[sign*.016,-.158,-.379]);
+      pose[s+'t']=add(pose[s+'a'],[sign*.009,-.076,-.105]);
+    }
+    const location=low?[sign*.210,.176,.137]:[sign*(chest?.281:.218),1.089,.087];
+    const anchor=[sign*(ring?.272:.149),2.307,low?.201:-.078];
+    contact(pose,s,anchor,low?2.137:1.225,location,[sign*(chest?.77:.51),-.34,-.63],low?'wide':'neutral');
+  }
+  return pose;
+}
+
+
+function standingStrapFlow(phase,option) {
+  const {kind,deep=false}=option;
+  const t=rep(phase,.40,.58);
+  const twist=kind==='twist';
+  const side=kind==='side-bend'||kind==='side-stretch'||kind==='abduction-lunge';
+  const lateral=kind==='abduction-lunge'||kind==='side-stretch';
+  const fly=kind==='lunge-fly';
+  const split=kind==='split'||fly;
+  const curl=kind==='clutch';
+  const kick=kind==='kickback';
+  const press=kind==='extension'||kind==='extension-push';
+  const reach=kind==='rollout';
+  const pullThrough=kind==='pull-through';
+  const power=kind==='squat-power';
+  const runner=kind==='sprint';
+  const ext=kind==='external';
+  const yRaise=kind==='y';
+  const hinge=kick||pullThrough;
+  const direction=phase<.5?1:-1;
+  const local=twist||runner?rep(phase*2%1):t;
+  const leaning=hinge?1.043+(pullThrough?.226*t:0):press?mix(.52,deep?.91:.73,t):reach?mix(.28,.78,t):
+    curl?mix(-.548,-.265,t):twist?-.183:ext||yRaise?mix(-.386,-.181,t):runner?.36:.048+.219*t;
+  const dip=power?.333*(1-t):split?.347*t:lateral?.288*t:hinge?.118:0;
+  const hipsY=.866-dip-(press||reach?.156*t:0);
+  const hipZ=hinge?-.145-.094*t:press||reach?-.232+.193*t:runner?.117:split?.121*t:.010;
+  const hipX=lateral?.249*t:side?.029:0;
+  const pose=stand([hipX,hipsY,hipZ],leaning,twist?direction*.698*local:fly?.14*t:0,
+    !lateral&&side?.270*t:0);
+  pose.straps=[];
+  for(const[s,sign]of sides){
+    const working=s==='r';
+    const hips=pose[s+'h'];
+    const run=runner&&(direction===1)===working;
+    let ankle=[sign*(lateral?.247:.167),.078,press||reach?-.661:runner?-.176:.040];
+    if(lateral&&s==='l')ankle=[.252+.479*(kind==='side-stretch'?1:t),.078+(kind==='side-stretch'?0:.073*Math.sin(Math.PI*t)),.11];
+    if(split)ankle[2]=working?-.344:.161+(fly?.48:.269)*t;
+    if(run){ankle[1]+=.429*local;ankle[2]+=.550*local;}
+    leg(pose,s,ankle,[sign*.13,.106,1],[sign*.014,-.072,.139],
+      run&&local>.035||lateral&&s==='l'&&ankle[1]>.086?undefined:0);
+    if(kind==='side-bend'&&!working){
+      arm(pose,s,add(hips,[.094,.083,.103]),[.71,-.61,-.31]);
+      continue;
+    }
+    const span=pose[s+'s'];
+    let delta=[sign*.039,-.131,.516];
+    let anchor=[sign*.161,2.310,.819],length=1.181;
+    let pole=[sign*.69,-.48,-.50],orientation='neutral';
+    if(curl){
+      delta=[sign*.122,mix(-.11,.182,t),mix(.548,.136,t)];
+      orientation='under';pole=[sign*.75,.08,-.60];
+    }else if(fly){
+      delta=[sign*mix(.027,.566,t),mix(-.139,.022,t),mix(.559,.147,t)];
+    }else if(press){
+      delta=[sign*.119,mix(-.052,.267,t),mix(.524,.176,t)];
+      length=1.299;anchor=[sign*.162,2.313,-.254];
+      pole=[sign*.31,.353,.795];
+    }else if(reach){
+      const a=mix(.525,1.597,t);
+      delta=[sign*.064,.568*Math.sin(a),.554*Math.cos(a)];
+      anchor=[sign*.164,2.31,-.603];length=1.543;
+      pole=[sign*.37,-.53,.49];
+    }else if(yRaise){
+      delta=[sign*mix(-.030,.409,t),mix(-.112,.423,t),mix(.571,.235,t)];
+      anchor=[sign*.188,2.311,.406];length=1.041;
+    }else if(ext){
+      delta=[sign*.268,mix(-.122,.297,t),mix(.436,.134,t)];
+      anchor=[sign*.161,2.310,.402];length=1.021;
+      pole=[sign*.88,-.31,-.43];
+    }else if(kick){
+      delta=[sign*.067,mix(-.226,-.105,t),mix(.202,-.526,t)];
+      anchor=[sign*.165,2.31,.251];length=1.446;
+      pole=[sign*.39,.03,-.87];
+    }else if(pullThrough){
+      delta=[sign*.018,mix(-.574,-.298,t),mix(.002,-.346,t)];
+      anchor=[sign*.164,2.309,-1.141];length=1.947;
+      pole=[sign*.23,-.81,.13];
+    }else if(power){
+      delta=[sign*.036,mix(-.037,-.191,t),mix(.556,.149,t)];
+      anchor=[sign*.165,2.312,.814];length=1.226;
+    }else if(twist){
+      delta=[direction*.312*local+sign*.035,.101,mix(.568,.428,local)];
+      anchor=[sign*.174,2.310,.760];length=1.125;
+    }else if(kind==='side-bend'){
+      delta=[-.392+.201*t,mix(.387,.207,t),.172];
+      anchor=[-.903,2.307,.155];length=.747;
+    }else if(runner){
+      delta=[sign*.079,mix(-.052,.101,run?local:0),mix(.463,.319,run?local:0)];
+      anchor=[sign*.161,2.310,.715];length=1.154;
+    }
+    contact(pose,s,anchor,length,add(span,delta),pole,orientation,reach||yRaise?.49:.141);
+  }
+  return pose;
+}
+
+function floorStrapFlow(phase,option) {
+  const {kind}=option;
+  const t=rep(phase,.36,.59);
+  const side=kind==='side';
+  const sit=kind==='sit';
+  const extend=kind==='hyper';
+  const pendulum=kind==='pendulum';
+  const twist=kind==='twist-side'||kind==='twist-up';
+  const lift=kind==='twist-up';
+  const inverse=kind==='headstand';
+  const lateral=pendulum||twist;
+  const signed=lateral?(phase<.5?1:-1)*rep(phase*2%1):0;
+  const theta=inverse?mix(1.519,2.947,t):side?mix(-1.541,-1.185,t):sit?mix(-1.558,-.217,t):extend?mix(1.568,1.008,t):1.523+.17*t*(lift?1:0);
+  const hipY=inverse?.342-.502*Math.cos(theta):side?.164+.272*t:sit?.153:extend?.155:.523+(lift?.105*Math.abs(signed):0);
+  const hipZ=inverse?.417-.502*Math.sin(theta):side?.082:sit?.097:extend?.044:-.094+(lift?.126*Math.abs(signed):0);
+  const x=lateral?(pendulum?.141:.192)*signed:0;
+  const pose=stand([x,hipY,hipZ],theta,twist?.27*signed:0);
+  pose.straps=[];
+  if(side){
+    pose.rs=[-.032,.640+.084*t,-.341];
+    pose.ls=[.018,.341+.061*t,-.334];
+    pose.rh=[-.009,hipY+.090,hipZ];
+    pose.lh=[.009,hipY-.090,hipZ];
+  }
+  for(const[s,sign]of sides){
+    const anchor=[sign*.155,2.329,(inverse?-1.465:side||sit?.855:-.986)];
+    const toward=inverse?mix(-.955,.482,t):side?.851:sit?.485:extend?-.820:-.835+(lift?.56*Math.abs(signed):0);
+    const legY=inverse?mix(.419,1.693,t):side?.371:sit?.398:extend?.310:.410;
+    const moveX=lateral?signed*(pendulum?.498:.327):0;
+    const desired=[sign*(side?.086:.142)+moveX,legY,toward];
+    const length=inverse?1.994:side?1.977:extend?2.031:1.963;
+    footContact(pose,s,anchor,length,desired,side||sit,side?.64:sit?.27:inverse?.52:lift?.82-.54*Math.abs(signed):.79);
+    if(side&&s==='l'){
+      pose.le=[.019,.078,-.330];pose.lw=[.287,.039,-.335];
+      pose.lFingers=[1,-.018,0];pose.lPalmSide=[0,1,.035];
+    }else if(side){
+      arm(pose,s,add(pose.rh,[-.136,.08,.127]),[-.766,-.381,.441]);
+    }else if(sit||extend){
+      arm(pose,s,add(pose.head,[sign*.085,-.076,sit?-.027:.036]),[sign*.816,-.186,.59]);
+    }else if(inverse){
+      pose[s+'e']=[sign*.202,.075,.407];pose[s+'w']=[sign*.171,.052,.746];
+      pose[s+'Fingers']=[0,-.041,1];pose[s+'PalmSide']=[1,0,0];
+    }else{
+      arm(pose,s,[sign*.197,.053,.429],[sign*.67,-.18,-.71],[0,-.048,1],[1,0,0]);
+    }
+  }
+  return pose;
+}
+
+function singleStrapLeg(phase,{mode}){
+  const t=rep(phase,.39,.59);
+  const abduction=mode==='abduction';
+  const pose=stand([.035,abduction?.866:.861-.367*t,abduction?.017:.122+.051*t],abduction?.041:.066+.219*t);
+  pose.straps=[];
+  leg(pose,'l',[.138,.078,abduction?.076:.407],[.131,.174,1],[.013,-.073,.141],0);
+  const anchor=abduction?[-.108,2.329,.002]:[-.152,2.329,-.661];
+  const destination=abduction?[-.162-.470*t,.113+.116*t,.058]:[-.156,.379-.117*t,-.443-.151*t];
+  footContact(pose,'r',anchor,abduction?2.214:1.969,destination,false,abduction?.754:.29);
+  if(abduction){
+    grip(pose,'l',[.393,1.142,.178],[.72,-.64,-.16],[0,0,1]);
+    arm(pose,'r',add(pose.rh,[-.082,.083,.115]),[-.75,-.57,-.17]);
+  }else{
+    for(const[s,sign]of sides)arm(pose,s,add(pose[s+'h'],[sign*.103,.101,.093]),[sign*.70,-.51,-.21]);
+  }
+  return pose;
+}
+
+function invertedStrapPress(phase,{ring,feetElevated}) {
+  const t=rep(phase,.41,.58);
+  const hip=[0,feetElevated?1.104-.188*t:1.277-.173*t,feetElevated?-.197:.169];
+  const pose=stand(hip,feetElevated?2.542+.199*t:Math.PI-.162+.110*t);
+  pose.straps=[];
+  for(const[s,sign]of sides){
+    if(feetElevated){
+      leg(pose,s,[sign*.148,.381,-.886],[sign*.157,-.460,-.86],[sign*.015,-.073,-.134],.307);
+    }else {
+      legAngles(pose,s,sign,Math.PI/2+(.06+sign*.056)*t,Math.PI/2-.018,.016);
+    }
+    const anchor=[sign*(ring?.278:.160),2.306,.189];
+    contact(pose,s,anchor,ring?2.117:2.105,[sign*.200,.195,.201],
+      [sign*.79,-.39,-.64],ring?'neutral':'wide');
+  }
+  return pose;
+}
+
 const pullCamera={yaw:20,elevation:14,focus:[0,1.14,.327],height:2.64};
 const pressCamera={yaw:25,elevation:15,focus:[0,1.13,-.164],height:2.66};
 const legCamera={yaw:21,elevation:13,focus:[0,1.14,.391],height:2.68};
 const jobs=[];
 function register(make, muscles, camera, variants) {
   for (const [id, option] of variants) jobs.push({
-    id, make: (phase) => make(phase,option), muscles, camera,
-    preset: option.ring ? 'adjustable-rings' : 'adjustable-straps', poster: option.startClose ? .01 : .48,
+    id, make: (phase) => make(phase,option), muscles, camera:{...camera,...option.camera},
+    preset: option.preset ?? (option.ring ? 'adjustable-rings' : 'adjustable-straps'),
+    poster: option.startClose ? .01 : .48,
   });
 }
 register(stepPull,['biceps'],pullCamera,[
@@ -306,8 +610,8 @@ register(supportedLower,['lat'],legCamera,[['1153',{mode:'stretch'}],['7278',{mo
 const plankCamera={yaw:59,elevation:17,focus:[0,.65,-.189],height:1.75};
 const floorRollCamera={yaw:29,elevation:14,focus:[0,1.09,.14],height:2.70};
 function footRegister(make, muscles, camera, variants) {
-  for (const [id, option] of variants) jobs.push({id, make: (phase) => make(phase, option), muscles, camera,
-    preset: option.ring ? 'adjustable-ring-feet' : 'adjustable-foot-straps',poster:.44});
+  for (const [id, option] of variants) jobs.push({id, make: (phase) => make(phase, option), muscles, camera:{...camera,...option.camera},
+    preset: option.preset ?? (option.ring ? 'adjustable-ring-feet' : 'adjustable-foot-straps'),poster:.44});
 }
 footRegister(suspendedPlank,['core'],plankCamera,[
   ['1081',{mode:'pike'}],['7274',{mode:'pike'}],['1082',{mode:'tuck'}],['1112',{mode:'tuck'}],['1106',{mode:'twist'}],
@@ -325,6 +629,73 @@ footRegister(suspendedBridge,['hamstring','glute'],{...floorRollCamera,yaw:-79,e
 footRegister(suspendedBridge,['core'],{...floorRollCamera,yaw:-74,elevation:20,focus:[0,.61,.138],height:1.79},[['1147',{mode:'crunch'}]]);
 register(assistedRollout,['core','shoulder'],floorRollCamera,[
   ['4978',{ring:true}],['4979',{ring:true}],['4799',{}],['1122',{diagonal:true}],
+]);
+
+
+register(groundedSuspensionRow,['lat','biceps'],{...pullCamera,yaw:62,focus:[0,1.043,.133],height:2.61},[
+  ['4911',{transition:true}],['4818',{ring:true,elevated:true,preset:'rings-elevated-row'}],
+  ['1071',{bent:true}],['2834',{elevated:true,weighted:true,preset:'straps-elevated-weighted-row'}],
+  ['4450',{wide:true}],['1080',{}],['1086',{power:true,one:true}],['5006',{under:true}],['4451',{wide:true}],
+]);
+register(hangingSuspension,['lat','biceps'],{...pullCamera,yaw:29,focus:[0,1.183,.131],height:2.63},[
+  ['3292',{mode:'elevator',ring:true,camera:{yaw:46,focus:[0,1.68,.10],height:3.61}}],
+  ['4920',{mode:'pull',ring:true,assist:true,camera:{yaw:42,focus:[0,1.12,.20]}}],
+  ['0631',{mode:'pull',ring:true,over:true,camera:{yaw:33,focus:[0,1.65,.12],height:3.56}}],
+  ['7512',{mode:'pull',ring:true,archer:true,wide:true,camera:{yaw:9,focus:[-.10,1.21,.12]}}],
+  ['7517',{mode:'pull',ring:true,one:true,camera:{yaw:31}}],
+  ['5522',{mode:'pull',ring:true}],
+  ['8750',{mode:'pullover',ring:true,camera:{yaw:35,focus:[0,1.67,.18],height:3.79}}],
+  ['10661',{mode:'pull',ring:true,one:true,band:true,preset:'adjustable-ring-band-stretch-band',camera:{yaw:36}}],
+  ['10662',{mode:'rock',ring:true,wide:true,sideGrip:true,camera:{yaw:16}}],
+  ['10663',{mode:'cat',ring:true,knees:true,camera:{yaw:68,focus:[0,1.51,.10],height:3.46}}],
+  ['7228',{mode:'pull',ring:true,wide:true,camera:{yaw:12}}],
+  ['1127',{mode:'pull',neutral:true}],
+  ['5008',{mode:'pull',under:true,assist:true,camera:{yaw:43,focus:[0,1.08,.20]}}],
+  ['1088',{mode:'pull',camera:{yaw:39}}],
+  ['1094',{mode:'pull',assist:true,camera:{yaw:46,focus:[0,1.15,.23]}}],
+]);
+register(dippingSuspension,['pec','triceps'],{...pullCamera,yaw:59,focus:[0,1.142,.016],height:2.60},[
+  ['1072',{chest:true}],['1093',{chest:true,assist:true}],['1095',{assist:true}],
+  ['1103',{}],['10950',{ring:true,hold:true,low:true,camera:{yaw:61,focus:[0,1.09,-.40],height:2.63}}],
+  ['1128',{low:true,camera:{yaw:59,focus:[0,1.10,-.38],height:2.66}}],
+]);
+
+register(standingStrapFlow,['core','shoulder'],{...legCamera,yaw:50,focus:[0,1.13,.290],height:2.67},[
+  ['1159',{kind:'abduction-lunge',camera:{yaw:20}}],
+  ['1158',{kind:'side-stretch',camera:{yaw:24}}],
+  ['1109',{kind:'clutch',camera:{yaw:-18}}],
+  ['4094',{kind:'lunge-fly',camera:{yaw:-16}}],
+  ['1140',{kind:'sprint',camera:{yaw:-16}}],
+  ['1144',{kind:'rollout',camera:{yaw:65,focus:[0,1.12,-.14]}}],
+  ['1149',{kind:'extension-push',deep:true,camera:{yaw:64,focus:[0,1.12,-.23]}}],
+  ['1150',{kind:'kickback',camera:{yaw:-29}}],
+  ['1107',{kind:'y',camera:{yaw:23}}],
+  ['1087',{kind:'pull-through',camera:{yaw:68,focus:[0,1.14,-.49]}}],
+  ['1096',{kind:'external',camera:{yaw:28}}],
+  ['1097',{kind:'side-bend',camera:{yaw:14,focus:[-.24,1.12,.10]}}],
+  ['1099',{kind:'split',camera:{yaw:-15}}],
+  ['7279',{kind:'squat-power',camera:{yaw:-17}}],
+  ['5876',{kind:'extension',camera:{yaw:64,focus:[0,1.11,-.13]}}],
+  ['1104',{kind:'extension',deep:true,camera:{yaw:61,focus:[0,1.12,-.21]}}],
+  ['1105',{kind:'twist',camera:{yaw:24}}],
+]);
+register(stepPress,['pec','triceps'],{...pressCamera,yaw:58},[['1116',{type:'press',startClose:true}]]);
+register(assistedRollout,['core','shoulder'],{...floorRollCamera,yaw:61},[['1091',{}]]);
+footRegister(floorStrapFlow,['core'],{...plankCamera,focus:[0,1.10,-.443],height:2.66},[
+  ['9704',{kind:'headstand',preset:'mat-adjustable-foot-straps',camera:{yaw:59,focus:[0,1.182,-.578],height:2.76}}],
+  ['1156',{kind:'pendulum',camera:{yaw:28,focus:[0,1.05,-.286],height:2.94}}],['1151',{kind:'twist-side',camera:{yaw:28,focus:[0,1.06,-.286],height:2.95}}],
+  ['1152',{kind:'twist-up',camera:{yaw:36,focus:[0,1.06,-.286],height:2.94}}],
+  ['1137',{kind:'sit',preset:'mat-adjustable-foot-straps',camera:{yaw:65,focus:[0,1.13,.434],height:2.64}}],
+  ['1079',{kind:'hyper',preset:'mat-adjustable-foot-straps',camera:{yaw:64}}],
+  ['1098',{kind:'side',preset:'mat-adjustable-foot-straps',camera:{yaw:60,focus:[0,1.03,.470],height:2.86}}],
+]);
+footRegister(singleStrapLeg,['quad','glute'],{...legCamera,yaw:57,focus:[0,1.145,-.36]},[
+  ['1077',{mode:'abduction',preset:'braced-adjustable-foot-straps',camera:{yaw:14,focus:[-.14,1.13,.09]}}],
+  ['1100',{mode:'split'}],
+]);
+register(invertedStrapPress,['shoulder','triceps','core'],{...plankCamera,yaw:62,focus:[0,1.22,.07],height:2.68},[
+  ['9316',{ring:true,feetElevated:true,preset:'rings-raised-pike',camera:{yaw:-38,focus:[0,1.10,-.28],height:2.78}}],
+  ['1115',{ring:false,feetElevated:false,camera:{yaw:61,focus:[0,1.25,.06]}}],
 ]);
 
 const [directory, ...ids]=process.argv.slice(2);

@@ -40,7 +40,7 @@ function plateTravel(preset,amount,depth) {
     return {point:[0,1.270-.786*Math.cos(angle),1.012-.786*Math.sin(angle)],pivot:[0,1.270,1.012]};
   }
   if(preset==='calf')return {point:[0,.570,.880+.066*amount],pivot:[0,.271,1.103]};
-  if(preset==='calf-angled')return {point:[0,.638+.061*amount,.691+.041*amount],pivot:[0,.286,1.106]};
+  if(preset==='calf-angled')return {point:[0,.638+.061*amount,.803+.049*amount],pivot:[0,.286,1.106]};
   return {point:[0,preset==='seat'?.584:.562,preset==='seat'?.725:.650+.246*amount*depth],pivot:[0,.288,1.183]};
 }
 
@@ -64,7 +64,7 @@ function pressStation(phase,{preset,single=false,wide=false,depth=1,feetOffset=0
     let toe=plus(plus(sole,scale(normal,-.043)),scale(vertical,.066));
     if(calf){
       const angle=mix(1.09,.44,amount);
-      toe=plus(sole,[0,-.059,-.041]);
+      toe=plus(sole,[0,-.059,preset==='calf-angled'?.041:-.041]);
       ankle=plus(toe,[0,-.147*Math.sin(angle),-.147*Math.cos(angle)]);
     }
     if(resting) {
@@ -83,7 +83,7 @@ function pressStation(phase,{preset,single=false,wide=false,depth=1,feetOffset=0
   return pose;
 }
 
-function hackSquat(phase,{preset,single=false,pistol=false,depth=1,width=.173}) {
+function hackSquat(phase,{preset,single=false,pistol=false,depth=1,width=.173,incorrect=false}) {
   const amount=cycle(phase);
   const facing=preset.startsWith('hack-reverse')?-1:1;
   const mode=preset.slice(5);
@@ -102,12 +102,14 @@ function hackSquat(phase,{preset,single=false,pistol=false,depth=1,width=.173}) 
   for(const [side,sign] of sides) {
     const xSign=facing*sign;
     const resting=single&&sign<0;
-    const placed=[xSign*width,board+.076,facing<0?.032:.274];
+    const placed=[xSign*width,board+.076+(incorrect?.116*amount:0),facing<0?.032:.274];
     const floating=plus(p[side+'h'],[xSign*.048,-.400+(pistol?.311:.127)*amount,
       (pistol?.432:.226)+(pistol?.308:.090)*amount]);
-    [p[side+'k'],p[side+'a']]=joints(p[side+'h'],resting?floating:placed,[xSign*(width>.20?.36:.142),.25,facing],.422,.424);
-    p[side+'t']=plus(p[side+'a'],[xSign*(width>.20?.039:.016),resting?.031:-.068,facing*.143]);
-    if(!resting)p.planted[side]=board;
+    const kneePole=incorrect?mix(.142,-.87,amount):width>.20?.36:.142;
+    [p[side+'k'],p[side+'a']]=joints(p[side+'h'],resting?floating:placed,[xSign*kneePole,.25,facing],.422,.424);
+    const heelRise=incorrect?.116*amount:0;
+    p[side+'t']=plus(p[side+'a'],[xSign*(width>.20?.039:.016),resting?.031:-.068-heelRise,facing*.143]);
+    if(!resting&&!incorrect)p.planted[side]=board;
     const shoulder=p[side+'s'];
     const hand=plus(shoulder,[xSign*.148,-.125,facing*.196]);
     [p[side+'e'],p[side+'w']]=joints(shoulder,hand,[xSign*.76,-.45,-facing*.39],.252,.371);
@@ -194,6 +196,7 @@ const jobs=[
   ['1439',{preset:'hack-shrug',variation:1}],
   ['1447',{preset:'hack-calf',single:true,stretch:true}],
   ['1220',{preset:'calf-angled'}],
+  ['2345',{preset:'hack-comparison',depth:.940,width:.213,compare:true}],
 ];
 
 const [directory,...ids]=process.argv.slice(2);
@@ -212,9 +215,15 @@ for(const [id,config] of selected) {
   const muscles=calf?['calf']:config.preset==='hack-shrug'?['trap']:shoulder?['hamstring','glute']:['quad','glute'];
   const data={version:1,durationMs:config.stretch?6100:4400,equipment:'lever-press-station-'+config.preset,
     muscles:config.single?muscles.map(muscle=>'l:'+muscle):muscles,
-    camera:hack?{yaw:config.preset.startsWith('hack-reverse')||config.preset==='hack-hinge'?48:57,elevation:12,height:2.55,focus:[0,1.0,.015]}
+    camera:hack?{yaw:config.preset==='hack-shrug'?23:config.preset.startsWith('hack-reverse')||config.preset==='hack-hinge'?48:57,
+      elevation:12,height:2.55,focus:[0,1.0,.015]}
       :{yaw:config.preset==='angled'?104:config.preset==='seat'?106:98,elevation:14,height:2.09,focus:[0,.82,.381]},
     keyframes:Array.from({length:61},(_,i)=>({at:i/60,...(squatCalf?hackCalf:shoulder?shoulderLever:hack?hackSquat:pressStation)(i/60,config)}))};
+  if(config.compare){
+    data.formComparison=true;
+    data.camera={yaw:23,elevation:12,height:2.71,focus:[0,1.04,.01]};
+    for(const frame of data.keyframes)frame.partner=hackSquat(frame.at,{...config,incorrect:true});
+  }
   try{
     prepareRecipe(data);
     const recipe=id+'.json';

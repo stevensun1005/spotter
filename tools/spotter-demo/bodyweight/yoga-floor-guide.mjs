@@ -1,4 +1,4 @@
-import { add, arm, blend, leg, mix, scale, sides, torso, unit } from "./pose.mjs";
+import { add, arm, blend, leg, mix, scale, sides, subtract, torso, unit } from "./pose.mjs";
 import { guideAt } from "./sagittal-guide.mjs";
 
 const clamp = n => Math.max(0, Math.min(1, n));
@@ -31,11 +31,11 @@ export function yogaFloorGuideMotion(guide, profile) {
     const release = Math.max(lifted[0](f), lifted[1](f));
     const hold = mode === "toeTouch" || mode === "down" && profile.single;
     const down = hold ? 1 : elevate;
-    const hipY = dog ? mix(mode === "dolphin" ? .452 : .513, mode === "dolphin" ? .782 : .884, down) : mode === "staff" ? .242 + .167 * draw
-      : mode === "up" ? .149 + .088 * draw : mode === "hero" ? .208 + .293 * (1 - draw) : mode === "boat" ? .177
+    const hipY = dog ? mix(mode === "dolphin" ? .452 : .513, mode === "dolphin" ? .782 : .884, down) : mode === "staff" ? profile.tall ? .527 + .033 * draw : .242 + .167 * draw
+      : mode === "up" ? .149 + .088 * draw : mode === "hero" ? profile.heels ? .222 + .297 * elevate : .188 + .304 * elevate : mode === "boat" ? .105
       : mode === "corpse" || mode === "happy" ? .148 : balance ? .366 + .175 * release : .184;
-    const hipZ = dog ? -.223 - .061 * down : mode === "up" ? .116 : mode === "boat" ? -.128 : -.205;
-    const angle = dog ? mix(mode === "dolphin" ? 1.70 : 1.51, mode === "dolphin" ? 2.34 : 2.21, down) : mode === "staff" ? 1.552 - .135 * draw
+    const hipZ = dog ? -.223 - .061 * down : mode === "up" ? .116 : mode === "boat" ? -.128 : mode === "crane" ? mix(-.205, -.057, release) : -.205;
+    const angle = dog ? mix(mode === "dolphin" ? 1.70 : 1.51, mode === "dolphin" ? 2.34 : 2.21, down) : mode === "staff" ? profile.tall ? 1.43 : 1.552 - .135 * draw
       : mode === "up" ? -1.57 + 1.18 * draw : mode === "corpse" || mode === "happy" ? -Math.PI / 2
       : mode === "boat" ? -.712 * draw : mode === "crane" ? .61 + .66 * release : mode === "peacock" ? 1.538 : .025;
     const rocker = mode === "happy" ? .056 * Math.sin(phase * Math.PI * 4) : 0;
@@ -68,8 +68,9 @@ export function yogaFloorGuideMotion(guide, profile) {
         }
       } else if (mode === "staff") {
         const extra = profile.single ? ankleRise : 0;
-        const vector = unit([sign * .021, -.11 + .49 * extra, -.93]);
-        ankle = extra > .015 ? add(p[side + "h"], scale(vector, .831)) : [sign * .132, .140, -.998];
+        const vector = unit([sign * .021, profile.tall ? -.32 + .38 * extra : -.11 + .49 * extra, -.93]);
+        const long = Math.sqrt(.838 ** 2 - (hipY - .140) ** 2);
+        ankle = extra > .015 ? add(p[side + "h"], scale(vector, .837)) : [sign * .132, .140, hipZ - long];
         toe = [sign * .014, -.124, .070];
         kneePole = [sign * .042, -.548, -.832];
         contact = extra < .015;
@@ -78,11 +79,12 @@ export function yogaFloorGuideMotion(guide, profile) {
         toe = [-sign * .016, -.067, .130];
         kneePole = [-sign * .040, -.97, .111];
       } else if (mode === "hero") {
-        p[side + "k"] = [sign * .122, .110, .109];
-        p[side + "a"] = [sign * .228, .100, -.295];
+        p[side + "k"] = [sign * (profile.heels ? .096 : .122), .110, .109];
+        p[side + "a"] = [sign * (profile.heels ? .108 : .228), .100, -.295];
         p[side + "t"] = [sign * .240, .059, -.415];
       } else if (mode === "meditate") {
-        ankle = [-sign * (profile.lotus ? .255 : .199), profile.lotus ? .153 : .099, .128 - sign * .079];
+        ankle = profile.single ? (sign > 0 ? [-.173, .103, .095] : [.105, .089, .259])
+          : [-sign * (profile.lotus ? .255 : .199), profile.lotus ? .153 : .099, .128 - sign * .079];
         toe = [-sign * .124, -.025, .045];
         kneePole = [sign * .994, -.100, .074];
         contact = false;
@@ -112,6 +114,14 @@ export function yogaFloorGuideMotion(guide, profile) {
         contact = release < .013;
       }
       if (!p[side + "k"]) leg(p, side, ankle, kneePole, toe, contact ? deck : undefined);
+      if (mode === "crane" && release > .02) {
+        const shinAnchor = [sign * .239, .394, .221];
+        const femur = unit(subtract(blend(p[side + "k"], shinAnchor, ankleRise), p[side + "h"]));
+        const shin = unit(blend(subtract(p[side + "a"], p[side + "k"]), [sign * .024, .068, -.418], ankleRise));
+        p[side + "k"] = add(p[side + "h"], scale(femur, .422));
+        p[side + "a"] = add(p[side + "k"], scale(shin, .424));
+        p[side + "t"] = add(p[side + "a"], toe);
+      }
     }
 
     for (const [side, sign] of sides) {
@@ -156,6 +166,12 @@ export function yogaFloorGuideMotion(guide, profile) {
         wrist = [sign * (mode === "peacock" ? .109 : .199), .066, .379];
         fingers = [0, -.022, mode === "peacock" ? -1 : 1];
         elbow = [sign * .052, -.72, -1];
+        if (mode === "peacock") {
+          p[side + "e"] = [sign * .110, .315 + .070 * release, .153];
+          p[side + "w"] = wrist;
+          p[side + "Fingers"] = fingers;
+          continue;
+        }
       }
       arm(p, side, wrist, elbow, fingers, palm);
     }

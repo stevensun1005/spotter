@@ -33,9 +33,9 @@ function formLabel(title, background) {
   return label;
 }
 
-function labelPosition(label, body) {
+function labelPosition(label, body, offset=0) {
   const center = body.chest;
-  label.position.set(center[0],Math.max(body.head[1],body.hips[1],body.chest[1])+.189,center[2]);
+  label.position.set(center[0]+offset,Math.max(body.head[1],body.hips[1],body.chest[1])+.189,center[2]);
 }
 
 function studio(recipe, width, height) {
@@ -62,12 +62,19 @@ function studio(recipe, width, height) {
     new T.MeshStandardMaterial({color: 0xbec4bc, roughness: 1}));
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
-  const avatar = createSkinnedAvatar();
+  const avatar = createSkinnedAvatar(recipe.options.femaleAvatar);
   avatar.setFocus(recipe.muscles.length > 0, recipe.muscles);
   const partner = recipe.partner ? createSkinnedAvatar() : undefined;
   const gear = createEquipment(recipe.options, recipe.sample);
+  const partnerGear=recipe.comparisonGear?createEquipment(recipe.options,phase=>recipe.sample(phase).partner):null;
+  const compareGap=partnerGear?(recipe.options.barbell?1.15:.683):0;
   scene.add(floor, gear.group, avatar.group);
   if (partner) scene.add(partner.group);
+  if(partnerGear){
+    avatar.group.position.x=gear.group.position.x=-compareGap;
+    partner.group.position.x=partnerGear.group.position.x=compareGap;
+    scene.add(partnerGear.group);
+  }
   const labels = recipe.formComparison ? [formLabel('正确','#315848'),formLabel('需调整','#8b5a43')] : [];
   if (labels.length) scene.add(...labels);
   const halfHeight = recipe.camera.height / 2;
@@ -86,13 +93,21 @@ function studio(recipe, width, height) {
       const pose = recipe.sample(phase);
       camera.position.z = baseZ + pose.followZ;
       camera.lookAt(x, y, z + pose.followZ);
-      avatar.update(pose);
+      const bandContacts = avatar.update(pose, recipe.options.fingerBand);
+      if (bandContacts) {
+        const fingers = ['thumb','index','middle','ring','pinky'];
+        pose.bandPath = [...fingers.map(name =>
+          bandContacts[name].clone().add(new T.Vector3(0,.009,.002)).toArray()),
+          bandContacts.pinky.clone().lerp(bandContacts.thumb,.52).add(new T.Vector3(0,-.014,0)).toArray(),
+          bandContacts.thumb.clone().add(new T.Vector3(0,.009,.002)).toArray()];
+      }
       if (partner) partner.update(pose.partner);
       if (labels.length) {
-        labelPosition(labels[0],pose);
-        labelPosition(labels[1],pose.partner);
+        labelPosition(labels[0],pose,-compareGap);
+        labelPosition(labels[1],pose.partner,compareGap);
       }
       gear.update(pose);
+      partnerGear?.update(pose.partner);
       renderer.render(scene, camera);
     },
     dispose() {

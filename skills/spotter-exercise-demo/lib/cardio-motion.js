@@ -73,8 +73,8 @@ function gait(t,{fast=false,tread=false,run=false,fixedStride}={}){
  return p;
 }
 
-function bicycle(t){
- const angle=tau*t*4;
+function bicycle(t,cycles=4){
+ const angle=tau*t*cycles;
  const p=actor(v(0,1.00+Math.sin(angle*2)*.004,-.218),.238);
  for(const [side,sign] of [['l',1],['r',-1]]){
   const a=angle+(sign===1?0:Math.PI);
@@ -85,16 +85,65 @@ function bicycle(t){
  return p;
 }
 
-function ellipticalWalk(t){
- const angle=t*tau*3;
- const p=actor(v(.008*Math.sin(angle),1.159-.010*Math.cos(angle*2),.016),.106);
+function ellipticalWalk(t,{cycles=3,stride=.225,lift=.059,push=.158,lean=.106,hold=false}={}){
+ const angle=t*tau*cycles;
+ const p=actor(v(.008*Math.sin(angle),1.159-.010*Math.cos(angle*2),.016),lean);
  for(const [side,d] of [['l',1],['r',-1]]){
   const cycle=angle+(d===1?0:Math.PI);
-  const z=.225*Math.cos(cycle)+.014, y=.384+.059*Math.sin(cycle);
+  const z=stride*Math.cos(cycle)+.014, y=.384+lift*Math.sin(cycle);
   const ankle=v(d*.138,y,z);
   leg(p,side,ankle,v(d*.019,-.064,.148),v(d*.1,0,1));
-  const palm=v(d*.169,1.33+.026*Math.sin(cycle),.302-.158*Math.cos(cycle));
+  const palm=hold?v(d*.228,1.291,.401):v(d*.169,1.33+.026*Math.sin(cycle),.302-push*Math.cos(cycle));
   arm(p,side,palm,v(d*.68,-.49,-.31),v(0,1,.18));
+ }
+ return p;
+}
+
+export function curvedTreadmillHeight(z){
+ const reach=clamp(Math.abs(z)/.856,0,1);
+ return .147+.262*reach*reach;
+}
+
+function assaultRun(t){
+ const running=gait(t,{tread:true,run:true,fixedStride:1.18});
+ const p=actor(v(running.hips[0],running.hips[1]+.070,.085),.255);
+ p.machineTravel=running.machineTravel;
+ for(const [side,sign] of [['l',1],['r',-1]]){
+  const pace=running[side+'a'];
+  const z=pace[2]+.071;
+  const deck=curvedTreadmillHeight(z);
+  const y=pace[1]+deck-deckTop;
+  leg(p,side,v(sign*.086,y,z),v(sign*.021,-.079,.130),v(sign*.09,.05,1));
+  if(running.planted[side]!=null)p.planted[side]=deck;
+  arm(p,side,v(sign*.352,1.158,.515),v(sign*.64,-.70,-.37),v(0,0,1));
+ }
+ return p;
+}
+
+function backwardTread(t){
+ const q=gait(t,{tread:true,fixedStride:.543});
+ const root=v(q.hips[0],q.hips[1],-.014);
+ const p=actor(root,-.020);
+ p.machineTravel=q.machineTravel;
+ [p.lh,p.rh]=[p.rh,p.lh];
+ [p.ls,p.rs]=[p.rs,p.ls];
+ for(const [side,sign] of [['l',1],['r',-1]]){
+  const ankle=q[side+'a'];
+  leg(p,side,v(-sign*.102,ankle[1]-.006,ankle[2]-.04),v(0,-.072,-.138),v(-sign*.12,.08,-1));
+  if(q.planted[side]!=null)p.planted[side]=deckTop;
+  arm(p,side,v(-sign*.401,1.034,.333),v(-sign*.54,-.37,-.71),v(0,0,1));
+ }
+ return p;
+}
+
+function reclinedBicycle(t){
+ const angle=tau*t*3;
+ const p=actor(v(0,.645,-.455),-.592);
+ for(const [side,sign] of [['l',1],['r',-1]]){
+  const part=angle+(sign===1?0:Math.PI);
+  const ankle=v(sign*.143,.432+.027*Math.cos(part)+.156*Math.sin(part),.298+.153*Math.cos(part));
+  leg(p,side,ankle,v(sign*.014,-.026,.152),v(sign*.13,.94,.29));
+  arm(p,side,v(sign*.290,.638,-.327),v(sign*.66,-.34,-.48),v(0,0,1));
  }
  return p;
 }
@@ -589,6 +638,15 @@ const all={
  '2197':[t=>gait(t,{tread:true,run:true}),'rig-run-belt',3700,78,12,[0,.92,.04],2.18],
  '0684':[t=>gait(t,{tread:true,run:true}),'rig-run-belt',3700,64,14,[0,.92,.04],2.20],
  '2141':[ellipticalWalk,'rig-elliptical',4100,58,15,[0,1.04,.04],2.39],
+ '4229':[assaultRun,'rig-assault-treadmill',3400,65,13,[0,1.13,.18],2.51],
+ '9608':[backwardTread,'rig-treadmill',4500,121,15,[0,1.03,.12],2.39],
+ '2193':[reclinedBicycle,'rig-reclined-bike',4320,60,14,[0,.70,-.13],1.78],
+ '2279':[t=>bicycle(t,5),'rig-bike',3850,65,14,[0,.86,.03],2.08],
+ '2331':[t=>ellipticalWalk(t,{cycles:4,stride:.265,lift:.083,push:.193,lean:.128}),'rig-elliptical',4200,64,13,[0,1.06,.03],2.43],
+ '2658':[t=>ellipticalWalk(t,{cycles:3,stride:.333,lift:.041,push:.195,lean:.163}),'rig-elliptical',4220,66,14,[0,1.06,.04],2.46],
+ '2192':[t=>ellipticalWalk(t,{cycles:3,stride:.161,lift:.052,lean:.057,hold:true}),'rig-elliptical-fixed',4350,58,14,[0,1.05,.04],2.38],
+ '2140':[t=>ellipticalWalk(t,{cycles:3,stride:.209,lift:.102,lean:.041,hold:true}),'rig-elliptical-fixed',4450,61,15,[0,1.06,.035],2.40],
+ '4259':[t=>ellipticalWalk(t,{cycles:4,stride:.199,lift:.068,push:.115,lean:.08}),'rig-elliptical',4200,60,16,[0,1.05,.03],2.42],
  '2311':[stepmillWalk,'rig-stepmill',4200,36,18,[0,1.17,.0],2.56],
 };
 

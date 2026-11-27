@@ -60,11 +60,12 @@ const highlights = {
 const pale = new T.Color(0xd6d8d3), shorts = new T.Color(0x373d3c);
 const shoe = new T.Color(0x33393a), tint = new T.Color(0xba5345);
 
-function skinColor(x,y,z,muscles) {
+function skinColor(x,y,z,muscles,female) {
   if (y < .115) return shoe;
   const absoluteX=Math.abs(x);
   const dressed = y > .562 + Math.min(.09,absoluteX*.33) && y < 1.015 && absoluteX < .258;
-  const result=(dressed ? shorts : pale).clone();
+  const top=female&&y>1.184&&y<1.388+Math.max(0,.13-absoluteX)*.51&&absoluteX<.199;
+  const result=(dressed||top?shorts:pale).clone();
   let amount=0;
   for (const key of muscles) {
     if (key.startsWith('l:') && x<0 || key.startsWith('r:') && x>0) continue;
@@ -74,10 +75,19 @@ function skinColor(x,y,z,muscles) {
   return result.lerp(tint,amount*(dressed?.79:.91));
 }
 
-export function createSkinnedAvatar() {
+export function createSkinnedAvatar(female=false) {
   const group = new T.Group();
   const meshData = new T.BufferGeometry();
-  meshData.setAttribute('position', new T.Float32BufferAttribute(anatomy.positions,3));
+  const positions=female?new Float32Array(anatomy.positions):anatomy.positions;
+  if(female)for(let i=0;i<positions.length;i+=3){
+    const [x,y,z]=anatomy.positions.slice(i,i+3);
+    const torso=1-T.MathUtils.smoothstep(Math.abs(x),.143,.226);
+    const midWaist=contactSpot(y,1.103,.254);
+    const hipShape=contactSpot(y,.891,.296);
+    positions[i]=x*(1+torso*(.12*hipShape-.22*midWaist));
+    if(z>.035)positions[i+2]=z+.034*contactSpot(y,1.315,.119)*contactSpot(Math.abs(x),.093,.129);
+  }
+  meshData.setAttribute('position', new T.Float32BufferAttribute(positions,3));
   meshData.setAttribute('skinIndex', new T.Uint16BufferAttribute(anatomy.skinIndices,4));
   meshData.setAttribute('skinWeight', new T.Float32BufferAttribute(anatomy.skinWeights,4));
   meshData.setIndex(anatomy.indices);
@@ -135,7 +145,7 @@ export function createSkinnedAvatar() {
   function setFocus(enabled, muscles=[]) {
     const active=enabled ? muscles : [];
     for (let i=0; i<anatomy.positions.length; i+=3) {
-      const c = skinColor(anatomy.positions[i],anatomy.positions[i+1],anatomy.positions[i+2],active);
+      const c = skinColor(anatomy.positions[i],anatomy.positions[i+1],anatomy.positions[i+2],active,female);
       colorData.setXYZ(i / 3,c.r,c.g,c.b);
     }
     colorData.needsUpdate = true;
@@ -157,7 +167,8 @@ export function createSkinnedAvatar() {
     return transform;
   }
 
-  function update(pose) {
+  function update(pose, fingerBand = false) {
+    const bandContacts = fingerBand ? {} : null;
     const hip = mid(vec(pose.lh),vec(pose.rh));
     const neck = vec(pose.neck);
     const side = vec(pose.ls).sub(vec(pose.rs)).normalize();
@@ -183,7 +194,9 @@ export function createSkinnedAvatar() {
     const naturalHead = point('head').clone().applyMatrix4(torso);
     naturalHead.y-=pose.headDrop ?? 0;
     const headDirection = pose.headAim ? vec(pose.headAim) : neck.clone().sub(hip);
-    const headMotion = frame(naturalHead, naturalHead.clone().add(headDirection),side)
+    const headLocal = frame(naturalHead, naturalHead.clone().add(headDirection),side);
+    if (pose.headTurn) headLocal.multiply(new T.Matrix4().makeRotationY(pose.headTurn));
+    const headMotion = headLocal
       .multiply(frame(point('head'),point('head').clone().add(bindNeck.clone().sub(bindHip)),lateral).invert());
     place('head',headMotion);
     for (const s of ['l','r']) {
@@ -230,6 +243,11 @@ export function createSkinnedAvatar() {
       aim('lowerarm_'+s,actualElbow,wrist,side);
       place(handName,hand);
       const curlAxis=new T.Vector3().setFromMatrixColumn(handFrame,0).normalize();
+      const fanAxis=new T.Vector3().setFromMatrixColumn(handFrame,2).normalize();
+      const spread=pose[s+'FingerSpread']??0;
+      const thumbReach=pose[s+'ThumbExtend']??0;
+      const fanAngle={thumb:.29,index:.24,middle:.021,ring:-.138,pinky:-.346};
+
       for (const name of ['thumb','index','middle','ring','pinky']) {
         let parent = hand;
         for (const joint of ['01','02','03']) {
@@ -237,15 +255,20 @@ export function createSkinnedAvatar() {
           const pivot = point(key).clone().applyMatrix4(parent);
           const restingAngle = name==='thumb' ? .06 : joint==='01' ? .25 : .18;
           const grippingAngle = name==='thumb' ? .27 : joint==='01' ? 1.06 : joint==='02' ? .88 : .58;
-          const angle = curl * T.MathUtils.lerp(restingAngle, grippingAngle, closure);
-          const bend = new T.Matrix4().makeRotationAxis(curlAxis,angle);
+          const angle=curl*T.MathUtils.lerp(restingAngle,grippingAngle,closure) -
+            (name==='thumb'?curl*.21*thumbReach:0);
+          const fan=joint==='01'?fanAngle[name]*(name==='thumb'?thumbReach:spread):0;
+          const bend=new T.Matrix4().makeRotationAxis(curlAxis,angle);
+          if(fan)bend.multiply(new T.Matrix4().makeRotationAxis(fanAxis,fan));
           bend.setPosition(pivot.clone().sub(pivot.clone().applyMatrix4(bend)));
           parent = bend.multiply(parent);
           place(key,parent);
+          if (bandContacts && s === 'r' && joint === '02') bandContacts[name]=pivot;
         }
       }
     }
     group.updateMatrixWorld(true);
+    return bandContacts;
   }
   return { group, update, setFocus };
 }

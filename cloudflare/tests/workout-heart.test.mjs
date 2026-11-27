@@ -504,8 +504,10 @@ test("catalogue cards use the same reviewed media as the selected exercise", asy
   assert.equal(cover("6813"), "/open-gym/spotter-3d/6813.jpg");
   assert.equal(cover("0047"), "/open-gym/spotter-3d/0047.jpg");
   assert.equal(cover("3905"), "/open-gym/spotter-3d/3905.jpg");
-  for (const id of ["2204", "2571", "2790"]) {
-    assert.match(decodeURIComponent(cover(id)), /^data:image\/svg\+xml,<svg/);
+  assert.equal(cover("2204"), "/open-gym/spotter-3d/2204.jpg");
+  const lineDemo = rows.find((row) => !spotter[row.id] && catalogueDemo(row).illustration);
+  if (lineDemo) {
+    assert.match(decodeURIComponent(cover(lineDemo.id)), /^data:image\/svg\+xml,<svg/);
   }
 });
 

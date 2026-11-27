@@ -19,7 +19,18 @@ import { sideBridgeGuideMotion } from "./bodyweight/side-bridge-guide.mjs";
 import { quadrupedExtendedGuideMotion } from "./bodyweight/quadruped-extended-guide.mjs";
 import { yogaStandingGuideMotion } from "./bodyweight/yoga-standing-guide.mjs";
 import { yogaFloorGuideMotion } from "./bodyweight/yoga-floor-guide.mjs";
+import { functionalLegsGuideMotion } from "./bodyweight/functional-legs-guide.mjs";
+import { overheadReferenceGuideMotion } from "./bodyweight/overhead-reference-guide.mjs";
+import { chairMobilityGuideMotion } from "./bodyweight/chair-mobility-guide.mjs";
+import { referenceCoreGuideMotion } from "./bodyweight/reference-core-guide.mjs";
+import { standingConditioningGuideMotion } from "./bodyweight/standing-conditioning-guide.mjs";
+import { handMobilityGuideMotion } from "./bodyweight/hand-mobility-guide.mjs";
+import { floorBalanceGuideMotion } from "./bodyweight/floor-balance-guide.mjs";
+import { floorContactGuideMotion } from "./bodyweight/floor-contact-guide.mjs";
 import { floorTravelGuideMotion } from "./bodyweight/floor-travel-guide.mjs";
+import { standingStretchGuideMotion } from "./bodyweight/standing-stretch-guide.mjs";
+import { standingCoordinationGuideMotion } from "./bodyweight/standing-coordination-guide.mjs";
+import { seatedContactGuideMotion } from "./bodyweight/seated-contact-guide.mjs";
 import { rep } from "./bodyweight/pose.mjs";
 
 registerHooks({ resolve(specifier, context, next) {
@@ -238,6 +249,9 @@ const wallSupported = new Map([
 ]);
 
 const kneelingFloor = new Map([
+  ["2115", { mode: "thrust", tall: true, hipDrive: true, floorGuide: true, muscles: ["glute"], durationMs: 6370 }],
+  ["4560", { mode: "thrust", tall: true, floorGuide: true, muscles: ["quad", "glute"], durationMs: 6280 }],
+
   ["3034", { mode: "kick", durationMs: 4680, muscles: ["glute"] }],
   ["6747", { mode: "glute", durationMs: 5030, muscles: ["glute"] }],
   ["5170", { mode: "glute", pulse: true, viewHeight: 1.89, durationMs: 5220, muscles: ["glute"] }],
@@ -398,6 +412,15 @@ const jumpMobility = new Map([
 ]);
 
 const lungeMobility = new Map([
+  ["4296", { mode: "reach", hold: true, single: true, arc: true, floorGuide: true, muscles: ["r:quad", "lat"], durationMs: 6430 }],
+  ["0560", { mode: "low", hold: true, floorGuide: true, muscles: ["r:quad"], durationMs: 6370 }],
+  ["11904", { mode: "low", hold: true, floorGuide: true, muscles: ["r:quad"], durationMs: 6480 }],
+  ["1892", { mode: "ankle", hold: true, floorGuide: true, muscles: ["l:calf"], durationMs: 6420 }],
+  ["6771", { mode: "reach", single: true, hold: true, floorGuide: true, muscles: ["r:quad"], durationMs: 6490 }],
+  ["1913", { mode: "hinge", heelForward: true, hold: true, floorGuide: true, muscles: ["l:hamstring"], durationMs: 6480 }],
+  ["6618", { mode: "reach", hold: true, viewHeight: 2.11, floorGuide: true, muscles: ["r:quad", "core"], durationMs: 6490 }],
+  ["2936", { mode: "ankle", floorGuide: true, muscles: ["l:calf"], durationMs: 6090 }],
+
   ["5891", { mode: "high", hold: true, viewHeight: 2.23, muscles: ["glute", "quad"], durationMs: 6420 }],
   ["6007", { mode: "step", muscles: ["quad", "glute"], durationMs: 5940 }],
   ["6008", { mode: "step", front: "right", muscles: ["r:quad", "r:glute"], durationMs: 6160 }],
@@ -419,6 +442,10 @@ const lungeMobility = new Map([
 ]);
 
 const supineExtended = new Map([
+  ["2838", { mode: "cycle", floorGuide: true, muscles: ["core", "quad"], durationMs: 4100 }],
+  ["11010", { mode: "vertical", floorGuide: true, muscles: ["core"], durationMs: 4980 }],
+  ["10780", { mode: "neck", floatHead: true, floorGuide: true, muscles: ["neck"], durationMs: 5860 }],
+
   ["4007", { mode: "heelTap", tabletop: true, muscles: ["core"], durationMs: 4710 }],
   ["6428", { mode: "heelTap", muscles: ["core"], durationMs: 4550 }],
   ["0003", { mode: "cycle", muscles: ["core"], durationMs: 2920 }],
@@ -497,6 +524,16 @@ const sideBridge = new Map([
 ]);
 
 const quadrupedExtended = new Map([
+  ["1898", { mode: "adductor", floorGuide: true, muscles: ["l:adductor"], durationMs: 6460 }],
+  ["5242", { mode: "abs", floorGuide: true, muscles: ["core"], durationMs: 6500 }],
+  ["2107", { mode: "cow", floorGuide: true, muscles: ["core"], durationMs: 6470 }],
+  ["6901", { mode: "cow", floorGuide: true, muscles: ["core"], durationMs: 6500 }],
+  ["4406", { mode: "tiger", fullTiger: true, floorGuide: true, muscles: ["glute", "core"], durationMs: 5590, viewHeight: 1.79 }],
+  ["1960", { mode: "shin", floorGuide: true, muscles: ["shin"], durationMs: 6500 }],
+  ["1891", { mode: "toe", hands: "thigh", floorGuide: true, muscles: ["calf"], durationMs: 6500 }],
+  ["4365", { mode: "child", floorGuide: true, muscles: ["lat"], durationMs: 6500 }],
+  ["6539", { mode: "child", armless: true, floorGuide: true, muscles: ["trap"], durationMs: 6500 }],
+
   ["1051", { mode: "cat", muscles: ["core"], durationMs: 6290 }],
   ["2106", { mode: "cat", muscles: ["core"], durationMs: 5500 }],
   ["4348", { mode: "abs", muscles: ["core"], durationMs: 6080 }],
@@ -520,6 +557,11 @@ const quadrupedExtended = new Map([
 ]);
 
 const yogaStanding = new Map([
+  ["6138", { mode: "garland", mat: true, muscles: ["adductor", "quad"], durationMs: 6460 }],
+  ["4410", { mode: "warrior2", mat: true, muscles: ["quad", "adductor"], durationMs: 6460 }],
+  ["4404", { mode: "mountain", crescent: true, headroom: true, muscles: ["lat", "core"], durationMs: 6460 }],
+  ["4405", { mode: "eagle", mat: true, muscles: ["glute", "shoulder"], durationMs: 6460 }],
+
   ["0943", { mode: "chair", deep: true, headroom: true, muscles: ["quad", "glute"], durationMs: 6170 }],
   ["0944", { mode: "chair", headroom: true, muscles: ["quad", "glute"], durationMs: 6180 }],
   ["0947", { mode: "mountain", crescent: true, headroom: true, muscles: ["core", "lat"], durationMs: 6310 }],
@@ -544,6 +586,13 @@ const yogaStanding = new Map([
 ]);
 
 const yogaFloor = new Map([
+  ["2849", { mode: "staff", tall: true, single: true, muscles: ["core", "glute"], durationMs: 5630 }],
+  ["2874", { mode: "staff", tall: true, single: true, muscles: ["core", "glute"], durationMs: 5470 }],
+  ["1483", { mode: "meditate", lotus: true, muscles: [], durationMs: 6480 }],
+  ["0956", { mode: "meditate", lotus: true, muscles: [], durationMs: 6440 }],
+  ["6878", { mode: "meditate", single: true, muscles: [], durationMs: 6500 }],
+  ["6444", { mode: "hero", heels: true, muscles: ["quad"], durationMs: 6480 }],
+
   ["5915", { mode: "staff", single: true, muscles: ["pec", "core", "glute"], durationMs: 5940 }],
   ["6290", { mode: "staff", muscles: ["pec", "triceps", "core"], durationMs: 6070 }],
   ["5888", { mode: "staff", muscles: ["pec", "core"], durationMs: 6100 }],
@@ -589,6 +638,423 @@ const floorTravel = new Map([
   ["7463", { stages: ["plank", "l-outside", "plank", "r-outside"], spider: true, durationMs: 2490 }],
 ]);
 
+const seatedContact = new Map([
+  ["1902", { mode: "wide", floorGuide: true, muscles: ["adductor", "hamstring"], durationMs: 6450 }],
+  ["3631", { mode: "wide", floorGuide: true, muscles: ["adductor", "hamstring"], durationMs: 6400 }],
+  ["3634", { mode: "wide", overhead: true, floorGuide: true, muscles: ["adductor", "shoulder"], durationMs: 6450 }],
+  ["6121", { mode: "turn", setupTurn: true, floorGuide: true, muscles: ["core", "glute"], durationMs: 6470 }],
+  ["0649", { mode: "turn", floorGuide: true, muscles: ["core", "glute"], durationMs: 6430 }],
+  ["0136", { mode: "boat", longArms: true, floorGuide: true, muscles: ["core"], durationMs: 6480 }],
+  ["4392", { mode: "boat", longArms: true, floorGuide: true, muscles: ["core"], durationMs: 6450 }],
+
+  ["10565", { mode: "fold90", muscles: ["glute", "core"], durationMs: 6360 }],
+  ["6560", { mode: "fold90", muscles: ["glute"], durationMs: 6200 }],
+  ["1903", { mode: "fold90", muscles: ["glute", "adductor"], durationMs: 6340 }],
+  ["1919", { mode: "fold90", back: true, muscles: ["glute"], durationMs: 6400 }],
+  ["4279", { mode: "boat", muscles: ["core", "quad"], durationMs: 6330 }],
+  ["6902", { mode: "cowFace", muscles: ["shoulder", "glute"], durationMs: 6500 }],
+  ["1956", { mode: "backQuad", muscles: ["quad"], durationMs: 6050 }],
+  ["1955", { mode: "backQuad", single: true, muscles: ["r:quad"], durationMs: 6150 }],
+  ["5890", { mode: "pigeon", muscles: ["glute"], durationMs: 6460 }],
+  ["4555", { mode: "twist90", muscles: ["glute", "core"], durationMs: 4860 }],
+  ["4283", { mode: "ankle", turn: true, muscles: ["calf"], durationMs: 5400 }],
+  ["3245", { mode: "ankleOut", turn: true, muscles: ["calf"], durationMs: 5200 }],
+  ["6443", { mode: "circle", muscles: ["l:quad", "core"], durationMs: 5140 }],
+  ["10745", { mode: "circle", half: true, muscles: ["l:quad", "core"], durationMs: 5230 }],
+  ["2845", { mode: "hipTwist", muscles: ["core", "glute"], durationMs: 5010 }],
+  ["5908", { mode: "headKnee", overhead: true, muscles: ["lat", "hamstring"], durationMs: 6430 }],
+  ["6295", { mode: "turn", bind: true, muscles: ["core", "glute"], durationMs: 6460 }],
+  ["1934", { mode: "turn", muscles: ["core", "glute"], durationMs: 6100 }],
+  ["1933", { mode: "turn", muscles: ["core", "glute"], durationMs: 6160 }],
+  ["1937", { mode: "tuck", muscles: ["l:glute"], durationMs: 6260 }],
+  ["1940", { mode: "tuck", footHold: true, muscles: ["l:glute"], durationMs: 6290 }],
+  ["1938", { mode: "headKnee", muscles: ["l:hamstring", "glute"], durationMs: 6230 }],
+  ["1951", { mode: "headKnee", muscles: ["r:glute"], durationMs: 6320 }],
+  ["11654", { mode: "kneeDown", muscles: ["adductor"], durationMs: 4860 }],
+  ["3564", { mode: "shoulder", muscles: ["shoulder", "pec"], durationMs: 6030 }],
+  ["1587", { mode: "wide", sequence: true, muscles: ["adductor", "hamstring"], durationMs: 6310 }],
+  ["0958", { mode: "wide", muscles: ["adductor", "hamstring"], durationMs: 6460 }],
+  ["2093", { mode: "sideCross", muscles: ["l:forearm"], durationMs: 6090 }],
+  ["1948", { mode: "twist90", steady: true, muscles: ["core", "glute"], durationMs: 6260 }],
+  ["3633", { mode: "wide", side: "left", muscles: ["l:hamstring", "core"], durationMs: 6360 }],
+  ["3632", { mode: "wide", side: "right", muscles: ["r:hamstring", "core"], durationMs: 6350 }],
+  ["1889", { mode: "toe", muscles: ["l:calf"], durationMs: 6020 }],
+  ["2102", { mode: "toe", muscles: ["l:calf"], durationMs: 6160 }],
+]);
+
+const standingCoordination = new Map([
+  ["4436", { mode: "step", height: .872, hands: "guard", durationMs: 4050, muscles: ["glute", "calf"] }],
+  ["6014", { mode: "march", height: .893, fullLift: .47, durationMs: 3390, muscles: ["quad", "shoulder"] }],
+  ["6097", { mode: "straightBack", height: .882, lift: .80, fullLift: .31, durationMs: 3670, muscles: ["glute", "shoulder"] }],
+  ["11790", { mode: "toeTap", height: .849, threeReturn: true, yaw: 41, durationMs: 6500, muscles: ["glute", "calf"] }],
+  ["5623", { mode: "curlStep", plane: "side", height: .883, durationMs: 4060, muscles: ["biceps", "quad"] }],
+  ["3037", { hands: "running", mode: "butt", height: .867, fullLift: .63, lift: .81, forefoot: true, durationMs: 1790, muscles: ["hamstring", "calf"] }],
+  ["6010", { mode: "march", height: .899, fullLift: .45, heightScale: 1.19, forefoot: true, durationMs: 2330, muscles: ["quad", "shoulder"] }],
+  ["4711", { mode: "crossJack", height: .887, forefoot: true, durationMs: 2550, muscles: ["shoulder", "calf"] }],
+  ["0264", { mode: "crossJack", height: .895, forefoot: true, spread: 1.04, durationMs: 2410, muscles: ["shoulder", "calf"] }],
+  ["5684", { mode: "straightFront", height: .898, hands: "cross", lift: .88, fullLift: .89, yaw: 56, durationMs: 4490, muscles: ["quad", "core"] }],
+  ["1549", { mode: "butt", height: .890, fullLift: .63, lift: .74, forefoot: true, durationMs: 1620, muscles: ["hamstring", "calf"] }],
+  ["9248", { mode: "shuffle", plane: "side", height: .754, forefoot: true, travel: .78, durationMs: 4110, muscles: ["calf", "quad"] }],
+  ["6013", { mode: "straightFront", height: .902, lift: .88, fullLift: .89, yaw: 53, durationMs: 4270, muscles: ["quad", "core"] }],
+  ["6094", { mode: "underTap", height: .864, fullLift: .384, durationMs: 4260, muscles: ["quad", "core"] }],
+  ["6006", { mode: "sideReach", height: .863, heightScale: .72, yaw: 26, durationMs: 5780, muscles: ["quad", "core"] }],
+  ["3701", { hands: "running", mode: "march", plane: "side", height: .868, fullLift: .49, forefoot: true, durationMs: 2130, muscles: ["quad", "calf"] }],
+  ["3092", { mode: "kneeSquat", plane: "side", height: .902, fullLift: .56, heightScale: .77, hands: "guard", durationMs: 5090, muscles: ["quad", "glute"] }],
+  ["4435", { mode: "kneeSquat", height: .896, fullLift: .48, heightScale: .73, hands: "guard", durationMs: 3960, muscles: ["quad", "glute"] }],
+  ["5537", { mode: "tapHigh", height: .880, fullLift: .42, forefoot: true, durationMs: 2500, muscles: ["quad", "core"] }],
+  ["4634", { hands: "running", mode: "kneeOrButt", plane: "side", sameSide: true, height: .887, fullLift: .53, forefoot: true, durationMs: 3390, muscles: ["quad", "hamstring"] }],
+  ["0480", { mode: "kneeTwist", height: .881, fullLift: .47, forefoot: true, durationMs: 3300, muscles: ["quad", "core"] }],
+  ["0481", { mode: "kneeOrButt", plane: "side", height: .874, fullLift: .53, forefoot: true, durationMs: 2760, muscles: ["quad", "hamstring"] }],
+  ["4286", { mode: "circle", height: .873, circle: .15, yaw: 41, durationMs: 5440, muscles: ["core", "glute"] }],
+  ["4615", { mode: "circle", height: .815, heightScale: .74, circle: .224, yaw: 43, durationMs: 6160, muscles: ["core", "glute"] }],
+  ["4438", { mode: "step", height: .894, durationMs: 4430, muscles: ["shoulder", "glute"] }],
+  ["4287", { mode: "march", height: .892, fullLift: .64, yaw: 57, durationMs: 4620, muscles: ["quad", "core"] }],
+  ["3095", { mode: "lateralBound", height: .721, floatThreshold: 7, lift: .77, durationMs: 4580, muscles: ["glute", "quad"] }],
+  ["0565", { hands: "running", mode: "shuffle", height: .828, forefoot: true, durationMs: 4680, muscles: ["glute", "calf"] }],
+  ["4616", { mode: "straightFront", height: .899, lift: .89, fullLift: .90, yaw: 51, durationMs: 4610, muscles: ["quad", "core"] }],
+  ["0610", { mode: "lowJack", height: .608, hands: "guard", durationMs: 2300, muscles: ["quad", "glute"] }],
+  ["4004", { mode: "jog", plane: "side", height: .870, forefoot: true, durationMs: 2260, muscles: ["calf", "quad"] }],
+  ["3108", { mode: "plyoJack", height: .875, heightScale: .62, lift: .67, forefoot: true, durationMs: 2260, muscles: ["glute", "quad"] }],
+  ["3197", { mode: "march", plane: "side", height: .874, travel: .58, fullLift: .71, forefoot: true, durationMs: 3370, muscles: ["calf", "quad"] }],
+  ["3588", { mode: "swingArms", height: .886, durationMs: 3120, muscles: ["shoulder", "pec"] }],
+  ["3589", { mode: "march", height: .874, fullLift: .40, lift: .71, forefoot: true, durationMs: 1880, muscles: ["calf", "quad"] }],
+  ["0683", { mode: "jackTurn", height: .895, forefoot: true, durationMs: 2710, muscles: ["core", "calf"] }],
+  ["7154", { hands: "running", mode: "lateralHigh", height: .823, fullLift: .62, lift: .65, forefoot: true, durationMs: 3610, muscles: ["quad", "calf"] }],
+  ["3551", { mode: "shuttle", height: .700, forefoot: true, yaw: 18, travel: .63, spread: .80, durationMs: 4240, muscles: ["glute", "calf"] }],
+  ["6011", { mode: "rearStep", height: .841, durationMs: 3670, muscles: ["rearShoulder", "glute"] }],
+  ["1589", { mode: "butt", height: .878, fullLift: .67, lift: .80, forefoot: true, durationMs: 3790, muscles: ["hamstring", "calf"] }],
+  ["3113", { mode: "splitJack", height: .879, yaw: 58, forefoot: true, durationMs: 2650, muscles: ["calf", "quad"] }],
+  ["4328", { mode: "splitJack", height: .869, yaw: 58, forefoot: true, durationMs: 2230, muscles: ["calf", "quad"] }],
+  ["3929", { mode: "sideRaise", height: .898, durationMs: 4250, muscles: ["glute"] }],
+  ["10748", { mode: "toeTap", height: .853, yaw: 44, durationMs: 6450, muscles: ["glute", "calf"] }],
+  ["8374", { mode: "stepSquat", height: .891, heightScale: .76, hands: "guard", durationMs: 4850, muscles: ["glute", "quad"] }],
+  ["6017", { mode: "stepBack", height: .867, yaw: 46, durationMs: 3850, muscles: ["lat", "glute"] }],
+  ["0822", { mode: "squatTurn", height: .887, heightScale: .75, durationMs: 4820, muscles: ["glute", "core"] }],
+  ["3198", { mode: "zigzag", height: .805, heightScale: .59, yaw: 52, durationMs: 3810, muscles: ["calf", "glute"] }],
+]);
+
+const standingStretch = new Map([
+  ["1961", { mode: "toeSquat", startY: .572, depth: .285, yaw: 62, floorGuide: true, muscles: ["calf"], durationMs: 6500 }],
+  ["0960", { mode: "wideFold", angle: 2.34, yaw: 42, reach: .067, floorGuide: true, muscles: ["hamstring", "adductor"], durationMs: 6400 }],
+  ["0965", { mode: "wideFold", angle: 2.46, yaw: 48, reach: .047, floorGuide: true, muscles: ["hamstring", "adductor"], durationMs: 6470 }],
+  ["0953", { mode: "fold", palmsUnder: true, angle: 2.40, yaw: 52, reach: .055, floorGuide: true, muscles: ["hamstring"], durationMs: 6500 }],
+
+  ["1793", { mode: "calfCross", angle: 2.14, width: .100, yaw: 51, durationMs: 6440, muscles: ["rearShoulder", "trap"] }],
+  ["3212", { mode: "fold", angle: 2.26, yaw: 59, durationMs: 5730, muscles: ["hamstring", "glute"] }],
+  ["0959", { mode: "fold", angle: 2.49, yaw: 58, reach: .033, durationMs: 6420, muscles: ["hamstring"] }],
+  ["3231", { mode: "fold", angle: 2.29, yaw: 55, startWide: true, durationMs: 5770, muscles: ["hamstring"] }],
+  ["3630", { mode: "fold", angle: 2.04, yaw: 64, reach: .147, durationMs: 6360, muscles: ["hamstring"] }],
+  ["1916", { mode: "fold", angle: 2.19, yaw: 65, reach: .114, durationMs: 6450, muscles: ["hamstring"] }],
+  ["1917", { mode: "fold", cross: true, angle: 2.19, yaw: 61, reach: .086, durationMs: 6420, muscles: ["hamstring"] }],
+  ["1908", { mode: "splitFold", startY: .864, angle: 1.49, yaw: 61, durationMs: 6150, muscles: ["l:hamstring"] }],
+  ["1909", { mode: "splitFold", startY: .864, angle: 1.14, toeUp: true, yaw: 61, reach: .234, durationMs: 6340, muscles: ["l:hamstring", "l:calf"] }],
+  ["0789", { mode: "splitFold", startY: .864, angle: 1.15, toeUp: true, yaw: 61, reach: .253, durationMs: 6420, muscles: ["l:hamstring"] }],
+  ["3249", { mode: "wideFold", angle: 2.39, yaw: 42, reach: .044, startWide: true, durationMs: 5760, muscles: ["hamstring", "adductor"] }],
+  ["3250", { mode: "sideFold", angle: 1.94, yaw: 36, crossHand: true, durationMs: 5850, muscles: ["hamstring", "core"] }],
+  ["3251", { mode: "sideFold", angle: 1.95, yaw: 34, durationMs: 5830, muscles: ["hamstring", "core"] }],
+  ["3504", { mode: "quadHold", active: "right", yaw: 65, durationMs: 6470, muscles: ["r:quad"], breathe: true }],
+  ["4300", { mode: "quadHold", active: "right", yaw: 59, durationMs: 6370, muscles: ["r:quad"], breathe: true }],
+  ["10916", { mode: "singleHinge", active: "right", angle: 1.91, yaw: 60, durationMs: 5690, muscles: ["l:glute", "l:hamstring"] }],
+  ["1941", { mode: "crossLean", cross: true, yaw: 26, durationMs: 6210, muscles: ["r:glute"], breathe: true }],
+  ["1878", { mode: "crossLean", yaw: 23, durationMs: 6180, muscles: ["r:glute"], breathe: true }],
+  ["1946", { mode: "kneeHold", tuck: true, yaw: 55, durationMs: 6450, muscles: ["l:glute"], breathe: true }],
+  ["1811", { mode: "kneeHold", yaw: 58, durationMs: 6480, muscles: ["l:glute"], breathe: true }],
+  ["1877", { mode: "lateral", yaw: 25, durationMs: 6450, muscles: ["adductor"] }],
+  ["1900", { mode: "lateral", yaw: 29, durationMs: 6490, muscles: ["adductor"] }],
+  ["1894", { mode: "lateral", bothKnees: true, yaw: 28, durationMs: 6470, muscles: ["adductor"] }],
+  ["1904", { mode: "lateral", yaw: 29, durationMs: 6460, muscles: ["adductor", "quad"] }],
+  ["1931", { mode: "squat", elbows: true, startY: .897, depth: .561, width: .285, yaw: 44, durationMs: 6460, muscles: ["quad", "adductor"] }],
+  ["1893", { mode: "deepAchilles", startY: .834, depth: .416, width: .212, yaw: 52, durationMs: 6320, muscles: ["calf", "quad"] }],
+  ["1930", { mode: "groundCalf", startY: .392, depth: .188, width: .187, yaw: 59, durationMs: 6260, muscles: ["r:calf"] }],
+  ["1400", { mode: "squatKick", startY: .893, depth: .408, yaw: 26, durationMs: 5330, muscles: ["quad", "glute"] }],
+  ["6139", { mode: "squatTwist", startY: .891, depth: .543, width: .266, yaw: 32, durationMs: 6000, muscles: ["quad", "core"] }],
+  ["2108", { mode: "leanBack", yaw: 66, durationMs: 6150, muscles: ["core"], breathe: true }],
+  ["4399", { mode: "seal", angle: 2.25, yaw: 66, durationMs: 6450, muscles: ["hamstring", "shoulder"] }],
+  ["4875", { mode: "upperBack", yaw: 61, durationMs: 6240, muscles: ["trap"], breathe: true }],
+  ["9890", { mode: "gluteContract", yaw: 58, durationMs: 5080, muscles: ["glute"], breathe: true }],
+  ["11653", { mode: "gluteContract", yaw: 53, durationMs: 5320, muscles: ["glute"], breathe: true }],
+  ["4346", { mode: "upperPress", yaw: 29, durationMs: 3580, muscles: ["shoulder", "triceps"] }],
+  ["8343", { mode: "upperPress", extend: true, yaw: 47, durationMs: 5540, muscles: ["shoulder", "trap"] }],
+  ["2922", { mode: "upperCurl", yaw: 54, durationMs: 3690, muscles: ["biceps"] }],
+  ["4369", { mode: "upperCurl", yaw: 52, durationMs: 3620, muscles: ["biceps"] }],
+  ["5173", { mode: "upperFly", yaw: 36, durationMs: 4140, muscles: ["pec"] }],
+  ["4855", { mode: "upperTurn", yaw: 35, durationMs: 4630, muscles: ["core"] }],
+  ["5882", { mode: "chop", depth: .429, startY: .889, yaw: 41, durationMs: 4650, muscles: ["quad", "core"] }],
+  ["3001", { mode: "squat", startY: .897, depth: .50, width: .242, yaw: 39, durationMs: 6080, muscles: ["quad", "glute"] }],
+  ["1949", { mode: "splitLunge", startY: .794, yaw: 62, durationMs: 6190, muscles: ["r:quad", "r:glute"], breathe: true }],
+]);
+
+const floorContact = new Map([
+  ["1492", { support: "rear", mode: "dip", floorGuide: true, durationMs: 6470, breathe: true, muscles: ["triceps", "pec"] }],
+
+  ["5054", { support: "rear", mode: "crab", durationMs: 5620, breathe: true, muscles: ["glute", "triceps"] }],
+  ["1468", { support: "rear", mode: "crabKick", durationMs: 5190, muscles: ["core", "glute"] }],
+  ["4800", { support: "rear", mode: "table", durationMs: 5810, breathe: true, muscles: ["glute", "hamstring"] }],
+  ["4801", { support: "rear", mode: "tableTurn", durationMs: 5580, alternate: true, muscles: ["core", "glute"] }],
+  ["4553", { support: "rear", mode: "thoracic", durationMs: 5450, muscles: ["core", "glute"] }],
+  ["10057", { support: "rear", mode: "tableJack", durationMs: 4330, muscles: ["glute", "core"] }],
+  ["5110", { support: "rear", mode: "dip", durationMs: 3950, muscles: ["triceps"] }],
+  ["5130", { support: "rear", mode: "dip", deep: true, durationMs: 4340, muscles: ["triceps"] }],
+  ["0815", { support: "rear", mode: "dip", durationMs: 4270, muscles: ["triceps"] }],
+  ["0142", { mode: "kneeBridge", durationMs: 6050, muscles: ["core"] }],
+  ["0143", { mode: "bridge", durationMs: 5910, muscles: ["core", "shoulder"] }],
+  ["0137", { mode: "bodyUp", durationMs: 4780, muscles: ["triceps", "core"] }],
+  ["6423", { mode: "triceps", durationMs: 4640, muscles: ["triceps", "core"] }],
+  ["0870", { mode: "forearmPike", durationMs: 4870, muscles: ["core", "shoulder"] }],
+  ["0500", { mode: "wiper", durationMs: 6130, muscles: ["pec", "triceps"] }],
+  ["4159", { mode: "through", durationMs: 5250, muscles: ["pec", "core"] }],
+  ["4858", { mode: "sidePress", durationMs: 5800, muscles: ["pec", "triceps"] }],
+  ["3985", { mode: "handWalk", durationMs: 5770, muscles: ["pec", "triceps"] }],
+  ["4807", { mode: "pressWide", durationMs: 5380, muscles: ["pec", "triceps"] }],
+  ["9677", { mode: "plankJump", durationMs: 3100, muscles: ["core", "quad"] }],
+  ["3960", { mode: "pikeCobra", durationMs: 4860, muscles: ["core", "shoulder"] }],
+  ["3555", { mode: "kneelPower", durationMs: 3700, muscles: ["pec", "triceps"] }],
+  ["0679", { mode: "sideRoll", durationMs: 6480, muscles: ["core", "shoulder"] }],
+  ["10050", { mode: "superPush", durationMs: 5390, muscles: ["pec", "glute"] }],
+  ["3705", { mode: "thrust", durationMs: 3530, muscles: ["core", "quad"] }],
+  ["10058", { support: "kneel", mode: "halfKneel", durationMs: 6030, muscles: ["quad", "glute"] }],
+  ["5152", { support: "kneel", mode: "stand", durationMs: 5440, muscles: ["quad", "glute"] }],
+  ["10750", { support: "kneel", mode: "stand", durationMs: 6010, muscles: ["quad", "glute"] }],
+  ["8533", { support: "kneel", mode: "kneelSquat", durationMs: 6300, muscles: ["quad", "glute"] }],
+  ["10592", { support: "kneel", mode: "ham", durationMs: 6450, muscles: ["l:hamstring"] }],
+  ["6770", { support: "kneel", mode: "sartorius", durationMs: 6220, muscles: ["r:quad"] }],
+]);
+
+const functionalLegs = new Map([
+  ["3480", { mode: "sprintLunge", startY: .899, durationMs: 4900, muscles: ["quad", "glute"] }],
+  ["10051", { mode: "rearLunge", startY: .894, width: .093, durationMs: 5750, muscles: ["quad", "glute"] }],
+  ["3708", { mode: "frontLunge", startY: .892, durationMs: 3910, muscles: ["quad", "glute"] }],
+  ["1510", { mode: "crossLunge", startY: .899, durationMs: 5990, muscles: ["quad", "glute"] }],
+  ["3961", { mode: "chainLunge", startY: .886, yaw: 43, durationMs: 6480, muscles: ["quad", "glute"] }],
+  ["3952", { mode: "kneeLunge", startY: .897, durationMs: 5330, muscles: ["quad", "glute"] }],
+  ["3581", { mode: "liftLunge", startY: .898, durationMs: 5720, muscles: ["quad", "glute"] }],
+  ["0676", { mode: "kickLunge", startY: .896, durationMs: 5520, muscles: ["quad", "glute"] }],
+  ["11088", { mode: "reachLunge", startY: .898, yaw: 47, durationMs: 6400, muscles: ["quad", "core"] }],
+  ["7412", { mode: "chainLunge", noSide: true, startY: .897, yaw: 60, durationMs: 5830, muscles: ["quad", "glute"] }],
+  ["3966", { mode: "kickLunge", startY: .896, fixedRear: true, durationMs: 4830, muscles: ["quad", "glute"] }],
+  ["4675", { mode: "wideHop", startY: .762, yaw: 25, durationMs: 3770, muscles: ["adductor", "quad"] }],
+  ["3928", { mode: "hinge", startY: .901, durationMs: 5470, muscles: ["l:hamstring", "l:glute"] }],
+  ["10915", { mode: "hinge", startY: .898, breathe: true, durationMs: 6430, muscles: ["l:hamstring", "l:glute"] }],
+  ["4971", { mode: "hinge", startY: .909, durationMs: 5520, muscles: ["l:hamstring", "l:glute"] }],
+  ["3585", { mode: "hinge", startY: .898, kneeDrive: true, durationMs: 5750, muscles: ["l:hamstring", "l:glute"] }],
+  ["3365", { mode: "figure", startY: .853, depth: .293, yaw: 40, beginCrossed: true, durationMs: 5710, muscles: ["l:quad", "l:glute"] }],
+  ["5902", { mode: "figure", startY: .883, depth: .254, yaw: 41, breathe: true, durationMs: 6450, muscles: ["l:quad", "r:glute"] }],
+  ["7560", { mode: "single", startY: .888, depth: .379, yaw: 60, durationMs: 5660, muscles: ["l:quad", "l:glute"] }],
+  ["1578", { mode: "single", startY: .894, depth: .165, yaw: 59, durationMs: 4670, muscles: ["l:quad", "l:glute"] }],
+  ["4363", { mode: "skater", startY: .876, depth: .388, durationMs: 5660, muscles: ["l:quad", "l:glute"] }],
+  ["3367", { mode: "skater", startY: .893, depth: .410, durationMs: 5340, muscles: ["l:quad", "l:glute"] }],
+  ["3366", { mode: "shrimp", startY: .875, depth: .426, durationMs: 6490, muscles: ["l:quad", "l:glute"] }],
+  ["3494", { mode: "heel", startY: .876, depth: .417, durationMs: 5840, muscles: ["l:quad", "l:glute"] }],
+  ["5978", { mode: "soldier", startY: .897, durationMs: 4530, muscles: ["hamstring", "quad"] }],
+  ["3221", { mode: "knees", startY: .869, yaw: 46, durationMs: 4630, muscles: ["quad", "core"] }],
+  ["8220", { mode: "squat", startY: .893, depth: .548, yaw: 40, width: .258, durationMs: 5830, muscles: ["quad", "glute"] }],
+  ["10819", { mode: "singleRaise", startY: .883, yaw: 59, durationMs: 5260, muscles: ["l:calf"] }],
+]);
+
+const floorBalance = new Map([
+  ["1482", { mode: "cobra", floorGuide: true, muscles: ["core"], durationMs: 6450 }],
+  ["3420", { mode: "holdV", floorGuide: true, muscles: ["core", "quad"], durationMs: 6480 }],
+  ["2871", { mode: "v", floorGuide: true, muscles: ["core", "quad"], durationMs: 6400 }],
+
+  ["3565", { mode: "wheel", height: .672, durationMs: 6350, muscles: ["glute", "shoulder"] }],
+  ["6297", { mode: "wheel", height: .696, durationMs: 6440, muscles: ["glute", "shoulder"] }],
+  ["1493", { mode: "wheel", height: .713, late: true, durationMs: 6490, muscles: ["glute", "shoulder"] }],
+  ["6298", { mode: "wheel", height: .669, single: true, durationMs: 6490, muscles: ["glute", "shoulder"] }],
+  ["6302", { mode: "invertedStaff", height: .709, durationMs: 6460, muscles: ["shoulder", "glute"] }],
+  ["10194", { mode: "butterflyRoll", durationMs: 5780, muscles: ["core", "adductor"] }],
+  ["9486", { mode: "dish", durationMs: 6470, muscles: ["core"] }],
+  ["0950", { mode: "fish", durationMs: 6440, muscles: ["pec", "core"] }],
+  ["0502", { mode: "v", durationMs: 5300, muscles: ["core", "quad"] }],
+  ["4459", { mode: "press", durationMs: 5170, muscles: ["core"] }],
+  ["2312", { mode: "elbow", durationMs: 5300, muscles: ["core"] }],
+  ["3515", { mode: "sideV", durationMs: 5190, muscles: ["core"] }],
+  ["5938", { mode: "chop", durationMs: 4820, muscles: ["core"] }],
+  ["4646", { mode: "seatedTwist", durationMs: 4850, muscles: ["core"] }],
+  ["2862", { mode: "scissors", durationMs: 5690, muscles: ["core", "quad"] }],
+  ["6803", { mode: "sideExtend", durationMs: 6120, muscles: ["core", "quad"] }],
+  ["7693", { mode: "kneeTwist", durationMs: 5170, muscles: ["core"] }],
+  ["5344", { mode: "holdV", durationMs: 6330, muscles: ["core", "quad"] }],
+  ["4003", { mode: "clap", durationMs: 4670, muscles: ["core", "quad"] }],
+  ["1920", { mode: "plantar", direction: 0, durationMs: 6010, muscles: ["r:shin"] }],
+  ["1926", { mode: "plantar", direction: -1, durationMs: 6250, muscles: ["r:shin"] }],
+  ["1927", { mode: "plantar", direction: 1, durationMs: 6270, muscles: ["r:shin"] }],
+  ["0722", { mode: "sideBridge", durationMs: 4840, muscles: ["glute", "core"] }],
+  ["1466", { mode: "twistLift", durationMs: 5290, muscles: ["glute", "core"] }],
+  ["2105", { mode: "cobra", durationMs: 6270, muscles: ["core"] }],
+  ["2111", { mode: "cobraTurn", durationMs: 6310, muscles: ["core"] }],
+]);
+
+const handMobility = new Map([
+  ["2095", { mode: "pull", palmUp: true, direction: 1, durationMs: 6370, muscles: ["r:forearm"] }],
+  ["1827", { mode: "pull", direction: -1, durationMs: 6410, muscles: ["r:forearm"] }],
+  ["10031", { mode: "digit", durationMs: 5350, muscles: ["r:forearm"] }],
+  ["1826", { mode: "pull", palmUp: true, direction: 1, gentle: true, durationMs: 6430, muscles: ["r:forearm"] }],
+  ["2089", { mode: "pull", palmUp: true, direction: 1, durationMs: 6300, muscles: ["r:forearm"], yaw: 57 }],
+  ["2096", { mode: "pull", direction: -1, gentle: true, durationMs: 6360, muscles: ["r:forearm"] }],
+  ["2765", { mode: "pronate", yaw: 39, durationMs: 4860, muscles: ["forearm"] }],
+  ["2766", { mode: "supinate", yaw: 39, durationMs: 4860, muscles: ["forearm"] }],
+  ["5080", { mode: "wings", durationMs: 5120, muscles: ["forearm", "shoulder"], wide: true }],
+  ["1984", { mode: "cuff", side: "left", durationMs: 6430, muscles: ["l:rearShoulder"], wide: true }],
+  ["6790", { mode: "shoulderER", test: true, durationMs: 5640, muscles: ["r:rearShoulder"], wide: true }],
+  ["6791", { mode: "behind", durationMs: 5840, muscles: ["r:shoulder"], wide: true, yaw: 153 }],
+  ["0721", { mode: "pull", sidePull: true, alternate: true, direction: -1, yaw: 17, durationMs: 6470, muscles: ["forearm"], wide: true }],
+  ["5286", { mode: "triple", durationMs: 6230, muscles: ["forearm"] }],
+  ["2094", { mode: "thumb", durationMs: 6300, muscles: ["r:forearm"] }],
+  ["11785", { mode: "shoulderIR", durationMs: 5760, muscles: ["r:shoulder"], wide: true }],
+  ["11793", { mode: "shoulderER", durationMs: 5440, muscles: ["r:rearShoulder"], wide: true }],
+  ["11796", { mode: "shoulderER", side: "left", durationMs: 5480, muscles: ["l:rearShoulder"], wide: true }],
+  ["11797", { mode: "forward", durationMs: 4840, muscles: ["r:shoulder", "r:triceps"], wide: true }],
+  ["11795", { mode: "backward", durationMs: 4950, muscles: ["r:rearShoulder"], wide: true, yaw: 63 }],
+  ["10138", { mode: "isometric", durationMs: 6460, muscles: ["biceps"] }],
+  ["3149", { mode: "chin", durationMs: 5300, muscles: ["neck"], yaw: 81 }],
+  ["4509", { mode: "chinChest", durationMs: 6460, muscles: ["neck"], yaw: 59, mat: true, wide: true }],
+  ["5077", { mode: "svend", durationMs: 4880, muscles: ["pec"], wide: true }],
+]);
+
+const standingConditioning = new Map([
+  ["3532", { mode: "boxShuffle", height: .851, yaw: 29, durationMs: 2400, muscles: ["calf", "core"] }],
+  ["4581", { mode: "block", height: .843, yaw: 32, durationMs: 3130, muscles: ["shoulder", "forearm"] }],
+  ["2272", { mode: "jab", side: "left", height: .854, yaw: 47, durationMs: 3590, muscles: ["l:shoulder", "core"] }],
+  ["2275", { mode: "upper", side: "left", height: .868, yaw: 42, durationMs: 3610, muscles: ["l:shoulder", "core"] }],
+  ["2273", { mode: "cross", height: .858, yaw: 49, durationMs: 3690, muscles: ["r:shoulder", "core"] }],
+  ["3171", { mode: "hook", height: .867, yaw: 43, durationMs: 3780, muscles: ["r:shoulder", "core"] }],
+  ["2274", { mode: "upper", height: .868, yaw: 42, durationMs: 3610, muscles: ["r:shoulder", "core"] }],
+  ["2271", { mode: "hook", side: "left", rightMarker: true, height: .855, yaw: 43, durationMs: 3780, muscles: ["l:shoulder", "core"] }],
+  ["2303", { mode: "snap", low: true, height: .873, yaw: 59, durationMs: 4170, muscles: ["r:quad", "core"] }],
+  ["2302", { mode: "hookKick", side: "left", height: .861, yaw: 44, durationMs: 4830, muscles: ["l:quad", "core"] }],
+  ["2305", { mode: "snap", height: .876, yaw: 51, durationMs: 4360, muscles: ["r:quad", "core"] }],
+  ["2309", { mode: "heel", height: .871, yaw: 58, durationMs: 4460, muscles: ["r:quad", "core"] }],
+  ["2304", { mode: "axe", height: .874, yaw: 53, durationMs: 4920, muscles: ["r:quad", "core"] }],
+  ["2301", { mode: "hookKick", height: .866, yaw: 44, durationMs: 4830, muscles: ["r:quad", "core"] }],
+  ["2308", { mode: "roundKick", height: .866, yaw: 42, durationMs: 4670, muscles: ["r:quad", "core"] }],
+  ["2307", { mode: "sideKick", height: .876, yaw: 39, durationMs: 4440, muscles: ["r:quad", "r:glute"] }],
+  ["2310", { mode: "spinBack", height: .858, yaw: 51, durationMs: 5720, muscles: ["r:glute", "core"] }],
+  ["2306", { mode: "spinHook", height: .870, yaw: 39, durationMs: 5950, muscles: ["r:glute", "core"] }],
+  ["4257", { mode: "step", height: .768, pathCenter: 149, yaw: 31, durationMs: 4480, muscles: ["calf", "quad"] }],
+  ["1592", { mode: "stride", height: .766, pathCenter: 152, yaw: 55, durationMs: 4720, muscles: ["quad", "glute"] }],
+  ["1473", { mode: "backHop", height: .762, pathCenter: 131, yaw: 59, durationMs: 4300, muscles: ["quad", "calf"] }],
+  ["3109", { mode: "skater", height: .747, pathCenter: 153, yaw: 33, durationMs: 4010, muscles: ["glute", "quad"] }],
+]);
+
+const referenceCore = new Map([
+  ["2841", { mode: "corkscrew", floorGuide: true, durationMs: 5770, muscles: ["core"] }],
+  ["2846", { mode: "hundred", floorGuide: true, straight: true, durationMs: 6240, muscles: ["core"] }],
+  ["5050", { mode: "altReach", floorGuide: true, durationMs: 5250, muscles: ["core"] }],
+  ["2853", { mode: "neckPull", floorGuide: true, durationMs: 6450, muscles: ["core"] }],
+  ["8146", { mode: "breath", floorGuide: true, durationMs: 6500, muscles: [] }],
+  ["7294", { mode: "tilt", floorGuide: true, durationMs: 6470, muscles: ["core"] }],
+  ["9977", { mode: "breath", floorGuide: true, durationMs: 6350, muscles: [] }],
+  ["6002", { mode: "toeTap", floorGuide: true, durationMs: 4900, muscles: ["core"] }],
+  ["5275", { mode: "verticalReach", floorGuide: true, durationMs: 5020, muscles: ["core"] }],
+  ["3660", { mode: "proneRest", floorGuide: true, durationMs: 6470, muscles: [] }],
+  ["3969", { mode: "tuckUp", floorGuide: true, durationMs: 5270, muscles: ["core"] }],
+  ["5046", { mode: "vTap", floorGuide: true, durationMs: 4920, muscles: ["core"] }],
+  ["2843", { mode: "doubleStretch", floorGuide: true, durationMs: 5510, muscles: ["core"] }],
+  ["4309", { mode: "alternatingBent", floorGuide: true, durationMs: 5240, muscles: ["core"] }],
+  ["2872", { mode: "alternatingBent", floorGuide: true, durationMs: 4690, muscles: ["core"] }],
+  ["4310", { mode: "alternatingStraight", floorGuide: true, durationMs: 6160, muscles: ["core", "hamstring"] }],
+  ["5060", { mode: "proneNeck", floorGuide: true, durationMs: 5440, muscles: ["neck"] }],
+  ["5061", { mode: "proneNeck", floorGuide: true, durationMs: 6470, muscles: ["neck"] }],
+  ["1481", { mode: "bow", floorGuide: true, durationMs: 6490, muscles: ["glute", "shoulder"] }],
+  ["10739", { mode: "triceps", floorGuide: true, durationMs: 6470, muscles: ["l:triceps"] }],
+  ["2856", { mode: "openRoller", floorGuide: true, durationMs: 6050, muscles: ["core"] }],
+  ["2858", { mode: "rollUp", floorGuide: true, durationMs: 6250, muscles: ["core"] }],
+  ["2859", { mode: "rollBack", floorGuide: true, durationMs: 5710, muscles: ["core"] }],
+  ["2860", { mode: "rollover", floorGuide: true, durationMs: 6080, muscles: ["core"] }],
+  ["2572", { mode: "rollV", durationMs: 6420, muscles: ["core"] }],
+  ["1485", { mode: "plow", floorGuide: true, durationMs: 6490, muscles: ["core", "hamstring"] }],
+  ["1487", { mode: "shoulderStand", floorGuide: true, durationMs: 6460, muscles: ["core", "shoulder"] }],
+]);
+
+const chairMobility = new Map([
+  ["6632", { mode: "diagonal", durationMs: 5680, muscles: ["core"] }],
+  ["10909", { mode: "circle", bothFeet: true, durationMs: 6410, muscles: ["calf"] }],
+  ["10908", { mode: "circle", durationMs: 6280, muscles: ["l:calf"] }],
+  ["10541", { mode: "hug", durationMs: 5730, muscles: ["l:glute"] }],
+  ["10537", { mode: "raise", durationMs: 5280, muscles: ["l:quad"] }],
+  ["10538", { mode: "raise", desk: true, durationMs: 5480, muscles: ["l:quad"] }],
+  ["10534", { mode: "flex", durationMs: 5280, muscles: ["l:hamstring"] }],
+  ["6749", { mode: "external", durationMs: 5970, muscles: ["l:glute"] }],
+  ["1918", { mode: "figure", durationMs: 6450, muscles: ["l:glute"] }],
+  ["8744", { mode: "raise", both: true, durationMs: 6130, muscles: ["quad"] }],
+  ["8654", { mode: "triceps", tall: true, durationMs: 5000, muscles: ["triceps"] }],
+  ["10556", { mode: "neckYaw", durationMs: 5270, muscles: ["neck"] }],
+  ["8202", { mode: "open", both: true, durationMs: 5900, muscles: ["glute", "core"] }],
+  ["8203", { mode: "twist", durationMs: 5610, muscles: ["core"] }],
+  ["8433", { mode: "ham", touch: true, durationMs: 6440, muscles: ["l:hamstring"] }],
+  ["8311", { mode: "side", tall: true, durationMs: 5850, muscles: ["core", "lat"] }],
+  ["10557", { mode: "neckSide", durationMs: 5730, muscles: ["neck"] }],
+  ["8195", { mode: "side", elbow: true, durationMs: 5520, muscles: ["core"] }],
+  ["8615", { mode: "chestOpen", both: true, durationMs: 5730, muscles: ["pec"] }],
+  ["4554", { mode: "figure", durationMs: 6410, muscles: ["l:glute"] }],
+  ["10462", { mode: "ham", durationMs: 6370, muscles: ["l:hamstring"] }],
+  ["7310", { mode: "ham", durationMs: 6440, muscles: ["l:hamstring"] }],
+  ["5162", { mode: "neckPull", durationMs: 6420, muscles: ["neck"] }],
+  ["8431", { mode: "over", tall: true, durationMs: 6470, muscles: ["lat", "shoulder"] }],
+  ["2100", { mode: "quad", side: "right", durationMs: 6480, muscles: ["l:quad"], yaw: -72 }],
+  ["7562", { mode: "quad", side: "right", durationMs: 6450, muscles: ["l:quad"], yaw: -75 }],
+  ["11095", { mode: "catCow", durationMs: 6090, muscles: ["core"] }],
+  ["2998", { mode: "ankle", durationMs: 6160, muscles: ["l:shin"] }],
+  ["8369", { mode: "over", tall: true, durationMs: 6450, muscles: ["lat", "shoulder"] }],
+  ["8655", { mode: "circles", durationMs: 6100, muscles: ["shoulder"] }],
+  ["1804", { mode: "lateral", durationMs: 6480, muscles: ["core"] }],
+  ["1975", { mode: "rib", durationMs: 6500, muscles: ["shoulder", "pec"], yaw: 58 }],
+  ["8633", { mode: "press", tall: true, durationMs: 4770, muscles: ["shoulder"] }],
+  ["8652", { mode: "tap", durationMs: 5060, muscles: ["shoulder"] }],
+  ["10463", { mode: "collar", durationMs: 6460, muscles: ["trap", "pec"], yaw: 72 }],
+  ["8434", { mode: "roll", durationMs: 6300, muscles: ["core"] }],
+  ["8634", { mode: "rollBox", durationMs: 4180, muscles: ["shoulder", "core"] }],
+  ["8617", { mode: "out", durationMs: 5540, muscles: ["rearShoulder"] }],
+  ["10555", { mode: "neckNod", durationMs: 5610, muscles: ["neck"] }],
+]);
+
+const overheadReference = new Map([
+  ["5800", { family: "sweep", mode: "raise", thumb: true, upper: .09, durationMs: 5720, muscles: ["trap", "rearShoulder"] }],
+  ["3826", { family: "sweep", mode: "arc", durationMs: 6480, muscles: ["rearShoulder", "trap"] }],
+  ["7538", { family: "sweep", mode: "slide", bent: true, durationMs: 5860, muscles: ["shoulder"] }],
+  ["5040", { family: "sweep", mode: "raise", upper: .17, durationMs: 5450, muscles: ["trap", "rearShoulder"] }],
+  ["5041", { family: "sweep", mode: "raise", thumb: true, upper: .092, durationMs: 5840, muscles: ["rearShoulder"] }],
+  ["5042", { family: "sweep", mode: "raise", thumb: true, upper: .119, durationMs: 5850, muscles: ["trap", "rearShoulder"] }],
+  ["5043", { family: "sweep", mode: "arc", thumb: true, durationMs: 5420, muscles: ["trap", "rearShoulder"] }],
+  ["5044", { family: "sweep", mode: "arc", thumb: true, durationMs: 5490, muscles: ["trap", "rearShoulder"] }],
+  ["8546", { family: "sweep", mode: "arc", thumb: true, durationMs: 6410, muscles: ["trap", "rearShoulder"] }],
+  ["10045", { family: "sweep", mode: "snowFront", durationMs: 5980, muscles: ["rearShoulder", "glute"] }],
+  ["10046", { family: "sweep", mode: "snowBack", durationMs: 6000, muscles: ["shoulder", "glute"] }],
+  ["5049", { family: "sweep", mode: "super", upper: .27, durationMs: 5680, muscles: ["trap", "glute"] }],
+  ["5048", { family: "sweep", mode: "super", upper: .21, durationMs: 5890, muscles: ["trap", "glute"] }],
+  ["6944", { family: "sweep", mode: "swim", durationMs: 6400, muscles: ["lat", "glute"] }],
+  ["10742", { family: "sweep", mode: "arc", durationMs: 6310, muscles: ["l:rearShoulder"] }],
+  ["3413", { family: "sweep", mode: "sweep", durationMs: 6380, muscles: ["shoulder"] }],
+  ["3225", { family: "sweep", mode: "raise", thumb: true, durationMs: 5880, muscles: ["rearShoulder", "trap"] }],
+  ["7217", { family: "sweep", mode: "raise", durationMs: 5940, muscles: ["rearShoulder", "trap"] }],
+  ["11648", { family: "sweep", mode: "raise", upper: .189, durationMs: 5900, muscles: ["rearShoulder", "trap"] }],
+  ["6350", { family: "sweep", mode: "raise", durationMs: 5980, muscles: ["trap", "rearShoulder"] }],
+  ["5822", { family: "sweep", mode: "raise", thumb: true, durationMs: 5780, muscles: ["trap", "rearShoulder"] }],
+  ["1798", { family: "sweep", mode: "whole", durationMs: 6450, muscles: ["lat"] }],
+  ["2121", { family: "sweep", mode: "banana", durationMs: 6490, muscles: ["lat", "core"] }],
+  ["2125", { family: "sweep", mode: "banana", durationMs: 6450, muscles: ["lat", "core"] }],
+  ["4692", { family: "kneel", mode: "kick", durationMs: 5720, muscles: ["l:glute"] }],
+  ["2570", { family: "kneel", mode: "circle", durationMs: 6450, muscles: ["l:glute"] }],
+  ["3035", { family: "kneel", mode: "kick", durationMs: 5340, muscles: ["l:glute"] }],
+  ["4693", { family: "kneel", mode: "arc", durationMs: 5910, muscles: ["l:glute"] }],
+  ["4691", { family: "kneel", mode: "kick", durationMs: 5920, muscles: ["l:glute"] }],
+  ["4896", { family: "kneel", mode: "straight", durationMs: 5750, muscles: ["l:glute"] }],
+  ["1901", { family: "kneel", mode: "frog", durationMs: 6490, muscles: ["adductor"] }],
+  ["0955", { mode: "sideLeg", single: true, durationMs: 6330, muscles: ["l:adductor"] }],
+  ["4880", { mode: "scissor", durationMs: 4370, muscles: ["core", "adductor"] }],
+  ["4994", { mode: "scissor", wide: true, durationMs: 4920, muscles: ["core", "adductor"] }],
+  ["3639", { mode: "kneeRoll", durationMs: 6480, muscles: ["core", "glute"] }],
+  ["4609", { mode: "kneeRoll", durationMs: 6040, muscles: ["core", "glute"] }],
+  ["2116", { mode: "kneeRoll", durationMs: 6490, muscles: ["core", "glute"] }],
+  ["1491", { mode: "twist", single: true, press: true, durationMs: 6470, muscles: ["core", "glute"] }],
+  ["1882", { mode: "twist", single: true, press: true, durationMs: 6480, muscles: ["l:glute"] }],
+  ["1906", { mode: "hipOpen", single: true, durationMs: 6500, muscles: ["l:adductor"] }],
+  ["2889", { mode: "star", durationMs: 5200, muscles: ["core", "quad"] }],
+  ["3813", { mode: "star", tuck: true, durationMs: 5290, muscles: ["core"] }],
+  ["3414", { family: "book", mode: "rotation", durationMs: 6050, muscles: ["core", "pec"] }],
+  ["3539", { family: "book", mode: "rotation", durationMs: 6470, muscles: ["core", "pec"] }],
+]);
+
 // Several source stretches repeat one image for almost their entire timeline.
 // Give the actual source movement enough screen time to show setup, hold and return.
 const heldGuideKeys = new Map([
@@ -601,10 +1067,36 @@ const heldGuideKeys = new Map([
   ["4348", 1],
   ["5904", 1],
   ["5892", 4],
+  ["3633", 1],
+  ["3632", 1],
+  ["3564", 1],
+  ["6902", 1],
+  ["1889", 1],
+  ["2102", 1],
+  ["2093", 1],
+  ["4279", 1],
+  ["6295", 1],
+  ["1948", 1],
+  ...["3630", "1916", "1917", "1908", "1909", "0789", "1811", "1946", "1931", "1893", "1930", "1949", "1941", "8343"].map(id => [id, 1]),
+  ["4399", 2],
+  ["3504", 2],
+  ["4300", 2],
+  ["1878", 2],
+  ["10915", 1],
+  ["5902", 2],
+  ["10819", 1],
+  ["6444", 1],
+  ["2115", 1],
+  ...["1918", "10462", "7310", "5162", "2100", "7562", "2998", "8431", "8369", "4554", "8433"].map(id => [id, 1]),
+  ["10541", 2],
+  ["10534", 2],
+  ...["0560", "11904", "6771", "1960", "1891", "1961", "4365", "6539", "4410", "1902", "3631", "3634", "0649", "3420"].map(id => [id, 1]),
+  ...["3565", "6297", "1493", "9486", "0950", "5344"].map(id => [id, 1]),
+  ...["0142", "0143", "10592", "6770"].map(id => [id, 1]),
 ]);
 
 const [directory, ...requested] = process.argv.slice(2);
-const profiles = new Map([...sagittalFloor, ...standingUpper, ...standingLower, ...seatedFloor, ...wallSupported, ...kneelingFloor, ...upperMobility, ...lateralFloor, ...hipMobility, ...jumpMobility, ...lungeMobility, ...supineExtended, ...proneExtended, ...sideBridge, ...quadrupedExtended, ...yogaStanding, ...yogaFloor, ...floorTravel]);
+const profiles = new Map([...sagittalFloor, ...standingUpper, ...standingLower, ...seatedFloor, ...wallSupported, ...kneelingFloor, ...upperMobility, ...lateralFloor, ...hipMobility, ...jumpMobility, ...lungeMobility, ...supineExtended, ...proneExtended, ...sideBridge, ...quadrupedExtended, ...yogaStanding, ...yogaFloor, ...floorTravel, ...seatedContact, ...standingCoordination, ...standingStretch, ...floorContact, ...functionalLegs, ...floorBalance, ...handMobility, ...standingConditioning, ...referenceCore, ...chairMobility, ...overheadReference]);
 const selection = requested.length ? requested : [...profiles.keys()];
 if (!directory || selection.some(id => !profiles.has(id))) throw new Error("Pass an output directory and optional reviewed guide IDs.");
 const output = resolve(directory);
@@ -618,15 +1110,31 @@ for (const id of selection) {
   const yoga = yogaStanding.has(id);
   const floorYoga = yogaFloor.has(id);
   const travel = floorTravel.has(id);
+  const seatedFlex = seatedContact.has(id);
+  const coordination = standingCoordination.has(id);
+  const stretch = standingStretch.has(id);
+  const contact = floorContact.has(id);
+  const functional = functionalLegs.has(id);
+  const balance = floorBalance.has(id);
+  const hands = handMobility.has(id);
+  const conditioning = standingConditioning.has(id);
+  const reference = referenceCore.has(id);
+  const chair = chairMobility.has(id);
+  const above = overheadReference.has(id);
   const profile = profiles.get(id);
   const knownFloor = (yoga || floorYoga || profile.floorGuide) && guide?.props?.every(([,y1,,y2]) => y1 === y2 && y1 >= 151);
-  if (!guide?.frames?.length || guide.topView && !profile.topSource || guide.partnerFrames || !wall && !knownFloor && guide.props?.length || guide.formCheckFrom != null) {
+  const propLines = guide?.props ?? [];
+  const closedMat = above && propLines.length === 4 && propLines.every((line, i) => {
+    const next = propLines[(i + 1) % propLines.length];
+    return line[2] === next[0] && line[3] === next[1];
+  });
+  if (!guide?.frames?.length || guide.topView && !profile.topSource && !above || guide.partnerFrames || !wall && !chair && !knownFloor && !closedMat && guide.props?.length || guide.formCheckFrom != null) {
     throw new Error(`Guide ${id} must contain a supported single-person trajectory.`);
   }
   const jump = jumpMobility.has(id);
   const lower = standingLower.has(id) || jump;
   const mobility = upperMobility.has(id);
-  const standing = standingUpper.has(id) || lower || mobility || yoga;
+  const standing = standingUpper.has(id) || lower || mobility || yoga || coordination || stretch || functional || hands || conditioning;
   const seated = seatedFloor.has(id);
   const kneeling = kneelingFloor.has(id);
   const lateral = lateralFloor.has(id);
@@ -637,12 +1145,13 @@ for (const id of selection) {
   const side = sideBridge.has(id);
   const quadruped = quadrupedExtended.has(id);
   const move = wall ? wallGuideMotion(guide, profile) : mobility ? upperMobilityGuideMotion(guide, profile) : lower ? lowerGuideMotion(guide, profile)
-    : yoga ? yogaStandingGuideMotion(guide, profile) : standing ? standingGuideMotion(guide, profile)
+    : yoga ? yogaStandingGuideMotion(guide, profile) : coordination ? standingCoordinationGuideMotion(guide, profile)
+    : stretch ? standingStretchGuideMotion(guide, profile) : functional ? functionalLegsGuideMotion(guide, profile) : hands ? handMobilityGuideMotion(guide, profile) : conditioning ? standingConditioningGuideMotion(guide, profile) : standing ? standingGuideMotion(guide, profile)
     : seated ? seatedGuideMotion(guide, profile) : kneeling ? kneelingGuideMotion(guide, profile) : lateral ? lateralFloorGuideMotion(guide, profile)
     : hip ? hipMobilityGuideMotion(guide, profile) : lunge ? lungeMobilityGuideMotion(guide, profile)
     : supine ? supineExtendedGuideMotion(guide, profile) : prone ? proneExtendedGuideMotion(guide, profile) : side ? sideBridgeGuideMotion(guide, profile)
     : quadruped ? quadrupedExtendedGuideMotion(guide, profile) : floorYoga ? yogaFloorGuideMotion(guide, profile)
-    : travel ? floorTravelGuideMotion(guide, profile) : sagittalGuideMotion(guide, profile);
+    : travel ? floorTravelGuideMotion(guide, profile) : contact ? floorContactGuideMotion(guide, profile) : balance ? floorBalanceGuideMotion(guide, profile) : reference ? referenceCoreGuideMotion(guide, profile) : chair ? chairMobilityGuideMotion(guide, profile) : above ? overheadReferenceGuideMotion(guide, profile) : seatedFlex ? seatedContactGuideMotion(guide, profile) : sagittalGuideMotion(guide, profile);
   const filename = `${id}.json`;
   const held = heldGuideKeys.get(id);
   const keyframes = Array.from({ length: 65 }, (_, index) => {
@@ -650,14 +1159,19 @@ for (const id of selection) {
     const sample = held == null ? at : rep(at, .35, .56) * held / guide.frames.length;
     return { at, ...move(sample) };
   });
-  const upperExtent = profile.headroom || jump || travel ? Math.max(...keyframes.flatMap(frame => [frame.head[1] + .113, frame.lw[1] + .126, frame.rw[1] + .126])) : 0;
+  const upperExtent = profile.headroom || jump || travel || coordination || stretch || functional || conditioning ? Math.max(...keyframes.flatMap(frame => [frame.head[1] + .113, frame.lw[1] + .126, frame.rw[1] + .126])) : 0;
   const recipe = {
-    version: 1, equipment: wall ? profile.tall ? "rig-contact-tall-wall" : "rig-contact-wall" : standing && !profile.mat ? "none" : "mat",
+    version: 1, equipment: chair ? "conditioning-chair" : wall ? profile.tall ? "rig-contact-tall-wall" : "rig-contact-wall" : standing && !profile.mat ? "none" : "mat",
     muscles: profile.muscles ?? (lower ? [profile.forefoot ? "calf" : "quad", "glute"] : travel ? ["core", "quad"] : [standing ? "shoulder" : "core"]),
     durationMs: profile.durationMs ?? 4570,
     camera: wall ? { yaw: 112, elevation: 14, focus: [0, profile.floor ? .70 : profile.tall ? 1.11 : .96, .15], height: profile.tall ? 2.53 : 2.19 }
       : lower ? { yaw: profile.yaw ?? (profile.plane === "side" ? 63 : 34), elevation: 14,
       focus: [0, upperExtent ? (upperExtent + .19) * .51 : 1.06, 0], height: Math.max(2.47, upperExtent + .32) }
+      : coordination || stretch || functional || conditioning ? { yaw: profile.yaw ?? (profile.plane === "side" || functional ? 61 : 33), elevation: 15,
+      focus: [0, upperExtent * .5, .05], height: Math.max(2.19, upperExtent + .26) }
+      : hands ? profile.mat ? { yaw: profile.yaw ?? 56, elevation: 17, focus: [0, .56, .019], height: 1.58 }
+        : { yaw: profile.yaw ?? (profile.wide ? 43 : 56), elevation: profile.wide ? 13 : 25,
+          focus: [profile.mode === "digit" || profile.mode === "thumb" ? -.14 : 0, profile.wide ? 1.19 : 1.39, profile.wide ? .079 : .22], height: profile.wide ? 1.47 : .96 }
       : standing ? { yaw: profile.yaw ?? 26, elevation: 14, focus: [0, upperExtent ? upperExtent * .49 : .97, 0], height: upperExtent ? Math.max(2.27, upperExtent + .32) : 2.27 }
       : seated ? { yaw: profile.plane === "side" ? 54 : 31, elevation: 16, focus: [0, .57, -.18], height: 1.57 }
       : kneeling ? { yaw: profile.tall ? 63 : 58, elevation: 17, focus: [0, profile.tall ? .61 : profile.viewHeight ? .50 : .39, -.10], height: profile.viewHeight ?? (profile.tall ? 1.73 : 1.62) }
@@ -670,6 +1184,17 @@ for (const id of selection) {
       : quadruped ? { yaw: profile.yaw ?? 61, elevation: 18, focus: [0, profile.viewHeight ? .52 : .44, -.095], height: profile.viewHeight ?? 1.67 }
       : floorYoga ? { yaw: ["meditate", "hero"].includes(profile.mode) ? 28 : 65, elevation: 17, focus: [0, profile.viewHeight ? .67 : .56, -.19], height: profile.viewHeight ?? 1.72 }
       : travel ? { yaw: 64, elevation: 16, focus: [0, (upperExtent + .05) * .47, -.15], height: Math.max(1.66, upperExtent + .33) }
+      : above ? { yaw: profile.family === "kneel" ? 57 : 65, elevation: profile.family === "kneel" ? 25 : 36,
+      focus: [0, profile.family === "kneel" ? .41 : .36, -.13], height: profile.family === "kneel" ? 1.76 : 1.62 }
+      : chair ? { yaw: profile.yaw ?? (profile.mode.startsWith("neck") ? 55 : 45), elevation: 16,
+      focus: [0, profile.tall ? .95 : .76, .17], height: profile.tall ? 2.14 : 1.78 }
+      : reference ? { yaw: profile.mode === "corkscrew" || profile.mode === "alternatingBent" ? 40 : 65, elevation: 17,
+      focus: [0, profile.mode === "shoulderStand" ? .666 : .49, -.09], height: profile.mode === "shoulderStand" ? 2.03 : 1.72 }
+      : balance ? { yaw: profile.mode === "plantar" ? 45 : 63, elevation: 17,
+      focus: [0, profile.single || profile.mode === "scissors" ? .70 : .49, -.034], height: profile.single || profile.mode === "scissors" ? 1.95 : 1.72 }
+      : contact ? { yaw: profile.support === "kneel" ? 57 : 60, elevation: 17,
+      focus: [0, profile.support === "kneel" ? .74 : .51, -.13], height: profile.support === "kneel" ? 1.99 : 1.71 }
+      : seatedFlex ? { yaw: ["turn", "toe", "shoulder", "twist90"].includes(profile.mode) ? 61 : profile.overhead ? 12 : 34, elevation: 16, focus: [0, .54, .051], height: 1.58 }
       : { yaw: 63, elevation: 18, focus: [0, .43, -.31], height: profile.viewHeight ?? 1.75 },
     keyframes,
   };

@@ -97,7 +97,7 @@ function curlingExtension(t){
 function sideForearm(t,{flat=false,pronate=false}={}){
   const lowerHand=flat&&pronate;
   const planked=!flat&&!pronate;
-  const p=body(flat?[.08,.674,1.129]:[0,planked?.352:.174,.220],planked?-1.26:-Math.PI/2,0,Math.PI/2);
+  const p=body(flat?[.08,.674,1.129]:[0,planked?.254:.174,.220],planked?-1.254:-Math.PI/2,0,Math.PI/2);
   p.planted={};
   for(const [side,sign] of sides){
     const ankle=[p.hips[0]+.046*sign,flat?.547+sign*.056:.116+sign*.043,p.hips[2]+(flat?.653:.767)];
@@ -106,9 +106,9 @@ function sideForearm(t,{flat=false,pronate=false}={}){
   if(lowerHand){
     arm(p,"l",add(p.head,[.021,-.055,.092]),[-.83,.26,-.23]);
   }else if(planked){
-    const contact=[p.rs[0]-.010,.079,p.rs[2]+.059];
+    const contact=[p.rs[0]-.143,.078,p.rs[2]+.024];
     p.re=contact;
-    p.rw=add(contact,[.306,-.010,.079]);
+    p.rw=add(contact,[.299,-.006,.043]);
     p.rFingers=[1,0,0];
     p.rPalmSide=[0,1,0];
   }else{
@@ -281,7 +281,7 @@ group("5884",curlingExtension,{},"dumbbells",["biceps","shoulder","triceps"],sta
 group("0347",sideForearm,{flat:true,pronate:true},"long-bench-dumbbell",["r:forearm"],[105,21,[.12,.62,1.08],1.56]);
 group("2705",sideForearm,{pronate:true},"mat-dumbbell",["l:forearm"],[53,23,[0,.24,.32],1.35]);
 group("0349",sideForearm,{flat:true},"long-bench-dumbbell",["l:forearm"],[64,23,[.10,.61,1.02],1.60]);
-group("2706",sideForearm,{},"mat-dumbbell",["l:forearm"],[51,24,[0,.35,.26],1.40]);
+group("2706",sideForearm,{},"mat-dumbbell",["l:forearm"],[-58,18,[0,.29,.27],1.45]);
 group("11800",scapularFloorPress,{single:true},"mat-dumbbell",["l:pec","l:shoulder"],matCam);
 group("9213",scapularFloorPress,{},"mat-dumbbells",["pec","shoulder"],matCam);
 group("0365",wristIsolation,{setting:"bench",form:"neutral",kneeling:true},"bench-dumbbells",["forearm"],kneelWristCam);

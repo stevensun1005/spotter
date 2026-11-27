@@ -1,4 +1,4 @@
-import { add, arm, blend, leg, legAngles, mix, sides, stand, torso } from "./pose.mjs";
+import { add, arm, blend, leg, legAngles, mix, rep, sides, stand, torso } from "./pose.mjs";
 import { guideAt } from "./sagittal-guide.mjs";
 
 const clamp = value => Math.min(1, Math.max(0, value));
@@ -29,7 +29,10 @@ export function quadrupedExtendedGuideMotion(guide, profile) {
   return phase => {
     const f = guideAt(frames, phase);
     const chestLow = 1 - neckLift(f);
-    const round = mode === "cat" ? headLower(f) : mode === "abs" ? neckLift(f) : 0;
+    const cow = mode === "cow" ? headLower(f) : 0;
+    const adduct = mode === "adductor" ? hipLower(f) : 0;
+    const shinStretch = mode === "shin" || mode === "toe";
+    const round = mode === "cat" || mode === "tiger" ? headLower(f) : mode === "abs" ? Math.max(neckLift(f), .79 * rep(phase, .35, .59)) : 0;
     const bow = mode === "puppy" || mode === "child" ? chestLow
       : mode === "frog" ? .45 + .29 * (profile.topSource ? hipTravel(f) : hipLower(f)) : 0;
     const armAway = [4,6].map(index => Math.hypot(f[index][0] - frames[0][index][0], f[index][1] - frames[0][index][1]));
@@ -37,17 +40,24 @@ export function quadrupedExtendedGuideMotion(guide, profile) {
     const armSign = activeArm ? -1 : 1;
     const spin = mode === "reach" ? wristHeight[activeArm](f) : 0;
     const thread = mode === "needle" || mode === "reach" ? clamp((1 - wristAdvance[activeArm](f)) - .63 * spin) : 0;
-    const hips = [0, .526 + .045 * round - (mode === "child" ? .223 : .039) * bow - .067 * thread, -.247 - (mode === "child" ? .224 : .16) * bow];
+    const hips = [mode === "adductor" ? -.056 - .105 * adduct : 0, .526 + .045 * round - (mode === "child" ? .223 : .039) * bow - .067 * thread, -.247 - (mode === "child" ? .224 : .16) * bow - .19 * adduct];
     const angle = mode === "ceiling" ? 1.61 - 1.12 * neckLift(f) : mode === "sissy" ? -.87 * hipLower(f)
       : mode === "triceps" ? 1.51 + .269 * chestLow : 1.525 + .289 * bow + .35 * thread;
     const pose = mode === "sissy" ? stand([0, .512 - .154 * hipLower(f), -.14 - .302 * hipLower(f)], angle)
+      : shinStretch ? stand([0, mix(.419, .238, chestLow), -.368 - .119 * chestLow], profile.hands === "thigh" ? .038 : .729 * chestLow)
       : torso(hips, angle, mode === "needle" || mode === "reach" ? armSign * (.66 * thread - 1.17 * spin) : 0);
-    pose.headDrop = mode === "cat" ? -.005 + .060 * round : mode === "puppy" ? .021 + .067 * bow : .009;
-    if (mode === "cat") {
+    pose.headDrop = mode === "cat" || mode === "tiger" ? -.005 + .060 * round : mode === "puppy" ? .021 + .067 * bow : .009;
+    if (mode === "cat" || mode === "tiger") {
       pose.headAim = [0, -.654 * round, 1 - .155 * round];
       pose.chest[1] += .089 * round;
       pose.neck[1] += .041 * round;
       for (const [side] of sides) pose[side + "s"][1] += .047 * round;
+    }
+    if (mode === "cow") {
+      pose.chest[1] -= .063 * cow;
+      pose.neck[1] += .022 * cow;
+      pose.head[1] += .076 * cow;
+      pose.headAim = [0, .63 * cow, .96];
     }
     if (mode === "abs") {
       pose.chest[1] += .031 * round;
@@ -62,11 +72,17 @@ export function quadrupedExtendedGuideMotion(guide, profile) {
       const up = thighLift[index](f);
       const taking = profile.side === "right" ? index === 1 : index === 0;
       const kneeP = mode === "frog" ? [sign * (profile.topSource ? .246 + .168 * kneeWidth(f) : .393), .109, -.231]
-        : mode === "sissy" ? [sign * .124, .109, -.139] : planted;
+        : mode === "sissy" ? [sign * .124, .109, -.139] : shinStretch ? [sign * .144, .105, -.166] : planted;
       pose[side + "k"] = kneeP;
       pose[side + "a"] = add(kneeP, [mode === "frog" ? sign * .075 : -sign * .006, -.008, -.408]);
       pose[side + "t"] = add(pose[side + "a"], [sign * .014, -.045, -.134]);
-      if (mode === "donkey" && index === 0) {
+      if (shinStretch) {
+        pose[side + "t"] = add(pose[side + "a"], [sign * .017, -.050, mode === "toe" ? .128 : -.137]);
+      } else if (mode === "adductor" && index === 0) {
+        const nearHip = pose[side + "h"];
+        const reach = Math.sqrt(Math.max(.19, .835 ** 2 - (nearHip[1] - .111) ** 2));
+        leg(pose, side, [nearHip[0] + reach, .111, nearHip[2] - .063], [.114, -.013, .99], [.063, -.063, .098], .024);
+      } else if (mode === "donkey" && index === 0) {
         const liftAngle = mix(-1.554, -3.089, up);
         const shin = mix(-3.094, -4.764, lift);
         const cross = profile.cross ? clamp(Math.sin(phase * Math.PI * 2 - Math.PI * .88)) : 0;
@@ -84,8 +100,9 @@ export function quadrupedExtendedGuideMotion(guide, profile) {
         leg(pose, side, ankle, [sign * .063, -.99, -.16], [sign * .013, -.067, -.107]);
       } else if (mode === "tiger" && (lift > .05 || ankleAdvance[index](f) > .52)) {
         const reach = ankleAdvance[index](f);
-        const ankle = [sign * .114, .102 + .538 * lift * (1 - reach), mix(-1.037, .059, reach)];
-        leg(pose, side, ankle, [sign * .009, -.979, -.04], [sign * .014, -.064, -.125]);
+        const rear = profile.fullTiger ? Math.min(1, lift * 1.39) * (1 - reach) : lift * (1 - reach);
+        const ankle = [sign * .114, .139 + (profile.fullTiger ? .723 : .538) * rear + .122 * reach, mix(-1.037, .132, reach)];
+        leg(pose, side, ankle, [sign * .024, mix(-.96, .43, reach), .87 * reach], [sign * .014, -.064, -.125]);
       }
 
       const hand = [sign * .209, .066, .273];
@@ -93,7 +110,13 @@ export function quadrupedExtendedGuideMotion(guide, profile) {
       let elbow = [sign * .62, -.38, -.74];
       let fingers = [0, -.025, 1];
       let palm = [sign, .032, .027];
-      if (mode === "ceiling") {
+      if (shinStretch) {
+        wrist = profile.hands === "thigh" ? add(pose[side + "k"], [sign * .018, .162, -.065]) : [sign * .217, .062, .221];
+        if (profile.hands === "thigh") fingers = [0, -.38, .925];
+      } else if (mode === "child" && profile.armless) {
+        wrist = add(pose.chest, [-sign * .131, .084, .064]);
+        fingers = [-sign * .91, -.065, .40];
+      } else if (mode === "ceiling") {
         wrist = blend(hand, add(pose[side + "a"], [sign * .043, .083, .094]), neckLift(f));
         fingers = [0, -.084 - .58 * neckLift(f), 1 - 1.85 * neckLift(f)];
       } else if (mode === "puppy" || mode === "child") {

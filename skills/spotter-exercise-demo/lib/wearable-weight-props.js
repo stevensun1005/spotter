@@ -78,6 +78,40 @@ function cuff(group) {
 
 export function buildWearableWeight(parent, weight) {
   if (!weight) return undefined;
+  if (weight === 'head-harness') {
+    const harness = new THREE.Group();
+    parent.add(harness);
+    const strap = mesh(harness,new THREE.TorusGeometry(.086,.007,9,32),webbing,0,.029,0);
+    strap.rotation.x = Math.PI / 2;
+    strap.scale.y = 1.12;
+    seam(harness,[[-.082,.028,.015],[-.050,.083,.012],[0,.108,.012],[.050,.083,.012],[.082,.028,.015]],.008);
+    const load = mesh(parent,new THREE.CylinderGeometry(.067,.067,.019,24),metal,0,0,0);
+    load.rotation.x = Math.PI / 2;
+    const straps = [-1,1].map(() => mesh(parent,new THREE.CylinderGeometry(.005,.005,1,10),webbing,0,0,0));
+    return pose => {
+      const direction = point(pose.headAim ?? [0,1,0]).normalize();
+      const shoulderAxis = point(pose.ls).sub(point(pose.rs)).normalize();
+      const front = shoulderAxis.clone().cross(direction).normalize();
+      const across = direction.clone().cross(front).normalize();
+      harness.position.copy(point(pose.head)).addScaledVector(direction,.016);
+      if ((pose.neck[1]-pose.hips[1])>.37) {
+        harness.position.addScaledVector(direction,-.033).addScaledVector(front,.020);
+      }
+      harness.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(across,direction,front));
+      if (pose.headTurn) harness.rotateY(pose.headTurn);
+      load.position.copy(harness.position).addScaledVector(front,.073);
+      load.position.y -= .258;
+      straps.forEach((strand,index) => {
+        const side = index===0?-1:1;
+        const top=harness.localToWorld(point([side*.086,.024,.026]));
+        const end=load.position.clone().add(point([side*.014,.049,0]));
+        const delta=end.clone().sub(top);
+        strand.position.copy(top).lerp(end,.5);
+        strand.quaternion.setFromUnitVectors(yAxis,delta.clone().normalize());
+        strand.scale.y=delta.length();
+      });
+    };
+  }
   if (weight.startsWith('ankle')) {
     const placements = weight === 'ankles' ? ['l','r'] : ['l'];
     const cuffs = placements.map(side => {

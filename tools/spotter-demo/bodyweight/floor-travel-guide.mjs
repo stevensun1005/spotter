@@ -1,4 +1,4 @@
-import { add, arm, blend, leg, mix, sides, stand } from "./pose.mjs";
+import { add, arm, blend, leg, mix, scale, sides, stand, unit } from "./pose.mjs";
 import { guideAt } from "./sagittal-guide.mjs";
 
 const floor = .024;
@@ -49,7 +49,7 @@ function feetFor(stage, sign, center, hip, profile) {
   if (stage.mode === "lunge") return [[sign * .298, .110, .402 + center[2]], [sign * .015, -.061, .128]];
   if (stage.mode === "stepBack") return [[sign * .161, .109, .012 + center[2]], [0, -.064, .130]];
   if (stage.mode === "stepIn") return [[sign * .136, .149, -.605 + center[2]], [0, -.109, .086]];
-  if (stage.mode === "kick") return [add(hip, [sign * .593, -.318, .159]), [sign * .102, -.018, .051]];
+  if (stage.mode === "kick") return [add(hip, scale(unit([sign * .836, -.318, .114]), .837)), [sign * .102, -.018, .051]];
   return [[sign * .129, .168, .068 + center[2]], [sign * .01, -.099, .094]];
 }
 
@@ -74,7 +74,6 @@ export function floorTravelGuideMotion(guide, profile) {
     const body = blend(from.body, after.body, weight);
     const position = [0, body[0], body[2] + movement];
     const pose = stand(position, body[1], body[3]);
-    const hands = profile.crawl ? .042 + .016 * (frame[4][0] - guideOrigin) : .407 + .0037 * (frame[4][0] - guideHand);
     for (const [side, sign] of sides) {
       const [before, toeBefore] = feetFor(from, sign, [0, 0, movement], pose[side + "h"], profile);
       const [later, toeLater] = feetFor(after, sign, [0, 0, movement], pose[side + "h"], profile);
@@ -86,6 +85,13 @@ export function floorTravelGuideMotion(guide, profile) {
       const bend = [sign * .245, .086, .982];
       leg(pose, side, foot, bend, toe, foot[1] < .153 && lift < .006 ? floor : undefined);
       const shoulder = pose[side + "s"];
+      const hand = frame[sign > 0 ? 4 : 6];
+      let hands = profile.crawl ? .042 + .016 * (hand[0] - guideOrigin) : .407 + .0037 * (frame[4][0] - guideHand);
+      if (profile.crawl) {
+        const vertical = Math.min(.598, Math.abs(shoulder[1] - .067));
+        const reach = Math.sqrt(.613 ** 2 - vertical ** 2);
+        hands = Math.min(shoulder[2] + reach, Math.max(shoulder[2] - reach, hands));
+      }
       const [w1,e1,f1] = wristsFor(from, sign, shoulder, hands);
       const [w2,e2,f2] = wristsFor(after, sign, shoulder, hands);
       const fingers = blend(f1, f2, weight);

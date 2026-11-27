@@ -150,6 +150,22 @@ function toeRaise(phase) {
   return handles(pose,pads,[0,.294,.762]);
 }
 
+function donkeyCalf(phase) {
+  const raise=cycle(phase,.43,.60);
+  const hip=[0,.868+.072*raise,-.189];
+  const pose=body(hip,1.428);
+  pose.planted={};
+  const pads=[];
+  for(const [side,sign] of sides){
+    const toe=[sign*.176,.154,.220];
+    const ankle=[sign*.163,.133+.076*raise,.094-.012*raise];
+    foot(pose,side,sign,ankle,pole(sign),add(toe,scale(ankle,-1)));
+    pads.push(add(hip,[sign*.114,.129,.004]));
+  }
+  grips(pose,[[.259,.873,.741],[-.259,.873,.741]]);
+  return handles(pose,pads,[0,1.140,.544]);
+}
+
 const jobs=[
   ['5349','hip-out',hipLever,{kind:'out-raise'},['l:glute']],
   ['1034','hip-out',hipLever,{kind:'out'},['l:glute']],
@@ -164,6 +180,7 @@ const jobs=[
   ['11567','prone-curl-hyper',curlHyper,{},['hamstring','glute']],
   ['0938','stepper',stepper,{},['quad','glute','calf']],
   ['9509','seated-toe',toeRaise,{},['shin']],
+  ['1253','donkey',donkeyCalf,{},['calf']],
 ];
 
 const [folder,...ids]=process.argv.slice(2);
@@ -178,8 +195,9 @@ for(const [id,rig,movement,options,muscles] of selected){
   const prone=movement===curlHyper;
   const kneeling=movement===kneelingPress;
   const low=movement===toeRaise;
-  const frontLeg=options.kind==='front'||options.kind==='out'||options.kind==='out-raise';
-  const camera={yaw:prone?67:kneeling?58:frontLeg?44:67,elevation:14,height:prone?1.74:low?1.89:2.20,
+  const yaw=options.kind==='front'?-57:options.kind==='in'?-40:
+    options.kind==='out'||options.kind==='out-raise'?-14:low?-38:prone?67:kneeling?58:67;
+  const camera={yaw,elevation:low?22:14,height:prone?1.74:low?1.89:2.20,
     focus:[0,prone?.53:low?.73:kneeling?.77:.91,prone?.01:.10]};
   const data={version:1,durationMs:prone?6300:5200,equipment:'lever-press-station-special-leg-'+rig,muscles,camera,
     keyframes:Array.from({length:61},(_,index)=>({at:index/60,...movement(index/60,options)}))};

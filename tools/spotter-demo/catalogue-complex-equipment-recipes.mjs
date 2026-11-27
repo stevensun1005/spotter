@@ -186,6 +186,7 @@ const jobs=[
   ["0545","mat-kettlebells",kettlebellPlyo,["pec","triceps","core"],[59,19,[0,.56,-.40],1.68],3500,.59],
   ["0551","mat-kettlebell-left",getUp,["quad","glute","hamstring","core"],[52,14,[0,.94,.08],2.23],6500,.53],
   ["2459","spotter-tire-flip",tireFlip,["quad","glute","hamstring","core"],[59,15,[0,.84,.25],2.05],4200,.44],
+  ["2730","spotter-tire-flip",tireFlip,["quad","glute","hamstring","core"],[57,17,[0,.86,.24],2.14],4600,.44],
 ];
 const [directory,...selection]=process.argv.slice(2);
 if(!directory)throw new Error("Pass an output directory and optional catalogue IDs.");

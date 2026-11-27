@@ -76,6 +76,8 @@ const support = {
   upright: { point: [0, .568, .277], pitch: -.231, feet: [.206, floor, .651], camera: [51, 14, [0, 1.00, .27], 2.20], bench: "upright-bench" },
   inclineBrace: { point: [.198, .843, -.613], pitch: .465, feet: [.159, floor, -.624], camera: [58, 15, [.04,.85,-.34], 1.82], bench: "incline-bench" },
   incline: { point: [0, .563, .245], pitch: -Math.PI / 4, feet: [.223, floor, .655], camera: [59, 15, [0, .78, .09], 1.83], bench: "incline-bench" },
+  incline30: { point: [0, .527, .288], pitch: -Math.PI / 3, feet: [.230, floor, .658], camera: [59, 16, [0, .75, .07], 1.79], bench: "incline-30-bench" },
+  incline70: { point: [0, .519, .286], pitch: -Math.PI / 9, feet: [.217, floor, .660], camera: [59, 16, [0, .90, .12], 1.96], bench: "incline-70-bench" },
   flat: { point: [.1, .551, 1.26], pitch: -Math.PI / 2, feet: [.258, floor, 1.530], camera: [67, 17, [.1, .58, 1.00], 1.65], bench: "bench" },
   supineMat: { point: [0, .140, -.027], pitch: -Math.PI / 2, feet: [.210, floor, .561],
     camera: [65, 26, [0, .31, -.10], 1.65], bench: "mat" },

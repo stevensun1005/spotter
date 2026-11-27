@@ -80,6 +80,7 @@ export function buildPressStation(group,preset,initial) {
   if(preset.startsWith('reformer-')) return buildReformer(group,preset.slice(9),initial);
   if(preset.startsWith('axial-')) return buildAxial(group,preset.slice(6),initial);
   if(preset.startsWith('special-leg-')) return buildSpecialLeg(group,preset.slice(12),initial);
+  if(preset.startsWith('special-upper-')) return buildSpecialUpper(group,preset.slice(14),initial);
   const movingSeat=preset==='seat';
   const outdoor=preset==='outdoor';
   const angled=preset==='angled'||preset==='calf-angled';
@@ -231,6 +232,153 @@ function loadSleeve(group,heavy) {
   };
 }
 
+function buildSpecialUpper(group,preset,initial) {
+  const cable=preset.startsWith('cable-');
+  const neck=preset.startsWith('neck-');
+  const standing=['fly-standing','fly-lateral','hinge'].includes(preset);
+  const lying=preset==='chest-lying';
+  const unilateral=preset==='unilateral-row';
+  const sideways=preset==='chest-side'||preset==='fly-side';
+  const preacher=preset==='turned-preacher';
+  const reverseFly=['fly-bent','fly-side','fly-incline'].includes(preset);
+  const lateral=preset==='fly-lateral';
+  const back=!standing&&!lying&&!unilateral&&!preacher&&!reverseFly;
+  for(const z of [-.714,.623])box(group,[.988,.069,.147],frame,[0,.038,z]);
+  for(const x of [-.467,.467])box(group,[.076,.065,1.516],steel,[x,.046,-.038]);
+  if(lying){
+    box(group,[.448,.097,1.084],pad,[0,.448,-.172]);
+    for(const z of [.271,-.575])beam(group,.052,steel,[0,.082,z],[0,.414,z]);
+  }else if(unilateral){
+    box(group,[.364,.081,.655],pad,[.179,.429,-.129]);
+    beam(group,.061,steel,[.179,.072,-.106],[.179,.390,-.106]);
+    const wrist=initial.lw;
+    beam(group,.036,steel,[.266,.078,.641],[wrist[0],wrist[1],wrist[2]+.077]);
+    beam(group,.022,pad,[wrist[0],wrist[1],wrist[2]-.059],[wrist[0],wrist[1],wrist[2]+.077]);
+  }else if(!standing){
+    box(group,[.424,.078,.382],pad,[0,.451,-.091]);
+    beam(group,.060,steel,[0,.077,-.073],[0,.412,-.073]);
+  }
+  if(back){
+    const position=sideways?[0,.738,-.251]:[0,.811,-.238];
+    box(group,[.397,.519,.089],pad,position);
+    beam(group,.046,steel,[0,.073,position[2]],[0,.724,position[2]]);
+  }
+  if(reverseFly){
+    const bend=preset==='fly-bent';
+    const contact=sideways?[.211,.792,-.076]:[0,bend?.788:.846,bend?.251:.195];
+    const rest=box(group,[.386,.394,.086],pad,contact);
+    rest.rotation.set(bend?-.805:-.35,sideways?Math.PI/2:0,0);
+    beam(group,.041,steel,[contact[0],.073,.459],[contact[0],contact[1]-.059,contact[2]]);
+  }
+  if(preacher){
+    box(group,[.441,.086,.362],pad,[.089,.757,.304],.485);
+    beam(group,.048,steel,[.092,.075,.348],[.092,.711,.349]);
+  }
+  if(standing)stanceDeck(group,0,.006,.151,.809,.398);
+  if(cable)return buildUpperCable(group,preset,initial);
+  const banded=preset==='chest-band';
+  const outdoor=preset==='chest-outdoor';
+  const sites=initial.leverPressHandles.map(({pivot},index)=>{
+    const sign=index===0?1:-1;
+    const active=unilateral?index===1:preset==='neck-right'?index===1:
+      sideways||preacher||neck?index===0:true;
+    const anchor=vec(pivot);
+    beam(group,.048,steel,[pivot[0],.071,pivot[2]],pivot);
+    box(group,[.121,.106,.129],frame,pivot);
+    if(!active)return null;
+    const arm=rod(group,.033,steel);
+    const load=outdoor?null:loadSleeve(group,false);
+    const grip=neck||lateral?null:rod(group,.021,pad);
+    const bearing=neck||lateral?box(group,neck?[.174,.152,.095]:[.132,.149,.236],pad,[0,0,0]):null;
+    const elastic=banded?rod(group,.012,resistance):null;
+    return {sign,index,anchor,arm,load,grip,bearing,elastic};
+  }).filter(Boolean);
+  return (pose)=>{
+    for(const {sign,index,anchor,arm,load,grip,bearing,elastic} of sites){
+      const point=vec(pose.leverPressHandles[index].point);
+      const joint=point.clone().add(vec([sign*.057,lateral?.039:-.038,-.025]));
+      if(bearing) {
+        bearing.position.copy(point);
+        if(lateral)bearing.position.z-=.074;
+        if(neck&&preset!=='neck-back')bearing.rotation.y=Math.PI/2;
+      }
+      connect(arm,anchor,joint);
+      if(grip){
+        const axis=sideways||preset.startsWith('fly-')?vec([0,.059,0])
+          :unilateral||preset==='hinge'||preset==='seated-shrug'?vec([0,0,.069]):vec([.071,0,0]);
+        connect(grip,point.clone().sub(axis),point.clone().add(axis));
+      }
+      if(load)load(anchor.clone().lerp(joint,.44),sign);
+      if(elastic)connect(elastic,vec([sign*.364,.169,-.467]),joint);
+    }
+  };
+}
+
+function buildUpperCable(group,preset,initial) {
+  const overhead=preset==='cable-shoulder'||preset==='cable-triceps';
+  const wide=preset==='cable-cross-lat';
+  const rope=preset==='cable-rope-lat';
+  const outdoor=preset==='cable-out-lat';
+  const top=overhead?1.967:2.066;
+  const baseZ=overhead?-.407:.509;
+  const columnX=wide?.699:.469;
+  const singlePulley=rope||preset==='cable-lat';
+  const outlet=preset==='cable-shoulder'?.352:preset==='cable-triceps'?.683:top-.057;
+  if(!overhead){
+    for(const x of [-.159,.159]){
+      beam(group,.047,pad,[x-.112,.596,.227],[x+.112,.596,.227]);
+      beam(group,.029,steel,[x*.89,.081,.462],[x,.596,.242]);
+    }
+  }
+  const center=vec([0,top-.065,baseZ-.095]);
+  box(group,[2*columnX+.067,.075,.111],steel,[0,top-.032,baseZ]);
+  for(const side of [-1,1])beam(group,.036,steel,[side*columnX,.071,baseZ],[side*columnX,top,baseZ]);
+  const motion=initial.leverPressHandles.map(({pivot},index)=>{
+    const sign=index===0?1:-1;
+    const anchor=outdoor?vec(pivot):vec([sign*(wide?-columnX:columnX),outlet,baseZ]);
+    return {sign,anchor,line:singlePulley?null:rod(group,outdoor?.034:.007,outdoor?steel:frame),
+      grip:rod(group,.023,pad),ropeTail:rope?rod(group,.012,pad):null,
+      plates:outdoor?loadSleeve(group,false):null};
+  });
+  const shared=wide||rope||overhead?null:rod(group,.015,pad);
+  const cableCenter=wide||overhead||outdoor?null:rod(group,.008,frame);
+  const bottom=vec([.590,.142,baseZ+.135]);
+  const topWire=vec([.590,1.506,baseZ+.135]);
+  let stack=null;
+  let weightLine=null;
+  if(!outdoor){
+    box(group,[.216,.072,.256],frame,[bottom.x,.054,bottom.z]);
+    for(const offset of [-.073,.073])beam(group,.013,steel,
+      [bottom.x+offset,bottom.y,bottom.z],[topWire.x+offset,topWire.y,topWire.z]);
+    for(let i=0;i<10;i++) box(group,[.191,.037,.168],pad,[bottom.x,.118+i*.042,bottom.z]);
+    stack=box(group,[.195,.036,.169],frame,[bottom.x,.560,bottom.z]);
+    weightLine=rod(group,.007,frame);
+    const feeder=vec([topWire.x,top-.066,topWire.z]);
+    const outbound=overhead?vec([columnX,outlet,baseZ]):center;
+    beam(group,.008,frame,topWire.toArray(),feeder.toArray());
+    beam(group,.008,frame,feeder.toArray(),outbound.toArray());
+  }
+  return pose=>{
+    const grips=pose.leverPressHandles.map(({point})=>vec(point));
+    const middle=grips[0].clone().lerp(grips[1],.5);
+    const fork=middle.clone().add(vec([0,.156,.022]));
+    if(shared) connect(shared,grips[0].clone().add(vec([.095,0,0])),grips[1].clone().add(vec([-.095,0,0])));
+    if(cableCenter)connect(cableCenter,center,rope?fork:middle);
+    for(const [index,{sign,anchor,line,grip,ropeTail,plates}] of motion.entries()){
+      const wrist=grips[index];
+      const axis=wide||rope?vec([0,0,.061]):vec([.077,0,0]);
+      connect(grip,wrist.clone().sub(axis),wrist.clone().add(axis));
+      if(ropeTail)connect(ropeTail,fork,wrist);
+      if(line)connect(line,anchor,wrist);
+      if(plates)plates(anchor.clone().lerp(wrist,.46),sign);
+    }
+    if(stack){
+      stack.position.y=.559+Math.abs(middle.y-.985)*.145;
+      connect(weightLine,topWire,stack.position.clone().add(vec([0,.026,0])));
+    }
+  };
+}
+
 function buildSpecialLeg(group,preset,initial) {
   const hip=preset.startsWith('hip-');
   const footplate=preset==='hip-foot';
@@ -242,10 +390,11 @@ function buildSpecialLeg(group,preset,initial) {
   const prone=preset==='prone-curl-hyper';
   const stepping=preset==='stepper';
   const toe=preset==='seated-toe';
+  const donkey=preset==='donkey';
   const edgeZ=prone?-.761:kneeling?-.583:-.313;
   const handleLine=prone?[.208,.611,.708]:kneeling?[.235,knees?1.147:1.009,.472]
     :stepping?[.262,1.225,.487]:toe?[.237,.799,.411]:
-      squat?[.248,1.13,.42]:[.239,1.097,.405];
+      donkey?[.259,.873,.741]:squat?[.248,1.13,.42]:[.239,1.097,.405];
   for(const z of [edgeZ,.702])box(group,[.946,.069,.144],frame,[0,.039,z]);
   for(const sign of [-1,1]){
     const x=sign*.423;
@@ -257,6 +406,7 @@ function buildSpecialLeg(group,preset,initial) {
     beam(group,.022,pad,barEnd,[handle[0]-sign*.061,h,z]);
   }
   if(footplate)stanceDeck(group,-.169,.084,.119,.298,.405);
+  if(donkey)stanceDeck(group,0,.149,.323,.657,.258);
   if(squat)stanceDeck(group,0,.070,.133,.805,.411);
   if(kneeling&&!knees){
     box(group,[.304,.079,.434],pad,[-.132,.460,-.244]);
@@ -279,7 +429,7 @@ function buildSpecialLeg(group,preset,initial) {
     box(group,[.117,.134,.119],frame,pivot);
     const grip=rod(group,.033,steel);
     const size=stepping||footplate?[.209,.052,.288]:knees?[.196,.078,.294]:
-      prone?[.174,.113,.130]:toe?[.139,.103,.197]:[.128,.154,.123];
+      prone?[.174,.113,.130]:toe?[.139,.103,.197]:donkey?[.211,.103,.249]:[.128,.154,.123];
     const block=box(group,size,pad,[0,0,0]);
     const load=stepping?null:loadSleeve(group,false);
     return {sign,mount,block,grip,load};
@@ -292,7 +442,7 @@ function buildSpecialLeg(group,preset,initial) {
       else if(prone)contact.y+=.071;
       else if(toe)contact.y+=.074;
       else if(isolated||kneeling)contact.z+=preset==='hip-front'?.072:-.070;
-      else contact.x+=sign*(inward?-.074:.078);
+      else if(!donkey)contact.x+=sign*(inward?-.074:.078);
       block.position.copy(contact);
       if(footplate)block.rotation.x=-.10;
       if(isolated||kneeling||prone){
@@ -302,7 +452,7 @@ function buildSpecialLeg(group,preset,initial) {
       }
       const joining=contact.clone().add(vec([sign*(stepping?.040:.069),-.031,0]));
       connect(grip,mount,joining);
-      if(load)load(mount.clone().lerp(joining,.39),sign);
+      if(load)load(mount.clone().lerp(joining,toe?.03:.39),sign);
     }
   };
 }
