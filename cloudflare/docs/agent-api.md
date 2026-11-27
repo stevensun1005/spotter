@@ -94,7 +94,7 @@
 
 所有新演示和替换动画都默认用 Spotter 原创 3D 样片风格，包括为个人动作生成的 GIF。使用技能内的连续蒙皮浅灰人体、深色运动短裤和鞋、浅灰背景、柔和阴影及局部肌肉高亮。准确搭建设备、握法、支点和运动轨迹，渲染完整循环。封面从成片取帧。目录动作 `2966`、`3668` 和 `5609` 是可预览的样片。线条人、静帧拼接、近似动作及现成外部媒体不作为默认输出。暂时不能做出准确演示时，报告该动作的演示还未生成。
 
-- `reuse_catalogue` 返回同一标准动作的 ID。已升级的动作还返回原创 3D 媒体路径，直接用该 ID。其他标准动作继续显示原示范，也可在本地做单独的预览。
+- `reuse_catalogue` 返回同一标准动作的 ID 和对应的 Spotter 原创 3D 媒体路径。保存计划时直接引用该 ID，网页和 iPhone 会读取同一演示。
 - `reuse_personal` 表示当前账号已有同名个人示范。要替换时，经用户确认后渲染并上传。
 - `render_personal` 返回 [Spotter 渲染技能](../../skills/spotter-exercise-demo/SKILL.md) 的下载地址和保存权限。Agent 在自己可执行的工具环境运行技能，按实际动作编制人体与器械关键帧，用浏览器本地生成并核对 GIF。包内有离线渲染页面和命令行入口。训练记录、用户照片和账号凭据不进渲染配方。
 - 用户明确要求保存该动作的示范且令牌具备 `exercise-demos:write` 时，通过 `POST /api/agent/exercise-demos` 或 `manage_spotter_exercise_demo` 提交 `{action:"save",profileRef,name,gifBase64,confirmed:true}`。使用原始 GIF 的 base64，最长边 480 像素、大小不超过 768 KiB、有 2–90 帧且总画面像素不超过 900 万。服务按账号和动作名保存，原样重试使用同一个名字。移除用 `{action:"remove",profileRef,name,confirmed:true}`。

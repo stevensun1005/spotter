@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { prepareRecipe } from '../../skills/spotter-exercise-demo/lib/recipe.js';
-import { add, arm, blend, grip, leg, legAngles, mix, ramp, rep, sides, stand } from './bodyweight/pose.mjs';
+import { add, arm, blend, grip, leg, legAngles, mix, ramp, rep, sides, stand, torso } from './bodyweight/pose.mjs';
 
 const rows=[];
 const floor=.079;
@@ -73,7 +73,7 @@ function benchSquat(phase,{kind}){
 function benchHip(phase,{kind}){
   const t=rep(phase);
   const frog=kind==='frog', bench=kind!=='hip';
-  const pose=stand(bench?[0,.531,.133]:[0,mix(.164,.455,t),-.03-.023*t],
+  const pose=stand(bench?[0,.531,-.778]:[0,mix(.164,.455,t),.021-.028*t],
     bench?1.572:Math.atan2(-.512,.507-mix(.164,.455,t)));
   for(const[side,s]of sides){
     if(bench){
@@ -84,10 +84,10 @@ function benchHip(phase,{kind}){
         pose[side+'a']=add(pose[side+'k'],[-s*.270,.324*Math.sin(shin),.351*Math.cos(shin)]);
         pose[side+'t']=add(pose[side+'a'],[-s*.050,-.043,-.094]);
       }else legAngles(pose,side,s,thigh,thigh-.061,.021);
-      grip(pose,side,[s*.213,.469,-.531],[s*.839,-.32,-.301],[0,0,1]);
+      grip(pose,side,[s*.213,.469,-.246],[s*.839,-.32,-.301],[0,0,1]);
     }else {
       grounded(pose,side,[s*.162,floor,.619]);
-      arm(pose,side,[s*.208,.432,-.515],[s*.76,-.31,-.591],flatHand,smallUp);
+      arm(pose,side,[s*.324,.470,-.583],[s*.76,-.31,-.591],flatHand,smallUp);
     }
   }
   return pose;
@@ -109,10 +109,10 @@ function benchCurl(phase,{kind}){
     if(inv){
       const angle=mix(.052,1.566,t);
       legAngles(p,side,s,angle,angle-.03,.018);
-      grip(p,side,[s*.206,.369,-.320],[s*.75,-.42,-.122],[1,0,0]);
+      grip(p,side,[s*.197,.441,-.525],[s*.75,-.42,-.122],[1,0,0]);
     }else if(supported){
       const cy=kind==='chair'?.477:.459;
-      const az=bridge?.854:.998;
+      const az=bridge?.854:kind==='chair'?.754:.998;
       grounded(p,side,[s*(bridge?.053:.136),cy+floor,az],cy,bridge);
       if(bridge)resting(p,side,-.46);
       else if(kind==='overhead')arm(p,side,add(p[side+'s'],[s*.122,.244,-.531]),[s*.83,.03,-.345],[0,.50,-.86]);
@@ -133,10 +133,10 @@ function chairRow(phase,{kind,under=false,feetHigh=false}){
   const t=rep(phase);
   const high=feetHigh, seated=kind==='seat';
   const bent=kind==='bent'||kind==='chin';
-  const bar=[0,high?.888:.497,high?-.597:-.431];
-  const y=high?mix(.271,.669,t):seated?mix(.158,.359,t):mix(.139,.371,t);
-  const z=high?mix(.199,.013,t):seated?mix(-.246,-.001,t):mix(.102,.179,t);
-  const angle=high?mix(-1.57,-1.32,t):seated?mix(-.341,-.61,t):mix(-1.55,-1.39,t);
+  const bar=[0,seated?1.021:high?.888:.497,high||seated?-.597:-.431];
+  const y=high?mix(.271,.669,t):seated?mix(.154,.651,t):mix(.139,.371,t);
+  const z=high?mix(.199,.013,t):seated?mix(-.183,-.115,t):mix(.102,.179,t);
+  const angle=high?mix(-1.57,-1.32,t):seated?mix(-.913,-.28,t):mix(-1.55,-1.39,t);
   const pose=stand([0,y,z],angle);
   for(const[side,s]of sides){
     const fy=high?.477+floor:floor;
@@ -151,12 +151,12 @@ function chairRow(phase,{kind,under=false,feetHigh=false}){
 function pikePress(phase,{kind}){
   const t=rep(phase);
   const chair=kind==='chairs', decline=kind==='decline'||kind==='feet-bench';
-  const hip=[0,.981-.221*t+(decline?.215:0),-.219-.016*t];
+  const hip=[0,.853-.127*t+(decline?.299:0),-.361+.047*t];
   const angle=mix(1.944,2.112,t);
   const pose=stand(hip,angle);
   for(const[side,s]of sides){
     const stack=decline?.561:0;
-    leg(pose,side,[s*.154,stack+.115,decline?-.923:-.814],[s*.115,-.70,.24],[s*.013,-.103,.105],stack);
+    leg(pose,side,[s*.154,stack+.115,decline?-.923:-.745],[s*.115,-.70,.24],[s*.013,-.103,.105],stack);
     const surface=chair?.477:.411;
     const w=[s*(chair?.298:.293),surface+.067,chair?.358:.423];
     arm(pose,side,w,[s*.864,-.23,-.451],[s*.07,-.101,1],smallUp);
@@ -169,7 +169,7 @@ function supportedProne(phase,{kind}){
   const kick=kind==='kick', lat=kind==='lat', close=kind==='close';
   const chair=kind==='chair'||close;
   const deck=chair?.477:.459;
-  const hip=kick?[0,.759,-.337]:lat?[0,.521-.157*t,-.129-.115*t]:[0,.636-.137*t,-.279];
+  const hip=kick?[0,.759,-.337]:lat?[0,.521-.157*t,-.129-.115*t]:[0,.652-.137*t,-.419+.066*t];
   const p=stand(hip,lat?mix(.965,1.47,t):kick?1.27:mix(1.251,1.42,t));
   for(const[side,s]of sides){
     const zn=chair?.497:.519;
@@ -184,7 +184,7 @@ function supportedProne(phase,{kind}){
       if(kick&&side==='r') {
         const thigh=mix(-1.55,-2.89,t);
         legAngles(p,side,s,thigh,thigh-.124,.025);
-      } else leg(p,side,[s*.152,floor+.036,-.981],[s*.128,-.78,.211],[s*.012,-.101,.096],0);
+      } else leg(p,side,[s*.152,floor+.036,kick?-.981:-1.052],[s*.128,-.78,.211],[s*.012,-.101,.096],0);
       const w=[s*(close?.092:.166),deck+.049,zn];
       arm(p,side,w,[s*(close?.387:.75),-.455,-.65],flatHand,smallUp);
     }
@@ -194,10 +194,10 @@ function supportedProne(phase,{kind}){
 
 function romanSide(phase) {
   const t=rep(phase);
-  const hips=[0,.865,-.056], angle=mix(.973,1.36,t);
-  const p=stand(hips,angle,Math.PI/2,-.66);
+  const hips=[0,.852,.031], angle=mix(.77,1.960,t);
+  const p=torso(hips,angle,Math.PI/2);
   for(const[side,s]of sides){
-    leg(p,side,[s*.119,.338,-.555],[s*.085,.61,-.39],[s*.012,-.065,-.112]);
+    leg(p,side,[.035+s*.081,.264+s*.101,-.577],[s*.085,.15,-.39],[s*.012,-.065,-.112]);
     onHead(p,side);
   }
   return p;
@@ -241,8 +241,8 @@ function sideBenchBridge(phase){
   p.rs=[-.014,p.chest[1]-.093,p.chest[2]-.138];
   leg(p,'l',[.025,.541,.709],[.07,.80,.129],[.012,-.064,.128]);
   leg(p,'r',[-.036,.401+.060*t,.761],[-.69,.498,.209],[-.012,-.055,.123]);
-  p.re=[-.045,.077,p.rs[2]-.031];
-  p.rw=[-.361,.061,p.rs[2]-.213];
+  p.re=[-.045,.079,p.rs[2]-.031];
+  p.rw=[-.372,.066,p.rs[2]-.199];
   p.rFingers=[-1,-.03,-.09];p.rPalmSide=[0,1,0];
   arm(p,'l',add(p.lh,[.131,.126,.032]),[.82,-.36,-.25]);
   return p;
@@ -263,12 +263,13 @@ family(benchSquat,'gym-bench-squat',['quad','glute'],standView,[
   ['2561',{kind:'side-jump',equipment:'gym-bench-side',view:{yaw:32,focus:[.26,1.11,0],height:2.68}}],
 ]);
 family(benchHip,'gym-bench-flat',['glute','hamstring'],nearSide,[
-  ['0130',{kind:'hip'}],['1423',{kind:'reverse',view:{yaw:73}}],['5803',{kind:'reverse',view:{yaw:66}}],
-  ['3870',{kind:'frog',view:{yaw:59}}],
+  ['0130',{kind:'hip',equipment:'gym-hip-thrust-cross-bench'}],
+  ['1423',{kind:'reverse',view:{yaw:73,focus:[0,.72,-.61]}}],['5803',{kind:'reverse',view:{yaw:66,focus:[0,.72,-.61]}}],
+  ['3870',{kind:'frog',view:{yaw:59,focus:[0,.72,-.61]}}],
 ]);
 family(benchCurl,'gym-bench-flat',['core'],floorView,[
   ['4333',{kind:'circle',view:{yaw:55}}],['3838',{kind:'crunch'}],['0570',{kind:'pull',view:{yaw:73}}],
-  ['3499',{kind:'inverted',view:{yaw:71}}],
+  ['3499',{kind:'inverted',equipment:'gym-bench-behind',view:{yaw:71,focus:[0,.68,-.19]}}],
   ['3279',{kind:'floor',equipment:'gym-bench-front'}],['3280',{kind:'twist',equipment:'gym-bench-front',view:{yaw:49}}],
   ['7417',{kind:'overhead',equipment:'gym-bench-front',view:{yaw:63}}],
   ['3389',{kind:'chair',equipment:'gym-chair-front',view:{yaw:71}}],
@@ -277,7 +278,8 @@ family(benchCurl,'gym-bench-flat',['core'],floorView,[
 family(chairRow,'gym-row-chairs',['lat','biceps'],floorView,[
   ['3486',{kind:'chin',under:true,view:{yaw:69}}],['3388',{kind:'row'}],
   ['3485',{kind:'bent',view:{yaw:50}}],['3538',{kind:'row',under:true,view:{yaw:70}}],
-  ['3487',{kind:'seat',view:{yaw:64}}],['3550',{kind:'seat',under:true,view:{yaw:62}}],
+  ['3487',{kind:'seat',equipment:'gym-row-chairs-seat',view:{yaw:61}}],
+  ['3550',{kind:'seat',under:true,equipment:'gym-row-chairs-seat',view:{yaw:64}}],
   ['3536',{kind:'row',feetHigh:true,equipment:'gym-row-chairs-high',view:{yaw:75,focus:[0,.65,.21]}}],
   ['3537',{kind:'row',feetHigh:true,under:true,equipment:'gym-row-chairs-high',view:{yaw:64,focus:[0,.65,.21]}}],
 ]);
@@ -296,7 +298,7 @@ family(romanHinge,'extension-flat',['glute','hamstring','core'],nearSide,[
   ['0488',{kind:'hyper',view:{yaw:69}}],['0496',{kind:'nordic',equipment:'nordic-mat',view:floorView}],
   ['4988',{kind:'pads',equipment:'nordic-mat',view:{...floorView,yaw:67}}],
 ]);
-family(romanSide,'extension-45',['core'],nearSide,[['0002',{view:{yaw:71}}]]);
+family(romanSide,'extension-45',['core'],nearSide,[['0002',{view:{yaw:50}}]]);
 family(captain,'captains-chair',['core'],standView,[['5107',{view:{yaw:47}}]]);
 family(sideBenchBridge,'gym-bench-front',['core','adductor'],floorView,[['0568',{view:{yaw:59}}]]);
 

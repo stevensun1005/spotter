@@ -82,6 +82,9 @@ const boxDecks = {
   'gym-step-patrick':[.140,.075,.360,.47,.52],
   'gym-step-peterson':[.202,.075,.352,.47,.54],
   'gym-step-poliquin':[.174,.075,.352,.47,.54],
+  'gym-depth-deck':[.254,0,-.935,.607,.521],
+  'gym-depth-hurdle':[.254,0,-.935,.607,.521],
+  'gym-hop-board':[.078,0,.198,.452,.401],
 };
 
 function boxDeck(group,[height,x,z,width,depth]) {
@@ -131,6 +134,12 @@ function supportChair(group, x, z, turn=1) {
 
 function benchArrangements(group, preset) {
   if (preset==='gym-bench-flat') flatBench(group,0,.432,-.342);
+  if (preset==='gym-bench-behind') flatBench(group,0,.432,-.982,.43,.94);
+  if (preset==='gym-hip-thrust-cross-bench') flatBench(group,0,.432,-.560,.873,.421);
+  if (preset==='gym-hip-thrust-elevated') {
+    flatBench(group,0,.432,-.560,.873,.421);
+    boxDeck(group,[.159,0,.586,.542,.410]);
+  }
   if (preset==='gym-bench-front') flatBench(group,0,.459,.790);
   if (preset==='gym-bench-low') flatBench(group,0,.311,-.455);
   if (preset==='gym-bench-side') flatBench(group,.642,.435,.038);
@@ -144,18 +153,127 @@ function benchArrangements(group, preset) {
     if(preset==='gym-bench-pike-decline') flatBench(group,0,.561,-.969,.621,.581);
     if(preset==='gym-triple-dip') flatBench(group,0,.423,.842,.621,.563);
   }
-  if (['gym-dip-chairs','gym-pike-chairs','gym-row-chairs','gym-row-chairs-high'].includes(preset)) {
+  if (['gym-dip-chairs','gym-pike-chairs','gym-row-chairs','gym-row-chairs-high','gym-row-chairs-seat'].includes(preset)) {
     const row=preset.startsWith('gym-row');
     const high=preset.endsWith('high');
+    const seat=preset.endsWith('seat');
     const z=preset==='gym-pike-chairs'?.492:-.431;
     const spread=row?.523:.445;
-    for(const side of [-1,1]) supportChair(group,side*spread,z,row?-1:1);
+    for(const side of [-1,1]) {
+      supportChair(group,side*spread,z,row?-1:1);
+      if(seat) strut(group,[side*spread,.856,z-.172],[side*spread,1.011,z-.172]);
+    }
     if(row){
-      const y=high?.888:.497;
-      const depth=high?z-.166:z;
+      const y=seat?1.021:high?.888:.497;
+      const depth=high||seat?z-.166:z;
       cylinder(group,.025,1.293,steel,[0,y,depth]).rotateZ(Math.PI/2);
       if(high)supportChair(group,0,.971);
     }
+  }
+}
+
+function specialtySupport(group,preset) {
+  if (preset==='gym-ab-mat') {
+    box(group,trim,[.52,.021,.76],[0,.011,-.103]);
+    mesh(group,new THREE.SphereGeometry(.219, 36, 24),rubber,[0,.007,-.193]).scale.set(1,.291,.88);
+  }
+  if (preset==='gym-balance-pad') boxDeck(group,[.079,0,.04,.505,.416]);
+  if (preset==='gym-heel-wedges'||preset==='gym-bulgarian-heel') {
+    const h = preset==='gym-heel-wedges'?0:.468;
+    const lateral = h ? [.128] : [-.166,.166];
+    for(const x of lateral) {
+      cylinder(group,.098,.054,steel,[x,.027,h-.051]);
+      cylinder(group,.094,.009,rubber,[x,.056,h-.051]);
+    }
+  }
+  if (preset==='gym-bulgarian-heel'||preset==='gym-bulgarian-post') flatBench(group,0,.408,-.616,.47,.453);
+  if (preset==='gym-bulgarian-chair') supportChair(group,0,-.593,-1);
+  if (preset==='gym-support-post'||preset==='gym-bulgarian-post') {
+    const x=.486, z=.341;
+    box(group,trim,[.339,.041,.330],[x,.022,z]);
+    strut(group,[x,.048,z],[x,1.374,z]);
+    box(group,rubber,[.064,.236,.073],[x,1.142,z]);
+  }
+  if(preset==='gym-ghd') {
+    for(const side of [-1,1]) {
+      box(group,rubber,[.143,.049,.871],[side*.278,.031,-.196]);
+      strut(group,[side*.261,.058,-.086],[side*.152,.736,.045]);
+      const bolster=cylinder(group,.125,.221,rubber,[side*.123,.728,.052]);
+      bolster.rotation.z=Math.PI/2;
+    }
+    const roller=cylinder(group,.066,.443,rubber,[0,.872,-.410]);
+    roller.rotation.z=Math.PI/2;
+    strut(group,[0,.044,-.412],[0,.880,-.412]);
+    box(group,trim,[.435,.247,.042],[0,.740,-.502]);
+  }
+  if (preset==='gym-ball-wall-contact') box(group,steel,[1.42,1.86,.07],[0,.93,1.107]);
+  if (preset==='gym-ball-wall-contact-plain') box(group,steel,[1.42,1.86,.07],[0,.93,1.071]);
+  if (preset==='gym-heel-wedges-narrow') boxDeck(group,[.057,0,.068,.365,.240]);
+  if (preset==='gym-wall-squat-jump') box(group,steel,[1.48,2.36,.053],[0,1.18,-.268]);
+  if (preset==='gym-mini-trampoline') {
+    cylinder(group,.467,.025,rubber,[0,.182,0]);
+    const rim=mesh(group,new THREE.TorusGeometry(.477,.025,10,60),frame,[0,.188,0]);
+    rim.rotation.x=Math.PI/2;
+    for(let n=0;n<8;n++){
+      const angle=n*Math.PI/4;
+      const x=.43*Math.cos(angle), z=.43*Math.sin(angle);
+      cylinder(group,.025,.176,frame,[x,.091,z]);
+      cylinder(group,.041,.015,rubber,[x,.009,z]);
+    }
+  }
+  if (preset==='gym-depth-hurdle'||preset==='gym-lateral-hurdle') {
+    const lateral=preset==='gym-lateral-hurdle';
+    const track=new THREE.Group();
+    group.add(track);
+    if(lateral)track.rotation.y=Math.PI/2;
+    track.position.z=lateral?0:.592;
+    const height=lateral?.253:.343;
+    box(track,trim,[.863,.031,.038],[0,height,0]);
+    for(const side of [-1,1]){
+      box(track,steel,[.055,height,.044],[side*.422,height/2,0]);
+      box(track,rubber,[.094,.038,.269],[side*.422,.021,-.086]);
+    }
+  }
+  if (preset==='gym-jump-line') box(group,trim,[1.348,.004,.032],[0,.003,-.493]);
+  if (preset==='gym-floor-square') {
+    for(const s of [-1,1]) {
+      box(group,trim,[.017,.004,.884],[s*.442,.003,.028]);
+      box(group,trim,[.884,.004,.017],[0,.003,.028+s*.442]);
+    }
+  }
+  if(preset==='gym-depth-push-up') {
+    flatBench(group,0,.417,-.913,.64,.75);
+    for(const x of [-.375,.375])boxDeck(group,[.113,x,.438,.249,.306]);
+  }
+  if(preset==='gym-plank-benches'){
+    for(const z of [-.601,.945])flatBench(group,0,.425,z,.824,.36);
+  }
+  if(preset==='gym-chair-rear')supportChair(group,0,-.453,-1);
+  if(preset==='gym-kneel-chair')supportChair(group,0,.245,-1);
+  if(preset==='gym-front-support-chair')supportChair(group,0,.565,-1);
+  if(preset==='gym-calf-chair'){
+    supportChair(group,0,.591,-1);
+    boxDeck(group,[.137,0,.043,.558,.269]);
+  }
+  if(preset==='gym-wall-decline')box(group,steel,[1.36,2.25,.075],[0,1.125,-.791]);
+  if(preset==='gym-incline-side-bench')flatBench(group,0,.428,-.476,.705,.511);
+  if(preset==='gym-bench-dragon')flatBench(group,0,.432,.093,.439,1.12);
+  if(preset==='gym-floor-dragon-anchor'){
+    box(group,rubber,[.621,.041,.424],[0,.025,-.731]);
+    for(const side of [-1,1])strut(group,[side*.267,.043,-.702],[side*.267,.174,-.592]);
+    cylinder(group,.023,.564,steel,[0,.174,-.592]).rotateZ(Math.PI/2);
+  }
+  if(preset==='gym-shoulder-tap-decline')flatBench(group,0,.439,-.988,.714,.466);
+  if(preset==='gym-smith-push'){
+    for(const side of [-1,1]){
+      const x=side*.595;
+      box(group,trim,[.185,.048,.74],[x,.025,.584]);
+      box(group,frame,[.073,2.05,.072],[x,1.05,.649]);
+      cylinder(group,.018,1.90,steel,[x,1.06,.549]);
+      box(group,rubber,[.074,.106,.072],[x,.916,.553]);
+    }
+    cylinder(group,.019,1.444,steel,[0,.919,.553]).rotateZ(Math.PI/2);
+    box(group,frame,[1.27,.071,.071],[0,2.083,.650]);
   }
 }
 
@@ -284,6 +402,131 @@ function dipStations(group, preset) {
   if (cage) cylinder(group, .019, 1.283, steel, [0, 2.155, -.320]).rotation.z = Math.PI / 2;
 }
 
+function longDipStations(group,preset){
+  const long=preset==='long-parallel-dips';
+  const height=long?1.175:1.388;
+  const width=preset==='wide-parallel-dips'?.392:.266;
+  const start=long?-1.002:-.410;
+  const back=long?-.869:-.271;
+  for(const sign of [-1,1]){
+    const x=sign*width;
+    for(const z of [back,.210]){
+      box(group,rubber,[.212,.049,.184],[x,.027,z]);
+      strut(group,[x,.048,z],[x,height,z]);
+      cylinder(group,.028,.054,frame,[x,height-.053,z]);
+    }
+    const shaft=cylinder(group,.024,.478-start,steel,[x,height,(.478+start)/2]);
+    shaft.rotation.x=Math.PI/2;
+    const sleeve=cylinder(group,.027,long?.209:.249,rubber,[x,height,.052]);
+    sleeve.rotation.x=Math.PI/2;
+  }
+}
+
+function trainingStallBars(group){
+  for(const x of [-.545,.545]){
+    box(group,rubber,[.191,.061,.373],[x,.030,-.336]);
+    box(group,frame,[.076,2.171,.082],[x,1.089,-.358]);
+  }
+  const oak=new THREE.MeshStandardMaterial({color:0xa99c7e,roughness:.78,metalness:.04});
+  for(let index=0;index<10;index++){
+    const y=.145+index*.215;
+    const rung=cylinder(group,.022,1.094,oak,[0,y,-.311]);
+    rung.rotation.z=Math.PI/2;
+    for(const x of [-.545,.545]){
+      const cap=cylinder(group,.027,.035,steel,[x,y,-.311]);
+      cap.rotation.z=Math.PI/2;
+    }
+  }
+}
+
+function invertedRowTable(group){
+  const top=new THREE.MeshStandardMaterial({color:0xa29377,roughness:.76,metalness:.02});
+  box(group,top,[1.207,.064,.775],[0,1.011,-.747]);
+  box(group,frame,[1.161,.079,.618],[0,.933,-.791]);
+  for(const x of [-.525,.525])for(const z of [-1.042,-.461]){
+    strut(group,[x,.060,z],[x,.947,z]);
+    box(group,rubber,[.090,.036,.117],[x,.021,z]);
+  }
+  const front=cylinder(group,.023,1.117,steel,[0,.979,-.360]);
+  front.rotation.z=Math.PI/2;
+}
+
+function kneelingCableSeat(group){
+  for(const x of [-.319,.319]){
+    strut(group,[x,.075,-.704],[x,1.989,-.704]);
+    box(group,frame,[.158,.061,.846],[x,.035,-.597]);
+  }
+  strut(group,[-.319,1.989,-.704],[.319,1.989,-.704]);
+  for(let index=0;index<13;index++)box(group,rubber,[.486,.058,.195],[0,.068+.059*index,-.704]);
+  for(const x of [-.184,.184])cylinder(group,.011,1.67,steel,[x,1.012,-.704]);
+  box(group,rubber,[.470,.081,.436],[0,.456,.022]);
+  strut(group,[0,.053,.011],[0,.425,.011]);
+  box(group,frame,[.582,.053,.141],[0,.030,.005]);
+  box(group,frame,[.079,.268,.083],[0,.449,-.356]);
+  const shinRoller=cylinder(group,.068,.475,rubber,[0,.572,-.360]);
+  shinRoller.rotation.z=Math.PI/2;
+  box(group,frame,[.509,.278,.325],[0,.140,1.071]);
+  box(group,rubber,[.519,.053,.338],[0,.294,1.071]);
+}
+
+function fixedStretchBar(group,preset){
+  const low=preset==='fixed-triceps-press-bar';
+  const y=low?.886:preset==='fixed-hangback-bar'?1.491:1.057;
+  const z=low?.446:.312;
+  for(const x of [-.587,.587]){
+    box(group,rubber,[.189,.055,.514],[x,.026,z]);
+    strut(group,[x,.062,z],[x,y,z]);
+  }
+  const shaft=cylinder(group,.019,1.19,steel,[0,y,z]);
+  shaft.rotation.z=Math.PI/2;
+  for(const x of [-.220,.220]){
+    const grip=cylinder(group,.022,.217,trim,[x,y,z]);
+    grip.rotation.z=Math.PI/2;
+  }
+}
+
+function flagPost(group){
+  box(group,rubber,[.518,.053,.486],[0,.028,.083]);
+  box(group,frame,[.411,.046,.382],[0,.067,.083]);
+  cylinder(group,.034,2.247,steel,[.015,1.154,.083]);
+  for(const y of [.151,2.211])cylinder(group,.044,.081,trim,[.015,y,.083]);
+}
+
+function floorTowelPole(group){
+  box(group,rubber,[.279,.052,.286],[0,.028,-.695]);
+  strut(group,[0,.056,-.695],[0,1.041,-.695]);
+  cylinder(group,.044,.081,trim,[0,.518,-.695]);
+  const straps=[['l',1],['r',-1]].map(([side,sign])=>({side,sign,cloth:box(group,trim,[.070,1,.013],[0,0,0])}));
+  return pose=>{
+    for(const {side,sign,cloth} of straps){
+      const anchor=v([sign*.028,.514,-.695]);
+      const end=v(pose[side+'w']);
+      cloth.position.copy(anchor).lerp(end,.50);
+      cloth.scale.y=anchor.distanceTo(end);
+      cloth.quaternion.setFromUnitVectors(floorAxis,end.sub(anchor).normalize());
+    }
+  };
+}
+
+function climbingBoard(group,preset){
+  for(const x of [-.652,.652]){
+    box(group,rubber,[.182,.052,.523],[x,.025,-.091]);
+    strut(group,[x,.055,-.066],[x,2.224,-.066]);
+  }
+  const wood=new THREE.MeshStandardMaterial({color:0xa99876,roughness:.83,metalness:.01});
+  const gripMat=new THREE.MeshStandardMaterial({color:0x9e8a67,roughness:.87,metalness:.00});
+  box(group,frame,[1.379,.089,.114],[0,2.264,-.063]);
+  box(group,wood,[1.053,.211,.111],[0,2.234,.086]);
+  for(const sign of [-1,1]){
+    const x=sign*.241;
+    const ledge=box(group,gripMat,[.199,preset==='climbing-crimp-board'?.021:.030,.067],
+      [x,preset==='climbing-crimp-board'?2.166:2.180,preset==='climbing-sloper-board'?.163:.151]);
+    if(preset==='climbing-sloper-board')ledge.rotation.x=-.315;
+    for(const n of [.147,.336])box(group,rubber,[.077,.015,.007],[sign*n,2.272,.145]);
+    cylinder(group,.009,.004,steel,[sign*.475,2.265,.145]).rotateX(Math.PI/2);
+  }
+}
+
 function dipBenches(group, double) {
   const centers = double ? [-.471, .963] : [-.471];
   for (const z of centers) {
@@ -330,19 +573,43 @@ function dropSteps(group) {
 }
 
 function abBench(group, preset) {
-  const incline = preset === 'ab-incline';
+  const incline = preset === 'ab-incline'||preset==='ab-incline-anchored';
   const angle = preset === 'ab-steep' ? -.675 : incline ? .459 : -.443;
   const pad = box(group, rubber, [.471, .078, 1.087], [0, .531 - (preset === 'ab-steep' ? .034 : 0), -.096]);
   pad.rotation.x = angle;
   strut(group, [0, .039, -.467], [0, incline ? .648 : .277, -.441]);
   strut(group, [0, .044, .381], [0, incline ? .355 : .715, .322]);
   for (const z of [-.451, .403]) box(group, trim, [.565, .05, .121], [0, .036, z]);
-  if (incline) return;
+  if (incline) {
+    if(preset==='ab-incline-anchored'){
+      strut(group,[0,.053,.511],[0,.293,.537]);
+      for(const side of [-1,1])cylinder(group,.053,.224,rubber,[side*.146,.299,.531]).rotateZ(Math.PI/2);
+    }
+    return;
+  }
   strut(group, [0, .087, .516], [0, .548, .711]);
   for (const side of [-1, 1]) {
     cylinder(group, .057, .201, rubber, [side * .15, .581, .725]).rotateZ(Math.PI / 2);
     cylinder(group, .059, .196, rubber, [side * .15, .754, .451]).rotateZ(Math.PI / 2);
   }
+}
+
+function nordicSupport(group,preset){
+  const raised=preset==='gym-nordic-low-platform';
+  const bench=preset==='gym-nordic-floor-bench';
+  const base=raised?.103:0;
+  if(raised){
+    box(group,frame,[.652,.085,.832],[0,.042,-.367]);
+    box(group,rubber,[.649,.022,.826],[0,.092,-.365]);
+    box(group,rubber,[.502,.024,.433],[0,.013,.570]);
+  }else if(bench){
+    flatBench(group,0,.211,-.668,.692,.354);
+  }
+  for(const x of [-.309,.309]){
+    if(!raised&&!bench)box(group,trim,[.158,.040,.305],[x,.026,-.587]);
+    strut(group,[x,base+.019,-.603],[x,base+.178,-.603]);
+  }
+  cylinder(group,.048,.569,rubber,[0,base+.171,-.605]).rotateZ(Math.PI/2);
 }
 
 function captainsChair(group) {
@@ -499,6 +766,7 @@ export function buildBodyweightProps(group, preset) {
   if (preset?.startsWith('gym-')) {
     trainingDeck(group,preset);
     benchArrangements(group,preset);
+    specialtySupport(group,preset);
   }
   if (preset === 'extension-45' || preset === 'extension-flat') extensionBench(group, preset === 'extension-45');
   if (preset === 'doorway') doorway(group);
@@ -527,11 +795,19 @@ export function buildBodyweightProps(group, preset) {
     for(const x of [-1.091,1.091])box(group,steel,[.039,.059,1.72],[x,.944,0]);
     for(const z of [-.859,.859])box(group,steel,[2.21,.059,.039],[0,.944,z]);
   }
-  if (preset === 'ab-decline' || preset === 'ab-steep' || preset === 'ab-incline') abBench(group, preset);
+  if (preset === 'ab-decline' || preset === 'ab-steep' || preset === 'ab-incline' || preset==='ab-incline-anchored') abBench(group, preset);
+  if(preset?.startsWith('gym-nordic-'))nordicSupport(group,preset);
   if (preset === 'captains-chair') captainsChair(group);
   if (preset === 'under-bench') underBench(group);
   if (preset === 'balance-board') return balanceBoard(group);
   if (preset === 'training-towel') return towel(group);
+  if (preset === 'side-elbow-towel') {
+    const pad = new THREE.Group();
+    group.add(pad);
+    box(pad, trim, [.149,.039,.186], [0,0,0]);
+    for (const offset of [-.049,0,.049]) box(pad,frame,[.124,.003,.009],[0,.020,offset]);
+    return p=>pad.position.set(p.le[0]-.048,p.le[1]-.046,p.le[2]-.035);
+  }
   if (preset === 'slide-disc') return slideDisc(group);
   if (preset === 'fitness-rings' || preset?.endsWith('-suspension')) return suspension(group, preset);
   if (['handstand-wall','handstand-front-wall','handstand-bench-wall'].includes(preset)) handstandWall(group,preset);
@@ -548,6 +824,30 @@ export function buildBodyweightProps(group, preset) {
   }
   if (preset === 'back-plate') return backPlate(group);
   if (preset === 'parallel-dips' || preset === 'cage-dips' || preset === 'straight-dip') dipStations(group, preset);
+  if (['long-parallel-dips','tall-parallel-dips','wide-parallel-dips'].includes(preset)) longDipStations(group,preset);
+  if (preset === 'training-stall-bars') trainingStallBars(group);
+  if (preset === 'inverted-row-table') invertedRowTable(group);
+  if (preset === 'kneeling-cable-seat') kneelingCableSeat(group);
+  if (preset === 'seated-calf-raise-bench') {
+    flatBench(group,0,.505,-.256,.435,.462);
+    box(group,frame,[.559,.109,.385],[0,.055,.561]);
+    box(group,rubber,[.578,.023,.402],[0,.121,.560]);
+  }
+  if (['fixed-back-stretch-bar','fixed-hangback-bar','fixed-triceps-press-bar'].includes(preset)) fixedStretchBar(group,preset);
+  if (preset === 'stretch-incline-bench') {
+    flatBench(group,0,.451,.962,.454,.345);
+    box(group,rubber,[.462,.076,.748],[0,.758,.757]).rotation.x=.78;
+    strut(group,[0,.051,.741],[0,.617,.778]);
+    box(group,frame,[.572,.054,.116],[0,.031,.737]);
+  }
+  if (preset === 'deficit-wall-sit') {
+    box(group,steel,[1.297,2.164,.090],[0,1.084,-.690]);
+    box(group,frame,[.597,.111,.437],[0,.055,-.209]);
+    box(group,rubber,[.613,.021,.452],[0,.112,-.205]);
+  }
+  if (preset === 'human-flag-post') flagPost(group);
+  if (preset === 'floor-towel-pole') return floorTowelPole(group);
+  if (preset?.startsWith('climbing-')) climbingBoard(group,preset);
   if (preset === 'dip-bench' || preset === 'double-dip-bench') dipBenches(group, preset === 'double-dip-bench');
   if (preset === 'inverted-row' || preset === 'inverted-high-row') underhandRack(group, preset === 'inverted-high-row');
   if (preset === 'assault-bike') return assaultBike(group);

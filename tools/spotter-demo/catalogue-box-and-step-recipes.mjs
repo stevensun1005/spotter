@@ -49,8 +49,10 @@ function stepUp(phase,options,[h,x,z]){
   const behind=sideways?.0:-.319;
   const forward=sideways?.022:z-.075;
   const bounce=jump?.244*pulse(u,.57,.722,.754,.937):0;
+  const elbow=kind==='elbow';
   const pose=stand([dx*transfer,.855+h*transfer-.077*Math.sin(transfer*Math.PI)+bounce,mix(behind,forward-.048,transfer)],
-    .064+(glute?.52:.26)*Math.sin(transfer*Math.PI),kind==='elbow'?.55*stepSide*transfer:kind==='transverse'?.248*transfer:0);
+    .064+(glute?.52:.26)*Math.sin(transfer*Math.PI)+(elbow?.396*transfer:0),
+    elbow?-.54*stepSide*transfer:kind==='transverse'?.248*transfer:0,elbow?-.231*stepSide*transfer:0);
   for(const[side,s]of sides){
     const active=side===lead;
     const start=[s*.145,ankle,behind+.033];
@@ -64,7 +66,8 @@ function stepUp(phase,options,[h,x,z]){
     foot[1]+=bounce;
     sole(pose,side,s,foot,bounce>.002?undefined:surface);
   }
-  swing(pose,.43*transfer,kind==='elbow'?'head':'alternate');
+  swing(pose,.43*transfer,elbow?'head':'alternate');
+  if(elbow)arm(pose,lead,add(pose.head,[stepSide*.091,-.111,.035]),[stepSide*.28,-.684,.912],[0,.42,.887]);
   return pose;
 }
 
@@ -216,13 +219,15 @@ function touchBox(phase,{kind},[h,x,z]) {
 function heelAndCalf(phase,{kind},[h,x,z]) {
   const t=rep(phase,.32,.61);
   const hold=kind!=='jump';
-  const c=hold?[0,.846-.059*t,z+.455]:[x-.341,.852+.117*t,z];
-  const pose=stand(c,hold?.048+.133*t:.071+ .20*t);
-  sole(pose,'l',1,hold?[.158,ankle,z+.337]:[x-.326,ankle+.116*t,z],
+  const flexor=kind==='flexor';
+  const c=hold?[0,flexor?.817-.19*t:.846-.059*t,z+(flexor?.513+.254*t:.455)]:
+    [x-.562,.844+.124*t,z-.234];
+  const pose=stand(c,hold?.048+.133*t:.81-.095*t,hold?0:.71);
+  sole(pose,'l',1,hold?[.158,ankle,z+(flexor?.947:.337)]:[x-.514,ankle+.128*t,z-.229],
     hold||t<.002?0:undefined);
   if(hold)leg(pose,'r',[-.147,h+.089,z+.060],[-.127,-.56,.827],[0,-.063,-.132]);
-  else leg(pose,'r',[x-.545,.352+.092*t,z-.215],[-.27,-.67,-.34],[0,-.077,-.104]);
-  for(const[side,s]of sides)arm(pose,side,side==='l'&&!hold?[x-.195,h+.115,z+.138]:
+  else leg(pose,'r',[x-.751,.434+.111*t,z-.337],[-.27,-.67,-.34],[0,-.077,-.104]);
+  for(const[side,s]of sides)arm(pose,side,side==='l'&&!hold?[x-.266,h+.074,z-.147]:
     add(pose[side+'s'],[s*.087,-.549,.008]),[s*.76,-.49,-.15],[0,-.061,1],[0,1,0]);
   return pose;
 }
@@ -234,7 +239,7 @@ group(stepUp,'gym-box-standard',['quad','glute'],frontCam,[
   ['4795',{kind:'single',equipment:'gym-step-bench'}],['3711',{kind:'single',view:{yaw:57}}],
   ['0799',{kind:'cross',view:{yaw:32}}],['9490',{kind:'basic',view:{yaw:58}}],
   ['3444',{kind:'basic',equipment:'gym-step-chair',view:{yaw:-53}}],
-  ['0800',{kind:'elbow',view:{yaw:30}}],['1602',{kind:'transverse',sideways:true,equipment:'gym-box-side',view:sideCam}],
+  ['0800',{kind:'elbow',side:'r',view:{yaw:-33}}],['1602',{kind:'transverse',sideways:true,equipment:'gym-box-side',view:sideCam}],
   ['3765',{jump:true,kind:'knee',equipment:'gym-box-low',view:{yaw:62}}],
   ['5154',{kind:'basic',sideways:true,equipment:'gym-box-side',view:sideCam}],
   ['5155',{kind:'lateral-knee',sideways:true,equipment:'gym-box-side',view:sideCam}],
@@ -268,9 +273,9 @@ group(touchBox,'gym-box-rear',['quad','core'],frontCam,[
   ['2984',{kind:'hold',view:{yaw:63,focus:[0,.89,-.045],height:2.25}}],
 ]);
 group(heelAndCalf,'gym-box-rear',['quad','glute'],frontCam,[
-  ['4674',{kind:'stretch',duration:6400,view:{yaw:72,focus:[0,.84,-.04],height:2.22}}],
+  ['4674',{kind:'flexor',duration:6400,view:{yaw:72,focus:[0,.84,-.04],height:2.22}}],
   ['1954',{kind:'stretch',duration:6300,view:{yaw:64,focus:[0,.83,-.04],height:2.23}}],
-  ['10755',{kind:'jump',equipment:'gym-box-side',muscles:['calf'],view:sideCam}],
+  ['10755',{kind:'jump',equipment:'gym-box-high',muscles:['calf'],view:{yaw:-42,focus:[-.18,.91,.48]}}],
 ]);
 
 const [directory,...ids]=process.argv.slice(2);

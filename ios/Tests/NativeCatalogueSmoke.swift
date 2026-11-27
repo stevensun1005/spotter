@@ -39,12 +39,7 @@ struct NativeCatalogueSmoke {
     }
 
     private static func verifyDemos(_ index: NativeCatalogIndex, root: URL) throws {
-        let drawn = index.entry(withID: "5965")!
-        let drawing = index.drawing(for: drawn)!
-        precondition(drawing.frames.count > 2 && drawing.frameDuration > 0)
-        let initial = drawing.frames[0].flatMap(\.points)
-        precondition(drawing.frames.dropFirst().contains { $0.flatMap(\.points) != initial })
-        for id in ["0047", "4455", "0288", "1047", "2291", "3893", "3666"] {
+        for id in ["0047", "4455", "0288", "1047", "2291", "3893", "3666", "5965"] {
             let entry = index.entry(withID: id)!
             precondition(index.animationData(for: entry) == nil)
             guard let url = index.bundledVideoURL(for: entry) else {
@@ -66,6 +61,7 @@ struct NativeCatalogueSmoke {
         for (id, path) in spotterDemos {
             let entry = index.entry(withID: id)!
             precondition(entry.hasCover && index.coverData(for: entry)?.prefix(2) == Data([0xff, 0xd8]))
+            precondition(index.drawing(for: entry) == nil && index.animationData(for: entry) == nil)
             precondition(index.bundledVideoURL(for: entry)?.path.hasSuffix("/video/spotter-3d/" + id + ".mp4") == true)
             precondition(index.videoURL(for: entry)?.path == path)
         }

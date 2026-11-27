@@ -103,8 +103,8 @@ export function standingStretchGuideMotion(guide, profile) {
       }
       if (mode === "deepAchilles") target[2] += .146 * hipProjection(frame);
       if (mode === "toeSquat") {
-        target = [sign * .135, .201, .105];
-        toe = [sign * .019, -.172, .062];
+        target = [sign * .135, .138, .105];
+        toe = [sign * .018, -.123, .080];
         pole = [sign * .19, .021, .979];
       }
       leg(pose, side, target, pole, toe, planted ? 0 : undefined);

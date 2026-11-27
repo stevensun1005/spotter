@@ -167,6 +167,12 @@ export function createSkinnedAvatar(female=false) {
     return transform;
   }
 
+  function rotateAt(transform, pivot, axis, angle) {
+    const rotation = new T.Matrix4().makeRotationAxis(axis, angle);
+    rotation.setPosition(pivot.clone().sub(pivot.clone().applyMatrix4(rotation)));
+    return rotation.multiply(transform);
+  }
+
   function update(pose, fingerBand = false) {
     const bandContacts = fingerBand ? {} : null;
     const hip = mid(vec(pose.lh),vec(pose.rh));
@@ -205,7 +211,13 @@ export function createSkinnedAvatar(female=false) {
       const restFoot = limbs.get('foot_'+s);
       if (toe.distanceToSquared(ankle) < .0001) toe.add(flatFoot);
       const footMid = toe.clone().sub(ankle).normalize().multiplyScalar(restFoot.length).add(ankle);
-      const foot = aim('foot_'+s, ankle,footMid,side);
+      const toeDirection=footMid.clone().sub(ankle).normalize();
+      let foot = aim('foot_'+s, ankle,footMid,side);
+      const roll=pose[s+'FootRoll']??0;
+      if (roll) {
+        foot=rotateAt(foot,ankle,toeDirection,roll);
+        place('foot_'+s,foot);
+      }
       const floor=pose.planted?.[s];
       if (Number.isFinite(floor) && soles[s].length) {
         let bottom=Infinity;
@@ -217,7 +229,10 @@ export function createSkinnedAvatar(female=false) {
         place('foot_'+s,foot);
       }
       aim('calf_'+s, knee,ankle,side);
-      place('ball_'+s,foot);
+      const flex=pose[s+'ToeFlex']??0;
+      const toePivot=flex ? point('ball_'+s).clone().applyMatrix4(foot) : null;
+      const toeHinge=flex ? lateral.clone().transformDirection(foot) : null;
+      place('ball_'+s,flex ? rotateAt(foot,toePivot,toeHinge,-flex) : foot);
 
       const shoulder = vec(pose[s+'s']), elbow=vec(pose[s+'e']), grasp=vec(pose[s+'w']);
       const authoredFingers = pose[s+'Fingers'];

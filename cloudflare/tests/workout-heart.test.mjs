@@ -494,21 +494,16 @@ test("catalogue demos follow the selected exercise and apply only reviewed corre
 
 test("catalogue cards use the same reviewed media as the selected exercise", async () => {
   const { catalogueDemo, catalogueCover } = await import("../features/exercises/catalogue-demo.ts");
+  const { catalogueMotion } = await import("../features/exercises/motion-data.ts");
   const { rows } = JSON.parse(readFileSync(new URL("../public/open-gym/index.json", import.meta.url), "utf8"));
-  const cover = (id) => catalogueCover(catalogueDemo(rows.find((row) => row.id === id)));
-  const spotter = JSON.parse(readFileSync(new URL("../features/exercises/spotter-demo-assets.json", import.meta.url), "utf8"));
-  for (const [id, path] of Object.entries(spotter)) {
-    assert.equal(cover(id), path.replace(/\.mp4$/, ".jpg"), id);
+  for (const row of rows) {
+    const demo = catalogueDemo(row);
+    const base = "/open-gym/spotter-3d/" + row.id;
+    assert.equal(demo.video, base + ".mp4", row.id);
+    assert.equal(catalogueCover(demo), base + ".jpg", row.id);
   }
-  assert.equal(cover("0288"), "/open-gym/spotter-3d/0288.jpg");
-  assert.equal(cover("6813"), "/open-gym/spotter-3d/6813.jpg");
-  assert.equal(cover("0047"), "/open-gym/spotter-3d/0047.jpg");
-  assert.equal(cover("3905"), "/open-gym/spotter-3d/3905.jpg");
-  assert.equal(cover("2204"), "/open-gym/spotter-3d/2204.jpg");
-  const lineDemo = rows.find((row) => !spotter[row.id] && catalogueDemo(row).illustration);
-  if (lineDemo) {
-    assert.match(decodeURIComponent(cover(lineDemo.id)), /^data:image\/svg\+xml,<svg/);
-  }
+  const { illustration } = catalogueMotion(rows.find(({ id }) => id === "2204"));
+  assert.match(decodeURIComponent(catalogueCover({ illustration })), /^data:image\/svg\+xml,<svg/);
 });
 
 test("reviewed catalogue names keep existing workouts linked", async () => {

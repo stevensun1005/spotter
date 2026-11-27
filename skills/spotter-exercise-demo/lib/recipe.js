@@ -1,13 +1,15 @@
 import { seatedErgometers } from './seated-ergometer-geometry.js';
 import { assistedExercises } from './assisted-exercise-geometry.js';
 import { leverPulls } from './lever-pull-geometry.js';
+import { agilityLayouts } from './agility-layouts.js';
 
 const joints = ['hips', 'chest', 'neck', 'head', 'ls', 'le', 'lw', 'rs', 're', 'rw',
   'lh', 'lk', 'la', 'lt', 'rh', 'rk', 'ra', 'rt'];
 const optionalVectors = ['lGrip', 'rGrip', 'lFingers', 'rFingers', 'lPalmSide', 'rPalmSide', 'headAim'];
+const footAngles = ['lToeFlex', 'rToeFlex', 'lFootRoll', 'rFootRoll'];
 const musclePattern = /^(?:(?:l|r):)?(?:lat|quad|glute|pec|core|shoulder|rearShoulder|forearm|biceps|triceps|trap|calf|hamstring|adductor|shin|neck)$/;
 const cardioEquipment = [
-  'rig-contact-wall', 'rig-contact-tall-wall', 'rig-suitcase-bar', 'rig-goblet-plates', 'rig-single-carry', 'rig-single-kettlebell', 'rig-pass-ball', 'rig-slam-ball', 'rig-bike', 'rig-treadmill', 'rig-run-belt', 'rig-elliptical', 'rig-stepmill', 'rig-rower', 'rig-kettles-carry', 'rig-trap-carry', 'rig-jump-rope',
+  'rig-contact-wall', 'rig-contact-tall-wall', 'rig-contact-corner', 'rig-contact-jamb', 'rig-contact-wall-low-step', 'rig-suitcase-bar', 'rig-goblet-plates', 'rig-single-carry', 'rig-single-kettlebell', 'rig-pass-ball', 'rig-slam-ball', 'rig-bike', 'rig-treadmill', 'rig-run-belt', 'rig-elliptical', 'rig-stepmill', 'rig-rower', 'rig-kettles-carry', 'rig-trap-carry', 'rig-jump-rope',
 ];
 const validEquipment = new Set([...cardioEquipment, 'none', 'mat', 'step', 'step-dumbbells', 'dumbbell', 'dumbbells',
   'mat-dumbbells', 'chest-bench-dumbbells', 'band', 'band-ankle', 'stretch-band', 'mat-stretch-band', 'high-stretch-band', 'barbell', 'trap-bar', 'bench', 'bench-barbell', 'bench-dumbbell', 'bench-dumbbells', 'neutral-pull-up', 'pull-up', 'cable', 'dual-cable', 'cable-lat-bar', 'leg-curl', 'rope', 'landmine']);
@@ -20,6 +22,11 @@ for (const preset of Object.keys(leverPulls)) validEquipment.add(preset);
 for (const preset of Object.keys(assistedExercises)) validEquipment.add(preset);
 for(const preset of ['assisted-low-bar','assisted-squat-bar'])validEquipment.add(preset);
 validEquipment.add('hanging-arm-slings');
+const pullUpVariants = new Map([['pull-up-assist-box','bar'],['pull-up-lifted-box','bar'],['body-cage-neutral','neutral'],['body-cage-wide','wide'],
+  ['assisted-jump-bar','assisted-jump'],['assisted-knee-slider','assisted-knee'],['pull-up-offset-towel','bar'],
+  ['inverted-row-slider','assisted-low'],
+  ['seated-pull-up-bar','assisted-seated'],['seated-pull-up-elevated','assisted-elevated'],['monkey-bars','monkey']]);
+for(const preset of pullUpVariants.keys())validEquipment.add(preset);
 
 const smallPropPresets = {
   'spotter-med-ball': 'medicine', 'spotter-med-ball-mat': 'medicine', 'spotter-med-ball-bench': 'medicine',
@@ -51,13 +58,28 @@ for (const preset of seatedErgometers) validEquipment.add(preset);
 const bodyweightProps = new Set([
   'extension-45', 'extension-flat', 'doorway', 'plyo-box', 'back-plate', 'assault-bike', 'incline-treadmill', 'push-up-handles',
   'parallel-dips', 'cage-dips', 'straight-dip', 'dip-bench', 'double-dip-bench', 'inverted-row', 'inverted-high-row',
-  'handstand-wall', 'handstand-front-wall', 'handstand-bench-wall', 'drop-steps', 'ab-decline', 'ab-steep', 'ab-incline', 'captains-chair', 'under-bench',
-  'balance-board', 'training-towel', 'slide-disc', 'fitness-rings', 'row-suspension',
+  'tall-parallel-dips', 'wide-parallel-dips', 'long-parallel-dips', 'inverted-row-table', 'training-stall-bars', 'kneeling-cable-seat',
+  'fixed-back-stretch-bar', 'fixed-hangback-bar', 'human-flag-post', 'floor-towel-pole',
+  'climbing-hangboard', 'climbing-sloper-board', 'climbing-crimp-board',
+  'seated-calf-raise-bench',
+  'stretch-incline-bench', 'fixed-triceps-press-bar', 'deficit-wall-sit',
+  'handstand-wall', 'handstand-front-wall', 'handstand-bench-wall', 'drop-steps', 'ab-decline', 'ab-steep', 'ab-incline', 'ab-incline-anchored', 'captains-chair', 'under-bench',
+  'balance-board', 'training-towel', 'side-elbow-towel', 'slide-disc', 'fitness-rings', 'row-suspension',
   'front-suspension', 'press-suspension', 'foot-suspension', 'conditioning-line', 'conditioning-cones', 'conditioning-chair', 'conditioning-water',
   'gym-box-low','gym-box-standard','gym-box-high','gym-box-side','gym-box-rear','gym-box-stairs',
   'gym-step-patrick','gym-step-peterson','gym-step-poliquin','gym-step-bench','gym-step-chair',
   'gym-bench-flat','gym-bench-front','gym-bench-low','gym-bench-side','gym-bench-squat','gym-bench-pike','gym-bench-pike-decline',
   'gym-dip-chairs','gym-pike-chairs','gym-row-chairs','gym-row-chairs-high','gym-chair-front','gym-chair-wall','gym-triple-dip',
+  'gym-row-chairs-seat','gym-hip-thrust-cross-bench','gym-bench-behind',
+  'gym-ghd','gym-heel-wedges','gym-bulgarian-heel','gym-bulgarian-post','gym-bulgarian-chair','gym-balance-pad',
+  'gym-support-post','gym-ab-mat','gym-ball-wall-contact',
+  'gym-depth-deck','gym-depth-hurdle','gym-lateral-hurdle','gym-hop-board','gym-mini-trampoline','gym-jump-line',
+  'gym-depth-push-up','gym-wall-squat-jump','gym-floor-square','gym-plank-benches',
+  'gym-calf-chair','gym-chair-rear','gym-wall-decline','gym-smith-push','gym-bench-dragon','gym-incline-side-bench',
+  'gym-ball-wall-contact-plain','gym-heel-wedges-narrow',
+  'gym-hip-thrust-elevated','gym-shoulder-tap-decline','gym-kneel-chair',
+  'gym-nordic-rollers','gym-nordic-low-platform','gym-nordic-floor-bench',
+  'gym-front-support-chair','gym-floor-dragon-anchor',
 ]);
 for (const preset of bodyweightProps) validEquipment.add(preset);
 
@@ -68,7 +90,7 @@ for(const [preset, kind] of [['rings-elevated-row','ring'],['straps-elevated-wei
   ['mat-adjustable-foot-straps','foot'],['braced-adjustable-foot-straps','foot']])suspensionPresets.set(preset,kind);
 for (const preset of suspensionPresets.keys()) validEquipment.add(preset);
 
-const calfRails = new Map([['calf-step-rail', 'step'], ['calf-stair-rail', 'stairs']]);
+const calfRails = new Map([['calf-step-rail', 'step'], ['calf-stair-rail', 'stairs'],['calf-step-rail-low','step']]);
 for (const preset of calfRails.keys()) validEquipment.add(preset);
 
 const bandSupports = new Map([['seat-stretch-band', 'seat'], ['high-seat-stretch-band', 'seat'], ['bench-stretch-band', 'flat'], ['post-stretch-band', 'post'], ['post-seat-stretch-band', 'post-seat'], ['mat-post-stretch-band', 'post'], ['incline-stretch-band', 'incline']]);
@@ -411,9 +433,18 @@ for(const preset of specialtyWeights)validEquipment.add('weighted-'+preset);
 const stoneWeights = new Set(['power-stairs','stones','platform-load','stone-press']);
 const strongmanProps = new Map(['mace','sledge-training','training-stick','mas-board','log','keg','height-weight','atlas',
   'iron','shield','fingal','hercules','cross-weights','timber','viking'].map(prop=>['spotter-strongman-'+prop,prop]));
+strongmanProps.set('spotter-training-stick-mat','training-stick');
 for(const preset of strongmanProps.keys())validEquipment.add(preset);
 const strongmanBallProps = new Set(['keg','height-weight','atlas']);
 const strongmanStickProps = new Set(['mace','sledge-training','training-stick','mas-board']);
+const trainingTargets = new Set(['boxing-bag','boxing-pad','kick-shield']);
+const compressibleHandProps = new Set(['assessment-hand-ball','assessment-hand-table']);
+const bodyweightSpecialties = new Set([...trainingTargets,'towel-hand','towel-floor-feet','towel-floor-feet-single','towel-floor-hands',
+  'towel-floor-hands-single','towel-wall','towel-strap','towel-loop','towel-loop-chair','towel-single-anchor','towel-anchor-high','sheet-free','home-door-frame','home-door-sheet','home-table-row','home-table-wrist',...Object.keys(agilityLayouts),...compressibleHandProps,
+  'assessment-flex-box','assessment-seat','assessment-exam-table','assessment-leg-table','assessment-neck-table',
+  'recreation-bike','recreation-aquabike','recreation-inline-skates','recreation-hoop',
+  'stretch-floor-pillow','stretch-padded-chair','stretch-lateral-bench','stretch-front-box','stretch-kneeling-bench']);
+for (const prop of bodyweightSpecialties) validEquipment.add('spotter-'+prop);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -454,6 +485,9 @@ function bodyPose(frame, index) {
   for (const key of ['lFingerCurl', 'rFingerCurl', 'lFingerSpread', 'rFingerSpread', 'lThumbExtend', 'rThumbExtend']) {
     if (frame[key] != null) pose[key] = number(frame[key], 0, 1, 'finger curl');
   }
+  for (const key of footAngles) {
+    if (frame[key] != null) pose[key] = number(frame[key], -.95, .95, key);
+  }
   pose.planted = {};
   for (const side of ['l', 'r']) {
     if (frame.planted?.[side] != null) {
@@ -472,6 +506,9 @@ function blendBody(a, b, weight) {
   }
   for (const key of ['lFingerCurl', 'rFingerCurl', 'lFingerSpread', 'rFingerSpread', 'lThumbExtend', 'rThumbExtend']) {
     if (a[key] != null && b[key] != null) pose[key] = mix(a[key], b[key], weight);
+  }
+  for (const key of footAngles) {
+    if (a[key] != null || b[key] != null) pose[key] = mix(a[key] ?? 0, b[key] ?? 0, weight);
   }
   pose.planted = {};
   for (const side of ['l', 'r']) {
@@ -495,7 +532,9 @@ export function prepareRecipe(input) {
     ((equipment.endsWith('-dumbbell') || equipment.endsWith('-dumbbells')) ? dumbbellSupport : undefined);
   const catalogueSmallProp = smallPropPresets[equipment];
   const supportedBand = supportedBands.get(equipment);
+  const bodyweightSpecialty=equipment.startsWith('spotter-')&&bodyweightSpecialties.has(equipment.slice(8)) ? equipment.slice(8) : undefined;
   const options = {
+    bodyweightSpecialty,
     strongmanProp: strongmanProps.get(equipment),
     specialtyWeight: specialtyWeights.has(equipment.slice(9)) && equipment.startsWith('weighted-') ? equipment.slice(9) : undefined,
     catalogueSmallProp,
@@ -541,14 +580,18 @@ export function prepareRecipe(input) {
     singleCarry: equipment === 'rig-single-carry',
     trapCarry: equipment === 'rig-trap-carry',
     jumpRope: equipment === 'rig-jump-rope',
-    projectile: equipment === 'rig-pass-ball' || equipment === 'rig-slam-ball' || catalogueSmallProp === 'medicine' || catalogueSmallProp === 'bosu-medicine' || catalogueSmallProp?.startsWith('massage') === true,
+    projectile: equipment === 'rig-pass-ball' || equipment === 'rig-slam-ball' || equipment === 'gym-ball-wall-contact' ||
+      catalogueSmallProp === 'medicine' || catalogueSmallProp === 'bosu-medicine' || catalogueSmallProp?.startsWith('massage') === true,
     massageBall: catalogueSmallProp?.startsWith('massage') ? catalogueSmallProp : undefined,
     targetWall: equipment === 'rig-pass-ball' || equipment === 'spotter-med-ball-wall-mat' || equipment === 'spotter-med-ball-wall-tall',
     tallTargetWall: equipment === 'spotter-med-ball-wall-tall',
     singleKettlebell: supportedBand?.bell === true || equipment === 'rig-single-kettlebell' || equipment === 'rig-goblet-plates',
     heelPlates: equipment === 'rig-goblet-plates',
-    contactWall: equipment === 'rig-contact-wall' || equipment === 'rig-contact-tall-wall',
+    contactWall: ['rig-contact-wall', 'rig-contact-tall-wall', 'rig-contact-corner', 'rig-contact-jamb', 'rig-contact-wall-low-step'].includes(equipment),
     tallContactWall: equipment === 'rig-contact-tall-wall',
+    cornerContactWall: equipment === 'rig-contact-corner',
+    jambContactWall: equipment === 'rig-contact-jamb',
+    lowStepContactWall: equipment === 'rig-contact-wall-low-step',
     suitcaseBar: equipment === 'rig-suitcase-bar',
     rope: equipment === 'rope' || catalogueCable?.rope === true,
     band: equipment === 'band' || equipment === 'band-ankle',
@@ -571,10 +614,11 @@ export function prepareRecipe(input) {
     stretchBand: equipment.endsWith('stretch-band') || Boolean(kettleSupports.get(equipment)?.band) ||
       ['bench-band-dumbbells','bench-hip-band-dumbbell','wall-band-dumbbell','wall-band-dumbbells'].includes(equipment),
     highMount: equipment === 'high-stretch-band' || equipment === 'high-seat-stretch-band',
-    pullUp: supportedBand?.pullUp ?? catalogueCable?.pullUp ?? wearable?.pullUp ?? ({ 'neutral-pull-up': 'neutral',
+    pullUp: supportedBand?.pullUp ?? catalogueCable?.pullUp ?? wearable?.pullUp ?? pullUpVariants.get(equipment) ?? ({ 'neutral-pull-up': 'neutral',
       'narrow-neutral-pull-up': 'narrow-neutral', 'pull-up': 'bar', 'wide-pull-up': 'wide',
       'assisted-low-bar':'assisted-low','assisted-squat-bar':'assisted-squat','hanging-arm-slings':'bar' })[equipment],
     armSlings: equipment === 'hanging-arm-slings',
+    pullUpAccessory: pullUpVariants.has(equipment) ? equipment : undefined,
     latBar: equipment === 'cable-lat-bar',
     cableAnkle: equipment === 'cable-ankle' || Boolean(catalogueCable?.ankle),
     legCurl: equipment === 'leg-curl' || equipment === 'standing-leg-curl',
@@ -586,15 +630,15 @@ export function prepareRecipe(input) {
     stabilityBall: supportedBand?.ball === true || ['stability-ball', 'stability-ball-wall', 'ez-stability-ball', 'barbell-stability-ball'].includes(equipment) || stabilityBallPresets.has(equipment) || singleBallPresets.has(equipment) ||
       ['ball', 'incline-ball', 'wall-ball', 'wall-ball-knees', 'wall-ball-ankles'].includes(dumbbellAccessory) || catalogueCable?.support === 'ball',
     nordicAnchor: supportedBand?.nordic === true || equipment === 'nordic-mat',
-    handRoller: supportedBand?.roller === true || equipment === 'hand-roller' || strongmanStickProps.has(strongmanProps.get(equipment)) || catalogueSmallProp?.startsWith('tiger-tail') === true ||
+    handRoller: supportedBand?.roller === true || equipment === 'hand-roller' || strongmanStickProps.has(strongmanProps.get(equipment)) || bodyweightSpecialty != null || catalogueSmallProp?.startsWith('tiger-tail') === true ||
       ['foam', 'foam-wall', 'foam-long', 'wheel', 'wheel-band', 'wheel-wall'].includes(catalogueSmallProp),
     landmine: equipment === 'landmine' || landmineSupports.has(equipment),
     landmineSupport: landmineSupports.get(equipment),
-    mat: equipment==='mat-adjustable-foot-straps' || equipment.includes('-mat-stretch-band') || wearable?.mat === true || dumbbellAccessory === 'floor-mat' || catalogueCable?.mat === true || ['mat', 'mat-stretch-rope', 'mat-stretch-band', 'mat-post-stretch-band', 'nordic-mat', 'stability-ball', 'stability-ball-wall',
+    mat: equipment==='spotter-stretch-floor-pillow'||equipment==='spotter-training-stick-mat'||equipment==='mat-adjustable-foot-straps' || equipment.includes('-mat-stretch-band') || wearable?.mat === true || dumbbellAccessory === 'floor-mat' || catalogueCable?.mat === true || ['mat', 'gym-kneel-chair','gym-nordic-rollers','gym-nordic-floor-bench', 'side-elbow-towel', 'mat-stretch-rope', 'mat-stretch-band', 'mat-post-stretch-band', 'nordic-mat', 'stability-ball', 'stability-ball-wall',
       'spotter-med-ball-mat', 'spotter-med-ball-wall-mat', 'spotter-massage-ball', 'spotter-massage-headrest',
       'spotter-foam-roller', 'spotter-foam-long', 'spotter-tiger-tail', 'spotter-ab-wheel-stretch-band'].includes(equipment),
     step: equipment === 'step' || equipment === 'step-dumbbells' || dumbbellAccessory === 'step' || calfRails.has(equipment) || Boolean(wearable?.calfRail),
-    lowStep: equipment === 'step-dumbbells',
+    lowStep: equipment === 'step-dumbbells' || equipment === 'calf-step-rail-low',
     calfRail: wearable?.calfRail ?? calfRails.get(equipment),
     vibrationStation: wearable?.variation === 'vibration',
   };
@@ -610,7 +654,8 @@ export function prepareRecipe(input) {
   const pairedSled = options.leverPressProp === 'station-hack-comparison';
   const pairedDumbbells = formComparison && options.bells > 0;
   const pairedBarbell = options.barbellSupport?.endsWith('--comparison') === true;
-  const comparisonGear = pairedSled || pairedDumbbells || pairedBarbell || (formComparison && options.bodyweightProp === 'dip-bench');
+  const comparisonGear = pairedSled || pairedDumbbells || pairedBarbell ||
+    (formComparison && ['dip-bench','gym-incline-side-bench'].includes(options.bodyweightProp));
   assert(!comparisonGear || formComparison, 'Paired equipment requires a form comparison.');
   const barbellPoints = (barbell) => ({center: vector(barbell?.center, 'barbell center'), axis: axis(barbell?.axis, 'barbell axis')});
   function leverPoints(frame,initial) {
@@ -633,7 +678,7 @@ export function prepareRecipe(input) {
       pose.bellCenter = vector(frame.bellCenter, 'bellCenter');
       pose.bellTilt = number(frame.bellTilt ?? 0, -2, 2, 'bellTilt');
     }
-    if (options.projectile || options.stabilityBall || stoneWeights.has(options.specialtyWeight) || strongmanBallProps.has(options.strongmanProp)) pose.ballCenter = vector(frame.ballCenter, 'ballCenter');
+    if (options.projectile || options.stabilityBall || stoneWeights.has(options.specialtyWeight) || strongmanBallProps.has(options.strongmanProp) || trainingTargets.has(options.bodyweightSpecialty) || compressibleHandProps.has(options.bodyweightSpecialty)) pose.ballCenter = vector(frame.ballCenter, 'ballCenter');
     if (options.secondaryBallRadius) pose.secondaryBallCenter = vector(frame.secondaryBallCenter, 'second stability ball center');
     if (catalogueSmallProp === 'tire') {
       pose.tireCenter = vector(frame.tireCenter, 'tire center');
@@ -767,7 +812,7 @@ export function prepareRecipe(input) {
       pose.bellCenter = blend(a.bellCenter, b.bellCenter, weight);
       pose.bellTilt = mix(a.bellTilt, b.bellTilt, weight);
     }
-    if (options.projectile || options.stabilityBall || stoneWeights.has(options.specialtyWeight) || strongmanBallProps.has(options.strongmanProp)) pose.ballCenter = blend(a.ballCenter, b.ballCenter, weight);
+    if (options.projectile || options.stabilityBall || stoneWeights.has(options.specialtyWeight) || strongmanBallProps.has(options.strongmanProp) || trainingTargets.has(options.bodyweightSpecialty) || compressibleHandProps.has(options.bodyweightSpecialty)) pose.ballCenter = blend(a.ballCenter, b.ballCenter, weight);
     if (options.secondaryBallRadius) pose.secondaryBallCenter = blend(a.secondaryBallCenter, b.secondaryBallCenter, weight);
     if (catalogueSmallProp === 'tire') {
       pose.tireCenter = blend(a.tireCenter, b.tireCenter, weight);

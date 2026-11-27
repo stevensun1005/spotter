@@ -7,6 +7,7 @@ import { sagittalGuideMotion } from "./bodyweight/sagittal-guide.mjs";
 import { standingGuideMotion } from "./bodyweight/standing-guide.mjs";
 import { lowerGuideMotion } from "./bodyweight/lower-guide.mjs";
 import { seatedGuideMotion } from "./bodyweight/seated-guide.mjs";
+import { wallReferenceGuideMotion } from "./bodyweight/wall-reference-guide.mjs";
 import { wallGuideMotion } from "./bodyweight/wall-guide.mjs";
 import { kneelingGuideMotion } from "./bodyweight/kneeling-guide.mjs";
 import { upperMobilityGuideMotion } from "./bodyweight/upper-mobility-guide.mjs";
@@ -21,13 +22,17 @@ import { yogaStandingGuideMotion } from "./bodyweight/yoga-standing-guide.mjs";
 import { yogaFloorGuideMotion } from "./bodyweight/yoga-floor-guide.mjs";
 import { functionalLegsGuideMotion } from "./bodyweight/functional-legs-guide.mjs";
 import { overheadReferenceGuideMotion } from "./bodyweight/overhead-reference-guide.mjs";
+import { chairReferenceGuideMotion } from "./bodyweight/chair-reference-guide.mjs";
 import { chairMobilityGuideMotion } from "./bodyweight/chair-mobility-guide.mjs";
 import { referenceCoreGuideMotion } from "./bodyweight/reference-core-guide.mjs";
 import { standingConditioningGuideMotion } from "./bodyweight/standing-conditioning-guide.mjs";
 import { handMobilityGuideMotion } from "./bodyweight/hand-mobility-guide.mjs";
 import { floorBalanceGuideMotion } from "./bodyweight/floor-balance-guide.mjs";
 import { floorContactGuideMotion } from "./bodyweight/floor-contact-guide.mjs";
+import { advancedFloorGuideMotion } from "./bodyweight/advanced-floor-guide.mjs";
+import { floorReferenceGuideMotion } from "./bodyweight/floor-reference-guide.mjs";
 import { floorTravelGuideMotion } from "./bodyweight/floor-travel-guide.mjs";
+import { standingReferenceGuideMotion } from "./bodyweight/standing-reference-guide.mjs";
 import { standingStretchGuideMotion } from "./bodyweight/standing-stretch-guide.mjs";
 import { standingCoordinationGuideMotion } from "./bodyweight/standing-coordination-guide.mjs";
 import { seatedContactGuideMotion } from "./bodyweight/seated-contact-guide.mjs";
@@ -1008,6 +1013,256 @@ const chairMobility = new Map([
   ["10555", { mode: "neckNod", durationMs: 5610, muscles: ["neck"] }],
 ]);
 
+const advancedFloor = new Map([
+  ["10934", { family: "support", mode: "rotator", equipment: "side-elbow-towel", durationMs: 6320, muscles: ["l:rearShoulder"] }],
+  ["2876", { family: "roll", mode: "boomerang", floorGuide: true, durationMs: 6500, muscles: ["core", "hamstring"] }],
+  ["2840", { family: "roll", mode: "control", floorGuide: true, durationMs: 6500, muscles: ["core", "hamstring"] }],
+  ["2842", { family: "roll", mode: "crab", floorGuide: true, durationMs: 6480, muscles: ["core"] }],
+  ["2877", { family: "roll", mode: "seal", floorGuide: true, durationMs: 6500, muscles: ["core"] }],
+  ["3950", { family: "turn", mode: "crawlCrab", durationMs: 6250, muscles: ["core", "shoulder"] }],
+  ["6335", { family: "turn", mode: "kickThrough", durationMs: 6140, muscles: ["core", "shoulder"] }],
+  ["6299", { family: "arm", mode: "dragonfly", durationMs: 6490, muscles: ["core", "shoulder"] }],
+  ["7624", { family: "arm", mode: "lizard", floorGuide: true, durationMs: 6490, muscles: ["core", "pec"] }],
+  ["1890", { family: "lunges", mode: "achilles", durationMs: 6480, muscles: ["r:calf"] }],
+  ["6761", { family: "lunges", mode: "pigeon", low: true, floorGuide: true, durationMs: 6490, muscles: ["l:glute"] }],
+  ["4673", { family: "lunges", mode: "hipExtend", durationMs: 6480, muscles: ["r:quad"] }],
+  ["2848", { family: "support", mode: "sideLeg", floorGuide: true, durationMs: 6200, muscles: ["l:glute", "core"] }],
+  ["11954", { family: "support", mode: "pretzel", floorGuide: true, durationMs: 6490, muscles: ["l:quad", "core"] }],
+  ["1943", { family: "lunges", mode: "pigeon", floorGuide: true, durationMs: 6490, muscles: ["l:glute"] }],
+  ["4388", { family: "lunges", mode: "prisoner", tall: true, durationMs: 6500, muscles: ["quad", "glute"] }],
+  ["2866", { family: "support", mode: "sideTwist", floorGuide: true, durationMs: 6360, muscles: ["core", "shoulder"] }],
+  ["3956", { family: "lunges", mode: "twistStep", tall: true, durationMs: 6250, muscles: ["quad", "core"] }],
+  ["4633", { family: "lunges", mode: "greatest", durationMs: 6500, muscles: ["core", "hamstring"] }],
+  ["6296", { family: "lunges", mode: "bird", tall: true, durationMs: 6500, muscles: ["hamstring", "glute"] }],
+  ["5220", { family: "lunges", mode: "sideAngle", floorGuide: true, tall: true, durationMs: 6500, muscles: ["core", "quad"] }],
+  ["10543", { family: "chair", mode: "chairKneel", equipment: "conditioning-chair", fixture: true, durationMs: 6230, muscles: ["quad"] }],
+]);
+
+const wallReference = new Map([
+  ["3502", { mode: "leg", action: "swing", wallSide: -1, durationMs: 5690, muscles: ["l:hamstring", "l:glute"] }],
+  ["1780", { mode: "chest", durationMs: 6500, muscles: ["l:pec"] }],
+  ["11649", { mode: "calfStretch", bent: true, durationMs: 6490, muscles: ["r:calf"] }],
+  ["4510", { mode: "calfStretch", durationMs: 6480, muscles: ["r:calf"] }],
+  ["1848", { mode: "calfStretch", durationMs: 6490, muscles: ["r:calf"] }],
+  ["11452", { mode: "calfStretch", durationMs: 6470, muscles: ["r:calf"] }],
+  ["1781", { mode: "corner", equipment: "rig-contact-corner", durationMs: 6490, muscles: ["pec", "shoulder"] }],
+  ["4557", { mode: "couch", floor: true, durationMs: 6460, muscles: ["r:quad"] }],
+  ["1990", { mode: "chest", durationMs: 6490, muscles: ["l:rearShoulder"] }],
+  ["1563", { mode: "leg", action: "swing", durationMs: 5950, muscles: ["r:hamstring", "r:glute"] }],
+  ["2101", { mode: "toeBack", crossover: true, durationMs: 6450, muscles: ["l:shin"] }],
+  ["5059", { mode: "heelPress", durationMs: 6480, muscles: ["l:calf"] }],
+  ["2767", { mode: "leg", action: "abduct", wallSide: -1, durationMs: 5570, muscles: ["l:glute"] }],
+  ["2768", { mode: "leg", action: "adduct", durationMs: 5660, muscles: ["r:adductor"] }],
+  ["2770", { mode: "leg", action: "flex", durationMs: 5630, muscles: ["r:quad"] }],
+  ["2774", { mode: "leg", action: "knee", durationMs: 5550, muscles: ["r:hamstring"] }],
+  ["1880", { mode: "cross", durationMs: 6480, muscles: ["r:glute", "r:lat"] }],
+  ["2104", { mode: "calfStretch", bent: true, durationMs: 6460, muscles: ["r:calf"] }],
+  ["1054", { mode: "calfStretch", durationMs: 6470, muscles: ["r:calf"] }],
+  ["7622", { mode: "hamstring", equipment: "rig-contact-jamb", floor: true, durationMs: 6460, muscles: ["l:hamstring"] }],
+  ["1969", { mode: "kneeWall", durationMs: 5860, muscles: ["l:calf", "l:shin"] }],
+  ["1801", { mode: "lat", tall: true, durationMs: 6500, muscles: ["l:lat"] }],
+  ["1976", { mode: "rearShoulder", durationMs: 6470, muscles: ["l:shoulder", "l:pec"] }],
+  ["1959", { mode: "toeBack", step: true, equipment: "rig-contact-wall-low-step", durationMs: 6470, muscles: ["l:shin"] }],
+  ["4630", { mode: "leg", action: "sideSwing", durationMs: 5590, muscles: ["r:glute", "r:adductor"] }],
+  ["4931", { mode: "calfStretch", durationMs: 6490, muscles: ["r:calf"] }],
+  ["1888", { mode: "calfStretch", bent: true, durationMs: 6480, muscles: ["r:calf"] }],
+  ["8188", { mode: "ankle", durationMs: 6100, muscles: ["r:shin"] }],
+  ["10922", { mode: "calfStretch", bent: true, durationMs: 6470, muscles: ["r:calf"] }],
+  ["3473", { mode: "figure", durationMs: 6480, muscles: ["r:glute"] }],
+  ["4944", { mode: "leg", action: "figure8", durationMs: 6460, muscles: ["r:glute"] }],
+  ["4895", { mode: "calfRise", durationMs: 5950, muscles: ["calf"] }],
+  ["1887", { mode: "calfStretch", durationMs: 6480, muscles: ["r:calf"] }],
+  ["0791", { mode: "leg", action: "abduct", durationMs: 5550, muscles: ["r:glute"] }],
+  ["0790", { mode: "leg", action: "bent", durationMs: 5570, muscles: ["r:glute"] }],
+  ["5169", { mode: "leg", action: "adduct", wallSide: -1, durationMs: 5470, muscles: ["l:adductor"] }],
+  ["11903", { mode: "quad", durationMs: 6480, muscles: ["r:quad"] }],
+  ["1942", { mode: "cross", reachUp: true, durationMs: 6470, muscles: ["r:glute", "r:lat"] }],
+  ["9990", { mode: "isoShoulder", durationMs: 6430, muscles: ["l:rearShoulder"] }],
+  ["4933", { mode: "leg", action: "circle", durationMs: 5860, muscles: ["r:glute"] }],
+  ["1881", { mode: "cross", durationMs: 6480, muscles: ["r:glute"] }],
+  ["1058", { mode: "chest", straight: true, durationMs: 6480, muscles: ["l:pec"] }],
+  ["1947", { mode: "cross", durationMs: 6490, muscles: ["r:glute"] }],
+  ["6772", { mode: "cross", roll: .62, durationMs: 6470, muscles: ["r:calf"] }],
+  ["1895", { mode: "figure", wallSide: -1, durationMs: 6450, muscles: ["l:glute"] }],
+  ["1957", { mode: "toeBack", durationMs: 6470, muscles: ["l:shin"] }],
+  ["10547", { mode: "calfRise", single: true, durationMs: 5900, muscles: ["r:calf", "r:shin"] }],
+  ["4653", { mode: "leg", action: "both", durationMs: 5650, muscles: ["r:quad", "r:hamstring"] }],
+  ["6773", { mode: "toeBack", durationMs: 6500, muscles: ["l:shin"] }],
+  ["1958", { mode: "toeBack", durationMs: 6490, muscles: ["l:shin"] }],
+  ["1968", { mode: "toeWall", durationMs: 6490, muscles: ["l:calf"] }],
+  ["1885", { mode: "toeWall", toe: .18, durationMs: 6490, muscles: ["l:calf"] }],
+  ["1924", { mode: "toeWall", toe: .12, durationMs: 6480, muscles: ["l:calf"] }],
+  ["10937", { mode: "rotateShoulder", durationMs: 5830, muscles: ["l:rearShoulder"] }],
+  ["1953", { mode: "quad", wallSide: -1, durationMs: 6460, muscles: ["l:quad"] }],
+  ["1929", { mode: "toeBack", durationMs: 6470, muscles: ["l:shin", "l:calf"] }],
+  ["0810", { mode: "wallSit", durationMs: 5850, muscles: ["quad", "core"] }],
+]);
+
+const floorReference = new Map([
+  ["1169", { family: "seat", mode: "butterfly", floorGuide: true, hinge: true, pitch: .31, durationMs: 6490, muscles: ["adductor"] }],
+  ["3244", { family: "floor", mode: "cobra", durationMs: 6470, muscles: ["core", "lat"] }],
+  ["4006", { family: "floor", mode: "cobra", durationMs: 6450, muscles: ["core", "lat"] }],
+  ["4512", { family: "seat", mode: "butterfly", floorGuide: true, durationMs: 6490, muscles: ["adductor"] }],
+  ["4867", { family: "seat", mode: "butterfly", flap: true, floorGuide: true, durationMs: 6220, muscles: ["adductor"] }],
+  ["2839", { family: "supine", mode: "turnCrunch", durationMs: 5490, muscles: ["core"] }],
+  ["4558", { family: "floor", mode: "childCobra", floorGuide: true, durationMs: 6470, muscles: ["lat", "core"] }],
+  ["0258", { family: "floor", mode: "clock", durationMs: 6480, muscles: ["pec", "triceps"] }],
+  ["2344", { family: "supine", mode: "crunch", durationMs: 5920, muscles: ["core"] }],
+  ["4539", { family: "floor", mode: "diamond", durationMs: 5390, muscles: ["triceps", "pec"] }],
+  ["3528", { family: "floor", mode: "dog", floorGuide: true, durationMs: 6480, muscles: ["hamstring", "core"] }],
+  ["0443", { family: "supine", mode: "bicycle", durationMs: 5120, muscles: ["core"] }],
+  ["2347", { family: "floor", mode: "plank", durationMs: 6450, muscles: ["core"] }],
+  ["0484", { family: "supine", mode: "hipRaise", durationMs: 5400, muscles: ["core"] }],
+  ["0611", { family: "floor", mode: "lungePush", durationMs: 6470, muscles: ["quad", "pec"] }],
+  ["2879", { family: "seat", mode: "mermaid", floorGuide: true, durationMs: 6470, muscles: ["lat", "core"] }],
+  ["6120", { family: "supine", mode: "tuck", floorGuide: true, durationMs: 6490, muscles: ["core", "glute"] }],
+  ["9488", { family: "floor", mode: "pike", durationMs: 6470, muscles: ["shoulder", "hamstring"] }],
+  ["2861", { family: "seat", mode: "saw", floorGuide: true, durationMs: 6470, muscles: ["core", "hamstring"] }],
+  ["4928", { family: "seat", mode: "calf", durationMs: 6480, muscles: ["l:calf"] }],
+  ["10912", { family: "seat", mode: "toes", durationMs: 6280, muscles: ["l:shin"] }],
+  ["0693", { family: "seat", mode: "calf", pitch: 1.31, durationMs: 6490, muscles: ["l:calf"] }],
+  ["2103", { family: "seat", mode: "toeContact", durationMs: 6480, muscles: ["l:shin"] }],
+  ["4608", { family: "seat", mode: "shinBox", topSource: true, durationMs: 6400, muscles: ["glute"] }],
+  ["3458", { family: "seat", mode: "sideSplit", tall: true, durationMs: 6490, muscles: ["adductor"] }],
+  ["4315", { family: "seat", mode: "fold", floorGuide: true, pitch: 1.28, durationMs: 6420, muscles: ["hamstring", "core"] }],
+  ["11089", { family: "seat", mode: "split", pitch: 1.26, durationMs: 6470, muscles: ["hamstring", "core"] }],
+  ["11645", { family: "seat", mode: "iso", durationMs: 6450, muscles: ["l:quad"] }],
+  ["5980", { family: "floor", mode: "sunA", floorGuide: true, tall: true, durationMs: 6500, muscles: ["core", "shoulder"] }],
+  ["5981", { family: "floor", mode: "sunB", floorGuide: true, tall: true, durationMs: 6500, muscles: ["core", "shoulder"] }],
+  ["5983", { family: "floor", mode: "vinyasa", floorGuide: true, durationMs: 6470, muscles: ["core", "shoulder"] }],
+]);
+
+const standingReference = new Map([
+  ["4515", { kind: "posture", arms: "backRaise", durationMs: 6420, muscles: ["pec", "shoulder"] }],
+  ["3995", { kind: "posture", arms: "wrap", durationMs: 5580, muscles: ["pec", "rearShoulder"] }],
+  ["1404", { kind: "upperRound", arms: "claspFront", durationMs: 6410, muscles: ["trap"] }],
+  ["11798", { kind: "hinge", base: 1.15, pitch: 1.30, arms: "arc", durationMs: 5910, muscles: ["rearShoulder", "shoulder"] }],
+  ["3391", { kind: "twistHinge", stance: "wide", pitch: 1.78, arms: "oppositeToe", alternates: true, durationMs: 5890, muscles: ["core", "hamstring"] }],
+  ["6540", { kind: "upperTurn", arms: "reachFront", alternates: true, yawRange: 1.15, durationMs: 6240, muscles: ["core"] }],
+  ["4172", { kind: "fly", base: 1.27, pitch: 1.37, arms: "fly", durationMs: 5360, muscles: ["rearShoulder", "trap"] }],
+  ["5864", { kind: "swing", arms: "swing", pitch: 1.28, durationMs: 4730, muscles: ["glute", "hamstring"] }],
+  ["3908", { kind: "windmill", arms: "windmill", stance: "wide", oneUp: true, pitch: 1.63, durationMs: 6060, muscles: ["core", "hamstring"] }],
+  ["4280", { kind: "ceiling", arms: "over", pitch: .402, durationMs: 6300, muscles: ["core", "lat"] }],
+  ["3996", { kind: "posture", arms: "circle", cycles: 3, durationMs: 6290, muscles: ["shoulder"] }],
+  ["4278", { kind: "kneeCircle", arms: "knees", cycles: 2, durationMs: 6300, muscles: ["quad"] }],
+  ["6762", { kind: "overSide", stance: "wide", arms: "oneUp", pitch: .87, roll: .64, durationMs: 6470, muscles: ["core", "lat"] }],
+  ["4671", { kind: "side", stance: "wide", arms: "over", alternates: true, roll: .44, durationMs: 6380, muscles: ["core", "lat"] }],
+  ["3086", { kind: "kneeDrive", arms: "brain", alternates: true, durationMs: 4920, muscles: ["core", "quad"] }],
+  ["6764", { kind: "hinge", arms: "dangle", pitch: 1.94, durationMs: 6470, muscles: ["hamstring", "glute"] }],
+  ["3468", { kind: "splitHinge", stance: "split", arms: "knees", toeUp: true, durationMs: 6420, muscles: ["l:hamstring"] }],
+  ["3215", { kind: "windTouch", stance: "wide", arms: "claspBack", alternates: true, clasp: true, pitch: 1.96, durationMs: 6450, muscles: ["core", "hamstring"] }],
+  ["1991", { kind: "posture", arms: "behindAssisted", yaw: 144, durationMs: 6480, muscles: ["l:rearShoulder"] }],
+  ["5695", { kind: "splitHinge", stance: "split", arms: "hips", pitch: .98, durationMs: 6400, muscles: ["l:hamstring", "glute"] }],
+  ["4288", { kind: "upperRound", arms: "claspFront", durationMs: 6470, muscles: ["trap"] }],
+  ["1794", { kind: "upperRound", arms: "claspFront", durationMs: 6430, muscles: ["trap", "rearShoulder"] }],
+  ["1797", { kind: "ceiling", arms: "over", pitch: .118, durationMs: 6480, muscles: ["lat"] }],
+  ["1795", { kind: "upperRound", arms: "reachFront", durationMs: 6430, muscles: ["trap", "rearShoulder"] }],
+  ["5899", { kind: "squatTwist", arms: "turnPrayer", durationMs: 6480, muscles: ["core", "quad"] }],
+  ["5900", { kind: "splitPose", stance: "lunge", arms: "turnPrayer", durationMs: 6480, muscles: ["core", "quad"] }],
+  ["0957", { kind: "splitPose", stance: "lunge", arms: "turnPrayer", side: -1, durationMs: 6480, muscles: ["core", "quad"] }],
+  ["5901", { kind: "windTouch", arms: "oppositeToe", stance: "wide", pitch: 1.84, yawRange: .83, durationMs: 6490, muscles: ["core", "hamstring"] }],
+  ["1802", { kind: "side", arms: "oneUp", roll: .54, durationMs: 6460, muscles: ["lat"] }],
+  ["1702", { kind: "singleHinge", arms: "singleFoot", pitch: 1.64, durationMs: 5770, muscles: ["hamstring", "glute"] }],
+  ["1703", { kind: "singleHinge", arms: "singleFoot", cross: true, pitch: 1.53, durationMs: 5820, muscles: ["hamstring", "core"] }],
+  ["4312", { kind: "side", arms: "oneUp", side: -1, roll: .54, durationMs: 6380, muscles: ["lat", "core"] }],
+  ["3517", { kind: "leanBack", arms: "backHips", pitch: .486, durationMs: 6470, muscles: ["core", "glute"] }],
+  ["5126", { kind: "upperTurn", arms: "guard", alternates: true, durationMs: 5170, muscles: ["core"] }],
+  ["5445", { kind: "vacuum", floorGuide: true, arms: "hips", durationMs: 6480, muscles: ["core"] }],
+  ["2110", { kind: "upperTurn", arms: "hips", alternates: true, yawRange: .72, durationMs: 6280, muscles: ["core"] }],
+  ["3999", { kind: "kneeDrive", arms: "brain", alternates: true, durationMs: 4320, muscles: ["core", "quad"] }],
+  ["11289", { kind: "hipRoll", arms: "hips", ankleCircle: true, cycles: 2, durationMs: 6200, muscles: ["l:glute", "l:shin"] }],
+  ["1813", { kind: "upperTurn", arms: "reachFront", alternates: true, yawRange: .88, durationMs: 6340, muscles: ["core"] }],
+  ["10188", { kind: "windTouch", arms: "oppositeToe", stance: "wide", alternates: true, pitch: 1.88, durationMs: 5440, muscles: ["core", "hamstring"] }],
+  ["1397", { kind: "calf", durationMs: 4830, muscles: ["calf"] }],
+  ["9942", { kind: "side", stance: "cross", arms: "oneUp", roll: .53, durationMs: 6460, muscles: ["lat", "core"] }],
+  ["6775", { kind: "toes", arms: "hips", cycles: 2, durationMs: 6070, muscles: ["shin"] }],
+  ["3411", { kind: "hipCircle", arms: "hips", cycles: 2, durationMs: 6340, muscles: ["core", "glute"] }],
+  ["3407", { kind: "lowTurn", stance: "wide", arms: "guard", alternates: true, yawRange: .63, durationMs: 5710, muscles: ["core"] }],
+  ["1796", { kind: "sideTwist", arms: "oneUp", roll: .28, durationMs: 6490, muscles: ["lat", "core"] }],
+  ["11646", { kind: "gluteContract", arms: "hips", durationMs: 6490, muscles: ["glute"] }],
+  ["3659", { kind: "posture", static: true, durationMs: 6420, muscles: [] }],
+  ["4942", { kind: "upperTurn", arms: "throw", alternates: true, yawRange: .49, durationMs: 4800, muscles: ["shoulder", "core"] }],
+  ["4402", { kind: "hinge", arms: "long", pitch: 1.47, durationMs: 6470, muscles: ["hamstring", "shoulder"] }],
+  ["1365", { kind: "upperRound", arms: "claspFront", durationMs: 6400, muscles: ["trap", "rearShoulder"] }],
+  ["9246", { kind: "twistHinge", stance: "wide", arms: "brain", pitch: .65, base: .27, alternates: true, durationMs: 6440, muscles: ["core"] }],
+  ["3479", { kind: "sideKick", arms: "hips", alternates: true, cycles: 2, durationMs: 5360, muscles: ["quad", "glute"] }],
+  ["4212", { kind: "star", arms: "open", floorGuide: true, durationMs: 6470, muscles: ["glute", "core"] }],
+  ["6750", { kind: "hipRoll", arms: "hips", hipOpen: true, floorGuide: true, durationMs: 6150, muscles: ["l:glute"] }],
+  ["2920", { kind: "singleHinge", arms: "long", pitch: 1.55, floorGuide: true, durationMs: 6150, muscles: ["hamstring", "glute"] }],
+]);
+
+const chairReference = new Map([
+  ["1843", { mode: "neck", action: "assistedRotation", touch: "rotate", durationMs: 6400, muscles: ["neck"] }],
+  ["1832", { mode: "neck", action: "diagonal", touch: "one", durationMs: 6340, muscles: ["neck"] }],
+  ["1844", { mode: "neck", action: "extensionSide", durationMs: 6470, muscles: ["neck"] }],
+  ["1836", { mode: "neck", action: "headDown", touch: "two", durationMs: 6400, muscles: ["neck"] }],
+  ["0462", { mode: "neck", action: "nod", durationMs: 6430, muscles: ["neck"] }],
+  ["1833", { mode: "neck", action: "extension", durationMs: 6390, muscles: ["neck"] }],
+  ["1838", { mode: "neck", action: "diagonal", touch: "one", durationMs: 6470, muscles: ["neck"] }],
+  ["1837", { mode: "neck", action: "headDown", touch: "one", durationMs: 6370, muscles: ["neck"] }],
+  ["1840", { mode: "neck", action: "extensionTurn", durationMs: 6420, muscles: ["neck"] }],
+  ["1839", { mode: "neck", action: "extension", durationMs: 6260, muscles: ["neck"] }],
+  ["1834", { mode: "neck", action: "protraction", durationMs: 6310, muscles: ["neck"] }],
+  ["6765", { mode: "neck", action: "lateral", touch: "one", durationMs: 6470, muscles: ["neck"] }],
+  ["5145", { mode: "neck", action: "iso", touch: "clasp", durationMs: 6430, muscles: ["neck"] }],
+  ["1831", { mode: "neck", action: "turn", durationMs: 6460, muscles: ["neck"] }],
+  ["3441", { mode: "neck", action: "nod", durationMs: 5770, muscles: ["neck"] }],
+  ["5195", { mode: "neck", action: "lateral", touch: "one", durationMs: 6380, muscles: ["neck"] }],
+  ["5131", { mode: "neck", action: "tap", touch: "tap", durationMs: 5570, muscles: ["neck"] }],
+  ["1835", { mode: "neck", action: "headDown", durationMs: 6290, muscles: ["neck"] }],
+  ["5058", { mode: "neck", action: "lateral", touch: "one", kneel: true, floorGuide: true, durationMs: 6460, muscles: ["neck"] }],
+  ["2761", { mode: "ankleFlex", angle: .93, durationMs: 5410, muscles: ["l:shin"] }],
+  ["2762", { mode: "ankleFlex", angle: -1.02, durationMs: 5520, muscles: ["l:calf"] }],
+  ["4282", { mode: "ankleFlex", angle: -1.09, durationMs: 6440, muscles: ["l:shin"] }],
+  ["2763", { mode: "elbow", durationMs: 5350, muscles: ["l:triceps"] }],
+  ["2771", { mode: "rotateHip", angle: -.72, durationMs: 5640, muscles: ["l:glute"] }],
+  ["2772", { mode: "rotateHip", angle: .71, durationMs: 5640, muscles: ["l:glute"] }],
+  ["2773", { mode: "kneeExtend", durationMs: 5490, muscles: ["l:quad"] }],
+  ["11652", { mode: "sciatic", durationMs: 6220, muscles: ["hamstring", "calf"] }],
+  ["11006", { mode: "cross", back: true, durationMs: 5490, muscles: ["pec"] }],
+  ["8619", { mode: "cross", durationMs: 5470, muscles: ["pec"] }],
+  ["5133", { mode: "behind", durationMs: 6290, muscles: ["pec", "shoulder"] }],
+  ["11048", { mode: "hipsOpen", durationMs: 5520, muscles: ["glute"] }],
+  ["11049", { mode: "hipsOpen", air: true, durationMs: 5770, muscles: ["glute"] }],
+  ["5078", { mode: "clam", durationMs: 6450, muscles: ["pec"] }],
+  ["8618", { mode: "press", durationMs: 5370, muscles: ["pec"] }],
+  ["8620", { mode: "press", angle: -.314, durationMs: 5680, muscles: ["pec"] }],
+  ["8622", { mode: "press", angle: .359, durationMs: 5450, muscles: ["pec"] }],
+  ["8616", { mode: "fly", durationMs: 5580, muscles: ["pec"] }],
+  ["8621", { mode: "fly", high: true, durationMs: 5720, muscles: ["pec"] }],
+  ["8423", { mode: "leanBack", durationMs: 5670, muscles: ["core"] }],
+  ["11787", { mode: "nerve", action: "median", durationMs: 6280, muscles: ["l:forearm"] }],
+  ["11786", { mode: "nerve", action: "radial", durationMs: 6180, muscles: ["l:forearm"] }],
+  ["11788", { mode: "nerve", action: "ulnar", durationMs: 6170, muscles: ["l:forearm"] }],
+  ["8653", { mode: "openUnder", durationMs: 5550, muscles: ["pec", "rearShoulder"] }],
+  ["11651", { mode: "patella", durationMs: 6460, muscles: ["l:quad"] }],
+  ["10564", { mode: "footTurn", angle: .67, durationMs: 5640, muscles: ["l:calf"] }],
+  ["6774", { mode: "rhomboid", durationMs: 6470, muscles: ["trap"] }],
+  ["11650", { mode: "calf", durationMs: 5020, muscles: ["l:calf"] }],
+  ["10910", { mode: "footTurn", angle: .56, durationMs: 6100, muscles: ["l:calf"] }],
+  ["10919", { mode: "footTurn", angle: .49, durationMs: 5970, muscles: ["l:calf"] }],
+  ["8946", { mode: "legRaise", durationMs: 5410, muscles: ["l:quad"] }],
+  ["10918", { mode: "toes", angle: -.69, durationMs: 5930, muscles: ["l:shin"] }],
+  ["10920", { mode: "toes", angle: -.40, durationMs: 5730, muscles: ["l:shin"] }],
+  ["10911", { mode: "toes", angle: -.60, both: true, durationMs: 6470, muscles: ["shin"] }],
+  ["1963", { mode: "toeHand", angle: -.72, roll: .56, durationMs: 6450, muscles: ["l:shin"] }],
+  ["1964", { mode: "toeHand", angle: -.72, roll: -.50, durationMs: 6450, muscles: ["l:shin"] }],
+  ["1962", { mode: "toeHand", angle: -.71, durationMs: 6420, muscles: ["l:shin"] }],
+  ["1966", { mode: "toeHand", angle: .70, roll: .58, durationMs: 6470, muscles: ["l:calf"] }],
+  ["1967", { mode: "toeHand", angle: .70, roll: -.57, durationMs: 6500, muscles: ["l:calf"] }],
+  ["1965", { mode: "toeHand", angle: .68, durationMs: 6430, muscles: ["l:calf"] }],
+  ["8303", { mode: "twist", durationMs: 5420, muscles: ["core"] }],
+  ["8200", { mode: "prayer", durationMs: 6350, muscles: ["pec"] }],
+  ["6913", { mode: "retract", durationMs: 6080, muscles: ["trap", "rearShoulder"] }],
+  ["6914", { mode: "retract", bent: true, durationMs: 6130, muscles: ["trap", "rearShoulder"] }],
+  ["8197", { mode: "swim", durationMs: 5570, muscles: ["shoulder", "lat"] }],
+  ["7263", { mode: "uppercut", durationMs: 5350, muscles: ["shoulder", "core"] }],
+  ["8199", { mode: "chop", durationMs: 5380, muscles: ["core"] }],
+  ["1805", { mode: "fold", durationMs: 6420, muscles: ["lat", "core"] }],
+  ["1803", { mode: "fold", durationMs: 6440, muscles: ["core"] }],
+  ["3661", { mode: "posture", durationMs: 6470, muscles: [] }],
+]);
+
 const overheadReference = new Map([
   ["5800", { family: "sweep", mode: "raise", thumb: true, upper: .09, durationMs: 5720, muscles: ["trap", "rearShoulder"] }],
   ["3826", { family: "sweep", mode: "arc", durationMs: 6480, muscles: ["rearShoulder", "trap"] }],
@@ -1096,7 +1351,7 @@ const heldGuideKeys = new Map([
 ]);
 
 const [directory, ...requested] = process.argv.slice(2);
-const profiles = new Map([...sagittalFloor, ...standingUpper, ...standingLower, ...seatedFloor, ...wallSupported, ...kneelingFloor, ...upperMobility, ...lateralFloor, ...hipMobility, ...jumpMobility, ...lungeMobility, ...supineExtended, ...proneExtended, ...sideBridge, ...quadrupedExtended, ...yogaStanding, ...yogaFloor, ...floorTravel, ...seatedContact, ...standingCoordination, ...standingStretch, ...floorContact, ...functionalLegs, ...floorBalance, ...handMobility, ...standingConditioning, ...referenceCore, ...chairMobility, ...overheadReference]);
+const profiles = new Map([...sagittalFloor, ...standingUpper, ...standingLower, ...seatedFloor, ...wallSupported, ...kneelingFloor, ...upperMobility, ...lateralFloor, ...hipMobility, ...jumpMobility, ...lungeMobility, ...supineExtended, ...proneExtended, ...sideBridge, ...quadrupedExtended, ...yogaStanding, ...yogaFloor, ...floorTravel, ...seatedContact, ...standingCoordination, ...standingStretch, ...floorContact, ...functionalLegs, ...floorBalance, ...handMobility, ...standingConditioning, ...referenceCore, ...chairMobility, ...standingReference, ...chairReference, ...floorReference, ...advancedFloor, ...wallReference, ...overheadReference]);
 const selection = requested.length ? requested : [...profiles.keys()];
 if (!directory || selection.some(id => !profiles.has(id))) throw new Error("Pass an output directory and optional reviewed guide IDs.");
 const output = resolve(directory);
@@ -1106,20 +1361,25 @@ const items = [];
 for (const id of selection) {
   const entry = entries.get(id);
   const { illustration: guide } = catalogueDemo(entry);
-  const wall = wallSupported.has(id);
+  const wallTail = wallReference.has(id);
+  const wall = wallSupported.has(id) || wallTail;
   const yoga = yogaStanding.has(id);
   const floorYoga = yogaFloor.has(id);
   const travel = floorTravel.has(id);
   const seatedFlex = seatedContact.has(id);
   const coordination = standingCoordination.has(id);
   const stretch = standingStretch.has(id);
+  const standingTail = standingReference.has(id);
   const contact = floorContact.has(id);
   const functional = functionalLegs.has(id);
   const balance = floorBalance.has(id);
   const hands = handMobility.has(id);
   const conditioning = standingConditioning.has(id);
   const reference = referenceCore.has(id);
-  const chair = chairMobility.has(id);
+  const floorTail = floorReference.has(id);
+  const floorAdvanced = advancedFloor.has(id);
+  const chairOther = chairReference.has(id);
+  const chair = chairMobility.has(id) || chairOther;
   const above = overheadReference.has(id);
   const profile = profiles.get(id);
   const knownFloor = (yoga || floorYoga || profile.floorGuide) && guide?.props?.every(([,y1,,y2]) => y1 === y2 && y1 >= 151);
@@ -1128,13 +1388,13 @@ for (const id of selection) {
     const next = propLines[(i + 1) % propLines.length];
     return line[2] === next[0] && line[3] === next[1];
   });
-  if (!guide?.frames?.length || guide.topView && !profile.topSource && !above || guide.partnerFrames || !wall && !chair && !knownFloor && !closedMat && guide.props?.length || guide.formCheckFrom != null) {
+  if (!guide?.frames?.length || guide.topView && !profile.topSource && !above || guide.partnerFrames || !wall && !chair && !knownFloor && !closedMat && !profile.fixture && guide.props?.length || guide.formCheckFrom != null) {
     throw new Error(`Guide ${id} must contain a supported single-person trajectory.`);
   }
   const jump = jumpMobility.has(id);
   const lower = standingLower.has(id) || jump;
   const mobility = upperMobility.has(id);
-  const standing = standingUpper.has(id) || lower || mobility || yoga || coordination || stretch || functional || hands || conditioning;
+  const standing = standingUpper.has(id) || lower || mobility || yoga || coordination || stretch || functional || hands || conditioning || standingTail;
   const seated = seatedFloor.has(id);
   const kneeling = kneelingFloor.has(id);
   const lateral = lateralFloor.has(id);
@@ -1144,14 +1404,14 @@ for (const id of selection) {
   const prone = proneExtended.has(id);
   const side = sideBridge.has(id);
   const quadruped = quadrupedExtended.has(id);
-  const move = wall ? wallGuideMotion(guide, profile) : mobility ? upperMobilityGuideMotion(guide, profile) : lower ? lowerGuideMotion(guide, profile)
+  const move = wallTail ? wallReferenceGuideMotion(guide, profile) : wall ? wallGuideMotion(guide, profile) : mobility ? upperMobilityGuideMotion(guide, profile) : lower ? lowerGuideMotion(guide, profile)
     : yoga ? yogaStandingGuideMotion(guide, profile) : coordination ? standingCoordinationGuideMotion(guide, profile)
-    : stretch ? standingStretchGuideMotion(guide, profile) : functional ? functionalLegsGuideMotion(guide, profile) : hands ? handMobilityGuideMotion(guide, profile) : conditioning ? standingConditioningGuideMotion(guide, profile) : standing ? standingGuideMotion(guide, profile)
+    : standingTail ? standingReferenceGuideMotion(guide, profile) : stretch ? standingStretchGuideMotion(guide, profile) : functional ? functionalLegsGuideMotion(guide, profile) : hands ? handMobilityGuideMotion(guide, profile) : conditioning ? standingConditioningGuideMotion(guide, profile) : standing ? standingGuideMotion(guide, profile)
     : seated ? seatedGuideMotion(guide, profile) : kneeling ? kneelingGuideMotion(guide, profile) : lateral ? lateralFloorGuideMotion(guide, profile)
     : hip ? hipMobilityGuideMotion(guide, profile) : lunge ? lungeMobilityGuideMotion(guide, profile)
     : supine ? supineExtendedGuideMotion(guide, profile) : prone ? proneExtendedGuideMotion(guide, profile) : side ? sideBridgeGuideMotion(guide, profile)
     : quadruped ? quadrupedExtendedGuideMotion(guide, profile) : floorYoga ? yogaFloorGuideMotion(guide, profile)
-    : travel ? floorTravelGuideMotion(guide, profile) : contact ? floorContactGuideMotion(guide, profile) : balance ? floorBalanceGuideMotion(guide, profile) : reference ? referenceCoreGuideMotion(guide, profile) : chair ? chairMobilityGuideMotion(guide, profile) : above ? overheadReferenceGuideMotion(guide, profile) : seatedFlex ? seatedContactGuideMotion(guide, profile) : sagittalGuideMotion(guide, profile);
+    : travel ? floorTravelGuideMotion(guide, profile) : contact ? floorContactGuideMotion(guide, profile) : balance ? floorBalanceGuideMotion(guide, profile) : floorAdvanced ? advancedFloorGuideMotion(guide, profile) : floorTail ? floorReferenceGuideMotion(guide, profile) : reference ? referenceCoreGuideMotion(guide, profile) : chairOther ? chairReferenceGuideMotion(guide, profile) : chair ? chairMobilityGuideMotion(guide, profile) : above ? overheadReferenceGuideMotion(guide, profile) : seatedFlex ? seatedContactGuideMotion(guide, profile) : sagittalGuideMotion(guide, profile);
   const filename = `${id}.json`;
   const held = heldGuideKeys.get(id);
   const keyframes = Array.from({ length: 65 }, (_, index) => {
@@ -1159,14 +1419,16 @@ for (const id of selection) {
     const sample = held == null ? at : rep(at, .35, .56) * held / guide.frames.length;
     return { at, ...move(sample) };
   });
-  const upperExtent = profile.headroom || jump || travel || coordination || stretch || functional || conditioning ? Math.max(...keyframes.flatMap(frame => [frame.head[1] + .113, frame.lw[1] + .126, frame.rw[1] + .126])) : 0;
+  const upperExtent = profile.headroom || jump || travel || coordination || stretch || functional || conditioning || standingTail ? Math.max(...keyframes.flatMap(frame => [frame.head[1] + .113, frame.lw[1] + .126, frame.rw[1] + .126])) : 0;
   const recipe = {
-    version: 1, equipment: chair ? "conditioning-chair" : wall ? profile.tall ? "rig-contact-tall-wall" : "rig-contact-wall" : standing && !profile.mat ? "none" : "mat",
+    version: 1, equipment: profile.equipment ?? (chair ? profile.kneel ? "mat" : "conditioning-chair" : wall ? profile.tall ? "rig-contact-tall-wall" : "rig-contact-wall" : standing && !profile.mat ? "none" : "mat"),
     muscles: profile.muscles ?? (lower ? [profile.forefoot ? "calf" : "quad", "glute"] : travel ? ["core", "quad"] : [standing ? "shoulder" : "core"]),
     durationMs: profile.durationMs ?? 4570,
-    camera: wall ? { yaw: 112, elevation: 14, focus: [0, profile.floor ? .70 : profile.tall ? 1.11 : .96, .15], height: profile.tall ? 2.53 : 2.19 }
+    camera: wall ? { yaw: wallTail ? profile.mode === "corner" ? 151 : profile.wallSide === -1 ? -108 : 112 : 112, elevation: 14, focus: [0, profile.floor ? .70 : profile.tall ? 1.11 : .96, .15], height: profile.tall ? 2.53 : 2.19 }
       : lower ? { yaw: profile.yaw ?? (profile.plane === "side" ? 63 : 34), elevation: 14,
       focus: [0, upperExtent ? (upperExtent + .19) * .51 : 1.06, 0], height: Math.max(2.47, upperExtent + .32) }
+      : standingTail ? { yaw: profile.yaw ?? (["toes", "calf"].includes(profile.kind) ? 62 : ["upperTurn", "squatTwist", "splitPose", "windTouch"].includes(profile.kind) ? 55 : 49),
+      elevation: 16, focus: [0, profile.kind === "toes" ? .29 : upperExtent * .49, .031], height: profile.kind === "toes" ? .90 : Math.max(2.20, upperExtent + .20) }
       : coordination || stretch || functional || conditioning ? { yaw: profile.yaw ?? (profile.plane === "side" || functional ? 61 : 33), elevation: 15,
       focus: [0, upperExtent * .5, .05], height: Math.max(2.19, upperExtent + .26) }
       : hands ? profile.mat ? { yaw: profile.yaw ?? 56, elevation: 17, focus: [0, .56, .019], height: 1.58 }
@@ -1186,10 +1448,20 @@ for (const id of selection) {
       : travel ? { yaw: 64, elevation: 16, focus: [0, (upperExtent + .05) * .47, -.15], height: Math.max(1.66, upperExtent + .33) }
       : above ? { yaw: profile.family === "kneel" ? 57 : 65, elevation: profile.family === "kneel" ? 25 : 36,
       focus: [0, profile.family === "kneel" ? .41 : .36, -.13], height: profile.family === "kneel" ? 1.76 : 1.62 }
+      : chairOther ? { yaw: profile.yaw ?? (profile.mode === "neck" ? 57 : ["footTurn", "toes", "toeHand", "ankleFlex", "calf"].includes(profile.mode) ? 60 : 43),
+      elevation: 19, focus: [0, profile.mode === "neck" ? (profile.kneel ? .668 : 1.07) : ["footTurn", "toes", "toeHand", "ankleFlex", "calf"].includes(profile.mode) ? .447 : .755, .144],
+      height: profile.mode === "neck" ? profile.kneel ? 1.58 : .92 : ["footTurn", "toes", "toeHand", "ankleFlex", "calf"].includes(profile.mode) ? 1.21 : 1.68 }
       : chair ? { yaw: profile.yaw ?? (profile.mode.startsWith("neck") ? 55 : 45), elevation: 16,
       focus: [0, profile.tall ? .95 : .76, .17], height: profile.tall ? 2.14 : 1.78 }
+      : floorAdvanced ? { yaw: profile.mode === "bird" ? 45 : ["dragonfly", "kickThrough"].includes(profile.mode) ? 19 : profile.mode === "rotator" ? 45 : profile.family === "support" ? 77 : profile.family === "chair" ? 69 : 59,
+       elevation: profile.family === "arm" ? 21 : profile.mode === "rotator" ? 26 : 18, focus: [0, profile.tall ? .89 : profile.family === "roll" ? .62 : profile.mode === "rotator" ? .37 : .55, -.14],
+       height: profile.tall ? 2.39 : profile.family === "roll" ? 2.13 : 1.84 }
+      : floorTail ? { yaw: profile.mode === "shinBox" ? 24 : profile.family === "seat" ? 49 : 63,
+       elevation: profile.mode === "shinBox" ? 34 : 18,
+       focus: [0, profile.tall || profile.mode === "lungePush" ? .86 : profile.family === "seat" ? .51 : .49, -.11],
+       height: profile.tall || profile.mode === "lungePush" ? 2.50 : profile.family === "seat" ? 1.53 : 1.81 }
       : reference ? { yaw: profile.mode === "corkscrew" || profile.mode === "alternatingBent" ? 40 : 65, elevation: 17,
-      focus: [0, profile.mode === "shoulderStand" ? .666 : .49, -.09], height: profile.mode === "shoulderStand" ? 2.03 : 1.72 }
+      focus: [0, ["shoulderStand", "plow"].includes(profile.mode) ? .666 : .49, -.09], height: profile.mode === "plow" ? 2.19 : profile.mode === "shoulderStand" ? 2.03 : 1.72 }
       : balance ? { yaw: profile.mode === "plantar" ? 45 : 63, elevation: 17,
       focus: [0, profile.single || profile.mode === "scissors" ? .70 : .49, -.034], height: profile.single || profile.mode === "scissors" ? 1.95 : 1.72 }
       : contact ? { yaw: profile.support === "kneel" ? 57 : 60, elevation: 17,

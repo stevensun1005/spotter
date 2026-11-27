@@ -12,6 +12,7 @@ import { buildHandHeldProp } from './handheld-props.js';
 import { buildWearableWeight } from './wearable-weight-props.js';
 import { buildSpecialtyWeight } from './specialty-weight-props.js';
 import { buildStrongmanProp } from './strongman-props.js';
+import { buildCatalogueBodyweightProp } from './catalogue-bodyweight-props.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const material = (color, roughness = .54, metalness = .05) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -1032,10 +1033,10 @@ function createStandingCurlMachine(group) {
 }
 
 function createPullUpRack(group, variant) {
-  if(variant==='assisted-low'||variant==='assisted-squat'){
-    const low=variant==='assisted-low';
-    const height=low?1.041:1.652;
-    const depth=low?.198:.092;
+  const shortRacks={'assisted-low':[1.041,.198],'assisted-squat':[1.652,.092],'assisted-jump':[1.932,.087],
+    'assisted-knee':[1.281,.112],'assisted-seated':[1.235,.127],'assisted-elevated':[1.400,.127]};
+  if(shortRacks[variant]){
+    const [height,depth]=shortRacks[variant];
     for(const x of [-.643,.643]){
       roundSlab(group,.231,.664,.054,.033,rubber,x,.006,depth-.115);
       box(group,.065,height+.027,.073,frame,x,height/2,depth-.086);
@@ -1044,6 +1045,17 @@ function createPullUpRack(group, variant) {
     }
     cylinder(group,.017,1.35,steel,0,height,depth,26).rotateZ(Math.PI/2);
     for(const x of [-.258,.258])cylinder(group,.020,.234,rubber,x,height,depth,24).rotateZ(Math.PI/2);
+    return;
+  }
+  if(variant==='monkey'){
+    for(const x of [-.638,.638]){
+      for(const z of [-.881,.891]){
+        roundSlab(group,.218,.468,.053,.028,rubber,x,.006,z);
+        box(group,.069,2.176,.078,frame,x,1.101,z);
+      }
+      box(group,.083,.083,1.872,edge,x,2.207,.006);
+    }
+    for(let index=0;index<5;index++)cylinder(group,.021,1.299,steel,0,2.173,-.614+.371*index,25).rotateZ(Math.PI/2);
     return;
   }
   for (const x of [-.70, .70]) {
@@ -1065,6 +1077,35 @@ function createPullUpRack(group, variant) {
     cylinder(group, .017, .54, steel, x, 2.144, .049, 22).rotateX(Math.PI / 2);
     cylinder(group, .020, .23, rubber, x, 2.144, .097, 22).rotateX(Math.PI / 2);
   }
+}
+
+function createPullUpAccessory(group,kind){
+  if(kind==='body-cage-neutral'||kind==='body-cage-wide'){
+    buildBodyweightProps(group,'parallel-dips');
+  }else if(kind==='pull-up-assist-box'||kind==='pull-up-lifted-box'){
+    const height=kind==='pull-up-lifted-box'?.649:.463;
+    const depth=kind==='pull-up-lifted-box'?.287:.556;
+    box(group,.555,height-.045,.491,frame,0,(height-.045)/2+.006,depth,.026);
+    box(group,.569,.041,.503,rubber,0,height-.021,depth,.015);
+    box(group,.585,.037,.527,edge,0,.022,depth,.015);
+  }else if(kind==='seated-pull-up-elevated'){
+    roundSlab(group,.493,.502,.063,.029,rubber,0,.389,.904);
+    for(const z of [.729,1.083]){
+      box(group,.072,.328,.080,frame,0,.187,z);
+      box(group,.547,.052,.115,edge,0,.032,z);
+    }
+  }else if(kind==='pull-up-offset-towel'){
+    const cloth=material(0x565f58,.84);
+    for(const x of [-.351,-.301])box(group,.045,.331,.023,cloth,x,1.97,.095,.008);
+    cylinder(group,.023,.107,rubber,-.326,1.820,.097,20).rotateZ(Math.PI/2);
+  }else if(kind==='assisted-knee-slider'){
+    const cloth=box(group,.421,.019,.249,accent,0,.013,.169,.016);
+    return pose=>{cloth.position.z=(pose.lk[2]+pose.rk[2])*.50;};
+  }else if(kind==='inverted-row-slider'){
+    const pads=['l','r'].map(side=>({side,pad:box(group,.162,.023,.218,accent,0,.012,0,.046)}));
+    return pose=>{for(const {side,pad} of pads)pad.position.set(pose[side+'a'][0],.013,pose[side+'a'][2]+.042);};
+  }
+  return null;
 }
 
 function createArmSlings(group){
@@ -1441,6 +1482,7 @@ export function createEquipment(options, sample) {
   const updateWearableWeight = buildWearableWeight(group, options.wearableWeight);
   const updateSpecialtyWeight = buildSpecialtyWeight(group, options.specialtyWeight);
   const updateStrongmanProp = buildStrongmanProp(group, options.strongmanProp);
+  const updateCatalogueBodyweight = buildCatalogueBodyweightProp(group, options.bodyweightSpecialty);
   const updateSuspension = options.suspensionRig ? buildAdjustableSuspension(group, options.suspensionRig, sample) : undefined;
   const dumbbells = Array.from({ length: bells }, () => options.handHeldProp
     ? buildHandHeldProp(group, options.handHeldProp) : options.circusDumbbell
@@ -1769,6 +1811,7 @@ export function createEquipment(options, sample) {
     cylinder(group,.018,.155,rubber,grip.x,grip.y,grip.z,22);
   }
   if (pullUp) createPullUpRack(group, pullUp);
+  const updatePullUpAccessory=options.pullUpAccessory?createPullUpAccessory(group,options.pullUpAccessory):null;
   const updateArmSlings=options.armSlings?createArmSlings(group):null;
   const updatePulldownBar = latBar || catalogueCable?.attachment ? createPulldownBar(group, sample, catalogueCable) : null;
   const updateLegCurl = legCurl ? (standingLegCurl ? createStandingCurlMachine(group) : createProneCurlMachine(group)) : null;
@@ -1849,7 +1892,7 @@ export function createEquipment(options, sample) {
   }) : [];
   const updateBall = stabilityBall ? createStabilityBall(group, options.singleBall?.radius ?? (options.ezBallSupport ? .365 : .285)) : null;
   const updateSecondaryBall = options.secondaryBallRadius ? createStabilityBall(group, options.secondaryBallRadius) : null;
-  const roller = handRoller && !options.catalogueSmallProp ? createHandRoller(group) : null;
+  const roller = handRoller && !options.catalogueSmallProp && !options.bodyweightSpecialty ? createHandRoller(group) : null;
   if (ankleCuff) createBalancePost(group);
   const updateBand = hasBand ? createResistanceBand(group, world(sample(0).band.anchor), ankleCuff) : null;
 
@@ -1863,6 +1906,7 @@ export function createEquipment(options, sample) {
     updateWearableWeight?.(pose);
     updateSpecialtyWeight?.(pose);
     updateStrongmanProp?.(pose);
+    updateCatalogueBodyweight?.(pose);
     updateSuspension?.(pose);
     updateLeverPull?.(pose.leverPullAngles);
     updateAssistedExercise?.(pose.assistedPadY);
@@ -1945,6 +1989,7 @@ export function createEquipment(options, sample) {
     wristCables.forEach((update,index) => update(cables[index]));
     if (updateBall) updateBall(pose.ballCenter);
     if(updateArmSlings)updateArmSlings(pose);
+    if(updatePullUpAccessory)updatePullUpAccessory(pose);
     if (updateSecondaryBall) updateSecondaryBall(pose.secondaryBallCenter);
     if (roller) aligned(roller, world(pose.handRoller.center), world(pose.handRoller.axis));
     if (updateBand) updateBand(pose.band);

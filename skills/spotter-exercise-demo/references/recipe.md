@@ -50,6 +50,9 @@ Optional per-frame fields:
 - Use `kettlebell-banded-swing` for a rear anchor and `step-banded-kettlebell-left` when the band is secured beneath the feet on a platform. Include the band path on every keyframe and keep the anchor fixed.
 - `battle-ropes`, `climb-rope` and `stretch-rope` use `ropeTracks`, an array of equal-length paths with 2–30 world points per path. Battle ropes take two paths and other rope presets take one. For hanging ropes keep the suspension point fixed.
 - `stability-ball-hug` and `stability-ball-chest-stretch` use a fixed support ball at `ballCenter` and a smaller held ball at `secondaryBallCenter`.
+- The original catalogue renderer includes `spotter-strongman-training-stick`, `spotter-training-stick-mat` and `spotter-towel-strap` for equipment-assisted mobility. Derive the shaft axis from the two grasp positions and keep the correct side, height and support through the movement.
+- The `spotter-towel-floor-feet` and `spotter-towel-floor-hands` variants follow the feet or hands. The `-single` variants support the right side. Table and doorway movements use the corresponding `spotter-home-*` fixture so the hands remain on the edge or cloth.
+- The `spotter-agility-*` presets place the original cones, markings, ladder or hurdle to match the authored path. `spotter-recreation-bike` and `spotter-recreation-hoop` use `machineTravel` for rotations. Match the road-bike pedal phase to the athlete’s feet.
 
 If the movement needs apparatus outside the preset list, author and validate the correct apparatus in the renderer before describing the animation as finished. A provisional stand-in shows different mechanics.
 

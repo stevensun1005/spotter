@@ -47,10 +47,10 @@ function shoulderSweep(guide, profile) {
       p[side + "h"][0] = facing * .103;
       const dx = facing * (.023 + spread) + .446 * banana;
       const up = -.044 + footLift;
-      const z = (front ? 1 : -1) * Math.sqrt(Math.max(.07, .838 ** 2 - dx ** 2 - up ** 2));
+      const z = Math.sqrt(Math.max(.07, .838 ** 2 - dx ** 2 - up ** 2));
       leg(p, side, profile.bent ? [sign * .148, .109, .373] : add(p[side + "h"], [dx, up, z]),
         profile.bent ? [sign * .084, .983, -.077] : [facing * .14, front ? .16 : -.935, .235],
-        profile.bent ? [sign * .017, -.065, .131] : [facing * .018, front ? .081 : -.063, front ? .102 : -.132],
+        profile.bent ? [sign * .017, -.065, .131] : [facing * .018, front ? .081 : -.063, .112],
         profile.bent ? .024 : undefined);
 
       const shoulder = p[side + "s"];

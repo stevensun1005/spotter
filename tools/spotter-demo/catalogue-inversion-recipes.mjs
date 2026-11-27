@@ -29,8 +29,9 @@ function wallHandstand(phase,{kind}){
   for(const [limb,sign] of sides){
     const separated=split&&sign<0;
     const tuck=kip?.236*dive+.139*drive:0;
-    const ankle=[sign*.108,hipY+.805-tuck-(separated?.263*spread:0),
-      split?-.404+(separated?.518*spread:0):.479-(kip?.039*drive:0)];
+    const splitAngle=mix(-.102,.680,spread);
+    const ankle=separated?[sign*.108,hipY+.827*Math.cos(splitAngle),hipZ+.827*Math.sin(splitAngle)]
+      :[sign*.108,hipY+.805-tuck,split?-.404:.479-(kip?.039*drive:0)];
     leg(pose,limb,ankle,[sign*.14,kip?.47:.25,kip?.90:-.98],
       [sign*.013,split?.073:.109,split?-.108:-.039]);
     floorPalm(pose,limb,[sign*(bench?.336:.177),pressY,split?-.267:.211],
@@ -79,7 +80,7 @@ function planche(phase,{kind}){
       grip(pose,limb,[sign*hand[0],hand[1],hand[2]],[sign*.29,-.04,-.94],long);
       continue;
     }
-    const length=spread?mix(.718,.591,delivery):mix(.733,.819,delivery);
+    const length=spread?mix(.718,.722,delivery):mix(.733,.819,delivery);
     const out=spread?mix(.134,.519,delivery):.124;
     const target=[sign*out,leanOnly?.078:mix(.076,pose.hips[1]-.023,delivery),pose.hips[2]-length];
     leg(pose,limb,target,[sign*.15,.77,-.40],[sign*.002,-.073,.135],leanOnly||delivery<.001?0:null);
@@ -159,6 +160,64 @@ function barBody(phase,{row}){
   return p;
 }
 
+function forearmStand(phase){
+  const rise=rep(phase,.43,.64);
+  const gather=ramp(rise,.16,.74);
+  const pitch=mix(1.516,pi,rise);
+  const shoulderY=mix(.355,.411,rise);
+  const shoulderZ=mix(.103,.014,rise);
+  const p=torso([0,shoulderY-.502*Math.cos(pitch),shoulderZ-.502*Math.sin(pitch)],pitch);
+  p.headAim=[0,-.96,.27];
+  for(const [limb,sign] of sides){
+    p[limb+'e']=[sign*.173,.086,.085];
+    p[limb+'w']=[sign*.151,.091,.412];
+    p[limb+'Fingers']=[0,-.051,1];
+    p[limb+'PalmSide']=[sign,0,0];
+    const lift=sign===1?ramp(rise,.17,.80):ramp(rise,.37,.94);
+    const grounded=[sign*.138,.076,-.825+.151*gather];
+    const high=[sign*.112,p.hips[1]+.830,p.hips[2]+.015];
+    leg(p,limb,blend(grounded,high,lift),[sign*.19,-.12,.92],[sign*.018,mix(-.065,.137,lift),mix(.143,.039,lift)],lift<.001?0:null);
+  }
+  return p;
+}
+
+function floorMaltese(phase,{open}){
+  const lift=rep(phase,.36,.65);
+  const wristX=.693;
+  const wristZ=.118;
+  const shoulderZ=.268+.083*lift;
+  const shoulderY=.068+Math.sqrt(.614**2-(wristX-.192)**2-(shoulderZ-wristZ)**2);
+  const pitch=mix(1.33,1.565,lift);
+  const pose=torso([0,shoulderY-.502*Math.cos(pitch),shoulderZ-.502*Math.sin(pitch)],pitch);
+  for(const [limb,sign] of sides){
+    const spread=open?mix(.152,.551,lift):.117;
+    const ankleY=mix(.076,pose.hips[1]+.008,lift);
+    const ankleZ=pose.hips[2]-Math.sqrt(.831**2-(spread-.103)**2-(ankleY-pose.hips[1])**2);
+    leg(pose,limb,[sign*spread,ankleY,ankleZ],[sign*.077,.85,-.25],[sign*.017,-.073,.132],lift<.001?0:null);
+    floorPalm(pose,limb,[sign*wristX,.068,wristZ],[sign*.52,.79,-.30]);
+  }
+  return pose;
+}
+
+function stalder(phase){
+  const lift=rep(phase,.44,.66);
+  const close=ramp(lift,.47,1);
+  const pitch=mix(1.044,pi-.018,lift);
+  const depth=mix(.216,.128,lift);
+  const handZ=.091;
+  const shoulderY=.067+Math.sqrt(.610**2-(depth-handZ)**2);
+  const pose=torso([0,shoulderY-.502*Math.cos(pitch),depth-.502*Math.sin(pitch)],pitch);
+  for(const [limb,sign] of sides){
+    const angle=mix(-.315,pi/2-.027,lift);
+    const lateral=.827*Math.cos(angle)*(1-close);
+    const rise=.827*Math.sin(angle);
+    const foot=[sign*(.106+lateral),Math.max(.077,pose.hips[1]+rise),pose.hips[2]+.377*(1-close)*(1-lift)];
+    leg(pose,limb,foot,[sign*.87,.29,.71],[sign*.021,mix(-.073,.125,lift),mix(.135,.068,lift)],lift<.001?0:null);
+    floorPalm(pose,limb,[sign*.170,.067,handZ],[sign*.53,-.33,-.71]);
+  }
+  return pose;
+}
+
 const floorCam={yaw:65,elevation:12,focus:[0,.62,.009],height:1.79};
 const upsideCam={yaw:112,elevation:11,focus:[0,1.05,.206],height:2.50};
 const jobs=[
@@ -179,6 +238,10 @@ const jobs=[
   ['7415',planche,{kind:'dip'},'parallel-dips',['pec','triceps','core'],{...floorCam,yaw:64,focus:[0,1.09,-.12],height:2.36},4800,.50],
   ['9312',barBody,{row:false},'inverted-high-row',['pec','triceps'],{...floorCam,focus:[0,.77,.15],height:1.95},4500,.50],
   ['4917',barBody,{row:true},'inverted-high-row',['lat','biceps'],{...floorCam,focus:[0,.79,-.33],height:1.98},4500,.50],
+  ['6880',forearmStand,{},'mat',['shoulder','core'],{...upsideCam,yaw:60,focus:[0,.95,-.13],height:2.38},5900,.50],
+  ['3314',floorMaltese,{open:true},'none',['shoulder','core'],{...floorCam,yaw:39,elevation:17,focus:[0,.47,-.22],height:1.69},5300,.50],
+  ['3315',floorMaltese,{open:false},'none',['shoulder','core'],{...floorCam,yaw:55,focus:[0,.47,-.23],height:1.69},5300,.50],
+  ['3291',stalder,{},'none',['shoulder','core','adductor'],{...upsideCam,yaw:43,focus:[0,1.02,.073],height:2.56},5600,.55],
 ];
 
 const [directory,...ids]=process.argv.slice(2);

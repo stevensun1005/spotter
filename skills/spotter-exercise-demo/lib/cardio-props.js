@@ -373,10 +373,29 @@ export function buildCardio(group,options){
  }
  if(options.contactWall){
   const height=options.tallContactWall?2.30:1.867;
-  box(group,pale,[1.123,height,.102],[0,height/2+.0045,.590]);
-  box(group,green,[1.124,.066,.107],[0,.037,.590]);
-  box(group,green,[1.123,.062,.105],[0,height-.021,.590]);
-  for(const x of [-.219,.219])box(group,green,[.099,.133,.005],[x,1.251,.537]);
+  if(options.cornerContactWall){
+   for(const sign of [-1,1]){
+    const surface=new T.Group();
+    surface.position.set(sign*.335,0,.655);
+    surface.rotation.y=sign*Math.PI/4;
+    group.add(surface);
+    box(surface,pale,[.978,height,.090],[0,height/2+.0045,0]);
+    box(surface,green,[.980,.054,.095],[0,.03,0]);
+   }
+  }else{
+   const width=options.jambContactWall?.561:1.123;
+   const center=options.jambContactWall?.312:0;
+   box(group,pale,[width,height,.102],[center,height/2+.0045,.590]);
+   box(group,green,[width,.066,.107],[center,.037,.590]);
+   box(group,green,[width,.062,.105],[center,height-.021,.590]);
+   if(!options.jambContactWall){
+    for(const x of [-.219,.219])box(group,green,[.099,.133,.005],[x,1.251,.537]);
+   }
+  }
+  if(options.lowStepContactWall){
+   box(group,black,[.413,.095,.310],[.112,.0475,-.352]);
+   box(group,green,[.419,.022,.315],[.112,.106,-.352]);
+  }
  }
  if(options.suitcaseBar){
   const load=new T.Group();group.add(load);
