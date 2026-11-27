@@ -273,3 +273,5 @@ AI 教练的星星位于底栏最右侧的圆角方形按钮内，外圈是四�
 2026-11-27 测试发布记录。1.0.1 Build 58 以 `23659d7a3c750a9da9bb12f2374129ef2bfa7176` 归档，构建源码已推到 `main`。源码基线、模拟器打包及分发签名通过，签名归档验证了生产推送、小组件、灵动岛、Apple Watch 和 5,685 段离线动作演示。App Store Connect 中「训练搭子内测」显示 `Testing`，「训练搭子公开外测」显示 `Waiting for Review`，审核通过后自动通知外测者。Build 54 已撤回外测审核并移出该外测组。构建沿用 Cloudflare 98 HTTPS API，发布范围为 TestFlight。正式 App Store 与网页未执行发布。
 
 2026-11-27 内测发布记录。1.0.1 Build 59 以 `fd03f81fa23dd4aa5739e5f7b577c4969cd6eeb4` 归档，归档参数将 iPhone、Apple Watch 和小组件的构建号统一设为 59。包含新版饮食记录、日期进度环和 PR #5 的悬浮点按底栏。源码基线、模拟器打包及分发签名通过。签名归档核对生产推送、Apple Watch、小组件、灵动岛、帮助与食物库以及 5,685 段离线动作演示。构建使用 Cloudflare 98 的 HTTPS API。Xcode 以 TestFlight Internal Only 上传，App Store Connect 已将 Build 59 加入「训练搭子内测」，状态为 `Testing`。
+
+2026-11-27 内测发布记录。1.0.1 Build 60 以 `4e019f2a67e199a63496b7b1dcf47541f145a5d0` 归档。首页顶部展示最近七天的训练和饮食双环，开练面板的「记录饮食」「选择模板开练」使用方形按钮。Xcode 源码和模拟器打包检查通过，iPhone SE 模拟器验证七日日期联动、跨周数据和开练入口。分发归档核对 iPhone、Apple Watch 和小组件的构建号、灵动岛、生产推送及 5,685 段离线动作演示。App 连接 Cloudflare 98 HTTPS API。Xcode 以 TestFlight Internal Only 上传，Apple 处理完成后加入「训练搭子内测」，App Store Connect 显示 `Testing`。
