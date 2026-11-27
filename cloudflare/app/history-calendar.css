@@ -125,7 +125,6 @@
 @media (max-height: 660px) {
   .app.app-history { --primary-nav-height: 54px; --primary-nav-bottom: calc(5px + env(safe-area-inset-bottom, 0px)); }
   .app-history .content { padding-block: 5px; }
-  .app-history .stats-page-tabs > button { min-height: 36px; }
   .history-month-card { gap: 3px; padding-block: 7px; }
   .history-month-bar .icon-button { width: 36px; height: 36px; }
   .history-calendar-record > span { -webkit-line-clamp: 1; }

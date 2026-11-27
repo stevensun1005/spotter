@@ -193,7 +193,9 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     let title: (Option) -> String
     let glass: Bool
     let compact: Bool
+    let dense: Bool
     let guideTarget: (Option) -> NativeGuideStep?
+    let accessibilityTitle: ((Option) -> String)?
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dynamicTypeSize) private var textSize
@@ -201,27 +203,34 @@ struct SpotterGlassSegments<Option: Hashable>: View {
     @Environment(\.colorScheme) private var colorScheme
     @Namespace private var selection
 
-    init(options: [Option], value: Binding<Option>, glass: Bool = true, compact: Bool = false,
+    /// `dense` draws a 30 pt row (34 pt with its track), close to the system segmented control.
+    /// Accessibility text sizes keep the 44 pt rows.
+    init(options: [Option], value: Binding<Option>, glass: Bool = true, compact: Bool = false, dense: Bool = false,
          guideTarget: @escaping (Option) -> NativeGuideStep? = { _ in nil },
+         accessibilityTitle: ((Option) -> String)? = nil,
          title: @escaping (Option) -> String) {
         self.options = options
         _value = value
         self.glass = glass
         self.compact = compact
+        self.dense = dense
         self.guideTarget = guideTarget
+        self.accessibilityTitle = accessibilityTitle
         self.title = title
     }
+
+    private var isDense: Bool { dense && !textSize.isAccessibilitySize }
 
     @ViewBuilder var body: some View {
         if glass {
             SpotterGlassGroup(spacing: 5) { buttons }
-                .padding(.horizontal, 4)
-                .padding(.vertical, compact ? 0 : 4)
-                .spotterGlass(cornerRadius: compact ? 22 : 26, interactive: false)
+                .padding(.horizontal, isDense ? 3 : 4)
+                .padding(.vertical, isDense ? 2 : compact ? 0 : 4)
+                .spotterGlass(cornerRadius: isDense ? 17 : compact ? 22 : 26, interactive: false)
         } else {
-            buttons.padding(.horizontal, 3)
-                .padding(.vertical, compact ? 0 : 3)
-                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: 14))
+            buttons.padding(.horizontal, isDense ? 2 : 3)
+                .padding(.vertical, isDense ? 2 : compact ? 0 : 3)
+                .background(SpotterPalette.background, in: RoundedRectangle(cornerRadius: isDense ? 10 : 14))
         }
     }
 
@@ -237,6 +246,7 @@ struct SpotterGlassSegments<Option: Hashable>: View {
                     label(for: option, selected: selected)
                 }
                 .buttonStyle(glass && selected ? .spotterGlassPress : .spotterPress)
+                .accessibilityLabel(accessibilityTitle?(option) ?? title(option))
                 .accessibilityAddTraits(selected ? .isSelected : [])
                 .nativeGuideTarget(guideTarget(option))
             }
@@ -254,7 +264,7 @@ struct SpotterGlassSegments<Option: Hashable>: View {
             .multilineTextAlignment(.center)
             .foregroundStyle(selected ? SpotterPalette.ink : SpotterPalette.muted)
             .padding(.horizontal, 2)
-            .frame(maxWidth: .infinity, minHeight: compact && !textSize.isAccessibilitySize ? 34 : 44)
+            .frame(maxWidth: .infinity, minHeight: isDense ? 30 : compact && !textSize.isAccessibilitySize ? 34 : 44)
 
         Group {
             if !selected {
@@ -271,7 +281,7 @@ struct SpotterGlassSegments<Option: Hashable>: View {
                 }
             }
         }
-        .frame(minHeight: 44)
+        .frame(minHeight: isDense ? 30 : 44)
         .contentShape(Capsule())
     }
 }

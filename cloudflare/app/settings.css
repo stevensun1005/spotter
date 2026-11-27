@@ -90,5 +90,7 @@
 :root[data-spotter-theme="dark"] .primary-nav-coach.active { background: var(--lime); color: var(--dark); }
 :root[data-spotter-theme="dark"] .stats-dashboard { --stats-accent: #85d6a3; --stats-muted: #b0c0b3; --stats-surface: #26322a; }
 :root[data-spotter-theme="dark"] .stats-dashboard :is(.card, .period-stepper, .stats-lift, .stats-muscle) { border-color: var(--stroke); }
-:root[data-spotter-theme="dark"] .stats-dashboard :is(.stats-top, select, input, .stats-people button:not([aria-pressed="true"])) { background: var(--card); color: var(--text); }
+:root[data-spotter-theme="dark"] .stats-dashboard :is(.stats-top, select, input) { background: var(--card); color: var(--text); }
+:root[data-spotter-theme="dark"] .stats-dashboard .stats-people { border-color: var(--stroke); }
+:root[data-spotter-theme="dark"] .stats-dashboard .stats-people button:not([aria-pressed="true"]) { color: var(--text); }
 :root[data-spotter-theme="dark"] .stats-dashboard :is(.period-stepper strong, .stats-metric > strong, .stats-comparison + .stats-comparison strong, .stats-trend-values > div + div) { color: var(--text); }

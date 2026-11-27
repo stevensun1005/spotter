@@ -20,7 +20,6 @@ const viewKey = "spotter:exercise-view";
 const gearKey = "spotter:exercise-gear";
 const searchPageSize = 40;
 const sectionPageSize = 8;
-const primaryEquipment = ["barbell", "dumbbell", "kettlebell", "cable"];
 const featuredIds = ["0576", "0289", "0025"];
 
 type Props = {
@@ -114,8 +113,6 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
     : catalogueSections(rows, custom, favorites);
   const showJumpRail = sections.length > 1;
   const equipmentAll = useMemo(() => equipmentOptions([...(data?.rows ?? []), ...personal.values()]), [data, personal]);
-  const equipmentChips = [...primaryEquipment.filter((key) => filters.equipmentList.includes(key)),
-    ...filters.equipmentList.filter((key) => !primaryEquipment.includes(key))];
   const activeOptions = Number(Boolean(filters.activeType)) + Number(Boolean(filters.activeEquipment)) + Number(byMuscle);
   const familyKey = (id: string) => families.get(id)?.id ?? id;
   const featured = !search && !scope && !area.startsWith("custom") && !byMuscle && !filters.activeType && !filters.activeEquipment
@@ -254,15 +251,12 @@ export function OpenGymCatalogue({ choose, quick, profiles = [], names = [], sam
         })}
       </div>
       <div className="catalogue-main">
+        {/* Equipment and 置顶 jumps live in the section rail beside the results; the filter dialog keeps the full equipment list. */}
         <div className="catalogue-controls">
-          <div className="catalogue-chip-row catalogue-equipment" role="group" aria-label="器械快捷筛选">
-            <button type="button" className="catalogue-chip" aria-pressed={scope === "favorites"} onClick={() => changeScope("favorites")}><Star size={14} /> 置顶</button>
-            {equipmentChips.map((key) => <button type="button" className="catalogue-chip" key={key}
-              aria-pressed={filters.activeEquipment === key} onClick={() => show(() => setEquipment(equipment === key ? "" : key))}>{label(key)}</button>)}
-          </div>
           <div className="catalogue-tools">
             <div className="catalogue-scope" role="group" aria-label="动作范围">
-              <button type="button" aria-pressed={scope !== "chosen"} onClick={() => show(() => setScope(""))}>精选动作</button>
+              <button type="button" aria-pressed={!scope} onClick={() => show(() => setScope(""))}>精选动作</button>
+              <button type="button" aria-pressed={scope === "favorites"} onClick={() => changeScope("favorites")}>置顶</button>
               <button type="button" aria-pressed={scope === "chosen"} onClick={() => changeScope("chosen")}>{picker ? "已选动作" : "常用动作"}</button>
             </div>
             <button type="button" className="icon-button catalogue-filter" aria-label={activeOptions ? "筛选，已选 " + activeOptions + " 项" : "筛选"}

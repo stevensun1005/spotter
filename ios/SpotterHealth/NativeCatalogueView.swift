@@ -97,7 +97,6 @@ struct NativeCatalogueBrowser: View {
                         areaRail(index)
                             .frame(width: min(91, max(62, geometry.size.width * 0.19)))
                         VStack(alignment: .leading, spacing: 7) {
-                            equipmentBar(index)
                             if let results {
                                 resultPane(results, index: index)
                             } else {
@@ -169,6 +168,7 @@ struct NativeCatalogueBrowser: View {
                 .animation(filterMotion, value: filters.query.isEmpty)
                 .frame(height: 43)
                 .spotterGlass(cornerRadius: 24, tint: SpotterPalette.card.opacity(0.75), interactive: false)
+                filterMenu
                 catalogueIconButton(cards ? "list.bullet" : "square.grid.2x2",
                                     label: cards ? "切到列表" : "切到卡片",
                                     size: 43, glass: true) { cards.toggle() }
@@ -240,34 +240,21 @@ struct NativeCatalogueBrowser: View {
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
-    private func equipmentBar(_ index: NativeCatalogIndex) -> some View {
-        let all = results?.equipmentOptions ?? index.equipmentOptions
-        let featured = ["barbell", "dumbbell", "kettlebell", "cable"]
-        let ordered = featured.filter(all.contains) + all.filter { !featured.contains($0) }
-        return HStack(spacing: 3) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 5) {
-                    catalogueChip("置顶", symbol: "star", selected: filters.scope == .pinned) {
-                        toggleScope(.pinned)
-                    }
-                    ForEach(ordered, id: \.self) { gear in
-                        catalogueChip(index.label(gear), selected: filters.equipment == gear) {
-                            filters.equipment = filters.equipment == gear ? "" : gear
-                        }
-                    }
-                }
-                .padding(.vertical, 2)
-                .animation(filterMotion, value: filters.equipment)
-                .animation(filterMotion, value: filters.scope)
-            }
-            .accessibilityLabel("器械快捷筛选")
-            filterMenu
-        }
-        .frame(height: 42)
+    /// Equipment and 置顶 quick picks come from the section rail beside the results, so the browser has
+    /// no chip row. Scope switches and the full filter sheet live in this menu next to the search field.
+    private var filtersActive: Bool {
+        filters.scope != .all || !filters.equipment.isEmpty || !filters.type.isEmpty
+            || (filters.usesMuscles && !filters.muscles.isEmpty)
     }
 
     private var filterMenu: some View {
-        Menu {
+        let active = filtersActive
+        return Menu {
+            Button {
+                toggleScope(.pinned)
+            } label: {
+                Label(filters.scope == .pinned ? "显示全部动作" : "置顶动作", systemImage: "star")
+            }
             Button {
                 toggleScope(.frequent)
             } label: {
@@ -283,15 +270,16 @@ struct NativeCatalogueBrowser: View {
                 Label("高级筛选", systemImage: "slider.horizontal.3")
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(SpotterPalette.ink)
-                .frame(width: 32, height: 32)
-                .background(SpotterPalette.card, in: Circle())
-                .padding(.vertical, 5)
-                .contentShape(Rectangle())
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(active ? SpotterPalette.deep : SpotterPalette.ink)
+                .frame(width: 43, height: 43)
+                .contentShape(Circle())
+                .spotterGlass(in: Circle(), tint: active ? accent.fill : nil)
         }
-        .accessibilityLabel("动作库更多选项")
+        .disabled(index == nil)
+        .accessibilityLabel("筛选动作")
+        .accessibilityValue(active ? "已筛选" : "")
     }
 
     private func toggleScope(_ scope: NativeCatalogScope) {

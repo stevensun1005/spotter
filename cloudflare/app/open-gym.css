@@ -62,9 +62,6 @@
 .catalogue-chip-row.wraps { flex-wrap: wrap; overflow: visible; }
 .catalogue-chip { display: inline-flex; gap: 4px; align-items: center; padding: 7px 11px; min-height: 38px; border-radius: 999px; border: 1px solid var(--stroke); background: white; color: #3b4e42; flex: 0 0 auto; font-size: .86rem; font-weight: 680; }
 .catalogue-chip[aria-pressed=true] { background: #e7efe4; border-color: #9fb39a; color: #24432a; }
-.catalogue-equipment { padding: 2px 2px 6px; scrollbar-width: thin; }
-.catalogue-equipment .catalogue-chip { border-radius: 11px; min-height: 40px; }
-.catalogue-equipment .catalogue-chip[aria-pressed=true] { background: #dff1cb; color: #24432a; }
 .catalogue-tools { display: flex; justify-content: space-between; align-items: center; gap: 5px; min-width: 0; }
 .catalogue-scope { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
 .catalogue-scope button {
@@ -226,9 +223,6 @@
   .catalogue-main { gap: 6px; }
   .catalogue-chip-row { gap: 4px; }
   .catalogue-chip { padding: 3px 8px; min-height: 34px; font-size: .78rem; }
-  .catalogue-equipment { padding-block: 1px 4px; }
-  .catalogue-equipment .catalogue-chip { min-height: 34px; border-radius: 8px; }
-  .catalogue-equipment .catalogue-chip svg { width: 12px; height: 12px; }
   .catalogue-scope { gap: 6px; }
   .catalogue-scope button { min-height: 34px; font-size: .81rem; border-block-end-width: 2px; }
   .catalogue-tools .catalogue-filter { width: 35px; height: 35px; border-radius: 9px; }
