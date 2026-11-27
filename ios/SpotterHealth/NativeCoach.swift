@@ -3008,7 +3008,7 @@ private struct NativeNutritionPhotoNotes: View {
     }
 }
 
-private func coachImage(_ input: Data) -> Data? {
+func coachImage(_ input: Data) -> Data? {
     let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
     guard let source = CGImageSourceCreateWithData(input as CFData, sourceOptions),
           let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
@@ -3022,7 +3022,7 @@ private func coachImage(_ input: Data) -> Data? {
     return CGImageDestinationFinalize(encoder) && output.length <= 1_800_000 ? output as Data : nil
 }
 
-private struct NativeFoodCamera: UIViewControllerRepresentable {
+struct NativeFoodCamera: UIViewControllerRepresentable {
     let complete: (Data?) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(complete) }

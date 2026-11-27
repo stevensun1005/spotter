@@ -59,7 +59,7 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
 
   useEffect(() => { coachHeading.current?.focus({ preventScroll: true }); }, []);
 
-  const available = savedPortions.find(({ id }) => id === selected?.id)?.portions ?? [];
+  const available = savedPortions.find(({ id }) => id === selected?.id)?.portions ?? [...(selected?.portions ?? [])];
   const portion = available.find(({ name }) => portionKey(name) === unit);
   const grams = portionGrams(amount, mode === "lookup" ? portion : undefined);
   const computed = selected && grams !== undefined ? scaleNutrition(selected.per100g, grams) : undefined;
@@ -171,7 +171,7 @@ export function MealEditor({ owner, meal, initial, initialFood, initialGrams, in
             <ArrowLeft size={17} />{coachDate ? "返回拍照" : "返回食物库"}</button>
           {mode === "lookup" && selected ? <>
             <div className="food-selected"><div><h3>{selected.name}</h3><small>{displayNumber(selected.per100g.calories)} 千卡／100 g</small></div>
-              {selected.source ? <a className="text-button" href={selected.source} target="_blank" rel="noopener noreferrer">USDA 数据来源</a> : <small>我的食物</small>}</div>
+              {selected.source ? <a className="text-button" href={selected.source} target="_blank" rel="noopener noreferrer">数据来源</a> : <small>我的食物</small>}</div>
             {available.length > 0 && <label>份量单位<select value={portion ? unit : ""} onChange={(event) => {
               const key = event.target.value;
               const next = available.find(({ name }) => portionKey(name) === key);

@@ -5,10 +5,13 @@ export type RecentMealFood = { foodId: string; meal: MealEntry["meal"]; grams: n
 
 export function splitFoodQuery(input: string): { name: string; grams?: string } {
   const value = input.normalize("NFKC").trim();
-  const amount = "(\\d+(?:\\.\\d+)?)\\s*(?:公克|克|grams?|g)";
-  const suffix = new RegExp("^(.+?)\\s*" + amount + "$", "i").exec(value);
+  // "g" and "grams" must not run into a Latin word, so "150 grams", "100 granola" and "100 gâteau" are not
+  // read as food "s", "ranola" or "âteau". Chinese may follow directly, as in "150g鸡胸肉".
+  const amount = "(\\d+(?:\\.\\d+)?)\\s*(?:公克|克|(?:grams?|g)(?!\\p{Script=Latin}))";
+  // The lookbehind keeps the amount from starting inside a number, so "150g" is not read as food "1" with 50 g.
+  const suffix = new RegExp("^(.+?)\\s*(?<![\\d.])" + amount + "$", "iu").exec(value);
   if (suffix) return { name: suffix[1].trim(), grams: suffix[2] };
-  const prefix = new RegExp("^" + amount + "\\s*(.+)$", "i").exec(value);
+  const prefix = new RegExp("^" + amount + "\\s*(.+)$", "iu").exec(value);
   if (prefix) return { name: prefix[2].trim(), grams: prefix[1] };
   return { name: value };
 }

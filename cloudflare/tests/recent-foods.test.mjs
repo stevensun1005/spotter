@@ -8,6 +8,10 @@ test("Chinese and English portion syntax finds the exact food and fills its port
   assert.deepEqual(splitFoodQuery("60.5g 原味燕麦"), { name: "原味燕麦", grams: "60.5" });
   assert.deepEqual(splitFoodQuery("oatmeal 60.5 grams"), { name: "oatmeal", grams: "60.5" });
   assert.deepEqual(splitFoodQuery("2% milk"), { name: "2% milk" });
+  assert.deepEqual(splitFoodQuery("150 grams chicken"), { name: "chicken", grams: "150" });
+  // An amount alone, or a word that only starts with "g", is not split into a food name.
+  for (const query of ["150g", "150 grams", "100 granola", "100 gâteau au chocolat"]) assert.deepEqual(splitFoodQuery(query), { name: query });
+  assert.deepEqual(splitFoodQuery("150g鸡胸肉"), { name: "鸡胸肉", grams: "150" });
   const { name, grams } = splitFoodQuery("燕麦60g");
   const result = searchFoods(name)[0];
   assert.equal(result.id, "fdc-173904");

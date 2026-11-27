@@ -4,15 +4,13 @@ import CryptoKit
 import Speech
 import SwiftUI
 
-private enum NutritionShortcut: String, CaseIterable, Identifiable {
+enum NutritionShortcut: String, CaseIterable, Identifiable {
     case breakfast = "早餐"
     case lunch = "午餐"
     case dinner = "晚餐"
     case snack = "加餐"
     case water = "饮水"
     case weight = "记体重"
-
-    static let mainMeals: [Self] = [.breakfast, .lunch, .dinner]
 
     static var suggestedMeal: Self {
         switch Calendar.current.component(.hour, from: .now) {
@@ -42,7 +40,7 @@ private enum NutritionShortcut: String, CaseIterable, Identifiable {
     }
 }
 
-private struct NutritionPayload: Decodable {
+struct NutritionPayload: Decodable {
     struct Values: Decodable {
         var calories: Double = 0
         var protein: Double = 0
@@ -118,10 +116,6 @@ private struct NutritionPayload: Decodable {
         }.prefix(4))
     }
 
-    var mainMealRecents: [NutritionShortcut: [NativeRecentServing]] {
-        Dictionary(uniqueKeysWithValues: NutritionShortcut.mainMeals.map { ($0, recentServings(for: $0)) })
-    }
-
     func targets(on date: String, countingWorkoutIDs ids: Set<String>?) -> Values {
         let base = rows.first { $0.kind == "targets" }?.values ?? Values()
         let plan = rows.first { $0.kind == "nutrition-plan" }
@@ -169,7 +163,7 @@ private struct NutritionPayload: Decodable {
     }
 }
 
-private struct NativeRecentServing: Identifiable {
+struct NativeRecentServing: Identifiable {
     let food: NativeNutritionFood
     let grams: Double
     var id: String { food.id }
@@ -195,7 +189,7 @@ extension NativeWorkoutStore {
     }
 }
 
-private struct NativeQuickMealReceipt: Equatable {
+struct NativeQuickMealReceipt: Equatable {
     let id: String
     let updated: String
     let name: String
@@ -342,11 +336,11 @@ private struct NativeNutritionSummary: View {
     }
 }
 
-private func nutritionNumber(_ value: Double) -> String {
+func nutritionNumber(_ value: Double) -> String {
     value.formatted(.number.precision(.fractionLength(0...1)))
 }
 
-private func nutritionCalories(protein: Double, carbs: Double, fat: Double) -> Double {
+func nutritionCalories(protein: Double, carbs: Double, fat: Double) -> Double {
     (protein + carbs) * 4 + fat * 9
 }
 
@@ -465,8 +459,8 @@ struct NativeHomeNutrition: View {
                     if let onCollapse { NativeHomeNutritionCollapseButton(action: onCollapse) }
                 }
             Divider().overlay(SpotterPalette.line)
-            NutritionShortcuts(onMainMeal: { destination = .mainMeal },
-                               onSelect: { destination = .entry($0, nil, nil, nil) },
+            NutritionShortcuts(onMainMeal: { destination = .logger(.suggestedMainMeal) },
+                               onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
                                onFavorites: { destination = .favorites },
                                onPhoto: { photoCapture = NutritionPhotoRequest(day: spotterDay()) })
             if let quickMeal {
@@ -493,9 +487,10 @@ struct NativeHomeNutrition: View {
             if let guide, guide.step.presentation == .mealEditor { guide.skipSection(guide.step) }
         }) { item in
             switch item {
-            case .mainMeal:
-                NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: .suggestedMainMeal,
-                                      mainMealRecents: payload.mainMealRecents) { quickMeal = $0 }
+            case .logger(let meal):
+                NativeMealLogger(api: api, owner: owner, date: spotterDay(), meal: meal, payload: payload) { receipt in
+                    if let receipt { quickMeal = receipt }
+                }
             case .entry(let shortcut, _, _, _):
                 NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: shortcut,
                                       recent: payload.recentServings(for: shortcut)) { quickMeal = $0 }
@@ -527,13 +522,13 @@ struct NativeHomeNutrition: View {
 }
 
 private enum NutritionDestination: Identifiable {
-    case mainMeal
+    case logger(NutritionShortcut)
     case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
     case settings, goals, cycle, recipes, recommendations, protein, stats, voice, energy, copy, favorites
 
     var id: String {
         switch self {
-        case .mainMeal: return "main-meal"
+        case .logger(let meal): return "logger/" + meal.rawValue
         case .entry(let shortcut, let row, let food, _): return row?.id ?? food?.id ?? shortcut.rawValue
         case .settings: return "settings"
         case .goals: return "goals"
@@ -592,6 +587,7 @@ struct NativeNutritionDetail: View {
 
     static func clearFavoriteMeals(api: NativeAPI, owner: String) {
         NativeFavoriteMealStore(api: api, owner: owner).clear()
+        NativeFoodLocalStore(api: api, owner: owner).clear()
     }
 
     static func widgetFrequentMeals(api: NativeAPI, owner: String) -> [SpotterWidgetSnapshot.Nutrition.FrequentMeal] {
@@ -755,7 +751,7 @@ struct NativeNutritionDetail: View {
                         HStack {
                             Text(meal.rawValue).font(.headline).accessibilityAddTraits(.isHeader)
                             Spacer()
-                            Button { destination = .entry(meal, nil, nil, nil) } label: {
+                            Button { destination = .logger(meal) } label: {
                                 Label("加食物", systemImage: "plus").font(.subheadline.weight(.semibold))
                             }
                             .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.accent)
@@ -815,8 +811,8 @@ struct NativeNutritionDetail: View {
     }
 
     private var toolbar: some View {
-        NutritionShortcuts(onMainMeal: { destination = .mainMeal },
-                           onSelect: { destination = .entry($0, nil, nil, nil) },
+        NutritionShortcuts(onMainMeal: { destination = .logger(.suggestedMainMeal) },
+                           onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
                            onFavorites: { destination = .favorites },
                            onPhoto: { photoCapture = NutritionPhotoRequest(day: day) })
         .spotterGlassToolbar()
@@ -842,9 +838,10 @@ struct NativeNutritionDetail: View {
 
     @ViewBuilder private func destinationView(_ item: NutritionDestination) -> some View {
         switch item {
-        case .mainMeal:
-            NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: .suggestedMainMeal,
-                                  mainMealRecents: payload.mainMealRecents) { quickMeal = $0 }
+        case .logger(let meal):
+            NativeMealLogger(api: api, owner: owner, date: day, meal: meal, payload: payload) { receipt in
+                if let receipt { quickMeal = receipt }
+            }
         case .entry(let shortcut, let row, let food, let grams):
             NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: shortcut, existing: row, food: food, grams: grams,
                                   recent: row == nil && food == nil ? payload.recentServings(for: shortcut) : []) {
@@ -998,7 +995,7 @@ private struct NativeMealCopyItem: Identifiable {
     }
 }
 
-private struct NativeFavoriteMeal: Codable, Identifiable {
+struct NativeFavoriteMeal: Codable, Identifiable {
     struct Food: Codable, Identifiable {
         let id: String
         let name: String
@@ -1055,7 +1052,7 @@ private struct NativeFavoriteMeal: Codable, Identifiable {
     }
 }
 
-@MainActor private struct NativeFavoriteMealStore {
+@MainActor struct NativeFavoriteMealStore {
     let api: NativeAPI
     let owner: String
 
@@ -1695,7 +1692,6 @@ private struct NativeNutritionCopy: View {
 private struct NativeNutritionEditor: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
-    @Environment(\.spotterGuide) private var guide
     let api: NativeAPI
     let owner: String
     let date: String
@@ -1703,7 +1699,6 @@ private struct NativeNutritionEditor: View {
     private let foodId: String?
     private let proteinProductId: String?
     private let recent: [NativeRecentServing]
-    private let mainMealRecents: [NutritionShortcut: [NativeRecentServing]]?
     private let onQuickSave: ((NativeQuickMealReceipt) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -1722,14 +1717,13 @@ private struct NativeNutritionEditor: View {
 
     init(api: NativeAPI, owner: String, date: String, shortcut: NutritionShortcut,
          existing: NutritionPayload.Row? = nil, food: NativeNutritionFood? = nil, grams: Double? = nil,
-         recent: [NativeRecentServing] = [], mainMealRecents: [NutritionShortcut: [NativeRecentServing]]? = nil,
+         recent: [NativeRecentServing] = [],
          onQuickSave: ((NativeQuickMealReceipt) -> Void)? = nil) {
         self.api = api
         self.owner = owner
         self.date = date
         _shortcut = State(initialValue: shortcut)
         self.recent = recent
-        self.mainMealRecents = mainMealRecents
         self.onQuickSave = onQuickSave
         self.proteinProductId = existing?.proteinProductId
         isEditing = existing != nil
@@ -1761,17 +1755,8 @@ private struct NativeNutritionEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if shortcut.isMeal {
-                        if mainMealRecents != nil {
-                            SpotterGlassSegments(options: NutritionShortcut.mainMeals, value: $shortcut, glass: false,
-                                                guideTarget: { $0 == .breakfast ? .mealChoice : nil }) { $0.rawValue }
-                                .accessibilityElement(children: .contain)
-                                .accessibilityLabel("正餐餐次")
-                                .disabled(busy || quickItem != nil)
-                        }
-                        let servings = mainMealRecents?[shortcut] ?? recent
-                        if !servings.isEmpty { recentFoods(servings) }
+                        if !recent.isEmpty { recentFoods(recent) }
                         field("食物名称", value: $name, numeric: false)
-                            .nativeGuideTarget(.mealFields)
                         field("重量（g，选填）", value: $quantity)
                         field("蛋白质（g）", value: $protein)
                         field("碳水（g）", value: $carbs)
@@ -1808,7 +1793,7 @@ private struct NativeNutritionEditor: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.spotterPress)
-                    .disabled(busy || guide?.step.presentation == .mealEditor)
+                    .disabled(busy)
                 }
                 .animation(motion, value: busy)
                 .animation(motion, value: error != nil)
@@ -1818,7 +1803,6 @@ private struct NativeNutritionEditor: View {
             }
             .background(SpotterPalette.background.ignoresSafeArea())
             .scrollDismissesKeyboard(.interactively)
-            .nativeGuideLayer(.mealEditor) { dismiss() }
             .navigationTitle(editorTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { NutritionDismissButton(label: "取消") { dismiss() }.disabled(busy) } }
@@ -1842,7 +1826,6 @@ private struct NativeNutritionEditor: View {
 
     private var editorTitle: String {
         if isEditing { return "编辑食物" }
-        if mainMealRecents != nil { return "记录正餐" }
         return shortcut.isMeal ? "记\(shortcut.rawValue)" : shortcut.rawValue
     }
 
@@ -1867,7 +1850,7 @@ private struct NativeNutritionEditor: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.spotterPress)
-                .disabled(busy || guide?.step.presentation == .mealEditor || quickItem != nil && quickItem?.id != serving.id)
+                .disabled(busy || quickItem != nil && quickItem?.id != serving.id)
                 .accessibilityHint("按上次份量添加到" + shortcut.rawValue)
             }
             Divider()
@@ -1943,11 +1926,11 @@ private struct NativeNutritionEditor: View {
     }
 }
 
-private func nutritionInput(_ value: Double) -> String {
+func nutritionInput(_ value: Double) -> String {
     value.formatted(.number.grouping(.never).precision(.fractionLength(0...6)))
 }
 
-private func nutritionValue(_ text: String) -> Double? {
+func nutritionValue(_ text: String) -> Double? {
     guard let value = Double(text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")),
           value.isFinite else { return nil }
     return value
@@ -1979,7 +1962,7 @@ private struct NativeNutritionSheet<Content: View>: View {
     }
 }
 
-private struct NutritionDismissButton: View {
+struct NutritionDismissButton: View {
     var label = "关闭"
     let action: () -> Void
 
@@ -2373,8 +2356,8 @@ private struct NativeNutritionStats: View {
     }
 }
 
-private struct NativeNutritionFood: Identifiable {
-    struct Facts: Decodable {
+struct NativeNutritionFood: Identifiable {
+    struct Facts: Decodable, Equatable {
         var calories: Double
         var protein: Double
         var carbs: Double
@@ -2405,6 +2388,16 @@ private struct NativeNutritionFood: Identifiable {
     let name: String
     let aliases: [String]
     let facts: Facts
+    /// Display details from the shared food catalog. Personal foods leave them empty.
+    var emoji: String? = nil
+    var category: String? = nil
+    var group: String? = nil
+    var portions: [NativeFoodPortion] = []
+    var source: String? = nil
+    var detail: String? = nil
+    /// The chain or brand of a catalog item. Search lists everyday foods before branded ones that match as well.
+    var brand: String? = nil
+    var isPersonal = false
 
     init(id: String, name: String, aliases: [String] = [], facts: Facts) {
         self.id = id
@@ -2498,13 +2491,12 @@ private struct NativeNutritionIdeas: View {
     }
 
     private var suggestions: [NativeNutritionFood] {
-        let options = personal + NativeNutritionFood.builtIn
         if case .voice = destination {
             guard !voice.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-            return Array(options.filter { $0.matches(voice.text) }.prefix(15))
+            return Array((personal + NativeNutritionFood.builtIn).filter { $0.matches(voice.text) }.prefix(15))
         }
         let budget = remaining
-        return Array(options.sorted { $0.facts.fit(budget) > $1.facts.fit(budget) }.prefix(8))
+        return Array((personal + NativeNutritionFood.core).sorted { $0.facts.fit(budget) > $1.facts.fit(budget) }.prefix(8))
     }
 
     private var title: String {
@@ -2702,9 +2694,23 @@ final class NativeNutritionSpeech: ObservableObject {
     }
 }
 
-private extension NativeNutritionFood {
+extension NativeNutritionFood {
+    /// The shared catalog in `cloudflare/shared/food-catalog.json`, which the web nutrition tools also use.
+    /// The short list below only covers a missing or unreadable bundle resource.
+    static let builtIn: [Self] = {
+        let catalog = NativeFoodCatalog.shared?.nutritionFoods ?? []
+        return catalog.isEmpty ? fallback : catalog
+    }()
+
+    /// The original everyday list. Recommendations rank only these, like the web nutrition tools.
+    static let core: [Self] = {
+        let ids = Set(fallback.map(\.id))
+        let loaded = builtIn.filter { ids.contains($0.id) }
+        return loaded.count == fallback.count ? loaded : fallback
+    }()
+
     // Same USDA FoodData Central entries used by the Spotter web nutrition tools.
-    static let builtIn: [Self] = [
+    private static let fallback: [Self] = [
         .init(173904, "原味燕麦片（干）", ["燕麦", "燕麦片", "燕麥", "燕麥片", "干燕麦", "oats", "rolled oats", "dry oats", "oatmeal", "quick oats"], 379, 13.15, 67.7, 6.52),
         .init(173424, "水煮鸡蛋", ["鸡蛋", "雞蛋", "水煮蛋", "熟鸡蛋", "egg", "eggs", "boiled egg", "hard-boiled egg"], 155, 12.58, 1.12, 10.61),
         .init(171265, "全脂牛奶", ["牛奶", "纯牛奶", "純牛奶", "全脂奶", "milk", "whole milk", "3.25% milk"], 61, 3.15, 4.8, 3.25),

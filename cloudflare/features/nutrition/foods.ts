@@ -1,86 +1,112 @@
+import catalog from "../../shared/food-catalog.json" with { type: "json" };
+
 export type Food = {
   id: string;
   name: string;
   aliases: readonly string[];
   per100g: { calories: number; protein: number; carbs: number; fat: number };
   source?: string;
+  emoji?: string;
+  category?: string;
+  group?: string;
+  portions?: readonly { name: string; grams: number }[];
+  brand?: string;
 };
 
 export const maxFoodGrams = 3000;
 
-const source = "https://fdc.nal.usda.gov/download-datasets/";
+type CatalogFood = (typeof catalog.foods)[number] & { en?: string; brand?: string; ref?: string };
+type CatalogSource = { title: string; url?: string };
 
-// USDA FoodData Central SR Legacy (April 2018). IDs match food.csv, and values
-// are kcal, protein, total carbohydrate and fat from food_nutrient.csv per 100 g edible weight.
-function usdaFood(
-  fdcId: number, name: string, aliases: readonly string[], per100g: Food["per100g"],
-): Food {
-  return { id: "fdc-" + fdcId, name, aliases, per100g, source };
+const sources: Record<string, CatalogSource> = catalog.sources;
+
+function sourceUrl(item: CatalogFood) {
+  if (item.ref?.startsWith("https://")) return item.ref;
+  return sources[item.src]?.url;
 }
 
-export const foods: readonly Food[] = [
-  usdaFood(173904, "原味燕麦片（干）", ["燕麦", "燕麦片", "燕麥", "燕麥片", "干燕麦", "oats", "rolled oats", "dry oats", "oatmeal", "quick oats"],
-    { calories: 379, protein: 13.15, carbs: 67.7, fat: 6.52 }),
-  usdaFood(173424, "水煮鸡蛋", ["鸡蛋", "雞蛋", "水煮蛋", "熟鸡蛋", "egg", "eggs", "boiled egg", "hard-boiled egg"],
-    { calories: 155, protein: 12.58, carbs: 1.12, fat: 10.61 }),
-  usdaFood(171265, "全脂牛奶", ["牛奶", "纯牛奶", "純牛奶", "全脂奶", "milk", "whole milk", "3.25% milk"],
-    { calories: 61, protein: 3.15, carbs: 4.8, fat: 3.25 }),
-  usdaFood(170894, "原味脱脂希腊酸奶", ["希腊酸奶", "希臘酸奶", "希腊优格", "脱脂酸奶", "greek yogurt", "greek yoghurt", "nonfat greek yogurt"],
-    { calories: 59, protein: 10.19, carbs: 3.6, fat: 0.39 }),
-  usdaFood(173944, "香蕉", ["banana", "bananas"],
-    { calories: 89, protein: 1.09, carbs: 22.84, fat: 0.33 }),
-  usdaFood(172688, "全麦面包", ["全麥麵包", "全麦吐司", "全麦土司", "whole wheat bread", "wholemeal bread"],
-    { calories: 252, protein: 12.45, carbs: 42.71, fat: 3.5 }),
-  usdaFood(173905, "燕麦粥（水煮）", ["熟燕麦", "燕麥粥", "煮燕麦", "cooked oats", "cooked oatmeal", "oat porridge"],
-    { calories: 71, protein: 2.54, carbs: 12, fat: 1.52 }),
-  usdaFood(171267, "低脂牛奶（2%）", ["低脂奶", "低脂牛奶", "2% milk", "low-fat milk", "reduced fat milk"],
-    { calories: 50, protein: 3.3, carbs: 4.8, fat: 1.98 }),
-  usdaFood(171284, "原味全脂酸奶", ["酸奶", "原味酸奶", "原味优格", "原味優格", "plain yogurt", "plain yoghurt", "yogurt"],
-    { calories: 61, protein: 3.47, carbs: 4.66, fat: 3.25 }),
-  usdaFood(175215, "无糖豆浆", ["豆浆", "豆漿", "豆奶", "無糖豆漿", "soy milk", "soymilk", "unsweetened soy milk"],
-    { calories: 33, protein: 2.86, carbs: 1.74, fat: 1.61 }),
-  usdaFood(171688, "苹果（带皮）", ["苹果", "蘋果", "apple", "apples"],
-    { calories: 52, protein: 0.26, carbs: 13.81, fat: 0.17 }),
-  usdaFood(171711, "蓝莓", ["藍莓", "blueberry", "blueberries"],
-    { calories: 57, protein: 0.74, carbs: 14.49, fat: 0.33 }),
-  usdaFood(167762, "草莓", ["strawberry", "strawberries"],
-    { calories: 32, protein: 0.67, carbs: 7.68, fat: 0.3 }),
-  usdaFood(174924, "白面包", ["白麵包", "白吐司", "白土司", "white bread"],
-    { calories: 266, protein: 8.85, carbs: 49.42, fat: 3.33 }),
-  usdaFood(169757, "白米饭（熟）", ["米饭", "白饭", "米飯", "白飯", "熟米饭", "white rice", "cooked rice"],
-    { calories: 130, protein: 2.69, carbs: 28.17, fat: 0.28 }),
-  usdaFood(168484, "水煮红薯", ["红薯", "紅薯", "番薯", "地瓜", "熟红薯", "sweet potato", "boiled sweet potato"],
-    { calories: 76, protein: 1.37, carbs: 17.72, fat: 0.14 }),
-  usdaFood(168483, "烤红薯（去皮）", ["烤番薯", "烤地瓜", "baked sweet potato"],
-    { calories: 90, protein: 2.01, carbs: 20.71, fat: 0.15 }),
-  usdaFood(171705, "牛油果", ["鳄梨", "酪梨", "avocado", "avocados"],
-    { calories: 160, protein: 2, carbs: 8.53, fat: 14.66 }),
-  usdaFood(172470, "原味花生酱（无盐）", ["花生酱", "花生醬", "peanut butter", "unsalted peanut butter"],
-    { calories: 598, protein: 22.21, carbs: 22.31, fat: 51.36 }),
-  usdaFood(170567, "原味巴旦木", ["巴旦木", "扁桃仁", "杏仁", "almond", "almonds"],
-    { calories: 579, protein: 21.15, carbs: 21.55, fat: 49.93 }),
-  usdaFood(170554, "奇亚籽", ["奇亞籽", "chia", "chia seeds"],
-    { calories: 486, protein: 16.54, carbs: 42.12, fat: 30.74 }),
-  usdaFood(172475, "北豆腐（生）", ["北豆腐", "老豆腐", "硬豆腐", "豆腐", "tofu", "firm tofu"],
-    { calories: 144, protein: 17.27, carbs: 2.78, fat: 8.72 }),
-];
+// Shared with the iPhone app through `cloudflare/shared/food-catalog.json`. Values are kcal, protein,
+// total carbohydrate and fat per 100 g edible weight. Each item names its source in `src` and `ref`.
+export const foods: readonly Food[] = (catalog.foods as readonly CatalogFood[]).map((item) => ({
+  id: item.id,
+  name: item.name,
+  aliases: [...(item.en ? [item.en] : []), ...item.aliases],
+  per100g: item.per100g,
+  source: sourceUrl(item),
+  emoji: item.emoji,
+  category: item.category,
+  group: item.group,
+  portions: item.portions,
+  ...(item.brand ? { brand: item.brand } : {}),
+}));
+
+// The original everyday list. Food recommendations and recipes rank only these, so a large catalog of
+// oils, snacks and restaurant items does not crowd out simple whole foods.
+export const coreFoods: readonly Food[] = foods.filter(({ id }) => id.startsWith("fdc-"));
+
+// Folds width, case and accents, so "creme brulee" finds "crème brûlée" and "ＲＯＬＬＥＤ" finds "rolled".
+function foldFoodText(value: string) {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").normalize("NFC").toLowerCase();
+}
 
 function normalizeFoodName(value: string) {
-  return value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return foldFoodText(value).replace(/[^\p{L}\p{N}]/gu, "");
 }
 
+const eastAsianOrRun = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[^\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
+
+/** A label's words: Latin words stay whole and each Chinese, Japanese or Korean character is a word of its own. */
+function foodWords(value: string) {
+  return foldFoodText(value).split(/[^\p{L}\p{N}]+/u).flatMap((chunk) => chunk.match(eastAsianOrRun) ?? []);
+}
+
+/** `fromWords` holds the label joined from each word onward: "big mac" gives "bigmac" and "mac". */
+type SearchKey = { key: string; fromWords: readonly string[] };
+
+// Labels match from the start of a word, so "tea" does not find "sirloin steak" and "pie" does not find
+// "Rice Krispies", while "big mac" still finds "McDonald's Big Mac" and "饭" finds "米饭".
+function searchKey(label: string): SearchKey {
+  const words = foodWords(label);
+  return { key: normalizeFoodName(label), fromWords: words.map((_, index) => words.slice(index).join("")) };
+}
+
+const fromAWord = ({ fromWords }: SearchKey, needle: string) => fromWords.some((rest) => rest.startsWith(needle));
+
+const searchKeys = new WeakMap<Food, { name: SearchKey; aliases: SearchKey[] }>();
+
+function keysOf(food: Food) {
+  let keys = searchKeys.get(food);
+  if (!keys) {
+    keys = { name: searchKey(food.name), aliases: food.aliases.map(searchKey).filter(({ key }) => key) };
+    searchKeys.set(food, keys);
+  }
+  return keys;
+}
+
+/**
+ * Lower ranks first: exact name, exact alias, name start, a word inside the name, then any alias from the
+ * start of one of its words. Whole-alias and later-word matches share a tier, so "steak" finds striploin
+ * steak before "steak sauce". The iPhone app ranks these five the same way and adds two looser tiers.
+ */
+function searchRank(food: Food, needle: string) {
+  const { name, aliases } = keysOf(food);
+  if (name.key === needle) return 0;
+  if (aliases.some(({ key }) => key === needle)) return 1;
+  if (name.key.startsWith(needle)) return 2;
+  if (fromAWord(name, needle)) return 3;
+  if (aliases.some((alias) => fromAWord(alias, needle))) return 4;
+  return undefined;
+}
+
+// Within a rank, everyday foods come before chain and brand items, then catalog order applies, so the
+// original 22 foods come first among equal matches and "apple pie" means apple pie before a chain's.
 export function searchFoods(query: string, choices: readonly Food[] = foods): Food[] {
   const needle = normalizeFoodName(query);
   if (!needle) return [...choices];
 
-  return choices.map((food) => {
-    const names = [food.name, ...food.aliases].map(normalizeFoodName);
-    const rank = names.includes(needle) ? 0
-      : names.some((name) => name.startsWith(needle)) ? 1
-      : names.some((name) => name.includes(needle)) ? 2 : 3;
-    return { food, rank };
-  }).filter(({ rank }) => rank < 3)
-    .sort((a, b) => a.rank - b.rank)
+  return choices.map((food) => ({ food, rank: searchRank(food, needle) }))
+    .filter((match): match is { food: Food; rank: number } => match.rank !== undefined)
+    .sort((a, b) => a.rank - b.rank || Number(Boolean(a.food.brand)) - Number(Boolean(b.food.brand)))
     .map(({ food }) => food);
 }
 
