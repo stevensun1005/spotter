@@ -828,6 +828,10 @@ private struct NativeSpotterTabs: View {
     @State private var showPlanImport = false
     @State private var showPrograms = false
     @State private var showNutrition = false
+    @State private var homeDate = Date()
+    @State private var nutritionDetailDate = Date()
+    @State private var nutritionUsesHomeDate = false
+    @StateObject private var nutritionWeek: NativeNutritionWeek
     @State private var showRest = false
     @State private var showBody = false
     @State private var showTrainingLaunch = false
@@ -872,6 +876,8 @@ private struct NativeSpotterTabs: View {
     private enum TrainingLaunch {
         case workout(String)
         case plan(NativeWorkoutEntry)
+        case template(NativeJSON)
+        case nutrition(Date)
         case rest
         case body
     }
@@ -889,6 +895,7 @@ private struct NativeSpotterTabs: View {
         _inboundInvite = inboundInvite
         _widgetDestination = widgetDestination
         _workouts = StateObject(wrappedValue: NativeWorkoutStore(api: account.api, owner: owner))
+        _nutritionWeek = StateObject(wrappedValue: NativeNutritionWeek(api: account.api, owner: owner))
         _avatars = StateObject(wrappedValue: NativeAvatarStore(api: account.api, owner: owner))
         _remarks = StateObject(wrappedValue: NativeSocialRemarks(api: account.api, owner: owner))
         _trainingPreferences = StateObject(wrappedValue: NativeAccountPreferences(api: account.api, owner: owner))
@@ -973,7 +980,14 @@ private struct NativeSpotterTabs: View {
             if scenePhase == .active { Task { await refreshHome() } }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in
-            Task { await workouts.refreshWidgetNutrition(force: true) }
+            let date = showNutrition ? nutritionDetailDate : homeDate
+            Task {
+                async let widget: Void = workouts.refreshWidgetNutrition(force: true)
+                if showsNutrition || showNutrition {
+                    await nutritionWeek.refreshWeek(containing: date, force: true)
+                }
+                await widget
+            }
         }
         .onChange(of: workouts.pendingCheckins.map(\.id)) { _ in
             Task { await attachHealthHeartRate() }
@@ -1045,9 +1059,15 @@ private struct NativeSpotterTabs: View {
             NativeNotificationInbox(owner: owner) { item in Task { await socialNotifications.read(item) } }
                 .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented: $showNutrition, onDismiss: { widgetNutritionEntry = nil }) {
-            NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs,
-                                  initialWidgetEntry: widgetNutritionEntry)
+        .fullScreenCover(isPresented: $showNutrition, onDismiss: {
+            widgetNutritionEntry = nil
+            nutritionUsesHomeDate = false
+        }) {
+            NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs, initialDate: nutritionDetailDate,
+                                  initialWidgetEntry: widgetNutritionEntry, week: nutritionWeek, onDateChange: { date in
+                nutritionDetailDate = date
+                if nutritionUsesHomeDate { homeDate = date }
+            })
         }
         .sheet(isPresented: $showRest, onDismiss: { Task { await workouts.load() } }) {
             NativeRestSchedule(api: account.api, owner: owner)
@@ -1061,7 +1081,10 @@ private struct NativeSpotterTabs: View {
         .sheet(isPresented: $showTrainingLaunch, onDismiss: finishTrainingLaunch) {
             NativeTrainingLaunch(start: { queueTrainingLaunch(.workout($0)) },
                                  rest: { queueTrainingLaunch(.rest) }, bodyAction: { queueTrainingLaunch(.body) },
-                                 scheduled: workouts.todayPendingPlans, startPlan: { queueTrainingLaunch(.plan($0)) })
+                                 scheduled: workouts.todayPendingPlans, startPlan: { queueTrainingLaunch(.plan($0)) },
+                                 recordNutrition: showsNutrition ? { queueTrainingLaunch(.nutrition(homeDate)) } : nil,
+                                 templates: workouts.libraryRows.filter { $0["kind"].string == "template" && !$0["id"].string.isEmpty },
+                                 startTemplate: { queueTrainingLaunch(.template($0)) })
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -1153,17 +1176,32 @@ private struct NativeSpotterTabs: View {
     private var today: some View {
         var view = NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout)
         view.openSettings = { showSettings = true }
+        view.homeDate = $homeDate
         view.openAllPlans = { selected = .training }
         view.openStats = { selected = .stats }
         view.openCoach = { openCoach() }
         if showsFriends { view.openFriends = openFriends }
         if showsNutrition {
-            view.openNutrition = { showNutrition = true }
-            view.homeNutrition = { collapse in
-                AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs, onCollapse: collapse) { showNutrition = true })
+            view.openNutrition = { openHomeNutrition($0) }
+            view.nutritionRing = { nutritionWeek.ringDay($0, logs: workouts.logs) }
+            view.refreshNutritionWeek = { await nutritionWeek.refreshWeek(containing: $0, force: $1) }
+            view.homeNutrition = { date, collapse in
+                AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs, date: date,
+                                           week: nutritionWeek, onCollapse: collapse) {
+                    let guidingMeal = guideStep == .mainMeal
+                    if guidingMeal { advanceGuide(from: .mainMeal) }
+                    openHomeNutrition(date, recordMeal: guidingMeal)
+                })
             }
         }
         return view
+    }
+
+    private func openHomeNutrition(_ date: Date, recordMeal: Bool = false) {
+        nutritionDetailDate = date
+        nutritionUsesHomeDate = true
+        widgetNutritionEntry = recordMeal ? .recordMeal : nil
+        showNutrition = true
     }
 
     private func openFriends() {
@@ -1356,6 +1394,8 @@ private struct NativeSpotterTabs: View {
             selected = showsFriends ? .friends : .today
             if case .cheer(let partner) = destination { widgetCheerPartner = partner }
         case .nutrition, .frequentMeals, .water:
+            nutritionDetailDate = .now
+            nutritionUsesHomeDate = false
             switch destination {
             case .frequentMeals: widgetNutritionEntry = .frequentMeals
             case .water(let day) where day == spotterDay(): widgetNutritionEntry = .water
@@ -1414,12 +1454,8 @@ private struct NativeSpotterTabs: View {
     }
 
     private func openTrainingLaunch() {
-        let plans = workouts.todayPendingPlans
         if workouts.active != nil { openActiveWorkout() }
-        else if plans.count == 1, let entry = plans.first {
-            workouts.startScheduled(entry)
-            openActiveWorkout()
-        } else { showTrainingLaunch = true }
+        else { showTrainingLaunch = true }
     }
 
     private func queueTrainingLaunch(_ action: TrainingLaunch) {
@@ -1437,6 +1473,10 @@ private struct NativeSpotterTabs: View {
         case .plan(let entry):
             workouts.startScheduled(entry)
             openActiveWorkout()
+        case .template(let entry):
+            workouts.startTemplate(plan: NativePlan(raw: entry["plan"]), id: entry["id"].string)
+            openActiveWorkout()
+        case .nutrition(let date): openHomeNutrition(date, recordMeal: true)
         case .rest: showRest = true
         case .body: showBody = true
         case nil: break

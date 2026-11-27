@@ -68,6 +68,7 @@ struct SpotterWeekDateStrip: View {
         let accessibilityStatus: String
         var isEnabled = true
         var showsMarker = false
+        var secondaryProgress: Double? = nil
 
         var id: Date { date }
     }
@@ -80,13 +81,13 @@ struct SpotterWeekDateStrip: View {
     @Environment(\.spotterInteractionMotion) private var motion
     @ScaledMetric(relativeTo: .footnote) private var ringSize = 34.0
 
-    private static var localCalendar: Calendar {
+    nonisolated private static var localCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
         return calendar
     }
 
-    static func dates(containing date: Date) -> [Date] {
+    nonisolated static func dates(containing date: Date) -> [Date] {
         let calendar = localCalendar
         let offset = (calendar.component(.weekday, from: date) + 5) % 7
         guard let monday = calendar.date(byAdding: .day, value: -offset, to: calendar.startOfDay(for: date)) else { return [] }
@@ -107,6 +108,7 @@ struct SpotterWeekDateStrip: View {
         let selected = calendar.isDate(day.date, inSameDayAs: selection)
         let today = calendar.isDateInToday(day.date)
         let weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][calendar.component(.weekday, from: day.date) - 1]
+        let diameter = min(ringSize, 34)
         return Button { onSelect(day.date) } label: {
             VStack(spacing: 4) {
                 Text(weekday)
@@ -115,15 +117,14 @@ struct SpotterWeekDateStrip: View {
                     .minimumScaleFactor(0.65)
                     .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
                 ZStack {
-                    progressRing(day.progress)
+                    SpotterDayProgressRings(primary: day.progress, secondary: day.secondaryProgress, size: diameter)
                     Text(calendar.component(.day, from: day.date), format: .number)
                         .font(.subheadline.weight(selected || today ? .bold : .semibold).monospacedDigit())
                         .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-                        .padding(4)
+                        .minimumScaleFactor(0.55)
                         .foregroundStyle(SpotterPalette.ink)
+                        .frame(width: max(1, diameter - (day.secondaryProgress == nil ? 8 : 13)))
                 }
-                .frame(width: min(ringSize, 34), height: min(ringSize, 34))
                 HStack(spacing: 3) {
                     if today { Circle().fill(accent.tint).frame(width: 4, height: 4) }
                     if day.showsMarker { Circle().strokeBorder(accent.tint, lineWidth: 1).frame(width: 4, height: 4) }
@@ -144,20 +145,46 @@ struct SpotterWeekDateStrip: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("spotter-week-day-\(spotterDay(day.date))")
     }
+}
 
-    private func progressRing(_ value: Double) -> some View {
-        let progress = value.isFinite ? min(max(value, 0), 1) : 0
-        let circle = Circle().inset(by: 1.5)
+struct SpotterDayProgressRings: View {
+    static let nutritionTint = SpotterPalette.adaptive(0xa95436, 0xf2a77c)
+
+    let primary: Double
+    let secondary: Double?
+    var size: CGFloat = 34
+
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+
+    var body: some View {
+        let outerWidth = secondary == nil ? min(size * 0.09, 3) : min(size * 0.08, 2.75)
+        let innerWidth = min(size * 0.06, 2)
         return ZStack {
-            circle.stroke(SpotterPalette.line, lineWidth: 2)
+            arc(primary, tint: accent.tint, track: SpotterPalette.line,
+                lineWidth: outerWidth, inset: outerWidth / 2)
+            if let secondary {
+                arc(secondary, tint: Self.nutritionTint, track: Self.nutritionTint.opacity(0.20),
+                    lineWidth: innerWidth, inset: outerWidth + size * 0.04 + innerWidth / 2)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+
+    private func arc(_ value: Double, tint: Color, track: Color, lineWidth: CGFloat, inset: CGFloat) -> some View {
+        let progress = value.isFinite ? min(max(value, 0), 1) : 0
+        let circle = Circle().inset(by: inset)
+        return ZStack {
+            circle.stroke(track, lineWidth: lineWidth * 0.75)
             circle
                 .trim(from: 0, to: progress)
-                .stroke(accent.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .opacity(progress > 0 ? 1 : 0)
         }
         .animation(motion == nil ? nil : .easeOut(duration: 0.22), value: progress)
-        .accessibilityHidden(true)
     }
 }
 
@@ -168,11 +195,13 @@ struct SpotterWeekNavigation: View {
     let calendarLabel: String
     var canGoBack = true
     var canGoForward = true
+    var compactDays = false
     let onMove: (Int) -> Void
-    let onOpenCalendar: () -> Void
+    var onOpenCalendar: (() -> Void)? = nil
 
     private var dateLabel: String {
         let calendar = Calendar(identifier: .gregorian)
+        if compactDays, calendar.isDateInToday(selection) { return "今天" }
         let parts = calendar.dateComponents([.year, .month, .day], from: selection)
         guard let year = parts.year, let month = parts.month, let day = parts.day else { return spotterDay(selection) }
         let short = "\(month)月\(day)日"
@@ -181,26 +210,47 @@ struct SpotterWeekNavigation: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            arrow("上一周", icon: "chevron.left", offset: -1, enabled: canGoBack)
-            Button(action: onOpenCalendar) {
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(accent.tint)
-                    Text(dateLabel)
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+            arrow(compactDays ? "前一天" : "上一周", icon: "chevron.left", offset: -1, enabled: canGoBack)
+            if let onOpenCalendar {
+                Button(action: onOpenCalendar) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(accent.tint)
+                        dateText
+                    }
+                    .padding(.horizontal, 2)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 2)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
+                .accessibilityLabel("\(calendarLabel)，\(spotterDay(selection))")
+            } else {
+                dateText
+                    .padding(.horizontal, 2)
+                    .frame(minWidth: 72, minHeight: 44)
+                    .accessibilityLabel(calendarLabel)
+                    .accessibilityValue(spotterDay(selection))
+                    .accessibilityIdentifier("spotter-home-date-label")
             }
-            .accessibilityLabel("\(calendarLabel)，\(spotterDay(selection))")
-            arrow("下一周", icon: "chevron.right", offset: 1, enabled: canGoForward)
+            arrow(compactDays ? "后一天" : "下一周", icon: "chevron.right", offset: 1, enabled: canGoForward)
         }
-        .background(SpotterPalette.background, in: Capsule())
+        .background {
+            Capsule()
+                .fill(compactDays ? SpotterPalette.card : SpotterPalette.background)
+                .overlay {
+                    if compactDays { Capsule().strokeBorder(SpotterPalette.line) }
+                }
+                .frame(height: compactDays ? 34 : nil)
+                .allowsHitTesting(false)
+        }
         .buttonStyle(.spotterPress)
+    }
+
+    private var dateText: some View {
+        Text(dateLabel)
+            .font((compactDays ? Font.footnote : .subheadline).weight(.semibold).monospacedDigit())
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
 
     private func arrow(_ name: String, icon: String, offset: Int, enabled: Bool) -> some View {

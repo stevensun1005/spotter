@@ -737,9 +737,12 @@ final class NativeWorkoutStore: ObservableObject {
     }
 
     /// 从个人模板直接开始，不关联已排的计划。
-    func startUnscheduled(plan: NativePlan) {
+    func startTemplate(plan: NativePlan, id: String) {
         guard active == nil, !isBusy else { return }
-        begin(NativeWorkoutSession.start(plan: plan, planId: ""))
+        var fields = plan.raw.object
+        fields["templateId"] = .string(id)
+        fields["date"] = .string(NativeWorkoutSession.day())
+        begin(NativeWorkoutSession.start(plan: NativePlan(raw: .object(fields)), planId: ""))
     }
 
     func startFreeWorkout(kind: String = "strength") {
@@ -1307,22 +1310,25 @@ struct NativeWorkoutView: View {
     @EnvironmentObject private var remarks: NativeSocialRemarks
     var showsAllPlans = false
     var openSettings: (() -> Void)? = nil
-    var openNutrition: (() -> Void)? = nil
+    var openNutrition: ((Date) -> Void)? = nil
     var openAllPlans: (() -> Void)? = nil
     var openStats: (() -> Void)? = nil
     var openCoach: (() -> Void)? = nil
     var openImport: (() -> Void)? = nil
     var openPrograms: (() -> Void)? = nil
     var openFriends: (() -> Void)? = nil
-    var homeNutrition: ((@escaping () -> Void) -> AnyView)? = nil
+    var homeDate: Binding<Date>? = nil
+    var homeNutrition: ((Date, @escaping () -> Void) -> AnyView)? = nil
+    var nutritionRing: ((Date) -> SpotterWeekDateStrip.Day)? = nil
+    var refreshNutritionWeek: ((Date, Bool) async -> Void)? = nil
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterGuide) private var guide
     @AppStorage("spotter.native.home.nutritionCollapsed") private var nutritionCollapsed = false
     @AppStorage(NativePreferenceKey.weeklyCheckins) private var showCheckins = true
     @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
     @AppStorage(NativePreferenceKey.officialTemplates) private var showOfficialTemplates = true
-    @State private var selectedDate = Date()
-    @State private var showScheduleCalendar = false
+    @State private var planDate = Date()
+    @State private var homeWeekEnd = Calendar.current.startOfDay(for: .now)
     @State private var trainingTab = "我的计划"
     @State private var completedPlans = false
     @StateObject private var catalogueBrowsing = NativeCatalogueBrowsingState()
@@ -1370,6 +1376,11 @@ struct NativeWorkoutView: View {
         }
     }
 
+    private var dateSelection: Binding<Date> { homeDate ?? $planDate }
+    private var selectedDate: Date {
+        get { dateSelection.wrappedValue }
+        nonmutating set { dateSelection.wrappedValue = newValue }
+    }
     private var selectedDay: String { NativeWorkoutSession.day(selectedDate) }
     private var partnerDisplayName: String { remarks.name(for: store.partnerID, fallback: store.partnerName) }
 
@@ -1389,12 +1400,12 @@ struct NativeWorkoutView: View {
                     } else if showOfficialTemplates && trainingTab == "官方模板" {
                         NativeOfficialTemplates(store: store)
                     } else {
-                        workoutOverview(topPadding: 7)
+                        trainingOverview
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
-                workoutOverview(topPadding: 12)
+                homeOverview
             }
         }
         .background(SpotterPalette.background)
@@ -1408,9 +1419,6 @@ struct NativeWorkoutView: View {
         }
         .onChange(of: showOfficialTemplates) { enabled in
             if !enabled && trainingTab == "官方模板" { trainingTab = "我的计划" }
-        }
-        .sheet(isPresented: $showScheduleCalendar) {
-            SpotterWeekCalendarSheet(selection: $selectedDate, title: "选择训练日期")
         }
         .sheet(item: $recordSheet) { screen in
             switch screen {
@@ -1501,33 +1509,64 @@ struct NativeWorkoutView: View {
         } message: { _ in
             Text("将清空本次计时、组次和心得，保留训练项目并从零计时。已排的计划会保留。")
         }
-        .task(id: currentWeekStart + (store.recentHistoryStart ?? "")) {
-            guard !showsAllPlans, let end = weekDates.last else { return }
-            await store.loadOlderHistoryIfNeeded(from: currentWeekStart, through: NativeWorkoutSession.day(end))
+        .task(id: (homeWeekDates.first.map { spotterDay($0) } ?? selectedDay) + (store.recentHistoryStart ?? "")) {
+            guard !showsAllPlans, let start = homeWeekDates.first, let end = homeWeekDates.last else { return }
+            // The check-in history also needs the six days before the earliest selectable day.
+            let earliest = Calendar.current.date(byAdding: .day, value: -6, to: start) ?? start
+            await store.loadOlderHistoryIfNeeded(from: spotterDay(earliest), through: spotterDay(end))
+        }
+        .task(id: homeNutritionWeeks) {
+            guard !showsAllPlans else { return }
+            await refreshHomeNutrition(force: false)
         }
     }
 
-    private func workoutOverview(topPadding: CGFloat) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let planNotice {
-                    Label(planNotice, systemImage: "checkmark.circle")
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
-                        .accessibilityAddTraits(.updatesFrequently)
-                        .transition(.opacity)
-                }
-                if showsAllPlans { trainingLanding } else { todayLanding }
-                if showsAllPlans, !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
-                if let message = store.errorMessage {
-                    Button { Task { await store.load() } } label: {
-                        Label(message, systemImage: "arrow.clockwise").font(.footnote).foregroundStyle(SpotterPalette.muted)
-                    }.buttonStyle(.spotterPress)
+    private var trainingOverview: some View {
+        ScrollView { overviewContent(topPadding: 7) }
+            .animation(motion, value: planNotice != nil)
+            .refreshable { await store.load() }
+    }
+
+    private var homeOverview: some View {
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 1).id("spotter-home-top").accessibilityHidden(true)
+                    overviewContent(topPadding: 4)
                 }
             }
-            .padding(.horizontal, 14).padding(.top, topPadding).padding(.bottom, 26)
+            .safeAreaInset(edge: .top, spacing: 0) { homeDateHeader }
+            .onAppear { keepHomeWeekVisible() }
+            .onChange(of: selectedDay) { _ in
+                keepHomeWeekVisible()
+                scroll.scrollTo("spotter-home-top", anchor: .top)
+            }
+            .animation(motion, value: planNotice != nil)
+            .refreshable {
+                async let workout: Void = store.load()
+                await refreshHomeNutrition(force: true)
+                await workout
+            }
         }
-        .animation(motion, value: planNotice != nil)
-        .refreshable { await store.load() }
+    }
+
+    private func overviewContent(topPadding: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let planNotice {
+                Label(planNotice, systemImage: "checkmark.circle")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.muted)
+                    .accessibilityAddTraits(.updatesFrequently)
+                    .transition(.opacity)
+            }
+            if showsAllPlans { trainingLanding } else { todayLanding }
+            if showsAllPlans, !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
+            if let message = store.errorMessage {
+                Button { Task { await store.load() } } label: {
+                    Label(message, systemImage: "arrow.clockwise").font(.footnote).foregroundStyle(SpotterPalette.muted)
+                }.buttonStyle(.spotterPress)
+            }
+        }
+        .padding(.horizontal, 14).padding(.top, topPadding).padding(.bottom, 26)
     }
 
     @ViewBuilder private var todayLanding: some View {
@@ -1540,10 +1579,8 @@ struct NativeWorkoutView: View {
             return matches.contains { $0.day == selectedDay } ? nil : matches.first
         }
         let dayRecords = (schedule.recordsByDay[selectedDay, default: []] + scheduledCompletions).sorted(by: newestRecord)
-        if let openNutrition { nutritionPanel(openNutrition) }
-        else if openSettings != nil { HStack { Spacer(); settingsButton } }
-        if !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
-        weekStrip
+        if let openNutrition { nutritionPanel { openNutrition(selectedDate) } }
+        if selectedDay == today, !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
         HStack {
             Text(selectedDay == today ? "今日训练" : "\(shortDay(selectedDay))的训练")
                 .font(.system(size: 18, weight: .bold))
@@ -1558,12 +1595,9 @@ struct NativeWorkoutView: View {
             if let active = store.active { draftRow(active, current: true) }
             ForEach(store.drafts) { entry in draftRow(entry, current: false) }
         }
-        if let first = dayPlans.first {
-            hero(first)
-            if dayPlans.count > 1 { planRows(Array(dayPlans.dropFirst())) }
-            if let url = URL(string: first.data["video"].string), !first.data["video"].string.isEmpty {
-                Link(destination: url) { Label("打开跟练视频", systemImage: "play.circle").frame(maxWidth: .infinity).padding(14).spotterCard() }
-                    .buttonStyle(.spotterPress)
+        if !dayPlans.isEmpty {
+            VStack(spacing: 8) {
+                ForEach(dayPlans, id: \.key) { homePlanCard($0) }
             }
         } else if dayRecords.isEmpty && (selectedDay != today || store.active == nil) {
             compactUnscheduledDay
@@ -1616,48 +1650,39 @@ struct NativeWorkoutView: View {
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13).padding(.vertical, 11).spotterCard(radius: 14)
     }
 
-    private func nutritionPanel(_ open: @escaping () -> Void) -> some View {
+    @ViewBuilder private func nutritionPanel(_ open: @escaping () -> Void) -> some View {
         let inMealGuide = guide?.step == .mainMeal || guide?.step.presentation == .mealEditor
-        let collapsed = nutritionCollapsed && !inMealGuide
-        return VStack(alignment: .leading, spacing: 8) {
-            SpotterGlassGroup {
+        if nutritionCollapsed && !inMealGuide {
+            Button { setNutritionCollapsed(false) } label: {
                 HStack(spacing: 9) {
-                    if collapsed {
-                        Button { setNutritionCollapsed(false) } label: {
-                            Image(systemName: "fork.knife")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(accent.tint)
-                                .frame(width: 34, height: 34)
-                                .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.52), interactive: motion != nil)
-                                .frame(width: 44, height: 44, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.spotterGlassPress)
-                        .accessibilityLabel("展开饮食记录")
-                        .accessibilityIdentifier("home-nutrition-expand")
-                        .transition(.opacity)
-                    } else {
-                        Text("饮食记录").font(.headline).accessibilityAddTraits(.isHeader)
-                    }
-                    Spacer()
-                    settingsButton
+                    tile("fork.knife", size: 32)
+                    Text("饮食记录").font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                }
+                .frame(minHeight: 44)
+                .padding(.horizontal, 10)
+                .contentShape(Rectangle())
+                .spotterCard(radius: 14)
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityLabel("展开饮食记录")
+            .accessibilityIdentifier("home-nutrition-expand")
+            .transition(.opacity)
+        } else {
+            Group {
+                if let homeNutrition { homeNutrition(selectedDate) { setNutritionCollapsed(true) } }
+                else {
+                    HStack {
+                        Button(action: open) {
+                            HStack { Label("查看饮食记录", systemImage: "fork.knife"); Spacer(); Image(systemName: "arrow.up.right") }
+                                .frame(minHeight: 44).contentShape(Rectangle())
+                        }.buttonStyle(.spotterPress)
+                        NativeHomeNutritionCollapseButton { setNutritionCollapsed(true) }
+                    }.padding(12).spotterCard()
                 }
             }
-            if !collapsed {
-                Group {
-                    if let homeNutrition { homeNutrition { setNutritionCollapsed(true) } }
-                    else {
-                        HStack {
-                            Button(action: open) {
-                                HStack { Label("查看今日饮食", systemImage: "fork.knife"); Spacer(); Image(systemName: "arrow.up.right") }
-                                    .frame(minHeight: 44).contentShape(Rectangle())
-                            }.buttonStyle(.spotterPress)
-                            NativeHomeNutritionCollapseButton { setNutritionCollapsed(true) }
-                        }.padding(12).spotterCard()
-                    }
-                }
-                .transition(.offset(y: -8).combined(with: .opacity))
-            }
+            .transition(.offset(y: -8).combined(with: .opacity))
         }
     }
 
@@ -1666,39 +1691,47 @@ struct NativeWorkoutView: View {
     }
 
     private var partnerCard: some View {
-        let today = NativeWorkoutSession.day()
-        let partnerToday = store.partnerLogs.filter { $0.day == today }
-        let latest = store.partnerLogs.filter { $0.day <= today }.sorted(by: newestRecord).first
+        let day = selectedDay
+        let isToday = day == spotterDay()
+        let partnerDay = store.partnerLogs.filter { $0.day == day }
+        let latest = store.partnerLogs.filter { $0.day <= day }.sorted(by: newestRecord).first
+        let mine = store.logs.contains { $0.day == day }
+        let partner = !partnerDay.isEmpty || store.room["partnerCheckins"].array.contains {
+            $0["date"].string == day && $0["count"].number > 0
+        }
         let lastDay = store.room["partnerCheckins"].array
             .filter { $0["count"].number > 0 }
             .map { $0["date"].string }
-            .filter { !$0.isEmpty && $0 <= today }
+            .filter { !$0.isEmpty && $0 <= day }
             .max()
-        let sentCheer = store.entries.contains { $0.kind == "cheer" && $0.owner == store.owner && $0.day == today }
+        let sentCheer = store.entries.contains { $0.kind == "cheer" && $0.owner == store.owner && $0.day == day }
         let receivedCheer = store.entries.contains { entry in
             guard entry.kind == "cheer", entry.owner == store.partnerID else { return false }
-            return localRecordDay(entry.updated) == today
+            return localRecordDay(entry.updated) == day
         }
         let connected = !store.partnerID.isEmpty
         let canSeePartner = store.room["partnerTrainingShared"] != .bool(false)
         return VStack(alignment: .leading, spacing: 13) {
             HStack(spacing: 9) {
                 tile("person.2", size: 36)
-                Text("今日搭子打卡").font(.system(size: 17, weight: .bold))
+                Text(isToday ? "今日搭子打卡" : "\(shortDay(day))的搭子打卡").font(.system(size: 17, weight: .bold))
                 Spacer()
                 if connected && canSeePartner {
-                    Text("\(todayMine ? 1 + (todayPartner ? 1 : 0) : (todayPartner ? 1 : 0)) / 2 已打卡")
+                    Text("\((mine ? 1 : 0) + (partner ? 1 : 0)) / 2 已打卡")
                         .font(.system(size: 12, weight: .semibold)).foregroundStyle(SpotterPalette.muted)
                 }
             }
             HStack(spacing: 12) {
-                member("我", avatarName: store.viewerName, id: store.owner, checked: todayMine, connected: true, purple: false)
-                member(partnerDisplayName, avatarName: partnerDisplayName, id: connected ? store.partnerID : nil, checked: todayPartner,
+                member("我", avatarName: store.viewerName, id: store.owner, checked: mine, connected: true, purple: false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityValue(mine ? "已打卡" : "未打卡")
+                    .accessibilityIdentifier("spotter-home-checkin-self")
+                member(partnerDisplayName, avatarName: partnerDisplayName, id: connected ? store.partnerID : nil, checked: canSeePartner && partner,
                        connected: connected, purple: true, statusOverride: canSeePartner ? nil : "打卡未公开")
             }
             if canSeePartner, let latest, latest.day >= (lastDay ?? "") {
-                let showsDay = latest.day == today && partnerToday.count > 1
-                Button { recordSheet = showsDay ? .day(today, partnerToday) : .record(latest) } label: {
+                let showsDay = latest.day == day && partnerDay.count > 1
+                Button { recordSheet = showsDay ? .day(day, partnerDay) : .record(latest) } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("搭子最近打卡 · \(shortDay(latest.day))").font(.caption).foregroundStyle(SpotterPalette.muted)
@@ -1712,7 +1745,7 @@ struct NativeWorkoutView: View {
             } else if canSeePartner, let lastDay {
                 Text("搭子最近打卡 · \(shortDay(lastDay))").font(.caption).foregroundStyle(SpotterPalette.muted)
             }
-            if receivedCheer {
+            if isToday, receivedCheer {
                 Label("搭子今天给你加油了", systemImage: "flame").font(.subheadline).foregroundStyle(.brown)
             }
             HStack(spacing: 8) {
@@ -1720,7 +1753,7 @@ struct NativeWorkoutView: View {
                     Label(connected ? "看搭子打卡" : "连接训练搭子", systemImage: connected ? "person.2" : "link")
                         .font(.subheadline.weight(.bold)).frame(maxWidth: .infinity)
                 }.buttonStyle(SpotterNativeButtonStyle(primary: !connected))
-                if connected {
+                if isToday, connected {
                     Button {
                         Task {
                             cheering = true; cheerError = nil
@@ -1736,15 +1769,8 @@ struct NativeWorkoutView: View {
                     .disabled(cheering || sentCheer)
                 }
             }
-            if let cheerError { Text(cheerError).font(.caption).foregroundStyle(SpotterPalette.muted) }
+            if isToday, let cheerError { Text(cheerError).font(.caption).foregroundStyle(SpotterPalette.muted) }
         }.padding(14).spotterCard()
-    }
-
-    private var todayMine: Bool { store.logs.contains { $0.day == NativeWorkoutSession.day() } }
-    private var todayPartner: Bool {
-        guard !store.partnerID.isEmpty, store.room["partnerTrainingShared"] != .bool(false) else { return false }
-        return store.partnerLogs.contains { $0.day == NativeWorkoutSession.day() } ||
-            store.room["partnerCheckins"].array.contains { $0["date"].string == NativeWorkoutSession.day() && $0["count"].number > 0 }
     }
 
     private func member(_ name: String, avatarName: String, id: String?, checked: Bool, connected: Bool, purple: Bool,
@@ -1764,119 +1790,148 @@ struct NativeWorkoutView: View {
             .background(purple ? SpotterPalette.adaptive(0xf4effa, 0x372c45) : SpotterPalette.wash.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private var weekStrip: some View {
+    private var homeDateHeader: some View {
+        let bounds = homeDateBounds
+        let calendar = Calendar(identifier: .gregorian)
+        let date = calendar.startOfDay(for: selectedDate)
         let schedule = store.scheduleIndex
-        return VStack(spacing: 6) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    weekTitle
-                    Spacer(minLength: 0)
-                    weekNavigation
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    weekTitle
-                    weekNavigation
-                }
+        return VStack(spacing: 2) {
+            HStack(spacing: 6) {
+                Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+                Spacer(minLength: 0)
+                SpotterWeekNavigation(selection: selectedDate, calendarLabel: "首页日期",
+                                      canGoBack: date > bounds.lowerBound,
+                                      canGoForward: date < calendar.startOfDay(for: bounds.upperBound),
+                                      compactDays: true, onMove: shiftHomeDay)
+                Spacer(minLength: 0)
+                settingsButton
             }
-            .padding(.horizontal, 6)
-            SpotterWeekDateStrip(days: weekDates.map { weekDay($0, schedule: schedule) }, selection: selectedDate) {
-                selectedDate = $0
-            }
+            SpotterWeekDateStrip(days: homeWeekDates.map { homeProgressDay($0, schedule: schedule) },
+                                 selection: selectedDate) { selectedDate = $0 }
+                .padding(.horizontal, 4)
+                .spotterCard(radius: 18)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("spotter-home-week-strip")
         }
-        .padding(8)
-        .spotterCard()
+        .padding(.horizontal, 14)
+        .padding(.top, 2).padding(.bottom, 4)
+        .background(SpotterPalette.background)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("spotter-home-date-header")
     }
 
-    private var weekTitle: some View {
-        Text("训练日程")
-            .font(.system(size: 18, weight: .bold))
-            .accessibilityAddTraits(.isHeader)
+    private var homeDateBounds: ClosedRange<Date> {
+        let calendar = Calendar(identifier: .gregorian)
+        let lower = calendar.date(from: DateComponents(year: 1900, month: 1, day: 1)) ?? .distantPast
+        let upper = calendar.date(from: DateComponents(year: 2100, month: 12, day: 31, hour: 23, minute: 59)) ?? .distantFuture
+        return lower...upper
     }
 
-    private var weekNavigation: some View {
-        SpotterWeekNavigation(selection: selectedDate, calendarLabel: "选择训练日期", onMove: { shiftWeek($0 * 7) }) {
-            showScheduleCalendar = true
-        }
-        .fixedSize(horizontal: true, vertical: false)
+    private func homeProgressDay(_ date: Date, schedule: NativeWorkoutScheduleIndex) -> SpotterWeekDateStrip.Day {
+        let training = homeTrainingProgress(on: spotterDay(date), schedule: schedule)
+        let nutrition = nutritionRing?(date)
+        let status = "训练，\(training.status)。" + (nutrition.map { "饮食，\($0.accessibilityStatus)。" } ?? "")
+        return .init(date: date, progress: training.progress, accessibilityStatus: status,
+                     isEnabled: homeDateBounds.contains(date), secondaryProgress: nutrition?.progress)
     }
 
-    private var currentWeekStart: String {
-        weekDates.first.map { NativeWorkoutSession.day($0) } ?? selectedDay
+    private var homeWeekDates: [Date] {
+        let calendar = Calendar(identifier: .gregorian)
+        let day = calendar.startOfDay(for: selectedDate)
+        let latestEnd = calendar.date(byAdding: .day, value: 6, to: day) ?? day
+        let end = min(max(homeWeekEnd, day), latestEnd)
+        return (-6...0).compactMap { calendar.date(byAdding: .day, value: $0, to: end) }
     }
 
-    private var weekDates: [Date] {
-        SpotterWeekDateStrip.dates(containing: selectedDate)
+    private func keepHomeWeekVisible() {
+        if let end = homeWeekDates.last, end != homeWeekEnd { homeWeekEnd = end }
     }
 
-    private func weekDay(_ date: Date, schedule: NativeWorkoutScheduleIndex) -> SpotterWeekDateStrip.Day {
-        let day = NativeWorkoutSession.day(date)
+    private var homeNutritionWeeks: [Date] {
+        guard nutritionRing != nil, let first = homeWeekDates.first, let last = homeWeekDates.last,
+              let firstWeek = SpotterWeekDateStrip.dates(containing: first).first,
+              let lastWeek = SpotterWeekDateStrip.dates(containing: last).first else { return [] }
+        return firstWeek == lastWeek ? [firstWeek] : [firstWeek, lastWeek]
+    }
+
+    private func refreshHomeNutrition(force: Bool) async {
+        let weeks = homeNutritionWeeks
+        guard let refreshNutritionWeek, let last = weeks.last else { return }
+        async let latest: Void = refreshNutritionWeek(last, force)
+        if let first = weeks.first, first != last { await refreshNutritionWeek(first, force) }
+        await latest
+    }
+
+    private func homeTrainingProgress(on day: String, schedule: NativeWorkoutScheduleIndex) -> (progress: Double, status: String) {
         let planCount = Set(schedule.plansByDay[day, default: []].map(\.key)).count
         if planCount > 0 {
             let pendingCount = Set(schedule.pendingByDay[day, default: []].map(\.key)).count
             let completed = planCount - pendingCount
-            return .init(date: date, progress: Double(completed) / Double(planCount),
-                         accessibilityStatus: "已完成 \(completed)/\(planCount) 项训练", showsMarker: completed == 0)
+            return (Double(completed) / Double(planCount), "已完成 \(completed)/\(planCount) 项训练")
         }
         let checkedIn = schedule.recordsByDay[day, default: []].contains { $0.owner == store.owner }
-        return .init(date: date, progress: checkedIn ? 1 : 0, accessibilityStatus: checkedIn ? "已训练" : "没有安排训练")
+        return (checkedIn ? 1 : 0, checkedIn ? "已训练" : "没有安排训练")
     }
 
-    private func shiftWeek(_ days: Int) {
-        selectedDate = Calendar.current.date(byAdding: .day, value: days, to: selectedDate) ?? selectedDate
+    private func shiftHomeDay(_ days: Int) {
+        guard let next = Calendar.current.date(byAdding: .day, value: days, to: selectedDate) else { return }
+        let bounds = homeDateBounds
+        selectedDate = min(max(next, bounds.lowerBound), bounds.upperBound)
     }
 
-    private func hero(_ entry: NativeWorkoutEntry) -> some View {
+    private func homePlanCard(_ entry: NativeWorkoutEntry) -> some View {
         let plan = NativePlan(raw: entry.data)
-        return VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 6) {
-                    Circle().fill(accent.fill).frame(width: 6, height: 6)
-                    Text((entry.owner == store.owner ? "" : "搭子共享 · ") + entry.data["category"].string)
-                        .font(.system(size: 12, weight: .bold))
-                }.padding(.horizontal, 10).padding(.vertical, 6).background(SpotterPalette.deep.opacity(0.68), in: Capsule())
-                    .overlay(Capsule().stroke(accent.fill.opacity(0.3), lineWidth: 1))
-                Text(plan.displayTitle).font(.system(size: 30, weight: .heavy)).tracking(-0.7).lineSpacing(1).frame(maxWidth: 280, alignment: .leading)
-                HStack(spacing: 12) {
-                    if !plan.weekDay.isEmpty { Label(plan.weekDay, systemImage: "calendar") }
-                    if entry.data["minutes"].number > 0 { Label("\(Int(entry.data["minutes"].number)) 分钟", systemImage: "clock") }
-                    if !entry.data["exercises"].array.isEmpty { Label("\(entry.data["exercises"].array.count) 个动作", systemImage: "dumbbell") }
-                    if !entry.data["video"].string.isEmpty { Label("跟练视频", systemImage: "play") }
-                }.font(.system(size: 13)).foregroundStyle(.white.opacity(0.88))
-                HStack(spacing: 8) {
-                    Button { store.start(plan: plan, id: entry.id); openWorkout() } label: {
-                        Label("开始计划训练", systemImage: "play.fill")
-                    }
-                    .buttonStyle(SpotterNativeButtonStyle(primary: true))
-                    .disabled(store.active != nil || store.isBusy)
-                    if entry.owner == store.owner, !plan.exercises.isEmpty {
-                        Button("动作演示", systemImage: "play.rectangle") { recordSheet = .planMoves(entry) }
-                            .buttonStyle(SpotterNativeButtonStyle(primary: false))
-                            .accessibilityIdentifier("plan-exercise-demonstrations")
-                    }
+        let video = entry.data["video"].string.isEmpty ? nil : URL(string: entry.data["video"].string)
+        let category = plan.category.isEmpty ? "训练计划" : plan.category
+        let meta = [entry.owner == store.owner ? "" : "搭子共享", category,
+                    plan.exercises.isEmpty ? "" : "\(plan.exercises.count) 个动作",
+                    entry.durationMinutes > 0 ? "\(entry.durationMinutes) 分钟" : ""]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 10) {
+                tile(video == nil ? "dumbbell" : "play.rectangle", size: 36)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(plan.displayTitle).font(.subheadline.weight(.bold))
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Text(meta).font(.caption).foregroundStyle(SpotterPalette.muted)
+                        .lineLimit(1).minimumScaleFactor(0.8)
                 }
-                .font(.system(size: 15, weight: .bold))
-                .padding(.top, 6)
-            }
-            .padding(18).frame(maxWidth: .infinity, minHeight: 232, alignment: .leading)
-            .foregroundStyle(.white)
-            .background {
-                GeometryReader { size in
-                    Image("TrainingHero").resizable().scaledToFill().frame(width: size.size.width, height: size.size.height).clipped()
-                    LinearGradient(colors: [SpotterPalette.deep, SpotterPalette.deep.opacity(0.88), SpotterPalette.deep.opacity(0.1)], startPoint: .leading, endPoint: .trailing)
-                }
-            }
-            if !entry.data["durationNote"].string.isEmpty {
-                Text(entry.data["durationNote"].string).font(.system(size: 13)).foregroundStyle(SpotterPalette.muted)
-                    .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(SpotterPalette.card)
-            }
-        }.clipShape(RoundedRectangle(cornerRadius: 19))
-            .overlay(alignment: .topTrailing) {
+                Spacer(minLength: 0)
                 if entry.owner == store.owner {
                     SpotterMenu { planActions(entry) } label: {
-                        Image(systemName: "ellipsis").font(.system(size: 16, weight: .bold))
-                    }.accessibilityLabel("训练操作 " + entry.displayTitle).padding(12)
+                        Image(systemName: "ellipsis").font(.subheadline.bold())
+                    }
+                    .accessibilityLabel("训练操作 " + entry.displayTitle)
                 }
             }
+            .frame(minHeight: 44)
+            HStack(spacing: 7) {
+                Button {
+                    store.start(plan: plan, id: entry.id)
+                    openWorkout()
+                } label: {
+                    Label("开始训练", systemImage: "play.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SpotterNativeButtonStyle(primary: true))
+                .disabled(store.active != nil || store.isBusy)
+                if entry.owner == store.owner, !plan.exercises.isEmpty {
+                    Button { recordSheet = .planMoves(entry) } label: {
+                        Label("动作演示", systemImage: "play.rectangle").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(SpotterNativeButtonStyle(primary: false))
+                    .accessibilityIdentifier("plan-exercise-demonstrations")
+                } else if let video {
+                    Link(destination: video) {
+                        Label("跟练视频", systemImage: "play.rectangle").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(SpotterNativeButtonStyle(primary: false))
+                }
+            }
+            .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .padding(10).spotterCard(radius: 16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("spotter-home-plan-\(entry.id)")
     }
 
     private func plannedDemonstrations(_ entry: NativeWorkoutEntry) -> some View {
@@ -2016,6 +2071,9 @@ struct NativeWorkoutView: View {
         if entry.owner == store.owner, !entry.data["exercises"].array.isEmpty {
             Button("动作演示", systemImage: "play.rectangle") { recordSheet = .planMoves(entry) }
         }
+        if let url = URL(string: entry.data["video"].string), !entry.data["video"].string.isEmpty {
+            Link("打开跟练视频", destination: url)
+        }
         Button("编辑计划", systemImage: "pencil") { planEditor = NativePlanDraft(entry: entry) }
         if store.canMovePlan(entry) {
             Button(entry.day < NativeWorkoutSession.day() ? "预览调整日期" : "移动或顺延",
@@ -2094,8 +2152,8 @@ struct NativeWorkoutView: View {
 
     private var weeklyCheckins: some View {
         let calendar = Calendar(identifier: .gregorian)
-        let today = calendar.startOfDay(for: Date())
-        let dates = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0 - 6, to: today) }
+        let end = calendar.startOfDay(for: selectedDate)
+        let dates = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0 - 6, to: end) }
         let days = dates.map { NativeWorkoutSession.day($0) }
         let own = Dictionary(grouping: store.logs, by: \.day)
         let shared = Dictionary(grouping: store.partnerLogs, by: \.day)
@@ -2168,10 +2226,7 @@ struct NativeWorkoutView: View {
     private func startEditedPlan(_ draft: NativePlanDraft) {
         guard store.active == nil, !store.isBusy else { return }
         if draft.isTemplate {
-            var fields = draft.plan.object
-            fields["templateId"] = .string(draft.id)
-            fields["date"] = .string(NativeWorkoutSession.day())
-            store.startUnscheduled(plan: NativePlan(raw: .object(fields)))
+            store.startTemplate(plan: NativePlan(raw: draft.plan), id: draft.id)
         } else {
             store.start(plan: NativePlan(raw: draft.plan), id: draft.id)
         }
@@ -2584,35 +2639,49 @@ private func prescription(_ move: NativeJSON) -> String {
     return "\(Int(move["sets"].number)) 组 × \(repetitions)" + (move["weight"].number > 0 ? " · \(move["weight"].number.formatted()) \(move["unit"].string)" : "")
 }
 
+private extension NativeJSON {
+    var templateLaunchID: String { self["id"].string }
+}
+
 struct NativeTrainingLaunch: View {
     let start: (String) -> Void
     var rest: (() -> Void)?
     var bodyAction: (() -> Void)?
     var scheduled: [NativeWorkoutEntry] = []
     var startPlan: ((NativeWorkoutEntry) -> Void)?
+    var recordNutrition: (() -> Void)?
+    var templates: [NativeJSON] = []
+    var startTemplate: ((NativeJSON) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
-    @State private var showsCardioActivities = false
-    private let choices = [("strength", "力量训练", "dumbbell", Color(red: 0.82, green: 0.93, blue: 0.64)),
-                           ("cardio", "有氧训练", "waveform.path.ecg", Color(red: 0.65, green: 0.89, blue: 0.79)),
-                           ("incline", "爬坡走", "figure.walk", Color(red: 0.67, green: 0.85, blue: 0.94)),
-                           ("hiit", "HIIT 训练", "bolt", Color(red: 1, green: 0.86, blue: 0.59))]
+    @State private var page = Page.options
 
+    private enum Page: Hashable {
+        case options, cardio, templates
+
+        var title: String {
+            switch self {
+            case .options: return "开始训练"
+            case .cardio: return "选择有氧项目"
+            case .templates: return "选择个人模板"
+            }
+        }
+    }
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
                 HStack {
-                    if showsCardioActivities {
+                    if page != .options {
                         Button {
-                            withAnimation(motion) { showsCardioActivities = false }
+                            withAnimation(motion) { page = .options }
                         } label: {
                             Image(systemName: "chevron.left").font(.subheadline.weight(.semibold))
                                 .frame(width: 44, height: 44).contentShape(Rectangle())
                         }
                         .buttonStyle(.spotterPress)
-                        .accessibilityLabel("返回训练类型")
+                        .accessibilityLabel(page == .templates ? "返回开练选项" : "返回训练类型")
                     }
-                    Text(showsCardioActivities ? "选择有氧项目" : "开始训练")
+                    Text(page.title)
                         .font(.title3.weight(.bold)).accessibilityAddTraits(.isHeader)
                     Spacer()
                     Button { dismiss() } label: {
@@ -2622,15 +2691,16 @@ struct NativeTrainingLaunch: View {
                     }
                     .buttonStyle(.spotterGlassPress).accessibilityLabel("关闭开始训练")
                 }
-                if showsCardioActivities {
+                switch page {
+                case .options: startChoices
+                case .templates: templateChoices
+                case .cardio:
                     LazyVGrid(columns: gridColumns, spacing: 15) {
                         ForEach(NativeWorkoutSession.CardioActivity.allCases) { activity in
                             launchButton(activity.title, symbol: activity.symbol, color: cardioColor, size: 52) { start(activity.rawValue) }
                                 .accessibilityIdentifier("start-cardio-" + activity.rawValue)
                         }
                     }
-                } else {
-                    startChoices
                 }
             }
             .frame(maxWidth: 620)
@@ -2639,7 +2709,7 @@ struct NativeTrainingLaunch: View {
             .padding(.bottom, 14)
             .frame(maxWidth: .infinity)
         }
-        .id(showsCardioActivities)
+        .id(page)
         .foregroundStyle(.white)
         .background(SpotterPalette.deep.ignoresSafeArea())
         .preferredColorScheme(.dark)
@@ -2667,14 +2737,59 @@ struct NativeTrainingLaunch: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             LazyVGrid(columns: gridColumns, spacing: 19) {
-                ForEach(choices, id: \.0) { choice in
-                    launchButton(choice.1, symbol: choice.2, color: choice.3) {
-                        if choice.0 == "cardio" { withAnimation(motion) { showsCardioActivities = true } }
-                        else { start(choice.0) }
+                launchButton("力量训练", symbol: "dumbbell", color: Color(red: 0.82, green: 0.93, blue: 0.64)) { start("strength") }
+                launchButton("有氧训练", symbol: "waveform.path.ecg", color: cardioColor) {
+                    withAnimation(motion) { page = .cardio }
+                }
+                if startTemplate != nil {
+                    launchButton("选择模板开练", symbol: "bookmark", color: Color(red: 0.73, green: 0.83, blue: 0.95)) {
+                        withAnimation(motion) { page = .templates }
                     }
+                    .accessibilityIdentifier("spotter-launch-select-template")
+                }
+                launchButton("爬坡走", symbol: "figure.walk", color: Color(red: 0.67, green: 0.85, blue: 0.94)) { start("incline") }
+                launchButton("HIIT 训练", symbol: "bolt", color: Color(red: 1, green: 0.86, blue: 0.59)) { start("hiit") }
+                if let recordNutrition {
+                    launchButton("记录饮食", symbol: "fork.knife", color: Color(red: 0.96, green: 0.78, blue: 0.66), action: recordNutrition)
+                        .accessibilityIdentifier("spotter-launch-record-nutrition")
                 }
                 launchButton("安排休息", symbol: "cup.and.saucer", color: Color(red: 0.79, green: 0.75, blue: 0.93)) { rest?() }.disabled(rest == nil)
                 launchButton("身体数据", symbol: "ruler", color: Color(red: 0.95, green: 0.76, blue: 0.67)) { bodyAction?() }.disabled(bodyAction == nil)
+            }
+        }
+    }
+
+    @ViewBuilder private var templateChoices: some View {
+        if templates.isEmpty {
+            Text("还没有个人模板。可在「训练 → 个人模板」创建。")
+                .font(.subheadline).foregroundStyle(.white.opacity(0.75))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            LazyVStack(spacing: 8) {
+                ForEach(templates, id: \.templateLaunchID) { template in
+                    let plan = NativePlan(raw: template["plan"])
+                    Button { startTemplate?(template) } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "bookmark").foregroundStyle(SpotterAccent.lime.fill)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(plan.displayTitle).font(.subheadline.weight(.semibold))
+                                if !plan.exercises.isEmpty {
+                                    Text("\(plan.exercises.count) 个动作")
+                                        .font(.caption).foregroundStyle(.white.opacity(0.72))
+                                }
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "play.fill").font(.footnote.weight(.semibold))
+                                .foregroundStyle(SpotterAccent.lime.fill)
+                        }
+                        .frame(minHeight: 48)
+                        .padding(.horizontal, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.spotterPress)
+                    .background(SpotterPalette.color(0x294333), in: RoundedRectangle(cornerRadius: 13))
+                    .accessibilityIdentifier("spotter-launch-template-\(template.templateLaunchID)")
+                }
             }
         }
     }

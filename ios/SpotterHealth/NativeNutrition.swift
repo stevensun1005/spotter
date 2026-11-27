@@ -1,5 +1,6 @@
 import AVFoundation
 import Charts
+import Combine
 import CryptoKit
 import Speech
 import SwiftUI
@@ -187,6 +188,134 @@ private struct NativeNutritionExport: Decodable {
     let library: [NutritionPayload.Row]
 }
 
+@MainActor
+final class NativeNutritionWeek: ObservableObject {
+    struct Bounds: Hashable {
+        let start: String
+        let end: String
+
+        init(containing date: Date) {
+            let days = SpotterWeekDateStrip.dates(containing: date)
+            start = spotterDay(days.first ?? date)
+            end = spotterDay(days.last ?? date)
+        }
+
+        func contains(_ day: String) -> Bool { start <= day && day <= end }
+    }
+
+    private struct Snapshot {
+        let payload: NutritionPayload?
+        let timestamp: Date
+        let failed: Bool
+    }
+
+    private struct Request {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    private let api: NativeAPI
+    private let owner: String
+    @Published private var weeks: [Bounds: Snapshot] = [:]
+    private var requests: [Bounds: Request] = [:]
+
+    init(api: NativeAPI, owner: String) {
+        self.api = api
+        self.owner = owner
+    }
+
+    func payload(containing date: Date) -> NutritionPayload? {
+        snapshot(containing: spotterDay(date))?.payload
+    }
+
+    func ringDay(_ date: Date, logs: [NativeWorkoutEntry]?, dailyPayload: NutritionPayload? = nil) -> SpotterWeekDateStrip.Day {
+        let day = spotterDay(date)
+        let cached = snapshot(containing: day)
+        guard let payload = dailyPayload ?? cached?.payload else {
+            let status = cached?.failed == true ? "饮食进度暂不可用" : "正在读取饮食进度"
+            return .init(date: date, accessibilityStatus: status)
+        }
+        let entries = payload.entries(on: day)
+        if entries.contains(where: { $0.entry?.type == "meal" }) {
+            let totals = payload.totals(on: day)
+            let workouts = payload.rows.contains { $0.kind == "nutrition-energy" && $0.id == day }
+                ? logs.map { Set($0.lazy.filter { $0.owner == self.owner && $0.day == day }.map(\.id)) }
+                : nil
+            let goal = payload.targets(on: day, countingWorkoutIDs: workouts).calories
+            let calories = nutritionNumber(totals.calories)
+            if goal > 0 {
+                return .init(date: date, progress: totals.calories / goal,
+                             accessibilityStatus: "\(calories) / \(nutritionNumber(goal)) 千卡", showsMarker: totals.calories <= 0)
+            }
+            return .init(date: date, accessibilityStatus: "\(calories) 千卡，未设置热量目标", showsMarker: true)
+        }
+        if entries.contains(where: { $0.entry?.type == "water" }) {
+            let water = payload.totals(on: day).water
+            return .init(date: date, accessibilityStatus: "已记饮水 \(nutritionNumber(water)) 毫升", showsMarker: true)
+        }
+        return .init(date: date, accessibilityStatus: "暂无饮食记录")
+    }
+
+    func refreshWeek(containing date: Date, force: Bool = false) async {
+        guard !Task.isCancelled else { return }
+        let bounds = Bounds(containing: date)
+        if !force, let request = requests[bounds] {
+            await request.task.value
+            return
+        }
+        if !force, let cached = weeks[bounds], !cached.failed,
+           Date.now.timeIntervalSince(cached.timestamp) < 60 { return }
+        requests[bounds]?.task.cancel()
+        let id = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.readWeek(bounds, id: id)
+        }
+        requests[bounds] = Request(id: id, task: task)
+        await task.value
+    }
+
+    private func snapshot(containing day: String) -> Snapshot? {
+        weeks.first(where: { $0.key.contains(day) })?.value
+    }
+
+    private func readWeek(_ bounds: Bounds, id: UUID) async {
+        defer { if requests[bounds]?.id == id { requests[bounds] = nil } }
+        do {
+            let path = "/api/data?scope=nutrition&from=\(bounds.start)&to=\(bounds.end)"
+            let data = try await api.request(path, method: "GET", json: nil, for: owner)
+            let rows = try JSONDecoder().decode(NativeNutritionExport.self, from: data).library
+            guard !Task.isCancelled, requests[bounds]?.id == id else { return }
+            cache(.init(payload: NutritionPayload(rows: rows), timestamp: .now, failed: false), for: bounds)
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled, requests[bounds]?.id == id else { return }
+            if let issue = error as? NativeAPIError {
+                switch issue {
+                case .accountChanged: clearAccountCache()
+                default: if issue.statusCode == 401 { clearAccountCache() }
+                }
+            }
+            cache(.init(payload: weeks[bounds]?.payload, timestamp: .now, failed: true), for: bounds)
+        }
+    }
+
+    private func cache(_ snapshot: Snapshot, for bounds: Bounds) {
+        var next = weeks
+        next[bounds] = snapshot
+        if next.count > 6, let oldest = next.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
+            next[oldest] = nil
+        }
+        weeks = next
+    }
+
+    private func clearAccountCache() {
+        for request in requests.values { request.task.cancel() }
+        requests.removeAll()
+        weeks.removeAll()
+    }
+}
+
 struct NativeRecentServing: Identifiable {
     let food: NativeNutritionFood
     let grams: Double
@@ -260,106 +389,6 @@ private struct NativeQuickMealStatus: View {
 }
 
 @MainActor
-private struct NativeNutritionSummary: View {
-    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @Environment(\.spotterReduceMotion) private var reduceMotion
-    let payload: NutritionPayload
-    let date: String
-    var logs: [NativeWorkoutEntry]? = nil
-    var onOpen: (() -> Void)? = nil
-    var reservesCollapseSpace = false
-
-    private typealias Values = NutritionPayload.Values
-    private let nutrients: [(String, String, UInt32, KeyPath<Values, Double>)] = [
-        ("蛋白质", "g", 0xbd632f, \.protein), ("碳水", "g", 0x7764c3, \.carbs),
-        ("脂肪", "g", 0xbd5061, \.fat), ("饮水", "ml", 0x14868a, \.water)
-    ]
-
-    var body: some View {
-        if let onOpen {
-            Button(action: onOpen) {
-                summary(showLink: true).contentShape(Rectangle())
-            }
-            .buttonStyle(.spotterPress)
-            .accessibilityIdentifier("home-nutrition-summary")
-            .accessibilityHint("打开饮食详情")
-        } else {
-            summary(showLink: false)
-        }
-    }
-
-    private func summary(showLink: Bool) -> some View {
-        let totals = payload.totals(on: date)
-        let targets = payload.targets(on: date, countingWorkoutIDs: logs.map { Set($0.filter { $0.day == date }.map(\.id)) })
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 9) {
-                energy(totals.calories, goal: targets.calories)
-                if showLink {
-                    Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(SpotterPalette.muted)
-                }
-            }
-            .padding(.trailing, reservesCollapseSpace ? 44 : 0)
-            .frame(minHeight: reservesCollapseSpace ? 44 : showLink ? 37 : nil)
-
-            HStack(alignment: .top, spacing: 5) {
-                ForEach(nutrients, id: \.0) { name, unit, color, key in
-                    dial(name, unit: unit, color: SpotterPalette.color(color), value: totals[keyPath: key], goal: targets[keyPath: key])
-                }
-            }
-        }
-    }
-
-    private func energy(_ value: Double, goal: Double) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(nutritionNumber(value)).font(.system(size: 22, weight: .bold)).monospacedDigit()
-            Text(goal > 0 ? "/ \(nutritionNumber(goal)) 千卡" : "千卡")
-                .font(.system(size: 13))
-                .foregroundStyle(SpotterPalette.muted)
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.70)
-        .accessibilityElement(children: .combine)
-    }
-
-    private func dial(_ title: String, unit: String, color: Color, value: Double, goal: Double) -> some View {
-        let progress = goal > 0 ? value / goal : 0
-        let dialProgress = min(max(progress, 0), 1)
-        return VStack(spacing: 3) {
-            ZStack {
-                Circle().fill(color.opacity(0.06))
-                Circle().strokeBorder(color.opacity(0.19), lineWidth: 5)
-                Circle().inset(by: 2.5)
-                    .trim(from: 0, to: dialProgress)
-                    .stroke(color, lineWidth: 5)
-                    .rotationEffect(.degrees(-90))
-                    .animation(reduceMotion || systemReduceMotion ? nil : .easeOut(duration: 0.26), value: dialProgress)
-                VStack(spacing: 1) {
-                    Text(nutritionNumber(value)).font(.system(size: 16, weight: .bold)).monospacedDigit()
-                    Text(goal > 0 ? "/ \(nutritionNumber(goal))" : unit)
-                        .font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .padding(7)
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .frame(maxWidth: 81)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                Text(unit).font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
-            }
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
-            if goal > 0 {
-                Text(progress.formatted(.percent.precision(.fractionLength(0))))
-                    .font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-    }
-}
-
 private struct NativeNutritionDailySummary: View {
     private typealias Values = NutritionPayload.Values
     @Environment(\.spotterAccent) private var accent
@@ -369,6 +398,8 @@ private struct NativeNutritionDailySummary: View {
 
     let totals: NutritionPayload.Values?
     let targets: NutritionPayload.Values?
+    var onOpen: (() -> Void)? = nil
+    var onCollapse: (() -> Void)? = nil
 
     private var goal: Double { targets?.calories ?? 0 }
     private var progress: Double { ratio(totals?.calories, goal: goal) }
@@ -376,7 +407,7 @@ private struct NativeNutritionDailySummary: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("饮食记录").font(.headline).accessibilityAddTraits(.isHeader)
+            heading
             if textSize.isAccessibilitySize {
                 stackedEnergy
             } else {
@@ -398,6 +429,29 @@ private struct NativeNutritionDailySummary: View {
         }
         .padding(14)
         .spotterCard(radius: 20)
+    }
+
+    private var heading: some View {
+        HStack(spacing: 4) {
+            Text("饮食记录").font(.headline).accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+            if let onOpen {
+                Button(action: onOpen) {
+                    Label("明细", systemImage: "arrow.up.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(accent.tint)
+                        .labelStyle(.titleAndIcon)
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.spotterPress)
+                .accessibilityLabel("查看饮食明细")
+                .accessibilityIdentifier("home-nutrition-summary")
+                .nativeGuideTarget(.mainMeal)
+            }
+            if let onCollapse { NativeHomeNutritionCollapseButton(action: onCollapse) }
+        }
     }
 
     private var stackedEnergy: some View {
@@ -531,8 +585,6 @@ func nutritionCalories(protein: Double, carbs: Double, fat: Double) -> Double {
 }
 
 private struct NutritionShortcuts: View {
-    enum Placement { case home, dashboard }
-
     @Environment(\.spotterAccent) private var accent
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.spotterGuide) private var guide
@@ -540,10 +592,9 @@ private struct NutritionShortcuts: View {
     let onSelect: (NutritionShortcut) -> Void
     let onFavorites: () -> Void
     let onPhoto: () -> Void
-    var placement: Placement = .home
 
     private let buttonWidth: CGFloat = 44
-    private var spacing: CGFloat { placement == .dashboard ? 6 : 3 }
+    private let spacing: CGFloat = 6
 
     var body: some View {
         if textSize.isAccessibilitySize {
@@ -568,21 +619,17 @@ private struct NutritionShortcuts: View {
             onMainMeal()
             guide?.advance(.mainMeal)
         }
-        button("加餐", icon: placement == .dashboard ? Image(systemName: "carrot") : Image(NutritionShortcut.snack.icon)) {
-            onSelect(.snack)
-        }
-        button("饮水", icon: placement == .dashboard ? Image(systemName: "drop") : Image(NutritionShortcut.water.icon)) {
-            onSelect(.water)
-        }
+        button("加餐", icon: Image(systemName: "carrot")) { onSelect(.snack) }
+        button("饮水", icon: Image(systemName: "drop")) { onSelect(.water) }
         button("常用餐", icon: Image(systemName: "star"), action: onFavorites)
         button("拍照记录", icon: Image(systemName: "camera"), action: onPhoto)
     }
 
     @ViewBuilder private func button(_ title: String, icon: Image, guideTarget: NativeGuideStep? = nil,
                                      action: @escaping () -> Void) -> some View {
-        let shape = RoundedRectangle(cornerRadius: placement == .dashboard ? 13 : 10)
-        let primary = placement == .dashboard && guideTarget == .mainMeal
-        let background = placement == .home ? SpotterPalette.wash : (primary ? accent.selection : SpotterPalette.card)
+        let shape = RoundedRectangle(cornerRadius: 13)
+        let primary = guideTarget == .mainMeal
+        let background = primary ? accent.selection : SpotterPalette.card
         let control = Button(action: action) {
             VStack(spacing: 4) {
                 icon.renderingMode(.template).resizable().scaledToFit()
@@ -594,11 +641,7 @@ private struct NutritionShortcuts: View {
             }
             .frame(minWidth: buttonWidth, maxWidth: .infinity, minHeight: 51)
             .background(background, in: shape)
-            .overlay {
-                if placement == .dashboard {
-                    shape.strokeBorder(SpotterPalette.line).allowsHitTesting(false)
-                }
-            }
+            .overlay { shape.strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
             .contentShape(shape)
         }
         .buttonStyle(.spotterPress)
@@ -644,85 +687,52 @@ struct NativeHomeNutrition: View {
     let api: NativeAPI
     let owner: String
     var logs: [NativeWorkoutEntry]? = nil
+    var date: Date = .now
+    var week: NativeNutritionWeek? = nil
     var onCollapse: (() -> Void)? = nil
     let onOpen: () -> Void
 
     @Environment(\.scenePhase) private var phase
-    @Environment(\.spotterGuide) private var guide
     @State private var payload = NutritionPayload(rows: [])
-    @State private var destination: NutritionDestination?
-    @State private var photoCapture: NutritionPhotoRequest?
-    @State private var quickMeal: NativeQuickMealReceipt?
+    @State private var loadedDate = ""
     @State private var error: String?
     @State private var reloadRevision = 0
     @Environment(\.spotterInteractionMotion) private var motion
 
+    private var day: String { spotterDay(date) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs,
-                                   onOpen: onOpen, reservesCollapseSpace: onCollapse != nil)
-                .overlay(alignment: .topTrailing) {
-                    if let onCollapse { NativeHomeNutritionCollapseButton(action: onCollapse) }
-                }
-            Divider().overlay(SpotterPalette.line)
-            NutritionShortcuts(onMainMeal: { destination = .logger(nil) },
-                               onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
-                               onFavorites: { destination = .favorites },
-                               onPhoto: { photoCapture = NutritionPhotoRequest(day: spotterDay()) })
-            if let quickMeal {
-                NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
-                    .id(quickMeal.id).transition(.opacity)
-            }
+        let current = loadedDate == day ? payload : week?.payload(containing: date)
+        let workoutIDs = logs.map { Set($0.lazy.filter { $0.owner == owner && $0.day == day }.map(\.id)) }
+        return VStack(alignment: .leading, spacing: 14) {
+            NativeNutritionDailySummary(totals: current?.totals(on: day),
+                                        targets: current?.targets(on: day, countingWorkoutIDs: workoutIDs),
+                                        onOpen: onOpen, onCollapse: onCollapse)
             if let error {
-                Button("重新读取今日饮食") { Task { await load() } }
+                Button("重新读取饮食记录") { Task { await load(day) } }
                     .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).accessibilityHint(error)
                     .transition(.opacity)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 14)
-        .spotterCard()
         .animation(motion, value: error != nil)
-        .animation(motion, value: quickMeal?.id)
-        .task(id: reloadRevision) { await load() }
+        .task(id: "\(day)/\(reloadRevision)") { await load(day) }
+        .onChange(of: day) { _ in error = nil }
         .onChange(of: phase) { phase in
             if phase == .active { reloadRevision &+= 1 }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
-        .sheet(item: $destination, onDismiss: {
-            if let guide, guide.step.presentation == .mealEditor { guide.skipSection(guide.step) }
-        }) { item in
-            switch item {
-            case .logger(let meal):
-                NativeMealLogger(api: api, owner: owner, date: spotterDay(), meal: meal, payload: payload) { receipt in
-                    if let receipt { quickMeal = receipt }
-                }
-            case .entry(let shortcut, _, _, _):
-                NativeNutritionEditor(api: api, owner: owner, date: spotterDay(), shortcut: shortcut,
-                                      recent: payload.recentServings(for: shortcut)) { quickMeal = $0 }
-            case .favorites:
-                NativeFavoriteMeals(api: api, owner: owner, date: .now) { receipt, _ in
-                    quickMeal = receipt
-                    destination = nil
-                }
-            default: EmptyView()
-            }
-        }
-        .fullScreenCover(item: $photoCapture) { request in
-            NativeNutritionPhotoCapture(api: api, owner: owner, nutritionDate: request.day, initialMeal: request.meal.rawValue)
-        }
     }
 
-    private func load() async {
-        let date = spotterDay()
+    private func load(_ requested: String) async {
         do {
-            let next = try await api.spotterRead("/api/library?date=" + date, as: NutritionPayload.self)
-            guard date == spotterDay(), !Task.isCancelled else { return }
+            let next = try await api.spotterRead("/api/library?date=" + requested, as: NutritionPayload.self)
+            guard requested == day, !Task.isCancelled else { return }
             payload = next
+            loadedDate = requested
             error = nil
         } catch is CancellationError {
         } catch {
-            if date == spotterDay(), !Task.isCancelled { self.error = error.localizedDescription }
+            if requested == day, !Task.isCancelled { self.error = error.localizedDescription }
         }
     }
 }
@@ -752,37 +762,26 @@ private enum NutritionDestination: Identifiable {
 }
 
 enum NativeNutritionWidgetEntry {
-    case frequentMeals, water
+    case frequentMeals, water, recordMeal
 }
 
 @MainActor
 struct NativeNutritionDetail: View {
-    private struct WeekRequest: Equatable {
-        let owner: String
-        let start: String
-        let end: String
-        let revision: Int
-    }
-
-    private struct WeekSnapshot {
-        let request: WeekRequest
-        let payload: NutritionPayload
-    }
-
     @Environment(\.spotterAccent) private var accent
     let api: NativeAPI
     let owner: String
     var logs: [NativeWorkoutEntry]? = nil
     var initialWidgetEntry: NativeNutritionWidgetEntry? = nil
+    private let onDateChange: ((Date) -> Void)?
+    private let ownsNutritionWeek: Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterGuide) private var guide
+    @StateObject private var nutritionWeek: NativeNutritionWeek
     @State private var date = Date.now
     @State private var payload = NutritionPayload(rows: [])
     @State private var loadedDate = ""
-    @State private var weekSnapshot: WeekSnapshot?
-    @State private var failedWeekRequest: WeekRequest?
-    @State private var weekLoadID: UUID?
     @State private var loadError: String?
     @State private var mutationError: String?
     @State private var destination: NutritionDestination?
@@ -794,13 +793,18 @@ struct NativeNutritionDetail: View {
     @State private var quickMeal: NativeQuickMealReceipt?
     @State private var reloadRevision = 0
     @State private var didOpenWidgetEntry = false
+    @State private var closesAfterGuidedMeal = false
 
     init(api: NativeAPI, owner: String, logs: [NativeWorkoutEntry]? = nil, initialDate: Date = .now,
-         initialWidgetEntry: NativeNutritionWidgetEntry? = nil) {
+         initialWidgetEntry: NativeNutritionWidgetEntry? = nil, week: NativeNutritionWeek? = nil,
+         onDateChange: ((Date) -> Void)? = nil) {
         self.api = api
         self.owner = owner
         self.logs = logs
         self.initialWidgetEntry = initialWidgetEntry
+        self.onDateChange = onDateChange
+        self.ownsNutritionWeek = week == nil
+        _nutritionWeek = StateObject(wrappedValue: week ?? NativeNutritionWeek(api: api, owner: owner))
         _date = State(initialValue: initialDate)
     }
 
@@ -820,11 +824,6 @@ struct NativeNutritionDetail: View {
     private var rows: [NutritionPayload.Row] { payload.entries(on: day).filter { $0.entry?.type != "measurement" } }
     private var mealNow: NutritionShortcut { .suggestedMeal }
     private var weekDates: [Date] { SpotterWeekDateStrip.dates(containing: date) }
-    private var weekRequest: WeekRequest {
-        let dates = weekDates
-        return WeekRequest(owner: owner, start: dates.first.map(spotterDay) ?? day,
-                           end: dates.last.map(spotterDay) ?? day, revision: reloadRevision)
-    }
     private var dateBounds: ClosedRange<Date> {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
@@ -834,16 +833,16 @@ struct NativeNutritionDetail: View {
     }
 
     var body: some View {
-        let request = weekRequest
+        let bounds = NativeNutritionWeek.Bounds(containing: date)
         return VStack(spacing: 0) {
             VStack(spacing: 6) {
-                header(request)
-                weekStrip(request)
+                header(bounds)
+                weekStrip
             }
             .padding(8)
             .spotterCard()
             .padding(.bottom, 12)
-            nutritionScroll(request)
+            nutritionScroll
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -851,17 +850,26 @@ struct NativeNutritionDetail: View {
         .tint(accent.tint)
         .background(SpotterPalette.background.ignoresSafeArea())
         .task(id: "\(day)/\(reloadRevision)") { await load(day) }
-        .task(id: request) { await loadWeek(request) }
+        .task(id: bounds) { await nutritionWeek.refreshWeek(containing: date) }
         .onAppear {
             guard !didOpenWidgetEntry, let initialWidgetEntry else { return }
             didOpenWidgetEntry = true
             switch initialWidgetEntry {
             case .frequentMeals: destination = .favorites
             case .water: destination = .entry(.water, nil, nil, 250)
+            case .recordMeal:
+                closesAfterGuidedMeal = guide?.step.presentation == .mealEditor
+                destination = .logger(nil)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
-        .sheet(item: $destination, onDismiss: openQueuedDestination) { item in
+        .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in
+            reloadRevision &+= 1
+            if ownsNutritionWeek {
+                let selection = date
+                Task { await nutritionWeek.refreshWeek(containing: selection, force: true) }
+            }
+        }
+        .sheet(item: $destination, onDismiss: finishDestination) { item in
             destinationView(item)
         }
         .fullScreenCover(item: $photoCapture) { request in
@@ -874,6 +882,7 @@ struct NativeNutritionDetail: View {
             loadError = nil
             mutationError = nil
             deleteCandidate = nil
+            onDateChange?(date)
         }
         .confirmationDialog("删除这条记录？", isPresented: Binding(get: { deleteCandidate != nil }, set: { visible in
             if !visible { deleteCandidate = nil }
@@ -882,9 +891,9 @@ struct NativeNutritionDetail: View {
         }
     }
 
-    private func nutritionScroll(_ request: WeekRequest) -> some View {
-        let current = ready ? payload : cachedWeekPayload(for: request)
-        let workoutIDs = logs.map { Set($0.filter { $0.owner == owner && $0.day == day }.map(\.id)) }
+    private var nutritionScroll: some View {
+        let current = ready ? payload : nutritionWeek.payload(containing: date)
+        let workoutIDs = logs.map { Set($0.lazy.filter { $0.owner == owner && $0.day == day }.map(\.id)) }
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 NativeNutritionDailySummary(totals: current?.totals(on: day),
@@ -917,19 +926,19 @@ struct NativeNutritionDetail: View {
         }
         .clipped()
         .refreshable {
-            let request = weekRequest
-            await load(day)
-            await loadWeek(request)
+            let selection = date
+            await load(spotterDay(selection))
+            await nutritionWeek.refreshWeek(containing: selection, force: true)
         }
     }
 
-    private func header(_ request: WeekRequest) -> some View {
+    private func header(_ bounds: NativeNutritionWeek.Bounds) -> some View {
         HStack(spacing: 2) {
             headerButton("arrow.left", label: "返回") { dismiss() }
             Spacer(minLength: 0)
             SpotterWeekNavigation(selection: date, calendarLabel: "选择饮食日期",
-                                  canGoBack: request.start > spotterDay(dateBounds.lowerBound),
-                                  canGoForward: request.end < spotterDay(dateBounds.upperBound), onMove: moveWeek) {
+                                  canGoBack: bounds.start > spotterDay(dateBounds.lowerBound),
+                                  canGoForward: bounds.end < spotterDay(dateBounds.upperBound), onMove: moveWeek) {
                 showDate = true
             }
             Spacer(minLength: 0)
@@ -948,57 +957,17 @@ struct NativeNutritionDetail: View {
         .accessibilityLabel(label)
     }
 
-    private func weekStrip(_ request: WeekRequest) -> some View {
+    private var weekStrip: some View {
         let bounds = dateBounds
-        let weeklyPayload = cachedWeekPayload(for: request)
-        let workoutIDs = logs.map { logs in
-            logs.reduce(into: [String: Set<String>]()) { result, log in
-                let day = log.day
-                guard log.owner == owner, request.start <= day, day <= request.end else { return }
-                result[day, default: []].insert(log.id)
-            }
-        }
         let days = weekDates.map { date in
             guard bounds.contains(date) else {
                 return SpotterWeekDateStrip.Day(date: date, accessibilityStatus: "不可选", isEnabled: false)
             }
-            let key = spotterDay(date)
-            return weekDay(date, payload: key == day && ready ? payload : weeklyPayload,
-                           workoutIDs: workoutIDs.map { $0[key] ?? [] }, failed: failedWeekRequest == request)
+            return nutritionWeek.ringDay(date, logs: logs, dailyPayload: spotterDay(date) == day && ready ? payload : nil)
         }
         return SpotterWeekDateStrip(days: days, selection: date) { selected in
             if spotterDay(selected) != day { date = selected }
         }
-    }
-
-    private func cachedWeekPayload(for request: WeekRequest) -> NutritionPayload? {
-        guard let snapshot = weekSnapshot, snapshot.request.owner == request.owner,
-              snapshot.request.start == request.start, snapshot.request.end == request.end else { return nil }
-        return snapshot.payload
-    }
-
-    private func weekDay(_ date: Date, payload: NutritionPayload?, workoutIDs: Set<String>?,
-                         failed: Bool) -> SpotterWeekDateStrip.Day {
-        guard let payload else {
-            return .init(date: date, accessibilityStatus: failed ? "饮食进度暂不可用" : "正在读取饮食进度")
-        }
-        let key = spotterDay(date)
-        let entries = payload.entries(on: key)
-        if entries.contains(where: { $0.entry?.type == "meal" }) {
-            let totals = payload.totals(on: key)
-            let goal = payload.targets(on: key, countingWorkoutIDs: workoutIDs).calories
-            let calories = nutritionNumber(totals.calories)
-            if goal > 0 {
-                return .init(date: date, progress: totals.calories / goal,
-                             accessibilityStatus: "\(calories) / \(nutritionNumber(goal)) 千卡", showsMarker: totals.calories <= 0)
-            }
-            return .init(date: date, accessibilityStatus: "\(calories) 千卡，未设置热量目标", showsMarker: true)
-        }
-        if entries.contains(where: { $0.entry?.type == "water" }) {
-            let water = payload.totals(on: key).water
-            return .init(date: date, accessibilityStatus: "已记饮水 \(nutritionNumber(water)) 毫升", showsMarker: true)
-        }
-        return .init(date: date, accessibilityStatus: "暂无饮食记录")
     }
 
     private var shareText: String {
@@ -1094,8 +1063,7 @@ struct NativeNutritionDetail: View {
         NutritionShortcuts(onMainMeal: { destination = .logger(nil) },
                            onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
                            onFavorites: { destination = .favorites },
-                           onPhoto: { photoCapture = NutritionPhotoRequest(day: day) },
-                           placement: .dashboard)
+                           onPhoto: { photoCapture = NutritionPhotoRequest(day: day) })
     }
 
     private func iconButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -1179,7 +1147,12 @@ struct NativeNutritionDetail: View {
         destination = nil
     }
 
-    private func openQueuedDestination() {
+    private func finishDestination() {
+        if closesAfterGuidedMeal {
+            if let guide, guide.step.presentation == .mealEditor { guide.skipSection(guide.step) }
+            dismiss()
+            return
+        }
         guard let next = queuedDestination else { return }
         queuedDestination = nil
         destination = next
@@ -1200,30 +1173,6 @@ struct NativeNutritionDetail: View {
         } catch is CancellationError {
         } catch {
             if day == self.day, !Task.isCancelled { loadError = error.localizedDescription }
-        }
-    }
-
-    private func loadWeek(_ request: WeekRequest) async {
-        guard !Task.isCancelled, request == weekRequest else { return }
-        let loadID = UUID()
-        weekLoadID = loadID
-        failedWeekRequest = nil
-        do {
-            let path = "/api/data?scope=nutrition&from=\(request.start)&to=\(request.end)"
-            let data = try await api.request(path, method: "GET", json: nil, for: request.owner)
-            let rows = try JSONDecoder().decode(NativeNutritionExport.self, from: data).library
-            guard !Task.isCancelled, loadID == weekLoadID, request == weekRequest else { return }
-            weekSnapshot = WeekSnapshot(request: request, payload: NutritionPayload(rows: rows))
-        } catch is CancellationError {
-        } catch {
-            guard !Task.isCancelled, loadID == weekLoadID, request == weekRequest else { return }
-            if let issue = error as? NativeAPIError {
-                switch issue {
-                case .accountChanged: weekSnapshot = nil
-                default: if issue.statusCode == 401 { weekSnapshot = nil }
-                }
-            }
-            failedWeekRequest = request
         }
     }
 
