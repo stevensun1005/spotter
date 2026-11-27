@@ -89,29 +89,64 @@ extension NativeNutritionFood {
             .filter { $0.isLetter || $0.isNumber }
     }
 
-    /// Lower is better. `nil` means the food does not match.
+    /// Lower is better: exact name, exact alias, name start, inside the name, alias start, inside an alias,
+    /// then every typed word somewhere, then a longer phrase that contains the name. `nil` means no match.
+    /// Ties keep catalog order. The web's `searchFoods` ranks the same way.
     @MainActor func searchRank(_ needle: String, tokens: [String]) -> Int? {
         guard !needle.isEmpty else { return 0 }
         let keys = NativeFoodSearchIndex.keys(for: self)
-        guard let nameKey = keys.first else { return nil }
-        if keys.contains(needle) { return 0 }
-        if nameKey.hasPrefix(needle) { return 1 }
-        if keys.contains(where: { $0.hasPrefix(needle) }) { return 2 }
-        if keys.contains(where: { $0.contains(needle) }) { return 3 }
-        if tokens.count > 1, tokens.allSatisfy({ token in keys.contains { $0.contains(token) } }) { return 4 }
-        if keys.contains(where: { $0.count >= 2 && needle.contains($0) }) { return 5 }
+        guard let name = keys.first else { return nil }
+        let aliases = keys.dropFirst()
+        if name.key == needle { return 0 }
+        if aliases.contains(where: { $0.key == needle }) { return 1 }
+        if name.key.hasPrefix(needle) { return 2 }
+        if name.contains(needle) { return 3 }
+        if aliases.contains(where: { $0.starts(with: needle) }) { return 4 }
+        if aliases.contains(where: { $0.contains(needle) }) { return 5 }
+        if tokens.count > 1, tokens.allSatisfy({ token in keys.contains { $0.contains(token) } }) { return 6 }
+        if keys.contains(where: { $0.key.count >= 2 && needle.contains($0.key) }) { return 7 }
         return nil
+    }
+}
+
+/// A searchable label. Latin-script labels match from the start of a word, so "tea" does not find
+/// "sirloin steak" while "big mac" still finds "McDonald's Big Mac".
+struct NativeFoodSearchKey {
+    let key: String
+    /// For Latin-script labels, the label joined from each word onward: "big mac" gives "bigmac" and "mac".
+    let fromWords: [String]?
+
+    init(_ label: String) {
+        key = NativeNutritionFood.searchKey(label)
+        let eastAsian = label.unicodeScalars.contains { scalar in
+            scalar.properties.isIdeographic || (0x3040...0x30FF).contains(scalar.value) || (0xAC00...0xD7AF).contains(scalar.value)
+        }
+        if eastAsian {
+            fromWords = nil
+        } else {
+            let words = label.folding(options: [.widthInsensitive, .diacriticInsensitive, .caseInsensitive], locale: .current)
+                .split(whereSeparator: { !($0.isLetter || $0.isNumber) }).map(String.init)
+            fromWords = words.indices.map { words[$0...].joined() }
+        }
+    }
+
+    func starts(with needle: String) -> Bool {
+        key.hasPrefix(needle) || (fromWords?.contains { $0.hasPrefix(needle) } ?? false)
+    }
+
+    func contains(_ needle: String) -> Bool {
+        fromWords == nil ? key.contains(needle) : starts(with: needle)
     }
 }
 
 @MainActor
 private enum NativeFoodSearchIndex {
-    private static var cache: [String: [String]] = [:]
+    private static var cache: [String: [NativeFoodSearchKey]] = [:]
 
-    static func keys(for food: NativeNutritionFood) -> [String] {
+    static func keys(for food: NativeNutritionFood) -> [NativeFoodSearchKey] {
         let cacheKey = food.id + "\n" + food.name
         if let keys = cache[cacheKey] { return keys }
-        let keys = ([food.name] + food.aliases).map(NativeNutritionFood.searchKey).filter { !$0.isEmpty }
+        let keys = ([food.name] + food.aliases).map(NativeFoodSearchKey.init).filter { !$0.key.isEmpty }
         cache[cacheKey] = keys
         return keys
     }
@@ -121,7 +156,9 @@ private enum NativeFoodSearchIndex {
 private func nativeFoodQuery(_ input: String) -> (name: String, grams: Double?) {
     let value = input.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
     let amount = "(\\d+(?:\\.\\d+)?)\\s*(?:公克|克|grams?|g)"
-    for (pattern, nameGroup, gramsGroup) in [("^(.+?)\\s*" + amount + "$", 1, 2), ("^" + amount + "\\s*(.+)$", 2, 1)] {
+    // The lookbehind keeps the amount from starting inside a number, so "150g" is not read as food "1" with 50 g,
+    // while names that end in a digit, such as "V8 200g", still split correctly.
+    for (pattern, nameGroup, gramsGroup) in [("^(.+?)\\s*(?<![\\d.])" + amount + "$", 1, 2), ("^" + amount + "\\s*(.+)$", 2, 1)] {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
               let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
               let nameRange = Range(match.range(at: nameGroup), in: value),
@@ -160,10 +197,12 @@ struct NativeFoodLocalStore {
         (UserDefaults.standard.dictionary(forKey: barcodesKey) as? [String: String])?[code]
     }
 
-    func remember(barcode code: String, food id: String) {
+    /// `known` lists the personal food ids that still exist, so mappings to deleted foods are dropped first.
+    func remember(barcode code: String, food id: String, known: Set<String>) {
         var codes = (UserDefaults.standard.dictionary(forKey: barcodesKey) as? [String: String]) ?? [:]
         codes[code] = id
-        if codes.count > 500 { codes = Dictionary(uniqueKeysWithValues: codes.prefix(500).map { ($0.key, $0.value) }) }
+        if codes.count > 500 { codes = codes.filter { $0.key == code || known.contains($0.value) } }
+        while codes.count > 500, let stale = codes.keys.first(where: { $0 != code }) { codes[stale] = nil }
         UserDefaults.standard.set(codes, forKey: barcodesKey)
     }
 
@@ -369,7 +408,8 @@ struct NativeMealLogger: View {
     @State private var category: String
     @State private var group: String?
     @State private var basket: [NativeMealLoggerItem] = []
-    @State private var personal: [NativeNutritionFood]
+    /// Personal foods saved in this sheet, shown before the payload's copy catches up.
+    @State private var addedPersonal: [NativeNutritionFood] = []
     @State private var favorites: [String] = []
     @State private var templates: [NativeFavoriteMeal] = []
     @State private var sheet: Sheet?
@@ -385,6 +425,8 @@ struct NativeMealLogger: View {
     @State private var busy = false
     @State private var error: String?
     @State private var savingTemplate = false
+    /// Payloads sent by attempts whose reply never confirmed the save, by record id.
+    @State private var unconfirmed: [String: Set<Data>] = [:]
     @State private var templateName = ""
     @FocusState private var searchFocused: Bool
     @Namespace private var tabLine
@@ -401,13 +443,18 @@ struct NativeMealLogger: View {
         self.onSaved = onSaved
         _meal = State(initialValue: meal.isMeal ? meal : .snack)
         _category = State(initialValue: Self.catalog?.categories.first?.id ?? "")
-        _personal = State(initialValue: payload.rows.compactMap { row in
-            guard row.kind == "food", let id = row.id, let name = row.name, let facts = row.per100g else { return nil }
+    }
+
+    /// Read from the live payload so foods that load after the sheet opens still appear.
+    private var personal: [NativeNutritionFood] {
+        let added = Set(addedPersonal.map(\.id))
+        return addedPersonal + payload.rows.compactMap { row in
+            guard row.kind == "food", let id = row.id, !added.contains(id), let name = row.name, let facts = row.per100g else { return nil }
             var food = NativeNutritionFood(id: id, name: name, facts: facts)
             food.isPersonal = true
             food.emoji = "⭐️"
             return food
-        })
+        }
     }
 
     private var store: NativeFoodLocalStore { .init(api: api, owner: owner) }
@@ -1035,9 +1082,9 @@ struct NativeMealLogger: View {
                                        queuedCover = .camera
                                        sheet = nil
                                    }) { food, grams in
-                personal.removeAll { $0.id == food.id }
-                personal.insert(food, at: 0)
-                if let code = draft.barcode { store.remember(barcode: code, food: food.id) }
+                addedPersonal.removeAll { $0.id == food.id }
+                addedPersonal.insert(food, at: 0)
+                if let code = draft.barcode { store.remember(barcode: code, food: food.id, known: Set(personal.map(\.id))) }
                 if let grams { add(food, grams: grams) } else { show("已存入「我的食物」") }
             }
         case .manual:
@@ -1073,8 +1120,10 @@ struct NativeMealLogger: View {
         } else if let photo = capturedPhoto {
             capturedPhoto = nil
             Task { await recognizeLabel(photo) }
-        } else {
+        } else if let draft = carryDraft {
+            // The label camera was opened from the custom-food editor and closed without a photo.
             carryDraft = nil
+            sheet = .custom(draft)
         }
     }
 
@@ -1137,7 +1186,18 @@ struct NativeMealLogger: View {
         busy = true
         error = nil
         defer { busy = false }
+        let sent = records.map { record in
+            (record["id"] as? String ?? "", (try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])) ?? Data())
+        }
+        for (id, payload) in sent { unconfirmed[id, default: []].insert(payload) }
         do {
+            // An earlier attempt may have been stored although its reply was lost. Remove the records from it that
+            // were taken out of the list or changed since, so this attempt replaces them instead of being skipped.
+            let current = Dictionary(sent, uniquingKeysWith: { first, _ in first })
+            for (id, payloads) in unconfirmed where current[id] == nil || payloads.count > 1 {
+                try await api.spotterSend("/api/library", body: ["action": "remove", "kind": "nutrition", "id": id, "expectedOwner": owner])
+                unconfirmed[id] = current[id].map { Set([$0]) }
+            }
             var receipt: NativeQuickMealReceipt?
             if records.count == 1, let item = basket.first {
                 let response = try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner,
@@ -1156,6 +1216,7 @@ struct NativeMealLogger: View {
                     throw NativeAPIError.invalidResponse
                 }
             }
+            unconfirmed = [:]
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             onSaved(receipt)
             basket = []
@@ -1204,11 +1265,13 @@ struct NativeMealLogger: View {
 
     private func recognizeLabel(_ raw: Data) async {
         working = "正在识别营养表…"
-        var draft = carryDraft ?? NativeCustomFoodDraft()
+        let carried = carryDraft
+        var draft = carried ?? NativeCustomFoodDraft()
         carryDraft = nil
         defer { working = nil }
         guard let jpeg = await Task.detached(priority: .userInitiated, operation: { coachImage(raw) }).value else {
             show("这张照片无法读取，请换一张。")
+            if let carried { sheet = .custom(carried) }
             return
         }
         struct Answer: Decodable {
@@ -1231,15 +1294,17 @@ struct NativeMealLogger: View {
                 draft.note = "已按营养表换算为每 100 g。请逐项核对后保存。"
             } else {
                 let reading = await NativeLabelReader.read(jpeg)
-                draft.merge(reading)
+                let based = draft.merge(reading)
                 draft.note = "还需要补拍或确认：" + (answer.needs ?? ["品名和营养表"]).joined(separator: "、") + "。已先填入手机识别出的数值。"
+                    + (based ? "" : "没有读到每份克数，请填写「每份重量」。")
             }
         } catch {
             let reading = await NativeLabelReader.read(jpeg)
-            draft.merge(reading)
+            let based = draft.merge(reading)
             draft.note = reading.isEmpty
                 ? "暂时无法识别这张营养表，请重新拍摄或手动填写。"
-                : "站内识别暂不可用，已填入手机识别出的数值。请逐项核对，尤其是每份克数。"
+                : based ? "站内识别暂不可用，已填入手机识别出的数值。请逐项核对，尤其是每份克数。"
+                : "站内识别暂不可用，已按每份填入手机识别出的数值。没有读到每份克数，请填写「每份重量」后保存。"
         }
         sheet = .custom(draft)
     }
@@ -1551,18 +1616,23 @@ struct NativeCustomFoodDraft {
         fat = nutritionInput((facts.fat * 10).rounded() / 10)
     }
 
-    mutating func merge(_ reading: NativeLabelReader.Reading) {
-        if let grams = reading.servingGrams, !reading.per100g {
-            basis = .serving
-            servingGrams = nutritionInput(grams)
-            if consumed.isEmpty { consumed = nutritionInput(grams) }
-        } else if reading.per100g {
+    /// Returns false when the label had values but neither "per 100 g" nor a serving weight was read.
+    /// Canadian labels list values per serving, so the editor then waits for the serving weight.
+    @discardableResult
+    mutating func merge(_ reading: NativeLabelReader.Reading) -> Bool {
+        guard !reading.isEmpty else { return true }
+        if reading.per100g {
             basis = .per100g
+        } else {
+            basis = .serving
+            servingGrams = reading.servingGrams.map(nutritionInput) ?? ""
+            if consumed.isEmpty, let grams = reading.servingGrams { consumed = nutritionInput(grams) }
         }
         if let value = reading.calories { calories = nutritionInput(value) }
         if let value = reading.protein { protein = nutritionInput(value) }
         if let value = reading.carbs { carbs = nutritionInput(value) }
         if let value = reading.fat { fat = nutritionInput(value) }
+        return reading.per100g || reading.servingGrams != nil
     }
 }
 
@@ -1872,7 +1942,8 @@ enum NativeLabelReader {
         let number = "(\\d+(?:[.,]\\d+)?)"
         var reading = Reading()
         reading.per100g = match("(?:per|pour|每)\\s*(100)\\s*(?:g|克)") != nil
-        reading.servingGrams = match("\\(\\s*" + number + "\\s*g\\s*\\)") ?? match("(?:serving size|portion)[^\\d\\n]{0,24}" + number + "\\s*g")
+        reading.servingGrams = match("[(（]\\s*" + number + "\\s*(?:g|克)\\s*[)）]")
+            ?? match("(?:serving size|portion|每份|份量)[^\\d\\n]{0,24}" + number + "\\s*(?:g|克)")
         reading.calories = match("calories[^\\d\\n]{0,8}" + number) ?? match(number + "\\s*(?:kcal|千卡|大卡)")
             ?? match(number + "\\s*(?:kj|千焦)").map { ($0 / 4.184 * 10).rounded() / 10 }
         reading.fat = match("(?:total\\s+fat|fat|lipides|脂肪)[^\\d\\n]{0,18}" + number + "\\s*(?:g|克)")

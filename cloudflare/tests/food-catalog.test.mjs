@@ -39,3 +39,19 @@ test("catalog keeps the original foods first so earlier records and searches res
   assert.equal(searchFoods("米饭")[0].id, "fdc-169757");
   assert.ok(foods.every((food) => !food.source || food.source.startsWith("https://")));
 });
+
+test("food search puts the food a name or everyday word means first", () => {
+  const named = new Map(foods.map((food) => [key(food.name), food.id]));
+  for (const food of foods) assert.equal(searchFoods(food.name)[0].id, food.id, food.name);
+  for (const food of coreFoods) {
+    for (const alias of food.aliases) assert.equal(searchFoods(alias)[0].id, named.get(key(alias)) ?? food.id, `${food.name} ${alias}`);
+  }
+  const expected = {
+    rice: "fdc-169757", 米饭: "fdc-169757", 面包: "fdc-172688", bread: "fdc-172688", 燕麦粥: "fdc-173905", porridge: "fdc-173905",
+    牛排: "usda-23391", 热狗: "usda-21118", "hot dog": "usda-21118", hamburger: "usda-21109", 汉堡: "usda-21109",
+    "big mac": "ca-mcdonald-s-big-mac", 芝士: "usda-01009", 冰淇淋: "usda-19095",
+  };
+  for (const [query, id] of Object.entries(expected)) assert.equal(searchFoods(query)[0].id, id, query);
+  // English matches whole words from their start, so "tea" finds tea and not "sirloin steak".
+  assert.ok(searchFoods("tea").slice(0, 5).every(({ name }) => name.includes("茶")));
+});
