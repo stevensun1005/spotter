@@ -2,7 +2,7 @@ import Foundation
 
 // Daily calorie and macro targets from body data, activity and goal, and maintenance energy measured from records.
 // This file mirrors cloudflare/features/nutrition/goal-estimate.ts and energy-calibration.ts.
-// Keep every number and rounding step the same on both sides. ios/Tests/NativeNutritionGoalSmoke.swift
+// Keep the shared manual inputs and rounding the same on both sides. ios/Tests/NativeNutritionGoalSmoke.swift
 // and cloudflare/tests/nutrition-goal-estimate.test.mjs check both against cloudflare/tests/nutrition-goal-cases.json.
 
 enum NativeNutritionGoal: String, CaseIterable, Sendable {
@@ -31,6 +31,82 @@ enum NativeNutritionActivity: String, CaseIterable, Sendable {
     }
 }
 
+enum NativeNutritionActivitySource: String, Codable, CaseIterable, Sendable {
+    case manual, appleHealth, calendar, automatic
+
+    var title: String {
+        switch self {
+        case .manual: return "手动输入"
+        case .appleHealth: return "Apple 健康"
+        case .calendar: return "训练日历"
+        case .automatic: return "自动动态估算"
+        }
+    }
+}
+
+struct NativeNutritionHealthActivity: Sendable {
+    static let lookbackDays = 28
+    static let maximumDailySteps = 200_000
+
+    let stepsByDay: [String: Double]
+    let workoutDays: [String]
+}
+
+struct NativeNutritionActivityEvidence: Equatable, Sendable {
+    static let minimumDays = 14
+
+    let activity: NativeNutritionActivity
+    let averageSteps: Int
+    let observedDays: Int
+    let trainingDays: Int
+
+    static func health(_ data: NativeNutritionHealthActivity, today: String) -> Self? {
+        guard let end = NativeEnergyCalibration.dayNumber(today) else { return nil }
+        let window = (end - NativeNutritionHealthActivity.lookbackDays)..<end
+        let steps = data.stepsByDay.compactMap { day, value -> Double? in
+            guard let number = NativeEnergyCalibration.dayNumber(day), window.contains(number),
+                  (0...Double(NativeNutritionHealthActivity.maximumDailySteps)).contains(value) else { return nil }
+            return value
+        }
+        guard steps.count >= minimumDays else { return nil }
+        let average = Int((steps.reduce(0, +) / Double(steps.count)).rounded())
+        let activity: NativeNutritionActivity
+        switch average {
+        case ..<5_000: activity = .sedentary
+        case ..<7_500: activity = .light
+        case ..<12_500: activity = .moderate
+        default: activity = .high
+        }
+        let workoutDays = Set(data.workoutDays.compactMap(NativeEnergyCalibration.dayNumber)).intersection(window)
+        let trainingDays = Int((Double(workoutDays.count) * 7 / Double(window.count)).rounded())
+        return Self(activity: activity, averageSteps: average, observedDays: steps.count, trainingDays: trainingDays)
+    }
+}
+
+struct NativeNutritionCalendarActivity: Equatable, Sendable {
+    static let horizonDays = 7
+
+    let trainingDays: Int
+    let sessionCount: Int
+    let trainingMinutes: Int
+
+    static func upcoming(_ sessions: [(id: String, day: String, minutes: Int)], today: String) -> Self? {
+        guard let start = NativeEnergyCalibration.dayNumber(today) else { return nil }
+        let window = start..<(start + horizonDays)
+        var ids = Set<String>()
+        var days = Set<Int>()
+        var minutes = 0
+        for session in sessions {
+            guard !session.id.isEmpty, let day = NativeEnergyCalibration.dayNumber(session.day),
+                  window.contains(day), ids.insert(session.id).inserted else { continue }
+            days.insert(day)
+            let duration = (1...720).contains(session.minutes) ? session.minutes : 60
+            minutes = min(168 * 60, minutes + duration)
+        }
+        return Self(trainingDays: days.count, sessionCount: ids.count, trainingMinutes: minutes)
+    }
+}
+
 enum NativeNutritionPace: String, CaseIterable, Sendable {
     case slow, standard, fast
 
@@ -56,6 +132,11 @@ struct NativeNutritionGoalInput: Sendable {
     var pace: NativeNutritionPace = .standard
     var bodyFatPercent: Double? = nil
     var measuredMaintenance: Double? = nil
+    /// Scheduled minutes replace the one-hour-per-training-day assumption when a calendar is available.
+    var plannedTrainingMinutes: Double? = nil
+    var averageNonWorkoutSteps: Int? = nil
+    /// Actual recent training for body-fat formula selection, independent of a future schedule.
+    var restingTrainingDays: Int? = nil
 }
 
 struct NativeNutritionGoalEstimate: Equatable, Sendable {
@@ -140,6 +221,20 @@ enum NativeNutritionGoalRules {
         }
     }
 
+    /// Interpolate the same activity factors used in the manual bands when an observed average is available.
+    static func activityFactor(averageSteps: Int) -> Double {
+        let stops: [(steps: Int, activity: NativeNutritionActivity)] = [
+            (2500, .sedentary), (6250, .light), (10_000, .moderate), (15_000, .high)
+        ]
+        let steps = max(stops[0].steps, averageSteps)
+        for (lower, upper) in zip(stops, stops.dropFirst()) where steps <= upper.steps {
+            let from = activityFactor(lower.activity)
+            let to = activityFactor(upper.activity)
+            return from + (to - from) * Double(steps - lower.steps) / Double(upper.steps - lower.steps)
+        }
+        return activityFactor(.high)
+    }
+
     /// Share of maintenance energy removed (lose) or added (gain) each day. Other goals have no pace.
     static func paceShare(_ goal: NativeNutritionGoal, _ pace: NativeNutritionPace) -> Double? {
         switch (goal, pace) {
@@ -192,6 +287,9 @@ extension NativeNutritionGoalInput {
         guard (18...120).contains(age), heightCm.isFinite, (100...250).contains(heightCm),
               weightKg.isFinite, (10...700).contains(weightKg), (0...7).contains(trainingDays) else { return false }
         if let bodyFatPercent, !(bodyFatPercent.isFinite && Rules.bodyFatRange.contains(bodyFatPercent)) { return false }
+        if let restingTrainingDays, !(0...7).contains(restingTrainingDays) { return false }
+        if let plannedTrainingMinutes, !(0...Double(168 * 60)).contains(plannedTrainingMinutes) { return false }
+        if let averageNonWorkoutSteps, !(0...NativeNutritionHealthActivity.maximumDailySteps).contains(averageNonWorkoutSteps) { return false }
         if let measuredMaintenance,
            !(measuredMaintenance.isFinite && Rules.measuredMaintenanceRange.contains(measuredMaintenance)) { return false }
         return true
@@ -215,10 +313,11 @@ extension NativeNutritionGoalInput {
         if let bodyFatPercent {
             uplift = max(0, min(500 + 22 * weightKg * (1 - bodyFatPercent / 100), mifflin * Rules.leanMassCeiling) - mifflin)
         }
-        let resting = mifflin + min(1, Double(trainingDays) / Rules.leanMassTrainingDays) * uplift
+        let resting = mifflin + min(1, Double(restingTrainingDays ?? trainingDays) / Rules.leanMassTrainingDays) * uplift
         // Everyday activity sets the base level. Training hours replace average hours at the training intensity.
-        let base = Rules.activityFactor(activity)
-        let level = base + (Rules.trainingMet - base) * Double(trainingDays) * Rules.trainingHours / 168
+        let base = averageNonWorkoutSteps.map(Rules.activityFactor(averageSteps:)) ?? Rules.activityFactor(activity)
+        let trainingHours = plannedTrainingMinutes.map { $0 / 60 } ?? Double(trainingDays) * Rules.trainingHours
+        let level = base + (Rules.trainingMet - base) * trainingHours / 168
         var notes: [NativeNutritionGoalEstimate.Note] = []
         // Records that put maintenance under the lowest intake and under the formula more likely miss food than show a real
         // value, so the formula, the higher of the two, is used.

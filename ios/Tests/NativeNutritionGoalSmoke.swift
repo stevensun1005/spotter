@@ -129,6 +129,61 @@ struct NativeNutritionGoalSmoke {
             expect(latest?.day == expected?["date"] as? String, "\(text(item["name"])): body-fat day")
             expect(latest?.value == number(expected?["percent"]), "\(text(item["name"])): body-fat percentage")
         }
-        print("PASS native nutrition goal: \(estimates.count) estimates, \(calibrations.count) calibrations, training days, ages and body-fat selection match the web cases")
+        let today = "2026-11-29"
+        var dailySteps = Dictionary(uniqueKeysWithValues: (1...14).map { day in
+            (String(format: "2026-11-%02d", day), 7500.0)
+        })
+        dailySteps["2026-10-31"] = 100_000
+        dailySteps[today] = 0
+        dailySteps["2026-12-01"] = 0
+        dailySteps["2026-11-15"] = .nan
+        let workouts = ["2026-10-31", "2026-11-04", "2026-11-04", "2026-11-06", "2026-11-08", "2026-11-09", today]
+        let evidence = NativeNutritionActivityEvidence.health(
+            NativeNutritionHealthActivity(stepsByDay: dailySteps, workoutDays: workouts), today: today
+        )
+        expect(evidence?.observedDays == 14 && evidence?.averageSteps == 7500 && evidence?.activity == .moderate
+               && evidence?.trainingDays == 1, "Health evidence counts only complete days and unique in-window workouts")
+        dailySteps.removeValue(forKey: "2026-11-01")
+        expect(NativeNutritionActivityEvidence.health(
+            NativeNutritionHealthActivity(stepsByDay: dailySteps, workoutDays: []), today: today
+        ) == nil, "Missing days do not lower the average or pass the coverage requirement")
+
+        let calendar = NativeNutritionCalendarActivity.upcoming([
+            (id: "old", day: "2026-11-28", minutes: 90),
+            (id: "a", day: today, minutes: 45),
+            (id: "a", day: today, minutes: 45),
+            (id: "b", day: today, minutes: 0),
+            (id: "last", day: "2026-12-05", minutes: 30),
+            (id: "next", day: "2026-12-06", minutes: 50)
+        ], today: today)
+        expect(calendar?.trainingDays == 2 && calendar?.sessionCount == 3 && calendar?.trainingMinutes == 135,
+               "Calendar counts all distinct sessions in seven days and defaults only missing durations")
+        expect(NativeNutritionCalendarActivity.upcoming([], today: today)?.trainingMinutes == 0,
+               "A loaded but empty week is a valid rest week")
+        var input = NativeNutritionGoalInput(age: 30, male: true, heightCm: 175, weightKg: 75, activity: .sedentary,
+                                             trainingDays: 2, goal: .maintain)
+        let manual = input.estimate()
+        input.plannedTrainingMinutes = 120
+        expect(input.estimate() == manual, "The originally assumed duration preserves the existing result")
+        input.plannedTrainingMinutes = 300
+        expect((input.estimate()?.calories ?? 0) > (manual?.calories ?? 0),
+               "A longer calendar schedule can raise estimated calories without also counting training days")
+        input.bodyFatPercent = 10
+        input.restingTrainingDays = 2
+        let restingBeforeReschedule = input.estimate()?.restingCalories
+        input.trainingDays = 5
+        expect(input.estimate()?.restingCalories == restingBeforeReschedule,
+               "Future plans do not change resting energy given the same recent training")
+        input.bodyFatPercent = nil
+        input.trainingDays = 2
+        input.averageNonWorkoutSteps = 4999
+        let justBelow = input.estimate()?.calories
+        input.averageNonWorkoutSteps = 5001
+        expect(input.estimate()?.calories == justBelow, "Measured activity is continuous through manual band boundaries")
+        input.averageNonWorkoutSteps = 12_000
+        expect((input.estimate()?.calories ?? 0) > (justBelow ?? 0), "More measured everyday activity can raise the estimated intake")
+        input.plannedTrainingMinutes = .infinity
+        expect(input.estimate() == nil, "Invalid schedule duration does not produce an estimate")
+        print("PASS native nutrition goal: \(estimates.count) estimates, \(calibrations.count) calibrations, training days, ages and body-fat selection match the web cases. Health and calendar cases passed.")
     }
 }

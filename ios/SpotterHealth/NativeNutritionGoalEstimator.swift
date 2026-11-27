@@ -3,12 +3,13 @@ import SwiftUI
 /// What the person picked in the estimator. Saved with the targets as `preference`.
 struct NativeNutritionGoalChoice: Equatable {
     var goal: NativeNutritionGoal?
-    var activity: NativeNutritionActivity? {
+    var activitySource: NativeNutritionActivitySource
+    var manualActivity: NativeNutritionActivity? {
         didSet {
-            guard activity != nil else { return }
+            guard manualActivity != nil else { return }
             // Picking a level is a choice in the current model, so the training days shown beside it are kept with it.
             activityNeedsReview = false
-            if trainingDays == nil { trainingDays = loggedTrainingDays }
+            if activitySource == .manual && trainingDays == nil { trainingDays = loggedTrainingDays }
         }
     }
     /// nil until the person picks a number, picks an activity level or fills in an estimate. Until then recent workouts are counted.
@@ -19,20 +20,36 @@ struct NativeNutritionGoalChoice: Equatable {
     private let loggedTrainingDays: Int
     private let savedGoal: NativeNutritionGoal?
     private let savedPace: NativeNutritionPace
+    private var appliedActivity: NativeNutritionActivity?
+    private var appliedTrainingDays: Int?
 
     /// `loggedTrainingDays` is the weekly count from recent workouts, used until the person has their own number.
-    init(preference: NativeJSON?, loggedTrainingDays: Int = 0) {
+    init(preference: NativeJSON?, loggedTrainingDays: Int = 0, activitySource: NativeNutritionActivitySource = .manual,
+         manualActivity: NativeNutritionActivity? = nil) {
         let saved = preference ?? .null
         let goal = NativeNutritionGoal(rawValue: saved["goal"].string)
         let activity = NativeNutritionActivity(rawValue: saved["activity"].string)
         self.goal = goal
+        self.activitySource = activitySource
         savedGoal = goal
         pace = NativeNutritionPace(rawValue: saved["pace"].string) ?? .standard
         savedPace = pace
         self.loggedTrainingDays = min(7, max(0, loggedTrainingDays))
+        let savedDays: Int?
         if case .number(let days) = saved["trainingDays"], let whole = Int(exactly: days), (0...7).contains(whole) {
-            trainingDays = whole
-            self.activity = activity
+            savedDays = whole
+        } else {
+            savedDays = nil
+        }
+        if activitySource != .manual {
+            self.manualActivity = manualActivity
+            appliedActivity = activity
+            appliedTrainingDays = savedDays
+        } else if let savedDays {
+            trainingDays = savedDays
+            self.manualActivity = activity ?? manualActivity
+        } else if let manualActivity {
+            self.manualActivity = manualActivity
         } else {
             // A preference without training days was saved by the earlier estimator.
             activityNeedsReview = activity != nil
@@ -41,24 +58,41 @@ struct NativeNutritionGoalChoice: Equatable {
 
     /// Training days the estimate uses: the person's own number, or the count from recent workouts.
     var effectiveTrainingDays: Int { trainingDays ?? loggedTrainingDays }
+    var recentTrainingDays: Int { loggedTrainingDays }
+
+    mutating func apply(activity: NativeNutritionActivity, trainingDays: Int) {
+        if activitySource == .manual {
+            self.trainingDays = trainingDays
+        } else {
+            appliedActivity = activity
+            appliedTrainingDays = trainingDays
+        }
+    }
+
+    private var preferenceActivity: NativeNutritionActivity? {
+        activitySource == .manual ? manualActivity : appliedActivity
+    }
 
     /// Nothing was changed on a preference from the earlier estimator, so it stays saved as it is.
     private var keepsSaved: Bool {
-        activityNeedsReview && activity == nil && goal != nil && goal == savedGoal && trainingDays == nil && pace == savedPace
+        activitySource == .manual && activityNeedsReview && manualActivity == nil && goal != nil
+            && goal == savedGoal && trainingDays == nil && pace == savedPace
     }
 
     /// Only one of goal and activity is chosen, so the choice cannot be saved.
-    var isIncomplete: Bool { !keepsSaved && (goal == nil) != (activity == nil) }
+    var isIncomplete: Bool { !keepsSaved && (goal == nil) != (preferenceActivity == nil) }
 
     /// Writes the choice into the saved preference and leaves the rest of it untouched.
     /// With neither goal nor activity chosen the result is empty, which removes the saved preference.
     func merged(into preference: [String: Any]) -> [String: Any] {
         if keepsSaved { return preference }
-        guard let goal, let activity else { return goal == nil && activity == nil ? [:] : preference }
+        guard let goal, let activity = preferenceActivity else {
+            return goal == nil && preferenceActivity == nil ? [:] : preference
+        }
         var next = preference
         next["goal"] = goal.rawValue
         next["activity"] = activity.rawValue
-        next["trainingDays"] = effectiveTrainingDays
+        next["trainingDays"] = activitySource == .manual ? effectiveTrainingDays : appliedTrainingDays ?? effectiveTrainingDays
         if goal == .lose || goal == .gain {
             next["pace"] = pace.rawValue
         } else {
@@ -136,14 +170,36 @@ struct NativeNutritionGoalEstimator: View {
         var estimate: NativeNutritionGoalEstimate?
     }
 
+    private enum HealthReadStatus {
+        case unavailable, needsAccess, reading, insufficient, failed
+        case ready(NativeNutritionActivityEvidence)
+
+        var needsFallback: Bool {
+            switch self {
+            case .unavailable, .needsAccess, .insufficient, .failed: return true
+            case .reading, .ready: return false
+            }
+        }
+    }
+
+    private struct HealthReadKey: Equatable {
+        let owner: String
+        let day: String
+        let timeZone: String
+        let revision: Int
+        let enabled: Bool
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(\.scenePhase) private var scenePhase
 
     private let api: NativeAPI
     private let owner: String
     private let targetWeightKg: Double?
+    private let plannedWorkouts: [NativeWorkoutEntry]?
     private let onApply: (NativeNutritionGoalEstimate) -> Void
     @Binding private var savedChoice: NativeNutritionGoalChoice
     @State private var choice: NativeNutritionGoalChoice
@@ -157,15 +213,49 @@ struct NativeNutritionGoalEstimator: View {
     /// The person's own choice. Before they make one, records are used unless their error is large.
     @State private var recordsChoice: Bool?
     @State private var today = spotterDay()
+    @State private var timeZone = TimeZone.current.identifier
+    @State private var healthReader = HealthKitReader()
+    @State private var healthReadResult: (key: HealthReadKey, status: HealthReadStatus)?
+    @State private var requestedHealthAccess: Bool
+    @State private var requestingHealthAccess = false
+    @State private var healthAccessFailed = false
+    @State private var healthRevision = 0
 
     init(api: NativeAPI, owner: String, choice: Binding<NativeNutritionGoalChoice>, targetWeightKg: Double?,
+         plannedWorkouts: [NativeWorkoutEntry]? = nil,
          onApply: @escaping (NativeNutritionGoalEstimate) -> Void) {
         self.api = api
         self.owner = owner
         self.targetWeightKg = targetWeightKg
+        self.plannedWorkouts = plannedWorkouts
         self.onApply = onApply
         _savedChoice = choice
         _choice = State(initialValue: choice.wrappedValue)
+        let healthPreferences = NativeHealthPreferences(origin: api.origin, owner: owner)
+        _requestedHealthAccess = State(initialValue: healthPreferences.hasRequestedNativeAccess
+            || UserDefaults.standard.bool(forKey: healthPreferences.key("nutritionActivityRequested")))
+    }
+
+    private var usesHealth: Bool { choice.activitySource == .appleHealth || choice.activitySource == .automatic }
+    private var usesCalendar: Bool { choice.activitySource == .calendar || choice.activitySource == .automatic }
+    private var healthKey: HealthReadKey {
+        HealthReadKey(owner: owner, day: today, timeZone: timeZone, revision: healthRevision,
+                      enabled: usesHealth && requestedHealthAccess)
+    }
+
+    private var healthStatus: HealthReadStatus {
+        if !HealthKitReader.nativeDataAvailable { return .unavailable }
+        if !requestedHealthAccess { return .needsAccess }
+        guard let healthReadResult, healthReadResult.key == healthKey else { return .reading }
+        return healthReadResult.status
+    }
+
+    private var calendarEvidence: NativeNutritionCalendarActivity? {
+        guard let plannedWorkouts else { return nil }
+        let sessions = plannedWorkouts.lazy.filter { $0.owner == owner && $0.kind == "plan" }.map { plan in
+            (id: plan.id, day: plan.day, minutes: Int(exactly: plan.data["minutes"].number) ?? 0)
+        }
+        return NativeNutritionCalendarActivity.upcoming(Array(sessions), today: today)
     }
 
     private var goalOptions: [(NativeNutritionGoal?, String)] {
@@ -199,21 +289,22 @@ struct NativeNutritionGoalEstimator: View {
     }
 
     var body: some View {
-        let resolved = resolve()
+        let schedule = usesCalendar ? calendarEvidence : nil
+        let resolved = resolve(schedule: schedule)
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     profileCard(resolved)
-                    settingsCard
-                    if let estimate = resolved.estimate {
-                        result(estimate, snapshot: resolved.snapshot)
+                    settingsCard(schedule: schedule)
+                    if let estimate = resolved.estimate, let input = resolved.input {
+                        result(estimate, snapshot: resolved.snapshot, trainingDays: input.trainingDays)
                     } else if let input = resolved.input {
                         Text(input.isInRange ? "当前身体档案不适用这个目标，请选择其他目标。" : "当前资料超出成人估算范围，请核对身体档案。")
                             .font(.footnote).foregroundStyle(SpotterPalette.muted)
                     }
                     if let calibration = resolved.calibration {
                         recordsCard(calibration)
-                    } else if resolved.estimate != nil && (intakeLoading || intakeLoadFailed) {
+                    } else if !usesCalendar && resolved.estimate != nil && (intakeLoading || intakeLoadFailed) {
                         recordsStatus
                     }
                     Text("估算适用于健康成年人。孕期、哺乳期或有疾病时请遵医嘱。")
@@ -226,7 +317,7 @@ struct NativeNutritionGoalEstimator: View {
                 .frame(maxWidth: .infinity)
             }
             .background(SpotterPalette.background.ignoresSafeArea())
-            .safeAreaInset(edge: .bottom, spacing: 0) { applyBar(resolved.estimate) }
+            .safeAreaInset(edge: .bottom, spacing: 0) { applyBar(resolved) }
             .navigationTitle("按身体数据计算")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -237,6 +328,18 @@ struct NativeNutritionGoalEstimator: View {
         .tint(accent.tint)
         .presentationDragIndicator(.visible)
         .task(id: owner) { await load() }
+        .task(id: healthKey) { await readHealthActivity(healthKey) }
+        .onChange(of: usesCalendar) { includesCalendar in
+            if !includesCalendar, bodyData?.snapshot(on: today) != nil {
+                Task { await loadIntake() }
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { refreshCivilDay() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            refreshCivilDay()
+        }
     }
 
     private var trainingDays: Binding<Int> {
@@ -274,24 +377,103 @@ struct NativeNutritionGoalEstimator: View {
         .spotterCard(radius: 20)
     }
 
-    private var settingsCard: some View {
+    private func settingsCard(schedule: NativeNutritionCalendarActivity?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             heading("目标与活动", icon: "slider.horizontal.3")
                 .padding(.bottom, 2)
             option("目标方向", selection: $choice.goal, options: goalOptions, id: "goal")
-            option("日常活动", detail: "不含训练", selection: $choice.activity, options: activityOptions, id: "activity")
-            if choice.activityNeedsReview && choice.activity == nil {
-                Text("日常活动现在只算平时走动，训练另按每周训练天数计。请选择当前的活动量。")
-                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
-                    .padding(.horizontal, 4)
+            option("日常活动", selection: $choice.activitySource,
+                   options: NativeNutritionActivitySource.allCases.map { ($0, $0.title) }, id: "activity-source")
+            if usesHealth {
+                healthActivityStatus
             }
-            option("每周训练", selection: trainingDays, options: trainingOptions, id: "training-days")
+            if !usesHealth || (choice.activitySource == .automatic && healthStatus.needsFallback) {
+                option("平时走动", detail: "不含训练", selection: $choice.manualActivity, options: activityOptions, id: "activity")
+                if choice.activityNeedsReview && choice.manualActivity == nil {
+                    activityNote("平时走动不含训练。请选择当前的活动量。")
+                }
+            }
+            if usesCalendar {
+                calendarActivityStatus(schedule)
+            } else if choice.activitySource == .manual {
+                option("每周训练", selection: trainingDays, options: trainingOptions, id: "training-days")
+            }
             if !paceOptions.isEmpty {
                 option("进度", selection: $choice.pace, options: paceOptions, id: "pace")
             }
         }
         .padding(14)
         .spotterCard(radius: 20)
+    }
+
+    @ViewBuilder private var healthActivityStatus: some View {
+        let lookback = NativeNutritionHealthActivity.lookbackDays
+        let minimum = NativeNutritionActivityEvidence.minimumDays
+        switch healthStatus {
+        case .unavailable:
+            activityNote("这台设备无法读取 Apple 健康。")
+        case .needsAccess:
+            activityNote("用近 \(lookback) 个完整日的步数估算平时走动，需至少有 \(minimum) 天记录。")
+            Button(requestingHealthAccess ? "正在连接…" : "连接 Apple 健康") {
+                Task { await requestHealthAccess() }
+            }
+            .buttonStyle(.spotterControl)
+            .disabled(requestingHealthAccess)
+            .accessibilityIdentifier("nutrition-estimator-connect-health")
+            if healthAccessFailed { activityNote("读取授权未完成，请重试。") }
+        case .reading:
+            ProgressView("正在读取 Apple 健康…").font(.footnote)
+                .padding(.horizontal, 4)
+        case .insufficient, .failed:
+            if case .insufficient = healthStatus {
+                activityNote("近 \(lookback) 天的有效步数不足 \(minimum) 天。请确认「健康」已允许读取步数和体能训练。")
+            } else {
+                activityNote("Apple 健康暂时读不到数据。")
+            }
+            Button("重新读取") { healthRevision &+= 1 }
+                .buttonStyle(.spotterControl)
+        case .ready(let evidence):
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Apple 健康 · 近 \(lookback) 天")
+                    .font(.footnote.weight(.semibold))
+                Text("平时日均约 \(nutritionNumber(Double(evidence.averageSteps))) 步 · \(evidence.observedDays) 天有记录")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                if choice.activitySource == .appleHealth {
+                    Text("平均每周训练 \(evidence.trainingDays) 天").font(.caption).foregroundStyle(SpotterPalette.muted)
+                }
+            }
+            .padding(.horizontal, 4)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("nutrition-estimator-health-evidence")
+        }
+        if choice.activitySource == .automatic && healthStatus.needsFallback {
+            activityNote("可先用手动活动量配合训练日历估算。")
+        }
+    }
+
+    @ViewBuilder private func calendarActivityStatus(_ schedule: NativeNutritionCalendarActivity?) -> some View {
+        if let schedule {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("训练日历 · 未来 \(NativeNutritionCalendarActivity.horizonDays) 天")
+                    .font(.footnote.weight(.semibold))
+                Text(schedule.sessionCount == 0 ? "没有已排训练" :
+                    "\(schedule.sessionCount) 堂 · \(schedule.trainingDays) 天 · 约 \(schedule.trainingMinutes) 分钟")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                if choice.activitySource == .automatic {
+                    Text("建议值按周平均。跨天或日历有改动时重新估算。")
+                        .font(.caption).foregroundStyle(SpotterPalette.muted)
+                }
+            }
+            .padding(.horizontal, 4)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("nutrition-estimator-calendar-evidence")
+        } else {
+            activityNote("训练日历还未载入。可以稍后重试，也可以先用手动估算。")
+        }
+    }
+
+    private func activityNote(_ text: String) -> some View {
+        Text(text).font(.footnote).foregroundStyle(SpotterPalette.muted).padding(.horizontal, 4)
     }
 
     private func option<Value: Hashable>(_ title: String, detail: String? = nil, selection: Binding<Value>,
@@ -435,7 +617,8 @@ struct NativeNutritionGoalEstimator: View {
             : ""
     }
 
-    private func result(_ estimate: NativeNutritionGoalEstimate, snapshot: NativeNutritionGoalBody.Snapshot?) -> some View {
+    private func result(_ estimate: NativeNutritionGoalEstimate, snapshot: NativeNutritionGoalBody.Snapshot?,
+                        trainingDays: Int) -> some View {
         let layout = textSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: 7))
             : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
@@ -458,7 +641,7 @@ struct NativeNutritionGoalEstimator: View {
                 macro("脂肪", grams: estimate.fat, color: 0xbd5061)
             }
             SpotterDisclosure("查看估算依据") {
-                Text(explanation(estimate, snapshot: snapshot))
+                Text(explanation(estimate, snapshot: snapshot, trainingDays: trainingDays))
                     .font(.footnote).foregroundStyle(SpotterPalette.muted)
                     .padding(.horizontal, 4)
             }
@@ -524,11 +707,11 @@ struct NativeNutritionGoalEstimator: View {
         .accessibilityValue(amount)
     }
 
-    private func applyBar(_ estimate: NativeNutritionGoalEstimate?) -> some View {
+    private func applyBar(_ resolved: Resolved) -> some View {
         VStack(spacing: 6) {
             Button {
-                guard let estimate else { return }
-                choice.trainingDays = choice.effectiveTrainingDays
+                guard let estimate = resolved.estimate, let input = resolved.input else { return }
+                choice.apply(activity: input.activity, trainingDays: input.trainingDays)
                 savedChoice = choice
                 onApply(estimate)
                 dismiss()
@@ -538,9 +721,9 @@ struct NativeNutritionGoalEstimator: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.spotterPrimaryControl)
-            .disabled(estimate == nil)
+            .disabled(resolved.estimate == nil)
             .accessibilityIdentifier("nutrition-estimator-apply")
-            if estimate != nil {
+            if resolved.estimate != nil {
                 Text("回到营养目标后，点保存生效。")
                     .font(.caption).foregroundStyle(SpotterPalette.muted)
                     .multilineTextAlignment(.center)
@@ -573,13 +756,14 @@ struct NativeNutritionGoalEstimator: View {
         return "，到 \(amount(targetWeightKg)) kg 至少要 \(Int(weeks)) 周，体重变化后请重新计算"
     }
 
-    private func explanation(_ estimate: NativeNutritionGoalEstimate, snapshot: NativeNutritionGoalBody.Snapshot?) -> String {
+    private func explanation(_ estimate: NativeNutritionGoalEstimate, snapshot: NativeNutritionGoalBody.Snapshot?,
+                             trainingDays: Int) -> String {
         let restingBasis = estimate.usesLeanMass ? "按体脂率和训练量" : "按身高、体重、年龄"
         let maintenanceBasis = estimate.usesRecords ? "按记录校准" : "按活动量"
         var text = "基础代谢约 \(nutritionNumber(estimate.restingCalories)) 千卡（\(restingBasis)），"
         text += "维持约 \(nutritionNumber(estimate.maintenanceCalories)) 千卡（\(maintenanceBasis)）。"
         // Training is already inside maintenance, so adding the same workout to the day's target would count it twice.
-        let counted = choice.effectiveTrainingDays > 0 || estimate.usesRecords
+        let counted = trainingDays > 0 || estimate.usesRecords
             ? "维持热量已包含训练消耗，同一次训练不用再通过「计入运动消耗」加到当天目标。" : ""
         guard estimate.adjustmentCalories != 0 else { return text + "按维持热量吃。" + counted }
         let gaining = estimate.adjustmentCalories > 0
@@ -620,18 +804,26 @@ struct NativeNutritionGoalEstimator: View {
         }
     }
 
-    private func resolve() -> Resolved {
+    private func resolve(schedule: NativeNutritionCalendarActivity?) -> Resolved {
         var resolved = Resolved()
         guard let bodyData, let snapshot = bodyData.snapshot(on: today) else { return resolved }
         resolved.snapshot = snapshot
-        guard let goal = choice.goal, let activity = choice.activity else { return resolved }
+        guard let goal = choice.goal, !usesCalendar || schedule != nil else { return resolved }
+        let health: NativeNutritionActivityEvidence?
+        if usesHealth, case .ready(let evidence) = healthStatus { health = evidence } else { health = nil }
+        let canUseManualActivity = !usesHealth || (choice.activitySource == .automatic && healthStatus.needsFallback)
+        guard let activity = health?.activity ?? (canUseManualActivity ? choice.manualActivity : nil) else { return resolved }
+        let trainingDays = schedule?.trainingDays ?? health?.trainingDays ?? choice.effectiveTrainingDays
         var input = NativeNutritionGoalInput(age: snapshot.age, male: snapshot.male, heightCm: snapshot.heightCm,
-                                             weightKg: snapshot.weightKg, activity: activity, trainingDays: choice.effectiveTrainingDays,
+                                             weightKg: snapshot.weightKg, activity: activity, trainingDays: trainingDays,
                                              goal: goal, pace: choice.pace, bodyFatPercent: snapshot.bodyFatPercent)
+        input.plannedTrainingMinutes = schedule.map { Double($0.trainingMinutes) }
+        input.averageNonWorkoutSteps = health?.averageSteps
+        if schedule != nil { input.restingTrainingDays = health?.trainingDays ?? choice.recentTrainingDays }
         resolved.input = input
         guard let formula = input.estimate() else { return resolved }
         resolved.estimate = formula
-        guard let intake else { return resolved }
+        guard !usesCalendar, let intake else { return resolved }
         let calibration = NativeEnergyCalibration.measure(
             through: today, intake: intake.map { (day: $0.key, calories: $0.value) },
             weights: bodyData.weights.map { (day: $0.day, kg: $0.value) },
@@ -642,6 +834,45 @@ struct NativeNutritionGoalEstimator: View {
             resolved.estimate = input.estimate() ?? formula
         }
         return resolved
+    }
+
+    private func requestHealthAccess() async {
+        guard HealthKitReader.nativeDataAvailable, !requestingHealthAccess else { return }
+        requestingHealthAccess = true
+        healthAccessFailed = false
+        defer { requestingHealthAccess = false }
+        do {
+            try await healthReader.authorizeNutritionActivity()
+            try Task.checkCancellation()
+            let preferences = NativeHealthPreferences(origin: api.origin, owner: owner)
+            UserDefaults.standard.set(true, forKey: preferences.key("nutritionActivityRequested"))
+            requestedHealthAccess = true
+        } catch is CancellationError {
+        } catch {
+            healthAccessFailed = true
+        }
+    }
+
+    private func readHealthActivity(_ key: HealthReadKey) async {
+        guard key.enabled, HealthKitReader.nativeDataAvailable, healthReadResult?.key != key else { return }
+        let date = Date.now
+        guard spotterDay(date) == key.day, TimeZone.current.identifier == key.timeZone else { return }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        do {
+            let readings = try await healthReader.recentNutritionActivity(through: date, calendar: calendar)
+            try Task.checkCancellation()
+            let evidence = NativeNutritionActivityEvidence.health(readings, today: key.day)
+            healthReadResult = (key, evidence.map(HealthReadStatus.ready) ?? .insufficient)
+        } catch is CancellationError {
+        } catch {
+            if !Task.isCancelled { healthReadResult = (key, .failed) }
+        }
+    }
+
+    private func refreshCivilDay() {
+        today = spotterDay()
+        timeZone = TimeZone.current.identifier
     }
 
     private func load(retry: Bool = false) async {
@@ -663,7 +894,7 @@ struct NativeNutritionGoalEstimator: View {
                 return
             }
         }
-        if bodyData?.snapshot(on: today) != nil { await loadIntake() }
+        if !usesCalendar, bodyData?.snapshot(on: today) != nil { await loadIntake() }
     }
 
     private func loadIntake(retry: Bool = false) async {

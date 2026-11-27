@@ -34,7 +34,7 @@
     <key>NSCameraUsageDescription</key>
     <string>当你选择拍照记录饮食、扫食物条码或拍营养成分表时使用相机，画面只用于本次预览、识别和记录。</string>
     <key>NSHealthShareUsageDescription</key>
-    <string>读取你允许的 Apple 健康数据，用于查看训练、活动和身体变化。</string>
+    <string>读取你允许的 Apple 健康数据，用于查看训练、活动和身体变化，以及按步数估算营养目标。</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>训练搭子通过只读授权同步您选择的 Apple 健康数据，训练记录保存在您的训练搭子账号中。</string>
     <key>NSLocalNetworkUsageDescription</key>

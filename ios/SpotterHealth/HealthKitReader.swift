@@ -168,6 +168,11 @@ final class HealthKitReader {
         try await store.requestAuthorization(toShare: [], read: nativeReadTypes())
     }
 
+    func authorizeNutritionActivity() async throws {
+        let steps = try sampleType(.steps)
+        try await store.requestAuthorization(toShare: [], read: [steps, HKObjectType.workoutType()])
+    }
+
     func nativeAuthorizationNeedsPrompt() async throws -> Bool {
         let readTypes = try nativeReadTypes()
         return try await withCheckedThrowingContinuation { continuation in
@@ -446,6 +451,54 @@ final class HealthKitReader {
                                    sourceBundleId: source.map { String($0.bundleIdentifier.prefix(200)) })
     }
 
+    /// The rolling window contains completed local days only, with gym or running steps removed where workout data is readable.
+    func recentNutritionActivity(through today: Date, calendar: Calendar) async throws -> NativeNutritionHealthActivity {
+        let to = calendar.startOfDay(for: today)
+        guard let lookback = calendar.date(byAdding: .day, value: -NativeNutritionHealthActivity.lookbackDays, to: to),
+              let stepType = try sampleType(.steps) as? HKQuantityType else { throw HealthError.unavailable }
+        let from = calendar.startOfDay(for: lookback)
+        let formatter = Self.activityDayFormatter(calendar)
+        try Task.checkCancellation()
+        let steps = try await statistics(stepType, unit: .count(), from: from, to: to, calendar: calendar)
+        try Task.checkCancellation()
+        let workouts = try await samples(HKObjectType.workoutType(), from: from, to: to, options: []) as? [HKWorkout] ?? []
+        try Task.checkCancellation()
+
+        var windows: [DateInterval] = []
+        var workoutDays = Set<String>()
+        for workout in workouts {
+            let start = max(from, workout.startDate)
+            let end = min(to, workout.endDate)
+            guard start < end else { continue }
+            if workout.startDate >= from { workoutDays.insert(formatter.string(from: workout.startDate)) }
+            if let previous = windows.last, start <= previous.end {
+                windows[windows.count - 1] = DateInterval(start: previous.start, end: max(previous.end, end))
+            } else {
+                windows.append(DateInterval(start: start, end: end))
+            }
+        }
+
+        var stepsByDay: [String: Double] = [:]
+        for (start, _, value) in steps where value.isFinite && value >= 0 {
+            stepsByDay[formatter.string(from: start)] = value
+        }
+        if !stepsByDay.isEmpty, !windows.isEmpty {
+            // One query covers all workout ranges. HealthKit still merges step sources and buckets a midnight workout
+            // across calendar days. Step samples can span a workout boundary, so this exclusion is approximate.
+            let predicate = NSCompoundPredicate(orPredicateWithSubpredicates: windows.map {
+                HKQuery.predicateForSamples(withStart: $0.start, end: $0.end, options: [])
+            })
+            let trainingSteps = try await statistics(stepType, unit: .count(), from: from, to: to,
+                                                     calendar: calendar, samplePredicate: predicate)
+            try Task.checkCancellation()
+            for (start, _, value) in trainingSteps where value.isFinite && value >= 0 {
+                let day = formatter.string(from: start)
+                if let total = stepsByDay[day] { stepsByDay[day] = max(0, total - value) }
+            }
+        }
+        return NativeNutritionHealthActivity(stepsByDay: stepsByDay, workoutDays: workoutDays.sorted())
+    }
+
     func records(selected: Set<HealthSelection>, from: Date, to: Date, calendar: Calendar) async throws -> HealthRecordsPayload {
         var weights: [BodyMassRecord] = []
         if selected.contains(.bodyMass) {
@@ -461,11 +514,7 @@ final class HealthKitReader {
             ? try await systemWorkouts(from: from, to: to, includeEnergy: selected.contains(.activeEnergy)) : []
         var activities: [String: ActivityRecord] = [:]
         let metrics: [(HealthSelection, HKUnit)] = [(.steps, .count()), (.activeEnergy, .kilocalorie()), (.exerciseTime, .minute())]
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
+        let formatter = Self.activityDayFormatter(calendar)
         for (selection, unit) in metrics where selected.contains(selection) {
             guard let type = try sampleType(selection) as? HKQuantityType else { continue }
             for (start, end, value) in try await statistics(type, unit: unit, from: from, to: to, calendar: calendar) {
@@ -497,9 +546,18 @@ final class HealthKitReader {
         }
     }
 
-    private func statistics(_ type: HKQuantityType, unit: HKUnit, from: Date, to: Date,
-                            calendar: Calendar) async throws -> [(Date, Date, Double)] {
-        let predicate = HKQuery.predicateForSamples(withStart: from, end: to)
+    private static func activityDayFormatter(_ calendar: Calendar) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }
+
+    private func statistics(_ type: HKQuantityType, unit: HKUnit, from: Date, to: Date, calendar: Calendar,
+                            samplePredicate: NSPredicate? = nil) async throws -> [(Date, Date, Double)] {
+        let predicate = samplePredicate ?? HKQuery.predicateForSamples(withStart: from, end: to)
         // Default HealthKit statistics merge overlapping sources before calculating totals.
         return try await withCheckedThrowingContinuation { continuation in
             let query = HKStatisticsCollectionQuery(quantityType: type, quantitySamplePredicate: predicate,

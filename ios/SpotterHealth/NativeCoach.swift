@@ -572,9 +572,9 @@ struct NativeCoachView: View {
                     }
                 case .diary(let day):
                     if let date = nativePlanDate(day) {
-                        // The same workouts as the diary's own entry, so the goal estimator can count recent training days.
-                        NativeNutritionDetail(api: api, owner: owner,
-                                              logs: workoutStore.flatMap { $0.owner == owner ? $0.logs : nil }, initialDate: date)
+                        let currentStore = workoutStore.flatMap { $0.owner == owner ? $0 : nil }
+                        NativeNutritionDetail(api: api, owner: owner, logs: currentStore?.logs,
+                                              plannedWorkouts: currentStore?.nutritionPlannedWorkouts, initialDate: date)
                     }
                 }
             }

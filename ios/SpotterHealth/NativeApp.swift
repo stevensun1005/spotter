@@ -1030,6 +1030,7 @@ private struct NativeSpotterTabs: View {
                                    refreshLiveActivity()
                                    NativeCoachView.removeSavedConversation(api: account.api, owner: owner)
                                    NativeNutritionDetail.clearFavoriteMeals(api: account.api, owner: owner)
+                                   NativeNutritionEstimatePreferences.clear(api: account.api, owner: owner)
                                    trainingPreferences.clear()
                                    permissionOnboarding.clear()
                                    NativeWorkoutHealthSync.shared.clear(origin: account.api.origin, owner: owner)
@@ -1060,7 +1061,8 @@ private struct NativeSpotterTabs: View {
             widgetNutritionEntry = nil
             nutritionUsesHomeDate = false
         }) {
-            NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs, initialDate: nutritionDetailDate,
+            NativeNutritionDetail(api: account.api, owner: owner, logs: workouts.logs,
+                                  plannedWorkouts: workouts.nutritionPlannedWorkouts, initialDate: nutritionDetailDate,
                                   initialWidgetEntry: widgetNutritionEntry, week: nutritionWeek, onDateChange: { date in
                 nutritionDetailDate = date
                 if nutritionUsesHomeDate { homeDate = date }

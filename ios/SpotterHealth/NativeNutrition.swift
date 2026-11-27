@@ -737,12 +737,24 @@ enum NativeNutritionWidgetEntry {
     case frequentMeals, water, recordMeal
 }
 
+extension NativeWorkoutStore {
+    var nutritionPlannedWorkouts: [NativeWorkoutEntry]? {
+        // Either marker confirms the plans were loaded, including a genuinely empty calendar.
+        guard widgetOverviewDay != nil || recentHistoryStart != nil || !plans.isEmpty else { return nil }
+        let today = spotterDay()
+        return plans.filter { plan in
+            plan.owner == owner && plan.day >= today && (plan.day == today || !hasCompletedPlan(id: plan.id))
+        }
+    }
+}
+
 @MainActor
 struct NativeNutritionDetail: View {
     @Environment(\.spotterAccent) private var accent
     let api: NativeAPI
     let owner: String
     var logs: [NativeWorkoutEntry]? = nil
+    private let plannedWorkouts: [NativeWorkoutEntry]?
     var initialWidgetEntry: NativeNutritionWidgetEntry? = nil
     private let onDateChange: ((Date) -> Void)?
     private let ownsNutritionWeek: Bool
@@ -767,12 +779,13 @@ struct NativeNutritionDetail: View {
     @State private var didOpenWidgetEntry = false
     @State private var closesAfterGuidedMeal = false
 
-    init(api: NativeAPI, owner: String, logs: [NativeWorkoutEntry]? = nil, initialDate: Date = .now,
-         initialWidgetEntry: NativeNutritionWidgetEntry? = nil, week: NativeNutritionWeek? = nil,
+    init(api: NativeAPI, owner: String, logs: [NativeWorkoutEntry]? = nil, plannedWorkouts: [NativeWorkoutEntry]? = nil,
+         initialDate: Date = .now, initialWidgetEntry: NativeNutritionWidgetEntry? = nil, week: NativeNutritionWeek? = nil,
          onDateChange: ((Date) -> Void)? = nil) {
         self.api = api
         self.owner = owner
         self.logs = logs
+        self.plannedWorkouts = plannedWorkouts
         self.initialWidgetEntry = initialWidgetEntry
         self.onDateChange = onDateChange
         self.ownsNutritionWeek = week == nil
@@ -1075,7 +1088,8 @@ struct NativeNutritionDetail: View {
                 }
             }
         case .goals, .cycle, .energy:
-            NativeNutritionPlanning(api: api, owner: owner, day: day, payload: payload, logs: logs ?? [], destination: item)
+            NativeNutritionPlanning(api: api, owner: owner, day: day, payload: payload, logs: logs ?? [],
+                                    plannedWorkouts: plannedWorkouts, destination: item)
         case .recipes, .recommendations, .voice:
             NativeNutritionIdeas(api: api, owner: owner, day: day, mealNow: mealNow,
                                  payload: payload, logs: logs ?? [], destination: item) { food, meal, grams in
@@ -2205,6 +2219,32 @@ private enum NutritionMetric: String, CaseIterable, Identifiable {
     }
 }
 
+struct NativeNutritionEstimatePreferences: Codable {
+    let source: NativeNutritionActivitySource
+    let manualActivity: String?
+
+    private static func key(api: NativeAPI, owner: String) -> String {
+        NativeHealthPreferences(origin: api.origin, owner: owner).key("nutritionEstimatePreferences")
+    }
+
+    static func read(api: NativeAPI, owner: String) -> Self? {
+        guard let data = UserDefaults.standard.data(forKey: key(api: api, owner: owner)) else { return nil }
+        return try? JSONDecoder().decode(Self.self, from: data)
+    }
+
+    func save(api: NativeAPI, owner: String) {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        UserDefaults.standard.set(data, forKey: Self.key(api: api, owner: owner))
+    }
+
+    static func clear(api: NativeAPI, owner: String) {
+        let defaults = UserDefaults.standard
+        let healthPreferences = NativeHealthPreferences(origin: api.origin, owner: owner)
+        defaults.removeObject(forKey: key(api: api, owner: owner))
+        defaults.removeObject(forKey: healthPreferences.key("nutritionActivityRequested"))
+    }
+}
+
 @MainActor
 private struct NativeNutritionPlanning: View {
     @Environment(\.spotterInteractionMotion) private var motion
@@ -2215,6 +2255,7 @@ private struct NativeNutritionPlanning: View {
     let payload: NutritionPayload
     let destination: NutritionDestination
     let logs: [NativeWorkoutEntry]
+    let plannedWorkouts: [NativeWorkoutEntry]?
     static let carbKinds = ["低碳", "中碳", "高碳"]
     static let weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
@@ -2229,13 +2270,15 @@ private struct NativeNutritionPlanning: View {
     @State private var busy = false
     @State private var error: String?
 
-    init(api: NativeAPI, owner: String, day: String, payload: NutritionPayload, logs: [NativeWorkoutEntry], destination: NutritionDestination) {
+    init(api: NativeAPI, owner: String, day: String, payload: NutritionPayload, logs: [NativeWorkoutEntry],
+         plannedWorkouts: [NativeWorkoutEntry]?, destination: NutritionDestination) {
         self.api = api
         self.owner = owner
         self.day = day
         self.payload = payload
         self.destination = destination
         self.logs = logs.filter { $0.day == day && $0.owner == owner }
+        self.plannedWorkouts = plannedWorkouts
         let base = payload.rows.first { $0.kind == "targets" }?.values ?? .init()
         let saved = payload.rows.first { $0.kind == "nutrition-plan" }?.carbCycle
         _fields = State(initialValue: Dictionary(uniqueKeysWithValues: NutritionMetric.allCases.map { ($0, nutritionInput($0[base])) }))
@@ -2246,9 +2289,12 @@ private struct NativeNutritionPlanning: View {
         _exerciseEnergy = State(initialValue: workouts.reduce(into: [:]) { $0[$1.id] = nutritionInput($1.calories) })
         let savedTargets = payload.rows.first(where: { $0.kind == "targets" })
         let trained = logs.filter { $0.owner == owner }.map(\.day)
+        let estimatePreferences = NativeNutritionEstimatePreferences.read(api: api, owner: owner)
         _goalChoice = State(initialValue: NativeNutritionGoalChoice(
             preference: savedTargets?.preference,
-            loggedTrainingDays: NativeNutritionGoalInput.weeklyTrainingDays(trained, today: spotterDay())))
+            loggedTrainingDays: NativeNutritionGoalInput.weeklyTrainingDays(trained, today: spotterDay()),
+            activitySource: estimatePreferences?.source ?? .manual,
+            manualActivity: estimatePreferences?.manualActivity.flatMap(NativeNutritionActivity.init(rawValue:))))
     }
 
     private var title: String {
@@ -2275,7 +2321,8 @@ private struct NativeNutritionPlanning: View {
         .sheet(isPresented: $showsGoalEstimator) {
             NativeNutritionGoalEstimator(
                 api: api, owner: owner, choice: $goalChoice,
-                targetWeightKg: payload.rows.first(where: { $0.kind == "targets" })?.targetWeightKg
+                targetWeightKg: payload.rows.first(where: { $0.kind == "targets" })?.targetWeightKg,
+                plannedWorkouts: plannedWorkouts
             ) { estimate in
                 fields[.calories] = nutritionInput(estimate.calories)
                 fields[.protein] = nutritionInput(estimate.protein)
@@ -2436,6 +2483,10 @@ private struct NativeNutritionPlanning: View {
         defer { busy = false }
         do {
             try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner, "data": record])
+            if case .goals = destination, appliedEstimate {
+                NativeNutritionEstimatePreferences(source: goalChoice.activitySource, manualActivity: goalChoice.manualActivity?.rawValue)
+                    .save(api: api, owner: owner)
+            }
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             dismiss()
         } catch { self.error = error.localizedDescription }
