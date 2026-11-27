@@ -521,11 +521,23 @@ final class NativeWorkoutStore: ObservableObject {
                 $0.kind == "log" && $0.day >= from && $0.day <= through &&
                     ($0.owner == owner || (!partner.isEmpty && $0.owner == partner))
             }
-            let updated = entries.filter { $0.kind != "log" || $0.day < from || $0.day > through } + records
-            if entries != updated { entries = updated }
+            let inRange = { (entry: NativeWorkoutEntry) in entry.kind == "log" && entry.day >= from && entry.day <= through }
+            // `load()` keeps the server's order, so comparing whole arrays saw a change on nearly every 统计 visit
+            // and re-rendered every tab. Publish only when the logs in this range really differ.
+            if !Self.sameEntries(entries.filter(inRange), records) {
+                entries = entries.filter { !inRange($0) } + records
+            }
             refreshCachedWidgetHistory(with: records, from: from, through: through)
             return true
         } catch { return false }
+    }
+
+    /// True when both lists hold the same entries, in any order.
+    private static func sameEntries(_ lhs: [NativeWorkoutEntry], _ rhs: [NativeWorkoutEntry]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        let known = Dictionary(lhs.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        guard known.count == lhs.count, Set(rhs.map(\.key)).count == rhs.count else { return false }
+        return rhs.allSatisfy { known[$0.key] == $0 }
     }
 
     private func refreshCachedWidgetHistory(with records: [NativeWorkoutEntry], from: String, through: String) {
@@ -1592,7 +1604,8 @@ struct NativeWorkoutView: View {
             }
             if !collapsed {
                 Group {
-                    if let homeNutrition { homeNutrition { setNutritionCollapsed(true) } }
+                    // Only the stored flag: the card may keep this closure across passes and animates it itself.
+                    if let homeNutrition { homeNutrition { nutritionCollapsed = true } }
                     else {
                         HStack {
                             Button(action: open) {
@@ -2503,12 +2516,23 @@ private func newestRecord(_ left: NativeWorkoutEntry, _ right: NativeWorkoutEntr
     return (left.updated, left.id) > (right.updated, right.id)
 }
 
-private func localRecordDay(_ timestamp: String) -> String? {
+/// Created once: the home screen checks every buddy cheer with these on each update, and building an
+/// ISO8601DateFormatter per call was a large part of that.
+private let localRecordFractionalFormatter: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = formatter.date(from: timestamp) { return NativeWorkoutSession.day(date) }
+    return formatter
+}()
+
+private let localRecordFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime]
-    return formatter.date(from: timestamp).map { NativeWorkoutSession.day($0) }
+    return formatter
+}()
+
+private func localRecordDay(_ timestamp: String) -> String? {
+    if let date = localRecordFractionalFormatter.date(from: timestamp) { return NativeWorkoutSession.day(date) }
+    return localRecordFormatter.date(from: timestamp).map { NativeWorkoutSession.day($0) }
 }
 
 private func prescription(_ move: NativeJSON) -> String {

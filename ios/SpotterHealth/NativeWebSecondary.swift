@@ -724,8 +724,10 @@ struct NativeSpotterStats: View {
 
     private func loadPartner() async {
         if let data = try? await api.spotterRead("/api/friends", as: SecondaryFriendList.self) {
-            partner = data.friends.first(where: \.buddy)
-            if partner == nil { partnerSelected = false }
+            // 统计 reloads this on every visit, so only an actual change may re-render the page.
+            let buddy = data.friends.first(where: \.buddy)
+            if buddy != partner { partner = buddy }
+            if buddy == nil, partnerSelected { partnerSelected = false }
         }
     }
 }
@@ -1157,6 +1159,8 @@ struct SecondaryAnatomy: View {
         }
         .onChange(of: figure) { _ in selected = nil }
         .task {
+            // Tabs restart `.task` on every visit. The artwork never changes, so load it once.
+            guard artwork.isEmpty else { return }
             artwork = await Task.detached(priority: .utility) { Self.loadArtwork() }.value
             loaded = true
         }
@@ -1445,6 +1449,8 @@ struct SecondaryMusclePanel: View {
             else { content.padding(12).secondaryCard() }
         }
         .task {
+            // Tabs restart `.task` on every visit. The bundled catalogue never changes, so read it once.
+            guard catalogue == nil, !unavailable else { return }
             let loaded = await Task.detached(priority: .utility) { Self.loadCatalogue() }.value
             catalogue = loaded
             unavailable = loaded == nil
@@ -3421,7 +3427,7 @@ private enum NativeConnectionKind: String {
     var requestTitle: String { self == .buddy ? "搭子申请" : "好友申请" }
 }
 
-private struct SecondaryFriend: Decodable, Identifiable {
+private struct SecondaryFriend: Decodable, Identifiable, Equatable {
     struct Sharing: Decodable, Equatable {
         var training: Bool
         var nutrition: Bool

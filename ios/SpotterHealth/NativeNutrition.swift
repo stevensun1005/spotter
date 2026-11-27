@@ -3,6 +3,7 @@ import Charts
 import CryptoKit
 import Speech
 import SwiftUI
+import UIKit
 
 enum NutritionShortcut: String, CaseIterable, Identifiable {
     case breakfast = "早餐"
@@ -453,7 +454,17 @@ struct NativeHomeNutritionCollapseButton: View {
     }
 }
 
-@MainActor
+/// The home card re-runs only when its inputs change, not on every update of the home screen. That also keeps
+/// an open meal logger, which this card presents, from being rebuilt by unrelated updates. Its closures only reach
+/// stable state storage, so a copy kept from an earlier pass behaves the same.
+extension NativeHomeNutrition: Equatable {
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.api === rhs.api && lhs.owner == rhs.owner && lhs.logs == rhs.logs
+            && (lhs.onCollapse == nil) == (rhs.onCollapse == nil)
+    }
+}
+
+// Main-actor isolation comes from `View`. `==` above stays nonisolated so it can satisfy `Equatable`.
 struct NativeHomeNutrition: View {
     let api: NativeAPI
     let owner: String
@@ -476,7 +487,9 @@ struct NativeHomeNutrition: View {
             NativeNutritionSummary(payload: payload, date: spotterDay(), logs: logs,
                                    onOpen: onOpen, reservesCollapseSpace: onCollapse != nil)
                 .overlay(alignment: .topTrailing) {
-                    if let onCollapse { NativeHomeNutritionCollapseButton(action: onCollapse) }
+                    // The card animates with its own current motion setting: `onCollapse` may be a copy kept from an
+                    // earlier pass (see `==`), so it only writes the stored flag.
+                    if let onCollapse { NativeHomeNutritionCollapseButton { withAnimation(motion) { onCollapse() } } }
                 }
             Divider().overlay(SpotterPalette.line)
             NutritionShortcuts(onMainMeal: { destination = .logger(.suggestedMainMeal) },
@@ -498,11 +511,19 @@ struct NativeHomeNutrition: View {
         .spotterCard()
         .animation(motion, value: error != nil)
         .animation(motion, value: quickMeal?.id)
-        .task(id: reloadRevision) { await load() }
+        .task(id: reloadRevision) {
+            NativeNutritionFood.prepareBuiltIn()
+            await load()
+        }
         .onChange(of: phase) { phase in
             if phase == .active { reloadRevision &+= 1 }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in reloadRevision &+= 1 }
+        // The card skips updates while its inputs are unchanged, so at local midnight or on a time zone change it
+        // runs again here, shows the new day and reads that day's meals.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            reloadRevision &+= 1
+        }
         .sheet(item: $destination, onDismiss: {
             if let guide, guide.step.presentation == .mealEditor { guide.skipSection(guide.step) }
         }) { item in
@@ -642,6 +663,7 @@ struct NativeNutritionDetail: View {
         .background(SpotterPalette.background.ignoresSafeArea())
         .task(id: "\(day)/\(reloadRevision)") { await load(day) }
         .onAppear {
+            NativeNutritionFood.prepareBuiltIn()
             guard !didOpenWidgetEntry, let initialWidgetEntry else { return }
             didOpenWidgetEntry = true
             switch initialWidgetEntry {
@@ -2722,7 +2744,21 @@ extension NativeNutritionFood {
         return catalog.isEmpty ? fallback : catalog
     }()
 
-    fileprivate static let builtInByID = Dictionary(builtIn.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    /// `builtIn` by id. The first entry wins, like the linear search it replaces.
+    static let builtInByID: [String: Self] = Dictionary(builtIn.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+    /// Decodes the bundled catalog on a background thread. Without this, the first meal logger of a launch
+    /// decoded the 430 KB file on the main thread inside the tap that opened it (its init now also groups recent
+    /// foods by meal through `builtInByID`). Repeated calls cost nothing.
+    @MainActor static func prepareBuiltIn() {
+        guard !builtInPrepared else { return }
+        builtInPrepared = true
+        Task.detached(priority: .utility) {
+            _ = NativeNutritionFood.builtInByID.count
+        }
+    }
+
+    @MainActor private static var builtInPrepared = false
 
     /// The original everyday list. Recommendations rank only these, like the web nutrition tools.
     static let core: [Self] = {

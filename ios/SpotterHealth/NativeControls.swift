@@ -282,7 +282,8 @@ struct SpotterGlassSegments<Option: Hashable>: View {
             }
         }
         .frame(minHeight: isDense ? 30 : 44)
-        .contentShape(Capsule())
+        // The whole cell takes the tap. A capsule shape left the corners dead, so taps there did nothing.
+        .contentShape(Rectangle())
     }
 }
 

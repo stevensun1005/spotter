@@ -73,7 +73,7 @@ struct NativeFoodCatalog: Decodable {
             food.brand = item.brand.flatMap { $0.isEmpty ? nil : $0 }
             food.detail = [item.brand, item.en].compactMap { $0 }.filter { !$0.isEmpty }.first
             if let key = item.src, let source = sources[key] {
-                if let ref = item.ref, let host = URL(string: ref)?.host, ref.hasPrefix("https://") {
+                if let ref = item.ref, ref.hasPrefix("https://"), let host = URL(string: ref)?.host {
                     food.source = source.title + " · " + (host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)
                 } else {
                     food.source = source.title + (item.ref.map { " · " + $0 } ?? "")
@@ -196,17 +196,29 @@ private enum NativeFoodSearchIndex {
     }
 }
 
-/// Splits "鸡胸肉 150g" or "150 克 米饭" into the food name and an optional gram amount.
-private func nativeFoodQuery(_ input: String) -> (name: String, grams: Double?) {
-    let value = input.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
+/// The two patterns `nativeFoodQuery` tries, compiled once instead of on every logger update.
+private let nativeFoodQueryPatterns: [(NSRegularExpression, Int, Int)] = {
     // "g" and "grams" must not run into a Latin word, so "150 grams", "100 granola" and "100 gâteau" are not
     // read as food "s", "ranola" or "âteau". Chinese may follow directly, as in "150g鸡胸肉".
     let amount = "(\\d+(?:\\.\\d+)?)\\s*(?:公克|克|(?:grams?|g)(?!\\p{Script=Latin}))"
     // The lookbehind keeps the amount from starting inside a number, so "150g" is not read as food "1" with 50 g,
     // while names that end in a digit, such as "V8 200g", still split correctly.
-    for (pattern, nameGroup, gramsGroup) in [("^(.+?)\\s*(?<![\\d.])" + amount + "$", 1, 2), ("^" + amount + "\\s*(.+)$", 2, 1)] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+    let patterns: [(String, Int, Int)] = [("^(.+?)\\s*(?<![\\d.])" + amount + "$", 1, 2), ("^" + amount + "\\s*(.+)$", 2, 1)]
+    var compiled: [(NSRegularExpression, Int, Int)] = []
+    for (pattern, nameGroup, gramsGroup) in patterns {
+        if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+            compiled.append((regex, nameGroup, gramsGroup))
+        }
+    }
+    return compiled
+}()
+
+/// Splits "鸡胸肉 150g" or "150 克 米饭" into the food name and an optional gram amount.
+private func nativeFoodQuery(_ input: String) -> (name: String, grams: Double?) {
+    let value = input.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else { return (value, nil) }
+    for (regex, nameGroup, gramsGroup) in nativeFoodQueryPatterns {
+        guard let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
               let nameRange = Range(match.range(at: nameGroup), in: value),
               let gramsRange = Range(match.range(at: gramsGroup), in: value),
               let grams = Double(value[gramsRange]), (0.1...3_000).contains(grams) else { continue }
@@ -907,8 +919,9 @@ struct NativeMealLogger: View {
     }
 
     private func favoritesTab(_ text: String) -> some View {
-        let byID = Dictionary(allFoods.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let starred = matches(favorites.compactMap { byID[$0] }, text)
+        // Personal foods win over catalog foods with the same id, as before, without indexing all 972 on every render.
+        let personalByID = Dictionary(personal.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let starred = matches(favorites.compactMap { personalByID[$0] ?? NativeNutritionFood.builtInByID[$0] }, text)
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 if starred.isEmpty {

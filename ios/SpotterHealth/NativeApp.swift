@@ -1001,7 +1001,7 @@ private struct NativeSpotterTabs: View {
             refreshLiveActivity()
         }
         .task { updateWatchWorkout() }
-        .onReceive(liveHeartRateUpdates) { _ in refreshLiveActivity() }
+        .onReceive(Self.liveHeartRateUpdates) { _ in refreshLiveActivity() }
         .onChange(of: showsTrainingLiveActivity) { _ in refreshLiveActivity() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
             if scenePhase == .active { Task { await refreshHome() } }
@@ -1194,7 +1194,8 @@ private struct NativeSpotterTabs: View {
         if showsNutrition {
             view.openNutrition = { showNutrition = true }
             view.homeNutrition = { collapse in
-                AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs, onCollapse: collapse) { showNutrition = true })
+                AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs, onCollapse: collapse) { showNutrition = true }
+                    .equatable())
             }
         }
         return view
@@ -1323,7 +1324,9 @@ private struct NativeSpotterTabs: View {
         manager.sync(workoutKey: key, state: state, foreground: scenePhase == .active)
     }
 
-    private var liveHeartRateUpdates: AnyPublisher<Void, Never> {
+    /// Built once. A publisher rebuilt on every body pass made `onReceive` subscribe again each time, which
+    /// re-ran `refreshLiveActivity()` after every root update and reset the 5 s throttle.
+    private static let liveHeartRateUpdates: AnyPublisher<Void, Never> = {
         guard #available(iOS 17.0, *) else { return Empty().eraseToAnyPublisher() }
         let readings = NativeWatchHeartRate.shared.$reading.removeDuplicates()
         return readings.filter { $0 == nil }.map { _ in () }
@@ -1331,7 +1334,7 @@ private struct NativeSpotterTabs: View {
                 .throttle(for: .seconds(5), scheduler: RunLoop.main, latest: true).map { _ in () })
             .receive(on: RunLoop.main)
             .eraseToAnyPublisher()
-    }
+    }()
 
     private func updateWatchWorkout() {
         guard #available(iOS 17.0, *) else { return }
@@ -1524,23 +1527,51 @@ private struct NativeSpotterTabs: View {
         }
     }
 
+    /// Everything the home tab's closures and optional callbacks depend on besides state storage and stores.
+    /// `scenePhase` is here because `openActiveWorkout` passes it on to the Live Activity.
+    private struct HomeTabKey: Equatable {
+        let phase: ScenePhase
+        let friends: Bool
+        let nutrition: Bool
+    }
+
+    private struct FriendsTabKey: Equatable {
+        let buddySearchRequest: Int
+        let request: NativeSocialNotification?
+    }
+
+    /// Tab roots are wrapped in `NativeTabContent`, so a page switch or another root update (sheet flags, polls,
+    /// avatars) skips the tabs whose inputs did not change. Before, every switch re-ran the bodies of all four
+    /// tabs, because each root carries closures that SwiftUI cannot compare. The tabs still update from their own
+    /// stores, environment and state.
     @ViewBuilder private func sectionContent(_ section: NativeSpotterSection, active: Bool) -> some View {
         switch section {
-        case .today: today
+        case .today:
+            NativeTabContent(key: HomeTabKey(phase: scenePhase, friends: showsFriends, nutrition: showsNutrition), content: today)
+                .equatable()
         case .training:
-            NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: { openCoach() },
-                              openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
+            NativeTabContent(key: scenePhase, content: NativeWorkoutView(
+                store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true },
+                openCoach: { openCoach() }, openImport: { showPlanImport = true }, openPrograms: { showPrograms = true }
+            )).equatable()
         case .stats:
             NativeSpotterStats(store: workouts, api: account.api, owner: owner, widgetStatsRequest: $widgetStatsRequest)
         case .friends:
-            NativeFriends(api: account.api, owner: owner, buddySearchRequest: buddySearchRequest,
-                          notificationRequest: active && isAvailableForWidget && socialNotifications.belongs(to: owner)
-                              ? socialNotifications.requestedItem : nil,
-                          openOwnLog: { openOwnFeedWorkout($0) },
-                          openOwnLogDay: { id, day in openOwnFeedWorkout(id, day: day) },
-                          refreshPlans: { await workouts.load() })
-                .id(friendsRevision)
+            friendsTab(active: active)
         }
+    }
+
+    private func friendsTab(active: Bool) -> some View {
+        let request = active && isAvailableForWidget && socialNotifications.belongs(to: owner)
+            ? socialNotifications.requestedItem : nil
+        return NativeTabContent(key: FriendsTabKey(buddySearchRequest: buddySearchRequest, request: request), content: NativeFriends(
+            api: account.api, owner: owner, buddySearchRequest: buddySearchRequest, notificationRequest: request,
+            openOwnLog: { openOwnFeedWorkout($0) },
+            openOwnLogDay: { id, day in openOwnFeedWorkout(id, day: day) },
+            refreshPlans: { await workouts.load() }
+        ))
+        .equatable()
+        .id(friendsRevision)
     }
 
     private var dock: some View {
@@ -1583,6 +1614,17 @@ private struct NativeSpotterTabs: View {
     }
 }
 
+/// A tab root that re-runs only when `key` changes. Its closures only reach the root's state storage and stores,
+/// so a copy kept from an earlier pass behaves the same. Anything else a tab root reads from the root belongs in `key`.
+private struct NativeTabContent<Key: Equatable, Content: View>: View, Equatable {
+    let key: Key
+    let content: Content
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
+
+    var body: some View { content }
+}
+
 @MainActor
 private struct NativeDockTabRail<Play: View>: View {
     @Environment(\.spotterAccent) private var accent
@@ -1620,26 +1662,13 @@ private struct NativeDockTabRail<Play: View>: View {
                 HStack(spacing: spacing) {
                     ForEach(sections, id: \.self) { section in
                         if section == .stats { play.frame(width: playWidth) }
-                        tab(section, highlighted: touchTab == section).frame(width: width)
+                        tab(section, highlighted: touchTab == section)
+                            .frame(width: width)
+                            .contentShape(Rectangle())
+                            .highPriorityGesture(touch(on: section, offsets: offsets))
                     }
                 }
             }
-            .contentShape(Rectangle())
-            .highPriorityGesture(
-                DragGesture(minimumDistance: 12)
-                    .updating($dragDistance) { value, distance, transaction in
-                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                        transaction.animation = nil
-                        distance = value.translation.width
-                    }
-                    .onEnded { value in
-                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                        let momentum = value.predictedEndTranslation.width - value.translation.width
-                        let destination = base + value.translation.width + min(18, max(-18, momentum))
-                        let section = nearest(to: destination, offsets: offsets)
-                        navigation.selectFromDock(section, animated: motion != nil, didSelect: didSelect)
-                    }
-            )
         }
         .padding(4)
         .frame(height: 59)
@@ -1653,6 +1682,43 @@ private struct NativeDockTabRail<Play: View>: View {
     private func nearest(to position: CGFloat, offsets: [CGFloat]) -> NativeSpotterSection {
         guard let index = offsets.indices.min(by: { abs(offsets[$0] - position) < abs(offsets[$1] - position) }) else { return selection }
         return sections[index]
+    }
+
+    /// Like the system tab bar, a tab lights up as soon as the finger lands, instead of when it lifts. A rail-wide
+    /// high-priority drag used to hold every tab and ▶ press until touch-up, so a tap showed nothing while the finger
+    /// was down. Each tab now owns its touch, and ▶ keeps its own button. The page still follows the highlight a frame
+    /// later through `NativeTabNavigation`, and the guide advances when the finger lifts. Sliding sideways from a tab
+    /// still drags the selection capsule and settles on the nearest tab. VoiceOver and other assistive input still use
+    /// the Button action.
+    private func touch(on section: NativeSpotterSection, offsets: [CGFloat]) -> some Gesture {
+        let origin = sections.firstIndex(of: section).map { offsets[$0] } ?? 0
+        return DragGesture(minimumDistance: 0)
+            .updating($dragDistance) { value, distance, transaction in
+                // Only the finger on the highlighted tab drags the capsule, not a second finger on another tab.
+                guard navigation.highlighted == section, distance != nil || Self.slidesSideways(value) else { return }
+                transaction.animation = nil
+                distance = value.translation.width
+            }
+            .onChanged { value in
+                // Claim the tab when the finger lands: the first event of a zero-distance drag has no translation.
+                // Later moves don't claim it again, so two fingers on two tabs don't keep flipping the page.
+                guard value.translation == .zero, navigation.highlighted != section else { return }
+                navigation.selectFromDock(section, animated: motion != nil) { _ in }
+            }
+            .onEnded { value in
+                guard Self.slidesSideways(value) else {
+                    // The tab lifted last wins, as it did with plain buttons. This also runs the guide step.
+                    navigation.selectFromDock(section, animated: motion != nil, didSelect: didSelect)
+                    return
+                }
+                let momentum = value.predictedEndTranslation.width - value.translation.width
+                let destination = origin + value.translation.width + min(18, max(-18, momentum))
+                navigation.selectFromDock(nearest(to: destination, offsets: offsets), animated: motion != nil, didSelect: didSelect)
+            }
+    }
+
+    private static func slidesSideways(_ value: DragGesture.Value) -> Bool {
+        abs(value.translation.width) >= 12 && abs(value.translation.width) > abs(value.translation.height)
     }
 
     private func tab(_ section: NativeSpotterSection, highlighted: Bool) -> some View {
