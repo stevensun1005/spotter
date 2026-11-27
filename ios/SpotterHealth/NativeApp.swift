@@ -778,11 +778,36 @@ private enum NativeSpotterSection: String {
         case .friends: return "person.2"
         }
     }
+
+    var identifier: String {
+        switch self {
+        case .today: return "today"
+        case .training: return "training"
+        case .stats: return "stats"
+        case .friends: return "friends"
+        }
+    }
+
+    var guideStep: NativeGuideStep? {
+        switch self {
+        case .today: return .todayTab
+        case .training: return .trainingTab
+        case .friends: return .friendsTab
+        case .stats: return nil
+        }
+    }
 }
 
 @MainActor
 private struct NativeSpotterTabs: View {
     private static let compactCoachDetent = PresentationDetent.fraction(0.44)
+    /// 底栏样式，改这一行就能在同一份代码里对比。
+    /// `.floating`：自绘底栏浮在页面上方，内容可以滚到底栏下面。
+    /// `.docked`：自绘底栏排在页面下方，页面止于底栏上沿，不依赖安全区调整。
+    /// `.system`：系统底栏。iOS 26 用 `Tab(role: .search)`，更早的系统用 `.tabItem`。
+    private enum DockStyle { case system, docked, floating }
+    private static let dockStyle = DockStyle.floating
+    private static var usesCustomDock: Bool { dockStyle != .system }
 
     private enum TabDestination: Hashable {
         case section(NativeSpotterSection)
@@ -1446,7 +1471,24 @@ private struct NativeSpotterTabs: View {
     }
 
     @ViewBuilder private var navigationTabs: some View {
-        if #available(iOS 26.0, *) {
+        if Self.dockStyle == .floating {
+            ZStack(alignment: .bottom) {
+                customDockPages
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    customDock
+                }
+                // 键盘弹出时底栏留在原位，和系统底栏一样被键盘盖住。
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+            }
+        } else if Self.dockStyle == .docked {
+            VStack(spacing: 0) {
+                customDockPages
+                customDock
+            }
+            // 键盘弹出时底栏留在原位，页面自己避让键盘。
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+        } else if #available(iOS 26.0, *) {
             let selection = Binding<TabDestination>(get: { .section(selected) }, set: { destination in
                 switch destination {
                 case .section(let section): selectTab(section)
@@ -1475,14 +1517,49 @@ private struct NativeSpotterTabs: View {
         }
     }
 
+    /// 自绘底栏时，页面仍交给系统 TabView 管理，只是隐藏系统底栏。
+    private var customDockPages: some View {
+        TabView(selection: Binding(get: { selected }, set: { selectTab($0) })) {
+            ForEach(contentSections, id: \.self) { section in
+                tabScene(section, active: selected == section)
+                    .tag(section)
+            }
+        }
+    }
+
+    private var customDock: some View {
+        NativeFloatingDock(sections: contentSections, selected: selected, interactive: allowsMotion,
+                           select: { selectTab($0) },
+                           openCoach: { openCoach(startFromGuide: guideStep == .coach) })
+    }
+
     private func tabScene(_ section: NativeSpotterSection, active: Bool) -> some View {
         NavigationStack {
             sectionContent(section, active: active)
                 .nativeGuideLayer(.tabContent)
                 .toolbar(.hidden, for: .navigationBar)
+                .modifier(DockHost())
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     if active { quickActions }
                 }
+        }
+    }
+
+    /// 自绘底栏时隐藏系统底栏，并让所在导航栈给底栏让位。系统底栏样式下原样返回，行为和改动前一致。
+    private struct DockHost: ViewModifier {
+        @ViewBuilder func body(content: Content) -> some View {
+            switch NativeSpotterTabs.dockStyle {
+            case .system:
+                content
+            case .docked:
+                content
+                    .toolbar(.hidden, for: .tabBar)
+                    .background { NativeDockClearance(height: 0).accessibilityHidden(true) }
+            case .floating:
+                content
+                    .toolbar(.hidden, for: .tabBar)
+                    .background { NativeDockClearance(height: NativeFloatingDock.reservedHeight).accessibilityHidden(true) }
+            }
         }
     }
 
@@ -1527,17 +1604,19 @@ private struct NativeSpotterTabs: View {
                 .accessibilityLabel(active == nil ? "开始训练" : "继续训练")
                 .accessibilityIdentifier("spotter-dock-play")
             }
-            if #unavailable(iOS 26.0) {
-                Button { openCoach(startFromGuide: guideStep == .coach) } label: {
-                    Image(systemName: "sparkles")
-                        .frame(width: 44, height: 44)
-                        .spotterGlass(in: Circle(), tint: accent.selection, interactive: allowsMotion)
-                        .contentShape(Circle())
+            if !Self.usesCustomDock {
+                if #unavailable(iOS 26.0) {
+                    Button { openCoach(startFromGuide: guideStep == .coach) } label: {
+                        Image(systemName: "sparkles")
+                            .frame(width: 44, height: 44)
+                            .spotterGlass(in: Circle(), tint: accent.selection, interactive: allowsMotion)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.spotterGlassPress)
+                    .accessibilityLabel("打开 AI 教练")
+                    .accessibilityIdentifier("spotter-quick-coach")
+                    .nativeGuideTarget(.coach)
                 }
-                .buttonStyle(.spotterGlassPress)
-                .accessibilityLabel("打开 AI 教练")
-                .accessibilityIdentifier("spotter-quick-coach")
-                .nativeGuideTarget(.coach)
             }
         }
         .font(.subheadline.weight(.semibold))
@@ -1546,6 +1625,216 @@ private struct NativeSpotterTabs: View {
         .minimumScaleFactor(0.8)
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
+    }
+}
+
+/// WHOOP 式悬浮底栏：左侧胶囊放标签，右侧独立的圆角方形按钮打开 AI 教练。
+/// 只响应点按。没有拖动手势，也没有会移动的玻璃高亮，所以每次切页只是换一次前景色。
+@MainActor
+private struct NativeFloatingDock: View {
+    static let barHeight: CGFloat = 60
+    static let topGap: CGFloat = 6
+    static let bottomGap: CGFloat = 4
+    /// 底栏连同上下留白的总高度。浮在页面上方时，各标签的导航栈按这个高度让出底部。
+    static let reservedHeight: CGFloat = topGap + barHeight + bottomGap
+
+    @Environment(\.spotterAccent) private var accent
+    @ScaledMetric(relativeTo: .caption2) private var tabLabelSize: CGFloat = 11
+    let sections: [NativeSpotterSection]
+    let selected: NativeSpotterSection
+    let interactive: Bool
+    let select: (NativeSpotterSection) -> Void
+    let openCoach: () -> Void
+
+    /// 星星外圈的渐变环，四种强调色首尾相接。
+    private static let ring: [Color] = SpotterAccent.allCases.map(\.tint) + [SpotterAccent.lime.tint]
+
+    var body: some View {
+        // 两块玻璃共用一个取样容器。容器间距小于两者的间隔，形状不会融在一起。
+        SpotterGlassGroup(spacing: 4) {
+            HStack(spacing: 10) {
+                rail
+                coach
+            }
+        }
+        .frame(maxWidth: 530)
+        .padding(.horizontal, 12)
+        .padding(.top, Self.topGap)
+        .padding(.bottom, Self.bottomGap)
+    }
+
+    private var rail: some View {
+        HStack(spacing: 0) {
+            ForEach(sections, id: \.self) { section in
+                Button { select(section) } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: section.icon)
+                            .font(.system(size: 20, weight: .medium))
+                            .frame(height: 24)
+                        Text(section.rawValue)
+                            .font(.system(size: min(max(tabLabelSize, 11), 14), weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(NativeDockTabStyle(selected: selected == section, glow: accent.fill))
+                .accessibilityLabel(section.rawValue)
+                .accessibilityAddTraits(selected == section ? .isSelected : [])
+                // 辅助功能大字号下也可长按放大查看。
+                .accessibilityShowsLargeContentViewer { Label(section.rawValue, systemImage: section.icon) }
+                .accessibilityIdentifier("spotter-dock-tab-" + section.identifier)
+                .nativeGuideTarget(section.guideStep)
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(height: Self.barHeight)
+        .clipShape(Capsule())
+        .modifier(NativeDockSurface(shape: Capsule(), tint: nil, interactive: false))
+        .accessibilityElement(children: .contain)
+        .modifier(NativeDockTabBarTrait())
+        .accessibilityIdentifier("spotter-dock-tabs")
+    }
+
+    private var coach: some View {
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        return Button(action: openCoach) {
+            ZStack {
+                Circle()
+                    .strokeBorder(AngularGradient(colors: Self.ring, center: .center, angle: .degrees(-90)), lineWidth: 2.5)
+                    .frame(width: 34, height: 34)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(accent.tint)
+            }
+            .frame(width: Self.barHeight, height: Self.barHeight)
+            .modifier(NativeDockSurface(shape: shape, tint: accent.selection.opacity(0.85), interactive: interactive))
+            .contentShape(shape)
+        }
+        .buttonStyle(.spotterGlassPress)
+        .accessibilityLabel("打开 AI 教练")
+        .accessibilityShowsLargeContentViewer { Label("AI 教练", systemImage: "sparkles") }
+        .accessibilityIdentifier("spotter-quick-coach")
+        .nativeGuideTarget(.coach)
+    }
+}
+
+/// 选中或按下的标签点亮：前景换成正文色，脚下透出一团强调色的光。按下即亮，松手后才切页。
+private struct NativeDockTabStyle: ButtonStyle {
+    @Environment(\.spotterInteractionMotion) private var motion
+    let selected: Bool
+    let glow: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        let lit = selected || configuration.isPressed
+        return configuration.label
+            .symbolVariant(lit ? .fill : .none)
+            .foregroundStyle(lit ? SpotterPalette.ink : SpotterPalette.muted)
+            .background(alignment: .bottom) {
+                // 光心压在标签底边以下，只让光晕的外缘漫上来，深色模式下文字仍然清楚。
+                RadialGradient(colors: [glow.opacity(0.6), glow.opacity(0)],
+                               center: UnitPoint(x: 0.5, y: 1.2), startRadius: 0, endRadius: 38)
+                    .frame(maxWidth: 76)
+                    .frame(height: 38)
+                    .opacity(lit ? 1 : 0)
+                    .animation(lit || motion == nil ? nil : .easeOut(duration: 0.18), value: lit)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+    }
+}
+
+/// iOS 26 用液态玻璃。更早的系统用毛玻璃材质叠一层半透明卡片色，内容仍能从底栏下透出来。
+private struct NativeDockSurface<Surface: InsettableShape>: ViewModifier {
+    let shape: Surface
+    let tint: Color?
+    let interactive: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.spotterGlass(in: shape, tint: tint, interactive: interactive)
+        } else {
+            content
+                .background {
+                    shape.fill(.ultraThinMaterial)
+                        .overlay { shape.fill(tint ?? SpotterPalette.card.opacity(0.45)) }
+                }
+                .overlay { shape.strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
+        }
+    }
+}
+
+/// iOS 17 起把标签区标成标签栏，旁白会按标签栏朗读。
+private struct NativeDockTabBarTrait: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.accessibilityAddTraits(.isTabBar)
+        } else {
+            content
+        }
+    }
+}
+
+/// 悬浮底栏盖在页面上方时，把它的高度加进所在导航栈的安全区。根页面和推入的详情页都会在底部让出位置，
+/// 内容仍可滚到底栏下面。SwiftUI 的 `safeAreaInset` 加在导航栈外层时不会传给栈内页面，所以交给 UIKit。
+private struct NativeDockClearance: UIViewRepresentable {
+    let height: CGFloat
+
+    func makeUIView(context: Context) -> Probe {
+        let view = Probe(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.height = height
+        return view
+    }
+
+    func updateUIView(_ view: Probe, context: Context) {
+        guard view.height != height else { return }
+        view.height = height
+        // 高度变了才会走到这里。SwiftUI 更新期间不直接改 UIKit 布局，推到下一轮。
+        DispatchQueue.main.async { [weak view] in view?.apply() }
+    }
+
+    final class Probe: UIView {
+        var height: CGFloat = 0
+        private weak var stack: UINavigationController?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else { return }
+            // 进窗口时当场设置，页面第一帧就带着底部留白。响应链还没接上时再等一轮。
+            if !apply() {
+                DispatchQueue.main.async { [weak self] in self?.apply() }
+            }
+        }
+
+        @discardableResult
+        func apply() -> Bool {
+            if stack == nil {
+                // 沿响应链向上找到承载这个标签页的导航控制器。
+                var responder = next
+                while let current = responder {
+                    if let found = current as? UINavigationController {
+                        stack = found
+                        break
+                    }
+                    responder = current.next
+                }
+            }
+            guard let stack = stack else { return false }
+            if stack.additionalSafeAreaInsets.bottom != height {
+                stack.additionalSafeAreaInsets.bottom = height
+            }
+            // iOS 26 开着「降低透明度」时，隐藏的系统底栏会留下一条挡住触摸的白条，iOS 27 已修。
+            // 这里只在 iOS 26 上让标签控制器再确认一次隐藏。
+            if #available(iOS 26.0, *) {
+                if #unavailable(iOS 27.0) {
+                    if let tabs = stack.tabBarController, !tabs.isTabBarHidden {
+                        tabs.setTabBarHidden(true, animated: false)
+                    }
+                }
+            }
+            return true
+        }
     }
 }
 
