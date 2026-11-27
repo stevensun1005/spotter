@@ -262,3 +262,5 @@ iOS 26 及以上的 AI 教练星星使用系统 `Tab` 的 `.search` 角色，独
 2026-11-27 内测发布记录。1.0.1 Build 56 以 `da57ef2a3e712ee8ef8fc92a9829624c648ec155` 归档，包含 iOS 系统标签栏、页面底部的训练和 AI 教练快捷入口，以及相应的新手引导和帮助资料。源码基线、模拟器打包、5 项原生界面测试及生产分发签名均通过。归档核对 Apple Watch、小组件、灵动岛、生产推送签名和 5,685 段离线演示。Xcode 以 TestFlight Internal Only 上传。Apple 处理后已将 Build 56 加入「训练搭子内测」，App Store Connect 显示 `Testing`。构建沿用 Cloudflare 98 的 HTTPS API。发布范围为 TestFlight 内测。
 
 2026-11-27 内测发布记录。1.0.1 Build 57 以 `0243020968123269d095f7c42c4ab277dff78a93` 归档，包含底栏右侧的 AI 教练入口、系统页面切换及统计与记餐的数据加载优化。源码基线、模拟器打包和生产分发签名通过。归档核对 Apple Watch、小组件、灵动岛、生产推送、共用帮助和食物库及 5,685 段离线演示。Xcode 以 TestFlight Internal Only 上传，已在「训练搭子内测」核对 `Testing`。Cloudflare HTTPS API 基线仍为 98，发布范围为 TestFlight 内测。真机触控与帧率待实测。
+
+2026-11-27 内测发布记录。1.0.1 Build 58 以 `23659d7a3c750a9da9bb12f2374129ef2bfa7176` 归档，构建源码已推到 `main`。源码基线、模拟器打包及分发签名通过，签名归档验证了生产推送、小组件、灵动岛、Apple Watch 和 5,685 段离线动作演示。Build 58 已上传 App Store Connect，并加入「训练搭子内测」。Cloudflare HTTPS API 基线为 98。公开外测的 Build 54 已撤回审核，Build 58 外测送审待确认。正式 App Store 与网页未执行发布。
