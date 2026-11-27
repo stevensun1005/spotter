@@ -172,6 +172,93 @@ struct NativeCatalogSection: Identifiable, Sendable {
     var rows: [NativeCatalogEntry]
 }
 
+struct NativeCatalogEquipmentGroup: Identifiable, Sendable {
+    private let key: String
+    let title: String
+    fileprivate let labels: [String: String]
+
+    var id: String { "gear:" + key }
+
+    private init(_ key: String, _ title: String, _ labels: [String: String]) {
+        self.key = key
+        self.title = title
+        self.labels = labels
+    }
+
+    fileprivate static let other = Self("other", "其他器材", [:])
+
+    fileprivate static let ordered: [Self] = [
+        .init("barbell", "杠铃", [
+            "barbell": "杠铃", "olympic barbell": "奥杆", "ez barbell": "曲杆", "trap bar": "六角杠",
+            "landmine": "地雷杆", "neutral grip hammer bar": "中立握杠铃",
+        ]),
+        .init("dumbbell", "哑铃", ["dumbbell": "哑铃"]),
+        .init("kettlebell", "壶铃", ["kettlebell": "壶铃"]),
+        .init("cable", "绳索与把手", [
+            "cable": "绳索", "cable handle": "绳索把手", "single handle": "单手把手", "rope attachment": "绳把",
+            "straight bar attachment": "绳索直杆", "v-bar attachment": "V 形把手", "curl bar attachment": "绳索曲杆",
+            "ankle cuff": "踝带",
+        ]),
+        .init("leverage", "杠杆器械", ["leverage machine": "杠杆器械", "plate-loaded machine": "挂片式器械"]),
+        .init("smith", "史密斯机", ["smith machine": "史密斯机"]),
+        .init("machine", "有氧器械", [
+            "stationary bike": "固定单车", "treadmill": "跑步机", "elliptical machine": "椭圆机", "stepmill machine": "登阶机",
+            "upper body ergometer": "上肢功率车", "skierg machine": "滑雪机",
+        ]),
+        .init("sled", "雪橇与滑轨", ["sled machine": "滑轨器械"]),
+        .init("band", "弹力带", ["band": "弹力带", "resistance band": "阻力带"]),
+        .init("body-weight", "自重", ["body weight": "自重"]),
+        .init("assisted", "辅助训练", ["assisted": "辅助训练"]),
+        .init("suspension", "单杠与悬挂带", ["high bar": "单杠", "pull-up bar": "引体向上杆", "suspension trainer": "悬挂训练带"]),
+        .init("loaded", "负重配件", [
+            "weighted": "负重", "weight plate": "杠铃片", "sandbag": "沙袋",
+            "lifting chain": "负重链条", "suspended weight": "悬挂负重",
+        ]),
+        .init("training-balls", "训练球与平衡器材", [
+            "stability ball": "瑜伽球", "medicine ball": "药球", "bosu ball": "半球平衡球", "light exercise ball": "小训练球",
+        ]),
+        .init("training-rope", "训练绳", ["rope": "训练绳"]),
+        .init("recovery", "按摩放松器材", ["roller": "泡沫轴", "massage ball": "按摩球"]),
+        .init("accessories", "小型训练器材", [
+            "wheel roller": "健腹轮", "ab wheel": "健腹轮", "stick": "训练棍", "macebell": "训练锤铃", "hammer": "训练锤",
+            "hula hoop": "呼啦圈", "exercise sliders": "训练滑盘", "squat wedge": "深蹲斜垫", "yoga block": "瑜伽砖",
+        ]),
+        .init("strongman", "大力士器材", [
+            "atlas stone": "阿特拉斯石球", "axle bar": "粗轴杠", "conan wheel": "柯南之轮", "cross hold weights": "侧举配重",
+            "hercules columns": "负重立柱", "hinged post": "铰接立柱", "iron block": "铁块", "log bar": "圆木杠",
+            "mas stick": "木棒与抵脚板", "throw weight": "投掷配重", "throwing keg": "投掷桶", "timber frame": "负重木框",
+            "tire": "轮胎", "viking press frame": "维京推举架", "weighted shield": "盾形负重", "wheelbarrow": "独轮车",
+        ]),
+        .init("bench", "训练凳", [
+            "bench": "训练凳", "incline bench": "上斜凳", "decline bench": "下斜凳", "preacher bench": "牧师凳",
+            "exam table": "诊疗床",
+        ]),
+        .init("rack", "训练架", ["rack": "训练架", "safety pins": "安全销"]),
+        .init("step", "踏台与跳箱", [
+            "step platform": "踏台", "box": "训练箱", "plyometric box": "跳箱", "low blocks": "矮垫块",
+        ]),
+        .init("support", "其他支撑与固定点", [
+            "chair": "椅子", "wall": "墙面", "head support": "头部支撑垫", "training anchor": "固定锚点",
+            "press board": "卧推木板", "arm blaster": "手臂支撑板",
+        ]),
+        other,
+    ]
+
+    fileprivate static let byID = Dictionary(uniqueKeysWithValues: ordered.map { ($0.id, $0) })
+
+    private static let byEquipment = Dictionary(uniqueKeysWithValues: ordered.flatMap { group in
+        group.labels.keys.map { ($0, group) }
+    })
+
+    fileprivate static func group(for equipment: String) -> Self {
+        byEquipment[equipment] ?? other
+    }
+
+    fileprivate static func label(for equipment: String) -> String? {
+        byEquipment[equipment]?.labels[equipment]
+    }
+}
+
 struct NativeCatalogResults: Sendable {
     let sections: [NativeCatalogSection]
     let featured: [NativeCatalogEntry]
@@ -292,6 +379,7 @@ struct NativeCatalogIndex: Sendable {
     private let details: Data
 
     let equipmentOptions: [String]
+    let equipmentGroupOptions: [NativeCatalogEquipmentGroup]
     var areas: [NativeCatalogArea] { metadata.areas }
     var types: [String] { metadata.types }
     var groups: [NativeCatalogGroup] { metadata.groups }
@@ -342,10 +430,11 @@ struct NativeCatalogIndex: Sendable {
         sectionsByEquipment = Dictionary(metadata.sections.flatMap { section in section.equipment.map { ($0, section.id) } },
                                          uniquingKeysWith: { first, _ in first })
         searchContextByID = Dictionary(rows.map { row in
-            let terms = ([row.part, row.equipment, row.target] + row.needs).map { metadata.labels[$0] ?? $0 }.joined(separator: " ")
-            return (row.id, catalogSearchKey(terms))
+            (row.id, Self.searchContext(for: row, labels: metadata.labels))
         }, uniquingKeysWith: { first, _ in first })
-        equipmentOptions = Self.equipmentChoices(in: rows)
+        let equipment = Self.equipmentChoices(in: rows)
+        equipmentOptions = equipment
+        equipmentGroupOptions = Self.equipmentGroups(for: equipment)
         covers = try Data(contentsOf: assetsURL.appendingPathComponent("covers.bin"), options: .mappedIfSafe)
         details = try Data(contentsOf: assetsURL.appendingPathComponent("details.bin"), options: .mappedIfSafe)
     }
@@ -380,13 +469,29 @@ struct NativeCatalogIndex: Sendable {
         Self.identityKey(exerciseName(name, preservingQualifiers: true))
     }
 
-    func label(_ value: String) -> String { metadata.labels[value] ?? value }
+    func label(_ value: String) -> String { NativeCatalogEquipmentGroup.label(for: value) ?? metadata.labels[value] ?? value }
     func muscleLabel(_ value: String) -> String { metadata.muscleLabels[value] ?? label(value) }
 
     func equipmentLabel(for entry: NativeCatalogEntry) -> String {
         var seen = Set<String>()
-        return ([entry.equipment] + entry.needs).filter { !$0.isEmpty && seen.insert($0).inserted }
-            .map(label).joined(separator: "、")
+        return ([entry.equipment] + entry.needs).map(label).filter { !$0.isEmpty && seen.insert($0).inserted }
+            .joined(separator: "、")
+    }
+
+    func equipmentFilterLabel(_ selection: String) -> String {
+        if selection.isEmpty { return "全部器械" }
+        return NativeCatalogEquipmentGroup.byID[selection]?.title ?? label(selection)
+    }
+
+    func matchesEquipment(_ entry: NativeCatalogEntry, _ selection: String) -> Bool {
+        if selection.isEmpty { return true }
+        guard let group = NativeCatalogEquipmentGroup.byID[selection] else {
+            return entry.equipment == selection || entry.needs.contains(selection)
+        }
+        if group.id == NativeCatalogEquipmentGroup.other.id {
+            return entry.equipmentKeys.contains { NativeCatalogEquipmentGroup.label(for: $0) == nil }
+        }
+        return group.labels[entry.equipment] != nil || entry.needs.contains { group.labels[$0] != nil }
     }
 
     func knows(_ name: String) -> Bool { knownNames.contains(nameKey(name)) }
@@ -514,7 +619,7 @@ struct NativeCatalogIndex: Sendable {
             guard !words.isEmpty else { return true }
             let family = familiesByRow[row.id]
             if let preferredFamily, family?.id != preferredFamily { return false }
-            let terms = searchContextByID[row.id] ?? catalogSearchKey([row.part, row.equipment, row.target].map(label).joined(separator: " "))
+            let terms = searchContextByID[row.id] ?? Self.searchContext(for: row, labels: metadata.labels)
             let ownText = [row.normalizedName, row.normalizedEnglish, terms].joined(separator: " ")
             let aliases = family?.aliases ?? []
             let related = ownText + " " + aliases.joined(separator: " ")
@@ -532,8 +637,10 @@ struct NativeCatalogIndex: Sendable {
         let activeType = typeOptions.contains(type) ? type : ""
         let typed = activeType.isEmpty ? matching : matching.filter { $0.type == activeType }
         let allowedEquipment = Self.equipmentChoices(in: typed)
-        let activeEquipment = allowedEquipment.contains(equipment) ? equipment : ""
-        let filtered = activeEquipment.isEmpty ? typed : typed.filter { $0.equipmentKeys.contains(activeEquipment) }
+        let knownEquipment = NativeCatalogEquipmentGroup.byID[equipment] != nil
+            || equipmentOptions.contains(equipment) || allowedEquipment.contains(equipment)
+        let activeEquipment = knownEquipment ? equipment : ""
+        let filtered = activeEquipment.isEmpty ? typed : typed.filter { matchesEquipment($0, activeEquipment) }
         let included = Set(filtered.map(\.id))
         let sortRows = filtered.filter { !$0.isPersonal }.sorted { left, right in
             let leftScore = scores[left.id] ?? 0
@@ -601,6 +708,20 @@ struct NativeCatalogIndex: Sendable {
             let b = counts[right, default: 0]
             return a == b ? left < right : a > b
         }
+    }
+
+    private static func equipmentGroups(for equipment: [String]) -> [NativeCatalogEquipmentGroup] {
+        let groups = Set(equipment.map { NativeCatalogEquipmentGroup.group(for: $0).id })
+        return NativeCatalogEquipmentGroup.ordered.filter { groups.contains($0.id) }
+    }
+
+    private static func searchContext(for entry: NativeCatalogEntry, labels: [String: String]) -> String {
+        let fields = [entry.part, entry.target, entry.equipment] + entry.needs
+        let words = fields.flatMap { field -> [String] in
+            let translation = NativeCatalogEquipmentGroup.label(for: field) ?? labels[field] ?? field
+            return field == translation ? [field] : [field, translation]
+        }
+        return catalogSearchKey(words.joined(separator: " "))
     }
 
     private func groupedSections(builtIn: [NativeCatalogEntry], personal: [NativeCatalogEntry],

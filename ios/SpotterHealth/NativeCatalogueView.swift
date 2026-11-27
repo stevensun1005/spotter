@@ -64,6 +64,8 @@ struct NativeCatalogueBrowser: View {
     @State private var pendingMove: NativeCatalogEntry?
     @FocusState private var searchFocused: Bool
     @AccessibilityFocusState private var focusedSection: String?
+    @ScaledMetric(relativeTo: .caption2) private var jumpRailWidth: CGFloat = 29
+    @ScaledMetric(relativeTo: .caption2) private var jumpRailMinimumRowHeight: CGFloat = 30
 
     private var profiles: [NativeJSON] {
         store.libraryRows.filter { $0["kind"].string == "exercise" }.map { $0["item"] }
@@ -336,27 +338,35 @@ struct NativeCatalogueBrowser: View {
     }
 
     private func jumpRail(_ sections: [NativeCatalogSection], jump: @escaping (NativeCatalogSection) -> Void) -> some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 1) {
-                ForEach(sections) { section in
-                    Button { jump(section) } label: {
-                        Text(section.jumpLabel)
-                            .font(.system(size: 11, weight: .bold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(width: 27, height: 31)
-                            .contentShape(Rectangle())
+        GeometryReader { bounds in
+            let verticalInset: CGFloat = 5
+            let availableHeight = bounds.size.height - 2 * verticalInset
+            let rowHeight = max(jumpRailMinimumRowHeight, availableHeight / CGFloat(sections.count))
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    ForEach(sections) { section in
+                        Button { jump(section) } label: {
+                            Text(section.jumpLabel)
+                                .font(.caption2.weight(.bold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: rowHeight)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.spotterPress)
+                        .foregroundStyle(SpotterPalette.accent)
+                        .accessibilityLabel("跳到 " + section.title)
                     }
-                    .buttonStyle(.spotterPress)
-                    .foregroundStyle(SpotterPalette.accent)
-                    .accessibilityLabel("跳到 " + section.title)
                 }
+                .padding(.vertical, verticalInset)
             }
-            .padding(.vertical, 4)
         }
         .background(SpotterPalette.adaptive(0xf7faf5, 0x242e27), in: RoundedRectangle(cornerRadius: 10))
         .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
-        .frame(width: 29)
+        .frame(width: jumpRailWidth)
+        .padding(.top, 10)
         .accessibilityLabel("器械分区导航")
     }
 
@@ -507,7 +517,7 @@ struct NativeCatalogueBrowser: View {
         return family.variants.filter { variant in
             if variant.id == initial.id { return true }
             if let type = results?.activeType, !type.isEmpty, type != variant.type { return false }
-            if let equipment = results?.activeEquipment, !equipment.isEmpty, equipment != variant.equipment { return false }
+            if let equipment = results?.activeEquipment, !index.matchesEquipment(variant, equipment) { return false }
             if !gear.isEmpty, variant.equipment != "body weight", !gear.contains(variant.equipment) { return false }
             return index.matchesArea(variant, filters.area)
         }
@@ -621,13 +631,14 @@ private func catalogueIconButton(
     .accessibilityLabel(label)
 }
 
-private func catalogueChip(_ title: String, symbol: String? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
+private func catalogueChip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
     Button(action: action) {
-        HStack(spacing: 4) {
-            if let symbol { Image(systemName: symbol).font(.system(size: 11)) }
-            Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-        }
-        .fixedSize(horizontal: true, vertical: false)
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
     }
     .buttonStyle(SpotterChoiceStyle(selected: selected, horizontalPadding: 8))
     .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -795,6 +806,7 @@ private struct NativeCatalogueFiltersSheet: View {
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccountPreferences) private var accountPreferences
+    @Environment(\.dynamicTypeSize) private var textSize
     let index: NativeCatalogIndex
     @Binding var filters: NativeCatalogueFilters
     @Binding var savedGyms: Data
@@ -811,8 +823,10 @@ private struct NativeCatalogueFiltersSheet: View {
                         muscleFilters
                             .transition(.opacity)
                     }
-                    filterChips("动作类型", options: [""] + index.types, selection: filters.type, blank: "全部类型") { filters.type = $0 }
-                    filterChips("器械", options: [""] + index.equipmentOptions, selection: filters.equipment, blank: "全部器械") { filters.equipment = $0 }
+                    filterChips("动作类型", options: index.types, selection: filters.type,
+                                blank: "全部类型", label: index.label) { filters.type = $0 }
+                    filterChips("器械", options: index.equipmentGroupOptions.map(\.id), selection: filters.equipment,
+                                blank: "全部器械", label: index.equipmentFilterLabel) { filters.equipment = $0 }
                     SpotterDisclosure("我的器械 · \(preferences.gym.name)") {
                         Toggle("只显示我的器械", isOn: $filters.usesGear).padding(.vertical, 8)
                         NativeGymEquipmentGrid(preferences: preferences, toggle: { key in updateGear { $0.toggle(key) } },
@@ -874,18 +888,20 @@ private struct NativeCatalogueFiltersSheet: View {
     }
 
     private func filterChips(
-        _ title: String, options: [String], selection: String, blank: String, choose: @escaping (String) -> Void
+        _ title: String, options: [String], selection: String, blank: String,
+        label: @escaping (String) -> String, choose: @escaping (String) -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(.headline)
-            chipGrid(options) { option in
-                catalogueChip(option.isEmpty ? blank : index.label(option), selected: selection == option) { choose(option) }
+            chipGrid([""] + options) { option in
+                catalogueChip(option.isEmpty ? blank : label(option), selected: selection == option) { choose(option) }
             }
         }
     }
 
     private func chipGrid<T: View>(_ options: [String], @ViewBuilder item: @escaping (String) -> T) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 86), spacing: 5)], spacing: 6) {
+        let column: GridItem.Size = textSize.isAccessibilitySize ? .flexible() : .adaptive(minimum: 83)
+        return LazyVGrid(columns: [GridItem(column, spacing: 6)], spacing: 6) {
             ForEach(options, id: \.self) { item($0) }
         }
     }

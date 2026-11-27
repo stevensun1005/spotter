@@ -35,14 +35,20 @@ export function planAiPrompt(today: string, intent: PlanAiIntent = "organize") {
   ].join("\n");
 }
 
-export function agentPlanningGuide(origin: string, profileRef: string) {
+export function agentConnectionInstructions(origin: string, profileRef: string) {
   const site = origin.replace(/\/$/, "");
   return [
-    "# Spotter · 计划 Agent 接入说明", "", "站点：" + site, "账号说明编号：" + profileRef,
-    "", "用户自己的 AI Agent 负责起草；Spotter 不调用模型，也不需要模型 API key。账号说明编号只用于核对账号，不能代替登录或授权令牌。",
-    "## 连接", "支持本站授权连接的 MCP 客户端使用 " + site + "/mcp。先调用 get_spotter_agent_profile，核对返回的 profileRef。",
-    "支持自定义 HTTPS 工具的客户端可使用个人连接令牌：Authorization: Bearer <用户提供的连接令牌>。只向此站点发送该令牌，不能把它当模型 API key，也不要写入普通聊天、URL 或日志。",
-    "私密 Sites 的平台登录可能先于应用拦截请求。如果收到登录页、跳转或平台拒绝，应使用受支持的站点 MCP 授权；个人令牌不能绕过平台访问策略，不向 Agent 下发平台级绕过令牌。",
+    "## 连接",
+    "内部核对的账号说明编号：" + profileRef + "。账号说明编号只用于核对账号。",
+    "使用已配置的连接。远程 MCP 用 " + site + "/api/agent/mcp（Streamable HTTP），自定义 HTTP 可从 " + site + "/api/agent/schema 导入 OpenAPI。支持本站授权的客户端也可用 " + site + "/mcp。仅在工具凭据栏配置个人令牌，作为发往此站点的 Authorization: Bearer。不要在聊天中索取或回显令牌，也不要把它放进链接或日志。",
+    "开始新对话或换连接时，先调用只读的 get_spotter_agent_profile，使用 HTTP 时调用 GET /api/agent/profile。在内部核对返回的 profileRef 是否与上面的账号一致，并以返回的权限为准。核对成功后沿用该连接和 profileRef。账号标识、权限代码、令牌、原始响应和日志仅供工具内部使用。当前只是在测试连接时，只核对连接，成功后用中文回复「已连接训练搭子。你想先做什么？」并等待任务。",
+    "没有可用工具时，请用户先配置受支持的连接。账号不一致时停止，请用户在正确账号下配置连接。返回 401 时提示检查工具凭据和连接是否到期或撤销。遇到登录页或平台拒绝（如上游 403 或 Cloudflare 1010），停止请求并建议检查受支持的连接方式。Spotter 提示某项权限不足时，用中文说明哪项任务需要权限。仅说明仍存在的错误和可行的下一步。每次写入均遵守该操作的用户确认流程。",
+  ];
+}
+
+export function agentPlanningGuide(origin: string, profileRef: string, includeConnection = true) {
+  return [
+    ...(includeConnection ? ["# Spotter · 计划 Agent 接入说明", "", ...agentConnectionInstructions(origin, profileRef)] : []),
     "## 同一条起草流程",
     "1. REST 先 GET /api/agent/profile 核对账号和权限，再 GET /api/agent/schema 获取当前结构；GET /api/agent/context 携带 profileRef，读取获准的动作、模板和编排偏好。MCP 对应 read_spotter_planning_context。按各自 nextOffset 分页，不读取健康、身体、饮食、好友或搭子记录。",
     "2. 根据用户目标在自己的模型中起草。普通计划使用 Plan 结构；规则如下：",

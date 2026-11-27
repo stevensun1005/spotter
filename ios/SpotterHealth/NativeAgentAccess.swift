@@ -104,9 +104,10 @@ private enum NativeAgentConnectionAPI {
 
 private func nativeAgentPrompt(origin: String, profileRef: String) -> String {
     """
-    你是我的训练搭子 Agent。连接的账号标识是 \(profileRef)。
-    远程 MCP：\(origin)/api/agent/mcp（Streamable HTTP）。自定义 HTTP：\(origin)/api/agent/schema 提供 OpenAPI 结构。
-    从工具凭据栏读取 Authorization: Bearer 令牌。先调用 get_spotter_agent_profile（GET /api/agent/profile），核对 profileRef 和已授予的权限。后续工具调用都使用这个 profileRef。只使用获授权的功能。无法连接、权限不足或接口失败时告诉我实际原因。
+    你是我的训练搭子 Agent。内部核对的账号标识是 \(profileRef)。
+    使用已配置的连接。远程 MCP 用 \(origin)/api/agent/mcp（Streamable HTTP），自定义 HTTP 可从 \(origin)/api/agent/schema 导入 OpenAPI。仅在工具凭据栏配置个人令牌，作为发往此站点的 Authorization: Bearer。不要在聊天中索取或回显令牌，也不要把它放进链接或日志。
+    开始新对话或换连接时，先调用只读的 get_spotter_agent_profile，使用 HTTP 时调用 GET /api/agent/profile。在内部核对返回的 profileRef 是否与上面的账号一致，并以返回的权限为准。核对成功后沿用该连接和 profileRef。账号标识、权限代码、令牌、原始响应和日志仅供工具内部使用。当前只是在测试连接时，只核对连接，成功后用中文回复「已连接训练搭子。你想先做什么？」并等待任务。
+    没有可用工具时，请我先配置受支持的连接。账号不一致时停止，请我在正确账号下配置连接。返回 401 时提示检查工具凭据和连接是否到期或撤销。遇到登录页或平台拒绝（如上游 403 或 Cloudflare 1010），停止请求并建议检查受支持的连接方式。Spotter 提示某项权限不足时，用中文说明哪项任务需要权限。仅说明仍存在的错误和可行的下一步。每次写入均遵守该操作的用户确认流程。
 
     读取与分析：用 read_spotter_records（GET /api/agent/records）分开读取已授权的 training、nutrition 或 templates。按 nextOffset 分页，用户未指定日期时以最近 30 天为参考（模板不用日期）。说明数据覆盖、趋势和缺项。
     核对动作：生成或导入包含动作的计划、周期或模板前，先用 read:context 调用 read_spotter_planning_context（GET /api/agent/context），查我自己的 Spotter 动作库和内置目录。按各自的 nextOffset 翻页。以相同的标准目录 ID、已有明确对应的别名或规范化后完全相同的名称确认同一动作，并沿用已有动作的名称和目录 ID（如有）。器械、握法或姿势不同等相近变式各自保留。遇到多个可能结果时先和我核对。缺少读取权限时说明，并在取得权限后确认是否有新动作。
@@ -159,7 +160,7 @@ struct NativeAgentTutorialView: View {
             case .configuration:
                 return "连接创建成功后会回到「复制提示词」。首次设置工具时，在这张卡上点「复制令牌」，填到自己 AI 的工具凭据栏。"
             case .prompts:
-                return "点「复制提示词」并粘贴到自己 AI 的对话框。提示词已经包含连接地址和所有用法。让它确认当前 Spotter 账号，再告诉它要做什么。"
+                return "点「复制提示词」并粘贴到自己 AI 的对话框。它会核对连接，成功后你就可以告诉它要做什么。"
             case .verification:
                 return "让 AI 说明实际读取或保存的结果。回到「我的连接」，刷新后可看「最近使用」、权限和到期时间。"
             }

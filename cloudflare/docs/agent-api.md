@@ -29,6 +29,14 @@
 
 新建连接成功后回到「复制提示词」，一段指令包含分析记录、训练计划、饮食、身体、模板、动图，以及 MCP 和 OpenAPI 地址。首次连接可在同一张卡复制令牌，把它存到工具连接的凭据栏，再将提示词粘贴到 Agent 对话框。App 可从「设置 → 外部 Agent → 使用教学」查看详细步骤。
 
+## 确认连接
+
+可以在 Muse 等支持远程 MCP（Streamable HTTP）或自定义 HTTP 的客户端配置连接。首次使用、开始新对话或更换连接时，Agent 通过 `get_spotter_agent_profile` 或 `GET /api/agent/profile` 核对账号并读取已授予权限。只测试连接时，成功回执为「已连接训练搭子。你想先做什么？」。账号标识、权限代码、令牌和原始响应仅供工具内部使用。每次写入继续使用对应的用户确认流程。
+
+- 账号不一致时，回到正确的训练搭子账号配置连接。
+- Spotter 返回 401 时，在客户端工具凭据栏检查令牌，并确认连接仍在有效期内且未撤销。Spotter 明确提示权限不足时，只检查当前任务需要的权限。
+- 收到登录页、上游 403 拒绝或 Cloudflare 1010 时，停止请求并检查客户端和站点支持的接入方式。客户端如支持配置自身标识，只填写真实的客户端名称和版本。仍受阻时说明当前错误并联系站点支持。[Cloudflare 1010 官方说明](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1010/)
+
 ## REST 工作流
 
 所有写入使用 `Content-Type: application/json`。本节的 origin、令牌、账号编号、UUID 和日期均为占位或合成示例。

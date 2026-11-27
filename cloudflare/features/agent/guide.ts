@@ -1,7 +1,7 @@
 import type { DataScope } from "@/features/data/model";
 import type { LibraryItem } from "@/features/library/model";
 import type { Plan } from "@/features/plans/model";
-import { agentPlanningGuide } from "@/features/import/ai-instructions";
+import { agentConnectionInstructions, agentPlanningGuide } from "@/features/import/ai-instructions";
 import { measurements, recordedMetrics } from "@/features/body/measurements";
 
 export const agentGuideScopes = [
@@ -49,7 +49,7 @@ function jsonBlock(value: unknown) {
 }
 
 export function createAgentGuide({ scope, profileRef, origin }: { scope: DataScope; profileRef: string; origin: string }) {
-  const trainingGuide = agentPlanningGuide(origin, profileRef) + "\n## 已完成的训练记录\n确认用户确实完成后，使用 import_spotter_records 的 training 类别和有效 spotter-backup 中的 log。个人令牌需要 training:write，也可提交到 POST /api/agent/records。计划继续用上面的草稿流程。\n";
+  const trainingGuide = agentPlanningGuide(origin, profileRef, scope === "training") + "\n## 已完成的训练记录\n确认用户确实完成后，使用 import_spotter_records 的 training 类别和有效 spotter-backup 中的 log。个人令牌需要 training:write，也可提交到 POST /api/agent/records。计划继续用上面的草稿流程。\n";
   const demos = [
     "## 用 Spotter 技能制作动作示范",
     "- 先核对动作库。用户要求为计划或模板加入示范时，使用具备 read:context 的个人连接调用 get_spotter_exercise_demo_skill，或 POST /api/agent/exercise-demo-skill。传 profileRef、准确 name，以及已有的 catalogueId。只加新动作但没提示范时，可以问一次是否需要制作。",
@@ -89,12 +89,10 @@ export function createAgentGuide({ scope, profileRef, origin }: { scope: DataSco
     "# 训练搭子 · 数据 AI 写入说明",
     "范围 " + title,
     "站点 " + origin + "/",
-    "个人账号标识 " + profileRef,
+    ...agentConnectionInstructions(origin, profileRef),
     "## 开始前",
-    "1. 个人连接使用远程 MCP " + origin + "/api/agent/mcp（Streamable HTTP），或从 " + origin + "/api/agent/schema 导入 OpenAPI。把个人令牌填入工具凭据栏，Authorization: Bearer；令牌只放在你信任的工具凭据中。支持站点授权的客户端也可用本站 /mcp，仍须满足站点访问权限。",
-    "2. 先调用 get_spotter_agent_profile，或者请求 GET /api/agent/profile，核对 profileRef 与本页一致。随后读取或写入时都传本页的 profileRef。若登录账号不匹配，请用户切换到正确账号。",
-    "3. 按本说明列出的类别和用户授权的日期操作。写入前给出简短预览；用户明确说「导入」「加进去」即授权对应内容。只发材料时问是否导入，确认后才传 confirmed: true。",
-    "4. 成功后报告实际新增、跳过数量和有关日期。如果工具返回失败，请说明状态。示例里的名称、日期和数值仅用于展示结构。",
+    "1. 按本说明列出的类别和用户授权的日期操作。写入前给出简短预览；用户明确说「导入」「加进去」即授权对应内容。只发材料时问是否导入，确认后才传 confirmed: true。",
+    "2. 成功后报告实际新增、跳过数量和有关日期。如果工具返回失败，请说明状态。示例里的名称、日期和数值仅用于展示结构。",
     "",
     "## 读取和导入",
     "- 站点 MCP 的 read_spotter_records 每次只读一个 scope。可传 from、to（YYYY-MM-DD）和 offset，按返回的 nextOffset 翻页。可选类别为 " + scopes.join("、") + "。个人令牌通过工具列表查看自己的权限。",

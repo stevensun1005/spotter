@@ -31,6 +31,7 @@ struct NativeCatalogueSmoke {
         try verifyDemos(index, root: root)
         verifyPlannedExerciseIdentity(index)
         try verifyGymEquipment(index)
+        try verifyCatalogueEquipment(index, root: root)
         for activity in NativeWorkoutSession.CardioActivity.planPresets {
             let id = activity.planMove?["catalogueId"].string ?? ""
             precondition(index.entry(withID: id)?.type == "cardio", "Cardio preset must resolve to an actual bundled item: " + id)
@@ -147,5 +148,54 @@ struct NativeCatalogueSmoke {
         precondition(restored.catalogueGear.isEmpty)
         restored.select("goodlife")
         precondition(restored.gym.gear == ["barbell", "band"])
+    }
+
+    private static func verifyCatalogueEquipment(_ index: NativeCatalogIndex, root: URL) throws {
+        struct Source: Decodable {
+            struct Entry: Decodable {
+                let id: String
+                let equipment: String
+                let needs: [String]?
+            }
+            let rows: [Entry]
+        }
+        let source = root.appendingPathComponent("cloudflare/public/open-gym/index.json")
+        let entries = try JSONDecoder().decode(Source.self, from: Data(contentsOf: source)).rows
+        let keys = Set(entries.flatMap { [$0.equipment] + ($0.needs ?? []) })
+        precondition(Set(index.equipmentOptions) == keys)
+        for key in keys {
+            precondition(index.label(key).range(of: #"\p{Han}"#, options: .regularExpression) != nil,
+                         "Chinese equipment label missing for " + key)
+        }
+        precondition((15...25).contains(index.equipmentGroupOptions.count))
+        precondition(!index.equipmentGroupOptions.contains { $0.id == "gear:other" })
+        for row in entries {
+            let entry = index.entry(withID: row.id)!
+            precondition(entry.equipment == row.equipment && entry.needs == (row.needs ?? []))
+            precondition(!index.matchesEquipment(entry, "gear:other"), "Ungrouped equipment for " + row.id)
+        }
+
+        let decline = index.entry(withID: "0035")!
+        precondition(index.matchesEquipment(decline, "gear:barbell"))
+        precondition(index.matchesEquipment(decline, "gear:bench"))
+        precondition(index.matchesEquipment(decline, "decline bench"))
+        precondition(!index.matchesEquipment(decline, "bench"))
+        precondition(index.equipmentLabel(for: decline) == "杠铃、下斜凳")
+        precondition(index.equipmentFilterLabel("gear:bench") == "训练凳")
+        let bench = index.results(equipment: "gear:bench")
+        precondition(bench.activeEquipment == "gear:bench")
+        let benchRows = bench.sections.flatMap(\.rows)
+        precondition(benchRows.contains { $0.id == decline.id })
+        precondition(benchRows.allSatisfy { index.matchesEquipment($0, "gear:bench") })
+
+        let band = index.results(equipment: "gear:band")
+        let bandRows = band.sections.flatMap(\.rows)
+        precondition(bandRows.contains { $0.equipment == "band" })
+        precondition(bandRows.contains { $0.equipment == "resistance band" })
+        let exactBand = index.results(equipment: "band")
+        precondition(exactBand.sections.flatMap(\.rows).allSatisfy { $0.equipmentKeys.contains("band") })
+        precondition(index.results(query: "杠铃卧推").count > 0)
+        let empty = index.results(query: "杠铃卧推", equipment: "gear:sled")
+        precondition(empty.activeEquipment == "gear:sled" && empty.count == 0)
     }
 }
