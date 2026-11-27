@@ -207,18 +207,9 @@ struct SpotterSegments<Option: Hashable>: View {
         self.title = title
     }
 
-    private var guidedOption: Option? {
-        guard let step = guide?.step else { return nil }
-        return options.first { guideTarget($0) == step }
-    }
-
     var body: some View {
-        let target = guidedOption
-        let selection = Binding(get: { value }, set: { option in
-            value = option
-            if let step = guideTarget(option) { guide?.advance(step) }
-        })
-        let picker = Picker(label, selection: selection) {
+        let target = options.compactMap(guideTarget).first
+        let picker = Picker(label, selection: $value) {
             ForEach(options, id: \.self) { option in
                 Text(title(option)).tag(option)
             }
@@ -232,7 +223,10 @@ struct SpotterSegments<Option: Hashable>: View {
             }
         }
         .frame(minHeight: 44)
-        .nativeGuideTarget(target.flatMap(guideTarget))
+        .nativeGuideTarget(target)
+        .onChange(of: value) { option in
+            if let step = guideTarget(option), guide?.step == step { guide?.advance(step) }
+        }
     }
 }
 
