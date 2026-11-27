@@ -243,3 +243,5 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 2026-11-26 发布记录。Cloudflare 98 对应 `12d9856`，Worker 版本 `749a3af2-6596-4a92-9692-e731f6a48292` 承载 100% 流量，保留原数据库和生产 APNs 配置。现有 TestFlight 内测和外测构建通过同一个 HTTPS 通知接口生效。本次发布范围为 Cloudflare，Sites 和正式 App Store 沿用原发布状态。
 
 2026-11-26 发布记录。1.0.1 Build 51 从 `91337f8` 归档，运行时使用 Cloudflare 98。源码基线、模拟器打包、原生冒烟测试和 iPhone、Watch、小组件签名均通过核对。归档保留生产 APNs、HealthKit、Live Activities 和 1,148 段动作视频。Xcode 以 TestFlight Internal Only 上传，Apple 处理完成后加入「训练搭子内测」，组内状态为 Testing。测试说明列出 A1/A2 轮换、手表实时心率和灵动岛。发布范围为 TestFlight 内测。
+
+2026-11-26 发布记录。1.0.1 Build 52 以提交 `0ebab9f572c4b5eb09fcb60c8621eba8fb87fa28` 构建，包含 PR #1–#4 和 5,685 个原创 3D 动作演示。独立版 29 项测试、Cloudflare 378 项测试、iOS 原生冒烟和模拟器打包均通过。签名归档核对了 App、Widget、Watch、灵动岛声明、生产推送和 5,685 段视频，视频与仓库的网页源文件逐字节一致。食物库的 972 个名称逐一通过原生搜索测试。真机锁屏和相机扫码待设备验证。App 连接 Cloudflare 98。Build 52 于多伦多时间 21:31 上传到 App Store Connect，Apple 完成处理后已分配到「训练搭子内测」组，构建标记为 Internal，状态为 Testing。外测、正式 App Store 和网页未执行发布。
