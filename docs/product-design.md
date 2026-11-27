@@ -228,7 +228,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 1.0.1 Build 53 | iPhone 的「训练 → 动作库」右侧索引下移并等距排列，「高级筛选 → 器械」改为中文同类分组及自适应网格。Agent 接入提示词更新连接校验及错误回复。iPhone 随包的 5,685 段原创 3D 演示改用 HEVC，保留离线播放及网页母片。 | 签名归档中 App 本体由 1,058,603,530 字节降至 312,075,017 字节，逐段解码验证 5,685 段视频。发布与分组状态见本版发布记录。 |
 | 1.0.1 Build 55 | 底栏的 [`NativeTabNavigation`](../ios/SpotterHealth/NativeApp.swift) 分开高亮和目标页状态。点击和左右滑动先高亮，动效开启时给高亮留出渲染时间再换页，连续操作以最后一次选择为准。系统入口、减少动态效果及引导保留各自切页行为。记餐页的 [`NativeMealSelectionView`](../ios/SpotterHealth/NativeMealLogger.swift) 仅更新餐次相关控件，分类数组和 [各餐次的最近食物](../ios/SpotterHealth/NativeNutrition.swift) 预计算后复用。 | iPhone SE（第三代）离线模拟器的输入测试通过，包含底栏四个标签、左右滑、播放按钮和三餐切换前后的食物篮与保存目标。程序化选择到首个帧回调的中位数，底栏为 121.1 → 83.0 ms，餐次为 17.4 → 12.3 ms。数据来自合成样本。 |
 | iPhone 离线动作视频压缩 · 开发版 | 生成 512 × 288 HEVC MP4，目标码率 130 kbps。网页母版保留 704 × 396 H.264，iPhone 使用同一目录 ID、封面和 20 FPS 动作时序。标准演示继续随 App 安装，入口和离线行为沿用。 | 5,685 段视频通过 AVFoundation 完整解码，逐帧核对显示时间。离线视频共 276,831,868 字节，较原包减少 73.0%。 |
-| Build 55 后的 iPhone 开发版 · 系统标签栏 | `NativeApp.swift` 改用 SwiftUI 系统 `TabView` 和独立导航栈，iOS 26 系统液态玻璃接管切页与选中动效。开始训练、进行中状态和 AI 教练放在当前页面的底部安全区。`NativeWelcome.swift` 为系统标签步骤提供引导按钮。沿用现有账号数据、接口及权限。 | 独立版生产构建、29 项测试、iOS 原生冒烟、源码基线及 Xcode 模拟器打包通过。当前为本地开发版。 |
+| Build 55 后的 iPhone 开发版 · 系统标签栏 | `NativeApp.swift` 改用 SwiftUI 系统 `TabView` 和独立导航栈，iOS 26 系统液态玻璃接管切页与选中动效。开始训练、进行中状态和 AI 教练放在当前页面的底部安全区。`NativeWelcome.swift` 为系统标签步骤提供引导按钮。沿用现有账号数据、接口及权限。 | 独立版生产构建、29 项测试、iOS 原生冒烟、源码基线及 Xcode 模拟器打包通过。iPhone SE（第三代）以离线合成账号核对四个标签、按住滑动、训练与教练弹窗往返、新手引导及最小化后的训练恢复。真机触控手感尚待验证。当前为本地开发版。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
 
