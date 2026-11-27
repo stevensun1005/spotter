@@ -20,9 +20,10 @@ function SettingToggle({ label, checked, update, disabled }: { label: string; ch
     checked={checked} disabled={disabled} onChange={(event) => update(event.target.checked)} /></label>;
 }
 
-export function NutritionSettings({ owner, enabled, date, today, targets, readyToEditTargets = true, initialPage = "menu", onSaveTargets, onReload, onClose,
+export function NutritionSettings({ owner, enabled, date, today, targets, trainingDays, readyToEditTargets = true, initialPage = "menu", onSaveTargets, onReload, onClose,
   onBody, onWeight, onDevices, onPlanning }: {
-  owner: string; enabled: boolean; date: string; today: string; targets?: TargetsRow; readyToEditTargets?: boolean; initialPage?: "menu" | "goals";
+  owner: string; enabled: boolean; date: string; today: string; targets?: TargetsRow; trainingDays?: number;
+  readyToEditTargets?: boolean; initialPage?: "menu" | "goals";
   onSaveTargets: SaveTargets; onReload: () => void; onClose: () => void; onBody: () => void;
   onWeight?: () => void; onDevices?: () => void; onPlanning?: (tool: NutritionPlanner) => void;
 }) {
@@ -68,7 +69,7 @@ export function NutritionSettings({ owner, enabled, date, today, targets, readyT
         </SettingsRows>
       </>}
       {page === "goals" && <NutritionGoalsSettings key={String(readyToEditTargets)} owner={owner} enabled={enabled} readyToEdit={readyToEditTargets}
-        today={today} targets={targets} onSaveTargets={onSaveTargets}
+        today={today} targets={targets} trainingDays={trainingDays} onSaveTargets={onSaveTargets}
         onBody={onBody} onWeight={onWeight} onPlanning={onPlanning} />}
       {page === "copy" && <NutritionCopy enabled={enabled} date={date} today={today} onReload={onReload} />}
       {page === "shortcuts" && <SettingsRows title="首页显示">

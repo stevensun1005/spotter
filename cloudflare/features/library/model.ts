@@ -9,7 +9,7 @@ import { proteinPreference, proteinWarehouse } from "@/features/training/protein
 import { measurements, recordedMetrics } from "@/features/body/measurements";
 import { bodyProfileItem } from "@/features/body/profile";
 import { maxFoodGrams } from "@/features/nutrition/foods";
-import { nutritionActivity, nutritionGoal } from "@/features/nutrition/goal-estimate";
+import { nutritionActivity, nutritionGoal, nutritionPace, nutritionTrainingDays } from "@/features/nutrition/goal-estimate";
 import { nutritionEnergyItem, nutritionPlanningItem } from "@/features/nutrition/nutrition-planning-schema";
 
 export const exerciseName = z.string().trim().min(1).max(100);
@@ -62,6 +62,8 @@ const targetWeightKg = z.number().finite().min(10).max(700);
 export const nutritionGoalPreference = z.object({
   goal: nutritionGoal,
   activity: nutritionActivity,
+  trainingDays: nutritionTrainingDays.optional(),
+  pace: nutritionPace.optional(),
   weightRange: z.object({ minKg: targetWeightKg, maxKg: targetWeightKg })
     .refine(({ minKg, maxKg }) => minKg <= maxKg).optional(),
 }).refine(({ goal, weightRange }) => !weightRange || goal === "recompose");

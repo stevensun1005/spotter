@@ -2273,6 +2273,7 @@ private struct NativeNutritionPlanning: View {
     @State private var carbDays: [String]
     @State private var carbGrams: [String: String]
     @State private var exerciseEnergy: [String: String]
+    @State private var goalChoice: NativeNutritionGoalChoice
     @State private var busy = false
     @State private var error: String?
 
@@ -2291,6 +2292,11 @@ private struct NativeNutritionPlanning: View {
         _carbGrams = State(initialValue: (saved?.grams ?? defaults).mapValues(nutritionInput))
         let workouts = payload.rows.first { $0.kind == "nutrition-energy" && $0.id == day }?.workouts ?? []
         _exerciseEnergy = State(initialValue: workouts.reduce(into: [:]) { $0[$1.id] = nutritionInput($1.calories) })
+        let savedTargets = payload.rows.first(where: { $0.kind == "targets" })
+        let trained = logs.filter { $0.owner == owner }.map(\.day)
+        _goalChoice = State(initialValue: NativeNutritionGoalChoice(
+            preference: savedTargets?.preference,
+            loggedTrainingDays: NativeNutritionGoalInput.weeklyTrainingDays(trained, today: spotterDay())))
     }
 
     private var title: String {
@@ -2316,7 +2322,14 @@ private struct NativeNutritionPlanning: View {
         .animation(motion, value: error != nil)
     }
 
-    private var goalsContent: some View {
+    @ViewBuilder private var goalsContent: some View {
+        let targetWeightKg = payload.rows.first(where: { $0.kind == "targets" })?.targetWeightKg
+        NativeNutritionGoalEstimator(api: api, owner: owner, choice: $goalChoice, targetWeightKg: targetWeightKg) { estimate in
+            fields[.calories] = nutritionInput(estimate.calories)
+            fields[.protein] = nutritionInput(estimate.protein)
+            fields[.carbs] = nutritionInput(estimate.carbs)
+            fields[.fat] = nutritionInput(estimate.fat)
+        }
         Section("每日营养目标") {
             ForEach(NutritionMetric.allCases) { metric in
                 TextField("\(metric.title)（\(metric.unit)）", text: Binding(get: { fields[metric, default: ""] }, set: { fields[metric] = $0 }))
@@ -2390,10 +2403,13 @@ private struct NativeNutritionPlanning: View {
         guard chosen.count == NutritionMetric.allCases.count else { return nil }
         var record: [String: Any] = ["kind": "targets", "values": Dictionary(uniqueKeysWithValues: chosen)]
         let previous = payload.rows.first { $0.kind == "targets" }
-        if let preference = previous?.preference,
-           let data = try? JSONEncoder().encode(preference), let object = try? JSONSerialization.jsonObject(with: data) {
-            record["preference"] = object
+        var preference: [String: Any] = [:]
+        if let saved = previous?.preference, let data = try? JSONEncoder().encode(saved),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            preference = object
         }
+        preference = goalChoice.merged(into: preference)
+        if !preference.isEmpty { record["preference"] = preference }
         if let weight = previous?.targetWeightKg { record["targetWeightKg"] = weight }
         return record
     }
@@ -2409,6 +2425,10 @@ private struct NativeNutritionPlanning: View {
             record = energyRecord()
             if record == nil { error = "请为所选训练填写 1–5000 千卡。" }
         default:
+            guard !goalChoice.isIncomplete else {
+                error = "请填完整营养规划条件后再保存。"
+                return
+            }
             record = targetRecord()
             if record == nil { error = "请填写 0–20000 范围内的目标值。" }
         }

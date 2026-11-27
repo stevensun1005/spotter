@@ -70,18 +70,26 @@ function TargetTemplates({ owner, values, onApply }: { owner: string; values: Nu
   </section>;
 }
 
-export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, targets, onSaveTargets, onBody, onWeight = onBody, onPlanning }: {
+export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, targets, trainingDays, onSaveTargets, onBody, onWeight = onBody, onPlanning }: {
   owner: string; enabled: boolean; readyToEdit: boolean; today: string; targets?: TargetsRow;
+  /** Training days per week seen in recent workouts, used until the person has their own number. */
+  trainingDays?: number;
   onSaveTargets: SaveTargets; onBody: () => void; onWeight?: () => void; onPlanning?: (tool: NutritionPlanner) => void;
 }) {
   const body = useLibrary(enabled, undefined, true);
   const { weightKg } = readBodyInputs(body.rows, today);
   const [values, setValues] = useState<NutritionValues>(targets?.values ?? emptyNutrition);
   const [targetWeight, setTargetWeight] = useState(() => targets?.targetWeightKg === undefined ? "" : String(targets.targetWeightKg));
-  const [draft, setDraft] = useState<NutritionGoalDraft>(() => ({
-    goal: targets?.preference?.goal ?? "", activity: targets?.preference?.activity ?? "",
-    minKg: targets?.preference?.weightRange?.minKg?.toString() ?? "", maxKg: targets?.preference?.weightRange?.maxKg?.toString() ?? "",
-  }));
+  const [draft, setDraft] = useState<NutritionGoalDraft>(() => {
+    const saved = targets?.preference;
+    // A preference without training days was saved by the earlier estimator, whose activity levels also covered exercise.
+    const reviewActivity = Boolean(saved && saved.trainingDays === undefined);
+    return {
+      goal: saved?.goal ?? "", activity: reviewActivity ? "" : saved?.activity ?? "",
+      trainingDays: saved?.trainingDays, pace: saved?.pace ?? "standard",
+      minKg: saved?.weightRange?.minKg?.toString() ?? "", maxKg: saved?.weightRange?.maxKg?.toString() ?? "", reviewActivity,
+    };
+  });
   const [showEstimator, setShowEstimator] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; warning?: boolean }>();
@@ -90,9 +98,13 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    const { goal, activity, minKg, maxKg } = draft;
+    const { goal, activity, pace, minKg, maxKg } = draft;
     if (busy || !enabled || !readyToEdit) return;
-    if (Boolean(goal) !== Boolean(activity) || (goal === "recompose" && Boolean(minKg) !== Boolean(maxKg))) {
+    const saved = targets?.preference;
+    // An activity level from the earlier estimator stays saved as it is while nothing in the estimator was changed.
+    const keepSaved = draft.reviewActivity && !activity && saved && goal === saved.goal && draft.trainingDays === undefined
+      && pace === (saved.pace ?? "standard") ? saved : undefined;
+    if ((!keepSaved && Boolean(goal) !== Boolean(activity)) || (goal === "recompose" && Boolean(minKg) !== Boolean(maxKg))) {
       setShowEstimator(true);
       setFeedback({ message: "请填完整营养规划条件后再保存。", warning: true });
       return;
@@ -101,7 +113,9 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
     setBusy(true); setFeedback(undefined);
     try {
       await onSaveTargets({ kind: "targets", values, targetWeightKg: targetWeight ? Number(targetWeight) : undefined,
-        preference: goal && activity ? { goal, activity, weightRange } : undefined }, targets?.updated ?? null);
+        preference: keepSaved ? { ...keepSaved, weightRange } : goal && activity ? { goal, activity, trainingDays: draft.trainingDays,
+          pace: goal === "lose" || goal === "gain" ? pace : undefined, weightRange } : undefined },
+        targets?.updated ?? null);
       setFeedback({ message: "已保存营养目标。" });
     } catch (reason) {
       setFeedback({ message: errorText(reason), warning: true });
@@ -139,11 +153,11 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
             <SettingsLink label="碳循环规划" detail="按星期安排高、中、低碳目标" icon={Repeat2} onClick={() => onPlanning("carbCycle")} />
             <SettingsLink label="减脂规划" detail="安排阶段与每日目标" icon={TrendingDown} onClick={() => onPlanning("cut")} />
           </>}
-          <SettingsLink label="用 TDEE 来规划" detail="根据身体档案和活动量估算" icon={Calculator} onClick={() => setShowEstimator(!showEstimator)} />
+          <SettingsLink label="用 TDEE 来规划" detail="按身体档案、活动量和近期记录估算" icon={Calculator} onClick={() => setShowEstimator(!showEstimator)} />
           {onPlanning && <SettingsLink label="用热量来规划" detail="按热量拆分三大营养素" icon={Flame} onClick={() => onPlanning("calories")} />}
         </SettingsRows>
-        {showEstimator && <NutritionGoalEstimator enabled={enabled} today={today} draft={draft} onChange={setDraft}
-          water={values.water} onApply={setValues} onBody={onBody} />}
+        {showEstimator && <NutritionGoalEstimator enabled={enabled} today={today} draft={draft} loggedTrainingDays={trainingDays} onChange={setDraft}
+          water={values.water} targetWeightKg={targetWeight ? Number(targetWeight) : undefined} onApply={setValues} onBody={onBody} />}
       </fieldset>
       <button className="button primary nutrition-goal-save" disabled={!enabled || !readyToEdit || busy}><Check size={17} aria-hidden="true" />{busy ? "保存中…" : "保存目标"}</button>
       {feedback && <p className={feedback.warning ? "inline-error" : "muted"} role={feedback.warning ? "alert" : "status"}>{feedback.message}</p>}

@@ -19,6 +19,7 @@ const checks = [
   ["native-catalogue", ["ios/SpotterHealth/AppConfiguration.swift", "ios/SpotterHealth/NativeWorkoutModels.swift",
     "ios/SpotterHealth/NativeCatalogueData.swift", "ios/Tests/NativeCatalogueSmoke.swift"]],
   ["native-protein", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/Tests/NativeProteinSmoke.swift"]],
+  ["nutrition-goal", ["ios/SpotterHealth/NativeNutritionGoalModel.swift", "ios/Tests/NativeNutritionGoalSmoke.swift"]],
   ["product-help", ["ios/SpotterHealth/NativeProductHelp.swift", "ios/Tests/NativeProductHelpSmoke.swift"]],
   ["native-heart-files", ["ios/SpotterHealth/HeartPayload.swift", "ios/SpotterHealth/NativeHeartFileImport.swift",
     "ios/SpotterHealth/NativeHeartWorkoutFiles.swift", "ios/Tests/NativeHeartFileSmoke.swift"]],

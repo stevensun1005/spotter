@@ -43,6 +43,12 @@ struct NativeProductHelpSmoke {
         precondition(help.reply(to: "怎么更换头像？")?.contains("保存头像") == true)
         precondition(help.reply(to: "在哪里授权 Apple 健康？")?.contains("手表与健康") == true)
         precondition(help.reply(to: "训练搭子里的航班预订入口在哪里？")?.contains("暂时没有") == true)
+        precondition(help.reply(to: "营养目标在哪？")?.contains("填入下方目标") == true)
+        precondition(help.reply(to: "维持热量在哪看？")?.contains("按身体数据计算") == true)
+        // Questions about logged or watch calories keep their own answers and are not sent to the target estimator.
+        precondition(help.reply(to: "午餐的热量计算在哪？")?.contains("按身体数据计算") != true)
+        precondition(help.reply(to: "苹果健康的每日热量怎么同步？")?.contains("按身体数据计算") != true)
+        precondition(help.reply(to: "手表的活跃热量计算在哪里看？")?.contains("按身体数据计算") != true)
 
         for question in ["我午餐吃了两个汤圆，帮我记一下", "帮我记午餐，然后告诉我在哪里改昵称", "如何提高平均心率", "怎么增加体重", "怎么练跑步耐力", "给我做个训练计划", "帮我删除个人模板"] {
             precondition(help.reply(to: question) == nil, "Expected coaching or record flow for \(question)")

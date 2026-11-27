@@ -15,6 +15,7 @@ import { useNutritionCache } from "./nutrition-cache";
 import { MealEditor } from "./meal-editor";
 import type { Food } from "./foods";
 import { nutritionShortcuts, useNutritionPreferences, type NutritionShortcut } from "./nutrition-preferences";
+import { weeklyTrainingDays } from "./goal-estimate";
 import { targetForDate } from "./nutrition-planning";
 import { NutritionSettings } from "./nutrition-settings";
 import { NutritionShortcuts, NutritionSummary, nutritionTotals } from "./nutrition-summary";
@@ -244,6 +245,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       }} />)}
     {sheet?.kind === "settings" && <NutritionSettings owner={owner} enabled={enabled} today={today} date={date}
       initialPage={sheet.page} targets={targetRecord} readyToEditTargets={!store.loading && !store.error}
+      trainingDays={weeklyTrainingDays(records.flatMap((record) => record.kind === "log" && record.owner === owner ? [record.data.date] : []), today)}
       onSaveTargets={persist} onReload={refresh} onClose={close} onBody={onBody}
       onWeight={() => open("体重")} onDevices={onDevices}
       onPlanning={openTool} />}

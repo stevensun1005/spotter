@@ -54,6 +54,9 @@
 .nutrition-goal-estimator p { margin: 0; }
 .nutrition-goal-estimator > .button { justify-self: start; }
 .nutrition-goal-estimator select { text-overflow: ellipsis; }
+.nutrition-goal-records { display: flex; align-items: flex-start; gap: 8px; font-size: .9rem; font-weight: 690; }
+.nutrition-goal-records > span { display: grid; gap: 3px; min-width: 0; }
+.nutrition-goal-records small { font-weight: 500; }
 .nutrition-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; text-align: center; }
 .nutrition-metrics > div > span { font-size: .78rem; color: var(--muted); }
 .nutrition-ring { width: min(100%, 77px); margin: 0 auto 5px; padding: 4px; aspect-ratio: 1; display: grid; border-radius: 50%; background: conic-gradient(var(--ring) var(--percent), #e9eee7 0); }
