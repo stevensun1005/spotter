@@ -43,17 +43,20 @@ iOS 26 及以上的训练、统计、动作库和饮食等页面使用系统液�
 
 iPhone 包内的 5,685 段原创 3D 示范采用 HEVC 编码，打开动作卡片即可离线播放。目录 ID、封面和时间轴沿用原素材。资源构建与校验见 [产品设计](product-design.md)。
 
-## 训练中的 Apple Watch 心率
+## Apple Watch 训练和小组件
 
-在已经配对的 Apple Watch 上安装「训练搭子」。iPhone 需运行 iOS 17 及以上，手表需运行 watchOS 10 及以上。在 iPhone 开始训练后，点底栏「手表 → 连接」。首次连接时，打开手表上的「训练搭子」，点「授权并开始」，在系统界面允许所需的健康权限。如果 iPhone 连接已超时，在「手表」面板点「重试」。
+在已配对的 Apple Watch 上安装并打开「训练搭子」。与 iPhone 的 HealthKit 训练镜像需要 iOS 17、watchOS 10 或以上。首次使用心率时，在表上按提示完成 Apple 健康的系统授权。通过 iPhone 的「手表 → 连接」进入时，表上提供「授权并开始」。
 
-收到心率后，训练类型旁和「手表」面板显示当前 BPM。暂停时会清除读数，恢复后等待新样本。手表断连或超过 30 秒没有新样本时会隐藏旧读数。实时读数仅在配对设备之间传输。
+- **从表上开始**。在 iPhone 登录并加载今日计划后，打开手表上的「训练搭子」。点选今日计划即可开练，有进行中的训练时可选择继续。iPhone 可连接时使用手机上的同一份训练草稿，两边共用组次顺序。
+- **抬腕记组**。专注页显示当前动作、分组、组次和计划节奏。点重量、次数或时长可以用表冠编辑，单侧动作可分别修改左右数值。「完成这组」按当前数值记组。计时动作可以先点「开始计时」。组间休息显示倒数和下一动作，可加减 15 秒、跳过休息或在设置调整震动。点列表图标或左右滑动查看完整动作列表。
+- **从表上结束**。打开动作列表，点「结束训练」并确认。与 iPhone 共用草稿时由 iPhone 保存。离线从表上开始的训练会在表上先保存，连接后同步为同一条打卡，并在有样本时附上手表训练摘要。
+- **没有带 iPhone**。此前成功同步到手表的当天力量或计时计划支持离线开练。草稿保存在手表，可再次打开 Watch App 继续。尚未完成任何一组或已暂停时，可从动作列表放弃本次训练，计划会保留。由手机发起的训练暂时断开时，表上保留最近进度，重新连接再继续同步操作。
 
-手表保持连接时，在 iPhone 完成训练会读取这台手表的活跃热量、平均心率和已测得的静息热量。训练详情的「训练数据」卡将活跃与静息热量合计为总热量。缺少对应样本时，该项显示为「—」。手表连接晚于开始时间时，摘要只覆盖连接后的测量区间。摘要按当前账号及单堂训练保存，手表端的临时会话随后丢弃。详情的圆形同步按钮会在 Apple 健康查找该堂训练的心率曲线和相符的 Apple Watch 运动。
+收到实时心率后，Watch App 和 iPhone 的训练类型旁显示 BPM。暂停、断连或超过 30 秒没有新样本时会隐藏旧读数。训练详情的「训练数据」显示当次表上采到的活跃热量、总热量和平均心率。总热量为同一时段的活跃与静息热量之和，缺项显示「—」。手表晚于开练连接时，只覆盖后续测量时段。训练详情的圆形同步按钮也可以从 Apple 健康查找本次心率曲线和相符的手表运动。
 
-从构建 29 起，iPhone 开始训练并连接 Apple Watch 后，可以在表上看动作和组次、填写当前组、确认完成、暂停或继续，以及调整或跳过组间休息。表上操作同步到手机中的同一份训练草稿，结束训练和打卡仍在手机上完成。断开时手表保留上次显示的进度，重新连接后按手机的最新记录继续。
+编辑支持的表盘，可添加圆形「开练」或矩形「下一练」。也可以把「下一练」加入智能叠放。点按从表上打开训练。圆形入口在有组次时显示完成进度。矩形卡在训练前显示下一堂的日期和名称，在训练中显示进行状态。配对 iPhone 的训练实时活动可在系统支持且已启用时显示腕上专用卡片，含训练计时、组数和休息倒数。表盘进度跟随 WidgetKit 更新。
 
-`npm run test:ios-app` 使用合成样本验证读数过滤、完训摘要传输、训练时段校验和热量计算。首次授权、实时 BPM、完训数据及断连后补传需在配对真机验证。
+合成协议测试与 Xcode 编译可核对数据形状和目标配置。首次授权、实时心率、后台倒计时、表盘入口和断线补传需要用配对真机核验。
 
 ## 网页功能对照
 
@@ -72,9 +75,15 @@ iPhone 包内的 5,685 段原创 3D 示范采用 HEVC 编码，打开动作卡�
 
 ## iPhone 小组件
 
-登录 App 并加载训练后，长按主屏空白处，选择添加小组件并搜索「训练搭子」。小号显示下一堂课或当前训练，中号还显示本周打卡。点训练区域回到今日，有未完成的训练时直接继续。点中号的打卡入口打开打卡历史。
+登录 App 并加载训练后，长按主屏空白处，选择添加小组件并搜索「训练搭子」。
 
-在锁屏编辑器中也可以添加圆形或矩形小组件。锁屏只显示训练状态和进度。App 在同步训练、完成打卡和回到前台时更新摘要，退出账号时清除摘要。
+- 小号「今天开练」可打开当前训练或开始当天安排的训练。未来的计划打开详情，不会提前开始。
+- 中号「本周双环」对齐周一到周日。深绿环显示训练完成比例，浅蓝环显示摄入热量占已保存目标的比例。点日卡回到对应日期。
+- 「搭子督练」并排显示两个人本周记录。中号支持点某一天打开当天的搭子记录。
+- 「今日饮食」显示剩余热量、宏量营养与饮水量。点「拍照记餐」打开相机，点「饮水」打开预填饮水量的记录页。保存了自动估算偏好的用户可点「查看估算」，饮食环按已保存的目标显示。
+- 「我的训练周报」显示最近完整周，「年度训练热力图」按最近 365 天的训练分钟显示。
+
+App 在同步训练、完成打卡、饮食变化和回到前台时更新摘要。桌面刷新由系统安排，退出账号时清除摘要。
 
 iOS 16.1 及以上在打开当前训练时启动锁屏实时活动，最小化到首页或切到其他 App 时沿用同一个活动。App 内在训练页顶部或最小化训练条显示计时、组数和可用的手表心率。切到系统主屏幕或其他 App 后，支持灵动岛的机型可显示训练计时和完成组数，展开后可查看下一组、休息倒计时与近期 Apple Watch 心率。点按回到训练。「设置 → 计时提醒 → 锁屏实时训练」可关闭。
 
@@ -95,6 +104,6 @@ npm run ios:package
 
 `ios:package` 只检查模拟器 Debug 构建。Xcode 执行 Product → Archive 后，上传前运行 `npm run ios:verify-archive`。它默认检查 `~/Library/Developer/Xcode/Archives` 中最新的 Spotter 归档，也可以传入 `.xcarchive` 路径。检查内容包括 `PlugIns/SpotterWidget.appex` 的标识和版本、扩展是否编入 `SpotterWorkoutLiveActivity`、主程序与扩展是否共用 `SpotterTrainingActivityAttributes`、`NSSupportsLiveActivities`，以及 Watch App。构建号与源码不同时会提示。
 
-TestFlight 使用同一 **Spotter** scheme 的 Release 归档，分发目标是 App Store Connect 的 `app.spotter.health` 应用。主 App 的签名描述文件须支持 HealthKit、Sign in with Apple 和 Associated Domains。随 App 一起归档的 `app.spotter.health.watchkitapp` 也需要自己的 HealthKit 签名。Apple Developer 中的 App Group `group.app.spotter.health` 需分配给 `app.spotter.health` 和 `app.spotter.health.widget`。原生 Apple 服务端使用 `APPLE_OAUTH_NATIVE_CLIENT_ID=app.spotter.health`。网页的 Apple Services ID 与原生 App ID 在同一 Apple Developer 配置下管理，详情见 [登录配置](cloudflare-login.md)。
+TestFlight 使用同一 **Spotter** scheme 的 Release 归档，分发目标是 App Store Connect 的 `app.spotter.health` 应用。主 App 的签名描述文件须支持 HealthKit、Sign in with Apple 和 Associated Domains。随 App 一起归档的 `app.spotter.health.watchkitapp` 需要自己的 HealthKit 签名，`app.spotter.health.watchkitapp.widget` 也需要分发签名。Apple Developer 中的 App Group `group.app.spotter.health` 需分配给 iPhone、Watch 和两个小组件的 App ID。原生 Apple 服务端使用 `APPLE_OAUTH_NATIVE_CLIENT_ID=app.spotter.health`。网页的 Apple Services ID 与原生 App ID 在同一 Apple Developer 配置下管理，详情见 [登录配置](cloudflare-login.md)。
 
 私密 Sites 与独立 Node 自托管服务各有账号和数据。配对码和批量健康同步协议另见 [健康设备同步](health-device-sync.md)。

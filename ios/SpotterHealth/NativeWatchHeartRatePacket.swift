@@ -43,9 +43,10 @@ struct NativeWatchWorkoutSnapshot: Codable, Equatable, Sendable {
         let seconds: Int
         let done: Bool
         var right: Side? = nil
+        var previous: Side? = nil
 
         private enum CodingKeys: String, CodingKey {
-            case index = "i", weight = "w", reps = "r", seconds = "s", done = "d", right = "b"
+            case index = "i", weight = "w", reps = "r", seconds = "s", done = "d", right = "b", previous = "p"
         }
     }
 
@@ -55,6 +56,15 @@ struct NativeWatchWorkoutSnapshot: Codable, Equatable, Sendable {
         let unit: String
         let isTimed: Bool
         let sets: [Set]
+        var block: String? = nil
+        var tempo: String? = nil
+        var allowsSeparateSides: Bool? = nil
+    }
+
+    struct TimedSet: Codable, Equatable, Sendable {
+        let position: Position
+        let durationSeconds: Int
+        let elapsedDeadlineMilliseconds: Int
     }
 
     static let maximumElapsedMilliseconds = 86_400_000
@@ -66,6 +76,16 @@ struct NativeWatchWorkoutSnapshot: Codable, Equatable, Sendable {
     let restLabel: String?
     let next: Position?
     let exercises: [Exercise]
+    var activeSetTimer: TimedSet? = nil
+    var timeBasedFinish: Bool? = nil
+
+    func setRemainingSeconds(at now: Date = .now) -> Int? {
+        activeSetTimer.map { max(0, $0.elapsedDeadlineMilliseconds - elapsed(at: now) + 999) / 1_000 }
+    }
+
+    var canFinish: Bool {
+        exercises.contains { $0.sets.contains(where: \.done) } || (timeBasedFinish == true && elapsed() >= 1_000)
+    }
 
     func elapsed(at now: Date = .now) -> Int {
         let nowMilliseconds = (now.timeIntervalSince1970 * 1_000).rounded()
@@ -82,13 +102,19 @@ struct NativeWatchWorkoutSnapshot: Codable, Equatable, Sendable {
               (0...Self.maximumElapsedMilliseconds).contains(elapsedMilliseconds),
               runningSinceMilliseconds.map({ (0...9_999_999_999_999).contains($0) }) ?? true,
               restElapsedDeadlineMilliseconds.map({ (0...(Self.maximumElapsedMilliseconds + Self.maximumRestMilliseconds)).contains($0) }) ?? true,
-              (restLabel?.utf16.count ?? 0) <= 30, exercises.count <= 30 else { return false }
+              (restLabel?.utf16.count ?? 0) <= 30, exercises.count <= 30,
+              activeSetTimer.map({ $0.position.isValid && (1...18_000).contains($0.durationSeconds) &&
+                  (0...Self.maximumElapsedMilliseconds + 18_000_000).contains($0.elapsedDeadlineMilliseconds) &&
+                  exercises.indices.contains($0.position.move) && exercises[$0.position.move].isTimed &&
+                  exercises[$0.position.move].sets.indices.contains($0.position.row) &&
+                  !exercises[$0.position.move].sets[$0.position.row].done }) ?? true else { return false }
         return exercises.enumerated().allSatisfy { moveIndex, move in
             move.index == moveIndex && (1...100).contains(move.name.utf16.count) && ["kg", "lb"].contains(move.unit) &&
+                (move.block?.utf16.count ?? 0) <= 16 && (move.tempo?.utf16.count ?? 0) <= 16 &&
                 move.sets.count <= 30 && move.sets.enumerated().allSatisfy { setIndex, set in
                     set.index == setIndex && (0...2_000).contains(set.weight) && (0...999).contains(set.reps) &&
                         (0...18_000).contains(set.seconds) &&
-                        (set.right.map { (0...2_000).contains($0.weight) && (0...999).contains($0.reps) } ?? true)
+                        [set.right, set.previous].compactMap { $0 }.allSatisfy { (0...2_000).contains($0.weight) && (0...999).contains($0.reps) }
                 }
         } && (next.map { position in
             position.isValid && exercises.indices.contains(position.move) &&
@@ -105,8 +131,18 @@ struct NativeWatchWorkoutSnapshot: Codable, Equatable, Sendable {
             let move = exercises[position.move]
             let set = move.sets[position.row]
             guard !set.done else { return false }
-            return move.isTimed ? command.weight == nil && command.reps == nil
-                : command.seconds == nil && (set.right == nil || (command.weight == nil && command.reps == nil))
+            let hasRight = command.rightWeight != nil || command.rightReps != nil
+            return move.isTimed ? command.weight == nil && command.reps == nil && !hasRight
+                : command.seconds == nil && (!hasRight || set.right != nil || move.allowsSeparateSides == true)
+        case .startSetTimer:
+            guard activeSetTimer == nil, let position = command.position, next == position,
+                  exercises.indices.contains(position.move), exercises[position.move].sets.indices.contains(position.row) else { return false }
+            let move = exercises[position.move]
+            return move.isTimed && (command.seconds ?? move.sets[position.row].seconds) > 0
+        case .cancelSetTimer:
+            return activeSetTimer?.position == command.position && command.position != nil
+        case .finishWorkout:
+            return canFinish
         case .setRunning, .refresh:
             return true
         case .skipRest, .adjustRest:
@@ -157,7 +193,7 @@ struct NativeWatchWorkoutStatePacket: Codable, Sendable {
 
 struct NativeWatchWorkoutCommand: Codable, Sendable {
     enum Action: String, Codable, Sendable {
-        case completeSet, setRunning, skipRest, adjustRest, refresh
+        case completeSet, setRunning, skipRest, adjustRest, refresh, startSetTimer, cancelSetTimer, finishWorkout
     }
 
     private var version = 1
@@ -172,11 +208,13 @@ struct NativeWatchWorkoutCommand: Codable, Sendable {
     var seconds: Int? = nil
     var running: Bool? = nil
     var adjustment: Int? = nil
+    var rightWeight: Double? = nil
+    var rightReps: Int? = nil
 
     init(id: UUID = UUID(), token: UUID, revision: Int, action: Action,
          position: NativeWatchWorkoutSnapshot.Position? = nil,
          weight: Double? = nil, reps: Int? = nil, seconds: Int? = nil,
-         running: Bool? = nil, adjustment: Int? = nil) {
+         running: Bool? = nil, adjustment: Int? = nil, rightWeight: Double? = nil, rightReps: Int? = nil) {
         self.id = id
         self.token = token
         self.revision = revision
@@ -187,6 +225,8 @@ struct NativeWatchWorkoutCommand: Codable, Sendable {
         self.seconds = seconds
         self.running = running
         self.adjustment = adjustment
+        self.rightWeight = rightWeight
+        self.rightReps = rightReps
     }
 
     static func decode(_ data: Data) -> Self? {
@@ -201,17 +241,24 @@ struct NativeWatchWorkoutCommand: Codable, Sendable {
 
     private var isValid: Bool {
         guard version == 1, kind == "workoutAction", revision >= 0 else { return false }
-        let hasValues = weight != nil || reps != nil || seconds != nil
+        let hasValues = weight != nil || reps != nil || seconds != nil || rightWeight != nil || rightReps != nil
         switch action {
         case .completeSet:
             return position?.isValid == true && running == nil && adjustment == nil &&
                 (weight.map { (0...2_000).contains($0) } ?? true) && (reps.map { (0...999).contains($0) } ?? true) &&
-                (seconds.map { (0...18_000).contains($0) } ?? true)
+                (seconds.map { (0...18_000).contains($0) } ?? true) &&
+                (rightWeight.map { (0...2_000).contains($0) } ?? true) && (rightReps.map { (0...999).contains($0) } ?? true)
+        case .startSetTimer:
+            return position?.isValid == true && running == nil && adjustment == nil &&
+                weight == nil && reps == nil && rightWeight == nil && rightReps == nil &&
+                (seconds.map { (1...18_000).contains($0) } ?? true)
+        case .cancelSetTimer:
+            return position?.isValid == true && !hasValues && running == nil && adjustment == nil
         case .setRunning:
             return position == nil && !hasValues && running != nil && adjustment == nil
         case .adjustRest:
             return position == nil && !hasValues && running == nil && (adjustment == 15 || adjustment == -15)
-        case .skipRest, .refresh:
+        case .skipRest, .refresh, .finishWorkout:
             return position == nil && !hasValues && running == nil && adjustment == nil
         }
     }

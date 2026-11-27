@@ -35,6 +35,7 @@ struct NativeWatchHeartRateSmoke {
 
         testWorkoutMirror(at: now)
         testWorkoutSummary(at: now)
+        try! testOfflineWorkout(at: now)
         print("Watch heart rate, workout mirror, and calorie summary smoke checks passed")
     }
 
@@ -124,4 +125,55 @@ struct NativeWatchHeartRateSmoke {
         let fullPacket = NativeWatchWorkoutStatePacket(token: token, revision: 0, snapshot: full).encoded()
         precondition(fullPacket.flatMap(NativeWatchWorkoutStatePacket.decode)?.snapshot.exercises.last?.sets.count == 30)
     }
+
+    static func testOfflineWorkout(at date: Date) throws {
+        let now = Int(NativeWorkoutHealthSummary.milliseconds(date))
+        let binding = String(repeating: "a", count: 64)
+        func exercise(_ name: String, slot: String, seconds: Int = 0) -> NativeJSON {
+            var move = NativePreferenceKey.newMove(name: name, sets: 2, reps: seconds > 0 ? 0 : 8)
+            move["sourceSlot"] = .string(slot)
+            move["seconds"] = .number(Double(seconds))
+            return move
+        }
+        let day = NativeWorkoutSession.day(date)
+        let plan: NativeJSON = .object([
+            "title": .string("配对组"), "date": .string(day), "category": .string("力量训练"),
+            "defaultRestSeconds": .number(10),
+            "exercises": .array([exercise("单臂弯举", slot: "A1"), exercise("平板支撑", slot: "A2", seconds: 30)]),
+        ])
+        let option = NativeWatchLaunchOption(id: "plan-day", title: "配对组", day: day, isResume: false, plan: plan)
+        let catalog = NativeWatchTrainingCatalog(binding: binding, options: [option])
+        precondition(catalog.encoded().flatMap(NativeWatchTrainingCatalog.decode) == catalog)
+        var draft = NativeWatchOfflineWorkout(option: option, binding: binding, now: now)!
+        let a1 = NativeWatchWorkoutSnapshot.Position(move: 0, row: 0)
+        let a2 = NativeWatchWorkoutSnapshot.Position(move: 1, row: 0)
+        let secondA1 = NativeWatchWorkoutSnapshot.Position(move: 0, row: 1)
+        let first = NativeWatchWorkoutCommand(token: draft.id, revision: 0, action: .completeSet,
+                                              position: a1, weight: 15, reps: 8, rightWeight: 12, rightReps: 7)
+        precondition(draft.state.snapshot.exercises[0].block == "A1")
+        precondition(!draft.state.snapshot.canFinish && draft.state.allows(first))
+        precondition(draft.apply(first, now: now + 5_000))
+        precondition(!draft.apply(first, now: now + 5_000))
+        precondition(draft.state.snapshot.next == a2)
+        precondition(draft.state.snapshot.exercises[0].sets[0].right == .init(weight: 12, reps: 7))
+        let timer = NativeWatchWorkoutCommand(token: draft.id, revision: 1, action: .startSetTimer, position: a2, seconds: 25)
+        precondition(draft.apply(timer, now: now + 20_000))
+        let recovery = try JSONDecoder().decode(NativeWatchOfflineWorkout.self, from: JSONEncoder().encode(draft))
+        precondition(recovery.id == draft.id && recovery.state.snapshot.activeSetTimer?.position == a2)
+        draft = recovery
+        let pause = NativeWatchWorkoutCommand(token: draft.id, revision: 2, action: .setRunning, running: false)
+        precondition(draft.apply(pause, now: now + 24_000))
+        precondition(draft.state.snapshot.setRemainingSeconds(at: date.addingTimeInterval(75)) == 21)
+        let resume = NativeWatchWorkoutCommand(token: draft.id, revision: 3, action: .setRunning, running: true)
+        precondition(draft.apply(resume, now: now + 75_000))
+        let complete = NativeWatchWorkoutCommand(token: draft.id, revision: 4, action: .completeSet, position: a2)
+        precondition(draft.apply(complete, now: now + 83_000))
+        precondition(draft.state.snapshot.exercises[1].sets[0].seconds == 12)
+        precondition(draft.state.snapshot.next == secondA1)
+        let final = try draft.finalizing(now: now + 90_000)
+        precondition(final.id == recovery.id && final.binding == binding)
+        precondition(final.finished["planId"].string == option.id && final.finished["clock"]["runningSince"] == .null)
+        precondition(final.encoded().flatMap(NativeWatchOfflineCheckin.decode) == final)
+    }
+
 }

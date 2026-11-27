@@ -3774,10 +3774,17 @@ final class NativeSocialRemarks: ObservableObject {
 enum NativeFriendsPage: String, CaseIterable { case contacts = "联系人", feed = "朋友圈", privacy = "权限设置" }
 
 @MainActor
+struct NativeWidgetBuddyDay: Identifiable {
+    let id = UUID()
+    let partner: String
+    let day: String
+}
+
 struct NativeFriends: View {
     let api: NativeAPI
     let owner: String
     let buddySearchRequest: Int
+    @Binding var widgetBuddyRequest: NativeWidgetBuddyDay?
     let notificationRequest: NativeSocialNotification?
     let openOwnLog: (@MainActor (String) -> Void)?
     let openOwnLogDay: (@MainActor (String, String) -> Void)?
@@ -3837,13 +3844,15 @@ struct NativeFriends: View {
     }
 
     init(api: NativeAPI, owner: String, initialPage: NativeFriendsPage = .contacts, initialBuddySearch: Bool = false,
-         buddySearchRequest: Int = 0, notificationRequest: NativeSocialNotification? = nil,
+         buddySearchRequest: Int = 0, widgetBuddyRequest: Binding<NativeWidgetBuddyDay?> = .constant(nil),
+         notificationRequest: NativeSocialNotification? = nil,
          openOwnLog: (@MainActor (String) -> Void)? = nil,
          openOwnLogDay: (@MainActor (String, String) -> Void)? = nil,
          refreshPlans: @escaping @MainActor () async -> Void) {
         self.api = api
         self.owner = owner
         self.buddySearchRequest = buddySearchRequest
+        _widgetBuddyRequest = widgetBuddyRequest
         self.notificationRequest = notificationRequest
         self.openOwnLog = openOwnLog
         self.openOwnLogDay = openOwnLogDay
@@ -3878,6 +3887,7 @@ struct NativeFriends: View {
         .foregroundStyle(SpotterPalette.ink).background(SpotterPalette.background)
         .task { await load() }
         .task(id: notificationRequest?.id) { await openRequestedNotification() }
+        .task(id: widgetBuddyRequest?.id) { await openRequestedWidgetDay() }
         .onAppear { presentRequestedBuddySearch() }
         .onChange(of: buddySearchRequest) { _ in presentRequestedBuddySearch() }
         .onChange(of: search) { _ in results = nil }
@@ -3954,6 +3964,17 @@ struct NativeFriends: View {
     private func openRequestedNotification() async {
         guard let item = notificationRequest else { return }
         await openNotificationDestination(item)
+    }
+
+    private func openRequestedWidgetDay() async {
+        guard let request = widgetBuddyRequest else { return }
+        if data?.friends.contains(where: { $0.buddy && $0.id == request.partner }) != true { await load() }
+        guard !Task.isCancelled, widgetBuddyRequest?.id == request.id else { return }
+        widgetBuddyRequest = nil
+        page = .contacts
+        if let friend = data?.friends.first(where: { $0.buddy && $0.id == request.partner }) {
+            notificationDestination = FriendDestination(friend: friend, day: request.day)
+        }
     }
 
     private func openNotificationDestination(_ item: NativeSocialNotification) async {

@@ -44,6 +44,11 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
     private var finishing: UUID?
     private var finishMessage: Data?
     private var mirroredAtLeastOnce = false
+    private var trainingCatalog: NativeWatchTrainingCatalog?
+    private var publishedCatalog: NativeWatchTrainingCatalog?
+    private var startFromWatch: (@MainActor (NativeWatchNearbyLaunch) -> Bool)?
+    private var acceptWatchCheckin: (@MainActor (NativeWatchOfflineCheckin) -> Bool)?
+    private var deferredCheckins: [UUID: NativeWatchOfflineCheckin] = [:]
 
     func prepare() {
         guard !listening, HKHealthStore.isHealthDataAvailable() else { return }
@@ -54,6 +59,44 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
         }
         healthStore.workoutSessionMirroringStartHandler = { [weak self] incoming in
             Task { @MainActor in self?.receiveSession(incoming) }
+        }
+    }
+
+    func updateTrainingCatalog(_ catalog: NativeWatchTrainingCatalog,
+                               start: (@MainActor (NativeWatchNearbyLaunch) -> Bool)? = nil,
+                               accept: (@MainActor (NativeWatchOfflineCheckin) -> Bool)? = nil) {
+        prepare()
+        trainingCatalog = catalog
+        startFromWatch = start
+        acceptWatchCheckin = accept
+        if let binding = catalog.binding {
+            for packet in deferredCheckins.values.filter({ $0.binding == binding }) { receiveWatchCheckin(packet) }
+        }
+        publishTrainingCatalog()
+    }
+
+    private func publishTrainingCatalog(force: Bool = false) {
+        guard WCSession.isSupported(), let trainingCatalog,
+              force || publishedCatalog != trainingCatalog,
+              WCSession.default.activationState == .activated, WCSession.default.isPaired,
+              WCSession.default.isWatchAppInstalled, let payload = trainingCatalog.encoded() else { return }
+        do {
+            try WCSession.default.updateApplicationContext([NativeWatchTrainingCatalog.key: payload])
+            publishedCatalog = trainingCatalog
+        } catch {
+            // The activation and watch state callbacks retry the current catalogue.
+        }
+    }
+
+    private func receiveWatchCheckin(_ packet: NativeWatchOfflineCheckin) {
+        guard trainingCatalog?.binding == packet.binding, acceptWatchCheckin?(packet) == true else {
+            if deferredCheckins.count < 32 { deferredCheckins[packet.id] = packet }
+            return
+        }
+        deferredCheckins.removeValue(forKey: packet.id)
+        let connectivity = WCSession.default
+        if connectivity.activationState == .activated, connectivity.isWatchAppInstalled {
+            connectivity.transferUserInfo([NativeWatchOfflineCheckin.acceptedKey: packet.id.uuidString])
         }
     }
 
@@ -95,6 +138,10 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
 
     func latest(for context: NativeWatchWorkoutContext) -> NativeWatchHeartRateReading? {
         state(for: context) == .measuring ? reading : nil
+    }
+
+    func connect(_ context: NativeWatchWorkoutContext, cardio: NativeWorkoutSession.CardioActivity?) {
+        connect(context, activity: Self.activityType(for: cardio), location: Self.locationType(for: cardio))
     }
 
     func connect(_ context: NativeWatchWorkoutContext, activity: HKWorkoutActivityType, location: HKWorkoutSessionLocationType) {
@@ -278,47 +325,30 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
     }
 }
 
-extension NativeWatchWorkoutSnapshot {
-    init(session: NativeWorkoutSession, previous: NativeWorkoutSession.SetPosition?) {
-        func milliseconds(_ value: NativeJSON, max: Int) -> Int? {
-            guard case .number(let number) = value, (0...Double(max)).contains(number) else { return nil }
-            return Int(number.rounded(.up))
+@available(iOS 17.0, *)
+extension NativeWatchHeartRate {
+    fileprivate static func locationType(for cardio: NativeWorkoutSession.CardioActivity?) -> HKWorkoutSessionLocationType {
+        switch cardio {
+        case .treadmillRunning, .stationaryCycling, .incline, .rowing, .elliptical, .stairClimbing: return .indoor
+        case .running, .cycling: return .outdoor
+        default: return .unknown
         }
+    }
 
-        func text(_ value: String, fallback: String, limit: Int = 100) -> String {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? fallback : String(decoding: trimmed.utf16.prefix(limit), as: UTF16.self)
+    fileprivate static func activityType(for cardio: NativeWorkoutSession.CardioActivity?) -> HKWorkoutActivityType {
+        switch cardio {
+        case .walking, .incline: return .walking
+        case .running, .treadmillRunning: return .running
+        case .cycling, .stationaryCycling: return .cycling
+        case .rowing: return .rowing
+        case .elliptical: return .elliptical
+        case .stairClimbing: return .stairClimbing
+        case .swimming: return .swimming
+        case .jumpRope: return .jumpRope
+        case .hiit: return .highIntensityIntervalTraining
+        case .cardio: return .mixedCardio
+        case nil: return .traditionalStrengthTraining
         }
-
-        func weight(_ value: NativeJSON) -> Double {
-            let number = value.number
-            guard (0...2_000).contains(number) else { return 0 }
-            return (number * 1_000).rounded() / 1_000
-        }
-
-        let clock = session.raw["clock"]
-        let rows = session.rows
-        let exercises = session.plan.exercises.prefix(30).enumerated().map { index, move in
-            let sets: [Set] = rows.indices.contains(index) ? rows[index].prefix(30).enumerated().map { row, set in
-                let right: Side? = if case .object = set["right"] {
-                    .init(weight: weight(set["right"]["weight"]), reps: milliseconds(set["right"]["reps"], max: 999) ?? 0)
-                } else { nil }
-                return .init(index: row, weight: weight(set["weight"]), reps: milliseconds(set["reps"], max: 999) ?? 0,
-                             seconds: milliseconds(set["seconds"], max: 18_000) ?? 0, done: set["done"].bool, right: right)
-            } : []
-            return Exercise(index: index, name: text(move["name"].string, fallback: "动作"),
-                            unit: move["unit"].string == "lb" ? "lb" : "kg", isTimed: move["seconds"].number > 0, sets: sets)
-        }
-
-        let next = session.nextSet(after: previous).map { Position(move: $0.move, row: $0.row) }
-        let deadline = milliseconds(session.raw["rest"]["until"],
-                                    max: Self.maximumElapsedMilliseconds + Self.maximumRestMilliseconds)
-        self.init(title: text(session.plan.title, fallback: "训练"),
-                  elapsedMilliseconds: milliseconds(clock["elapsed"], max: Self.maximumElapsedMilliseconds) ?? session.elapsedMilliseconds(),
-                  runningSinceMilliseconds: milliseconds(clock["runningSince"], max: 9_999_999_999_999).map(Int64.init),
-                  restElapsedDeadlineMilliseconds: deadline,
-                  restLabel: deadline == nil ? nil : text(session.raw["rest"]["kind"].string, fallback: "组间休息", limit: 30),
-                  next: next?.isValid == true ? next : nil, exercises: exercises)
     }
 }
 
@@ -365,7 +395,33 @@ extension NativeWatchHeartRate: HKWorkoutSessionDelegate {
 @available(iOS 17.0, *)
 extension NativeWatchHeartRate: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
-                             error: Error?) {}
+                             error: Error?) {
+        Task { @MainActor in publishTrainingCatalog(force: true) }
+    }
+
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        Task { @MainActor in publishTrainingCatalog(force: true) }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any],
+                             replyHandler: @escaping ([String: Any]) -> Void) {
+        guard let data = message[NativeWatchNearbyLaunch.key] as? Data, data.count <= 1_024,
+              let request = try? JSONDecoder().decode(NativeWatchNearbyLaunch.self, from: data) else {
+            replyHandler(["started": false])
+            return
+        }
+        Task { @MainActor in
+            let started = trainingCatalog?.binding == request.binding && (startFromWatch?(request) == true)
+            replyHandler(["started": started])
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        guard file.metadata?[NativeWatchOfflineCheckin.key] != nil,
+              let data = try? Data(contentsOf: file.fileURL),
+              let packet = NativeWatchOfflineCheckin.decode(data) else { return }
+        Task { @MainActor in receiveWatchCheckin(packet) }
+    }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
 
@@ -455,7 +511,7 @@ struct NativeWorkoutWatchPanel: View {
         switch connection {
         case .idle, .unavailable, .permissionRequired, .disconnected:
             Button {
-                watch.connect(context, activity: activityType, location: locationType)
+                watch.connect(context, cardio: cardio)
             } label: {
                 Text(connection == .idle ? "连接" : "重试")
                     .font(.caption.weight(.semibold)).padding(.horizontal, 12)
@@ -473,27 +529,4 @@ struct NativeWorkoutWatchPanel: View {
         }
     }
 
-    private var locationType: HKWorkoutSessionLocationType {
-        switch cardio {
-        case .treadmillRunning, .stationaryCycling, .incline, .rowing, .elliptical, .stairClimbing: return .indoor
-        case .running, .cycling: return .outdoor
-        default: return .unknown
-        }
-    }
-
-    private var activityType: HKWorkoutActivityType {
-        switch cardio {
-        case .walking, .incline: return .walking
-        case .running, .treadmillRunning: return .running
-        case .cycling, .stationaryCycling: return .cycling
-        case .rowing: return .rowing
-        case .elliptical: return .elliptical
-        case .stairClimbing: return .stairClimbing
-        case .swimming: return .swimming
-        case .jumpRope: return .jumpRope
-        case .hiit: return .highIntensityIntervalTraining
-        case .cardio: return .mixedCardio
-        case nil: return .traditionalStrengthTraining
-        }
-    }
 }

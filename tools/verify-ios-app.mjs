@@ -23,7 +23,8 @@ const checks = [
   ["product-help", ["ios/SpotterHealth/NativeProductHelp.swift", "ios/Tests/NativeProductHelpSmoke.swift"]],
   ["native-heart-files", ["ios/SpotterHealth/HeartPayload.swift", "ios/SpotterHealth/NativeHeartFileImport.swift",
     "ios/SpotterHealth/NativeHeartWorkoutFiles.swift", "ios/Tests/NativeHeartFileSmoke.swift"]],
-  ["watch-heart-rate", ["ios/SpotterHealth/NativeWatchHeartRatePacket.swift", "ios/Tests/NativeWatchHeartRateSmoke.swift"]],
+  ["watch-heart-rate", ["ios/SpotterHealth/NativeWorkoutModels.swift", "ios/SpotterHealth/NativeWatchHeartRatePacket.swift",
+    "ios/SpotterHealth/NativeWatchTraining.swift", "ios/Tests/NativeWatchHeartRateSmoke.swift"]],
 ];
 
 try {

@@ -10,7 +10,7 @@ struct SpotterWorkoutLiveActivity: Widget {
 
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: SpotterTrainingActivityAttributes.self) { context in
-            lockCard(context.state)
+            activityCard(context.state)
                 .activityBackgroundTint(Color(red: 0.10, green: 0.17, blue: 0.13))
                 .activitySystemActionForegroundColor(lime)
                 .widgetURL(trainingURL)
@@ -59,6 +59,52 @@ struct SpotterWorkoutLiveActivity: Widget {
             .widgetURL(trainingURL)
             .keylineTint(lime)
         }
+    }
+
+    @ViewBuilder private func activityCard(_ state: SpotterTrainingActivityAttributes.ContentState) -> some View {
+        if #available(iOS 18.0, *) {
+            SpotterLiveActivityPresentation {
+                lockCard(state)
+            } compact: {
+                watchCard(state)
+            }
+        } else {
+            lockCard(state)
+        }
+    }
+
+    private func watchCard(_ state: SpotterTrainingActivityAttributes.ContentState) -> some View {
+        HStack(spacing: 9) {
+            let resting = state.restDeadline != nil || state.pausedRestSeconds != nil
+            Image(systemName: resting ? "timer" : (state.isRunning ? "dumbbell.fill" : "pause.fill"))
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 27, height: 27)
+                .background(lime.opacity(0.13), in: RoundedRectangle(cornerRadius: 8))
+                .foregroundStyle(lime)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(resting ? (state.isRunning ? "组间休息" : "休息已暂停") : (state.isRunning ? "训练进行中" : "训练已暂停"))
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(soft)
+                if let movement = state.nextMovement, let set = state.nextSet {
+                    Text(resting ? "接下来 · \(movement)" : "\(movement) · 第 \(set) 组")
+                        .privacySensitive()
+                } else {
+                    Text("继续训练")
+                }
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.75)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if resting {
+                restCountdown(state)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .monospacedDigit().fixedSize(horizontal: true, vertical: false).foregroundStyle(lime)
+            } else if state.totalSets > 0 {
+                sets(state).fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .padding(.horizontal, 9).padding(.vertical, 5)
+        .accessibilityElement(children: .combine)
     }
 
     private func lockCard(_ state: SpotterTrainingActivityAttributes.ContentState) -> some View {
@@ -129,14 +175,18 @@ struct SpotterWorkoutLiveActivity: Widget {
             HStack(spacing: 8) {
                 Label(state.isRunning ? "组间休息" : "休息已暂停", systemImage: "timer")
                 Spacer(minLength: 0)
-                if let end = state.restDeadline {
-                    Text(timerInterval: end.addingTimeInterval(-600)...end, countsDown: true, showsHours: false)
-                        .accessibilityLabel("休息倒计时")
-                } else if let seconds = state.pausedRestSeconds {
-                    Text(duration(seconds)).accessibilityLabel("剩余 \(seconds) 秒")
-                }
+                restCountdown(state)
             }
             .font(.caption.weight(.semibold)).monospacedDigit().foregroundStyle(soft)
+        }
+    }
+
+    @ViewBuilder private func restCountdown(_ state: SpotterTrainingActivityAttributes.ContentState) -> some View {
+        if let end = state.restDeadline {
+            Text(timerInterval: end.addingTimeInterval(-600)...end, countsDown: true, showsHours: false)
+                .accessibilityLabel("休息倒计时")
+        } else if let seconds = state.pausedRestSeconds {
+            Text(duration(seconds)).accessibilityLabel("休息剩余 \(seconds) 秒")
         }
     }
 
@@ -144,5 +194,27 @@ struct SpotterWorkoutLiveActivity: Widget {
         let seconds = max(0, min(86_400, seconds))
         if seconds >= 3_600 { return String(format: "%d:%02d:%02d", seconds / 3_600, seconds / 60 % 60, seconds % 60) }
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+@available(iOS 18.0, *)
+struct SpotterWorkoutLiveActivityWithWatch: Widget {
+    var body: some WidgetConfiguration {
+        SpotterWorkoutLiveActivity().body.supplementalActivityFamilies([.small])
+    }
+}
+
+@available(iOS 18.0, *)
+private struct SpotterLiveActivityPresentation<Phone: View, Compact: View>: View {
+    @Environment(\.activityFamily) private var family
+    @ViewBuilder let phone: () -> Phone
+    @ViewBuilder let compact: () -> Compact
+
+    var body: some View {
+        if family == .small {
+            compact()
+        } else {
+            phone()
+        }
     }
 }

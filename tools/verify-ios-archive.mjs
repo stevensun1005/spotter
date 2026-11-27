@@ -60,7 +60,7 @@ try {
     for (const problem of problems) console.error("✗ " + problem);
     process.exitCode = 1;
   } else {
-    console.log("✓ 归档包含训练搭子小组件扩展和灵动岛界面，Info.plist 已声明实时活动，Apple Watch App 完整。");
+    console.log("✓ 归档包含训练搭子 iPhone 小组件、灵动岛、Apple Watch App 及表盘和智能叠放小组件。");
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : "无法检查 Xcode 归档。");

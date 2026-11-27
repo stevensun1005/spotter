@@ -215,6 +215,17 @@ final class NativeNutritionWeek: ObservableObject {
         snapshot(containing: spotterDay(date))?.payload
     }
 
+    func widgetProgress(on date: Date, logs: [NativeWorkoutEntry]) -> (fraction: Double?, recorded: Bool?) {
+        let day = spotterDay(date)
+        guard let payload = payload(containing: date) else { return (nil, nil) }
+        let entries = payload.entries(on: day)
+        let hasMeal = entries.contains { $0.entry?.type == "meal" }
+        let recorded = hasMeal || entries.contains { $0.entry?.type == "water" }
+        guard hasMeal else { return (nil, recorded) }
+        let value = ringDay(date, logs: logs, dailyPayload: payload)
+        return (value.progress > 0 ? min(1, value.progress) : nil, recorded)
+    }
+
     func ringDay(_ date: Date, logs: [NativeWorkoutEntry]?, dailyPayload: NutritionPayload? = nil) -> SpotterWeekDateStrip.Day {
         let day = spotterDay(date)
         let cached = snapshot(containing: day)
@@ -323,9 +334,10 @@ extension NativeWorkoutStore {
                 ? .init(calories: max(0, targets.calories), protein: max(0, targets.protein),
                         carbs: max(0, targets.carbs), fat: max(0, targets.fat))
                 : nil
+        let evaluatesAutomatically = NativeNutritionEstimatePreferences.read(api: api, owner: owner)?.source == .automatic
         return .init(calories: max(0, totals.calories), protein: max(0, totals.protein),
                      carbs: max(0, totals.carbs), fat: max(0, totals.fat), waterML: max(0, totals.water),
-                     goals: goals, frequentMeals: NativeNutritionDetail.widgetFrequentMeals(api: api, owner: owner))
+                     goals: goals, offersUpdatedEstimate: evaluatesAutomatically ? true : nil)
     }
 }
 
@@ -712,7 +724,7 @@ struct NativeHomeNutrition: View {
 private enum NutritionDestination: Identifiable {
     case logger
     case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
-    case settings, goals, cycle, recipes, recommendations, protein, stats, voice, energy, copy, favorites
+    case settings, goals, goalEstimate, cycle, recipes, recommendations, protein, stats, voice, energy, copy, favorites
 
     var id: String {
         switch self {
@@ -720,6 +732,7 @@ private enum NutritionDestination: Identifiable {
         case .entry(let shortcut, let row, let food, _): return row?.id ?? food?.id ?? shortcut.rawValue
         case .settings: return "settings"
         case .goals: return "goals"
+        case .goalEstimate: return "goal-estimate"
         case .cycle: return "cycle"
         case .recipes: return "recipes"
         case .recommendations: return "recommendations"
@@ -733,8 +746,8 @@ private enum NutritionDestination: Identifiable {
     }
 }
 
-enum NativeNutritionWidgetEntry {
-    case frequentMeals, water, recordMeal
+enum NativeNutritionWidgetEntry: Equatable {
+    case frequentMeals, water, recordMeal, photo, goalEstimate
 }
 
 extension NativeWorkoutStore {
@@ -838,15 +851,22 @@ struct NativeNutritionDetail: View {
         .task(id: bounds) { await nutritionWeek.refreshWeek(containing: date) }
         .onAppear {
             guard !didOpenWidgetEntry, let initialWidgetEntry else { return }
+            if initialWidgetEntry == .goalEstimate {
+                openWidgetGoalEstimate()
+                return
+            }
             didOpenWidgetEntry = true
             switch initialWidgetEntry {
             case .frequentMeals: destination = .favorites
             case .water: destination = .entry(.water, nil, nil, 250)
+            case .photo: photoCapture = NutritionPhotoRequest(day: day)
             case .recordMeal:
                 closesAfterGuidedMeal = guide?.step.presentation == .mealEditor
                 destination = .logger
+            case .goalEstimate: break
             }
         }
+        .onChange(of: ready) { _ in openWidgetGoalEstimate() }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in
             reloadRevision &+= 1
             if ownsNutritionWeek {
@@ -874,6 +894,12 @@ struct NativeNutritionDetail: View {
         }), presenting: deleteCandidate) { row in
             Button("删除", role: .destructive) { Task { await remove(row) } }
         }
+    }
+
+    private func openWidgetGoalEstimate() {
+        guard initialWidgetEntry == .goalEstimate, ready, !didOpenWidgetEntry else { return }
+        didOpenWidgetEntry = true
+        destination = .goalEstimate
     }
 
     private var nutritionScroll: some View {
@@ -1087,7 +1113,7 @@ struct NativeNutritionDetail: View {
                         .disabled(!ready || rows.isEmpty)
                 }
             }
-        case .goals, .cycle, .energy:
+        case .goals, .goalEstimate, .cycle, .energy:
             NativeNutritionPlanning(api: api, owner: owner, day: day, payload: payload, logs: logs ?? [],
                                     plannedWorkouts: plannedWorkouts, destination: item)
         case .recipes, .recommendations, .voice:
@@ -2279,6 +2305,7 @@ private struct NativeNutritionPlanning: View {
         self.destination = destination
         self.logs = logs.filter { $0.day == day && $0.owner == owner }
         self.plannedWorkouts = plannedWorkouts
+        _showsGoalEstimator = State(initialValue: destination.id == "goal-estimate")
         let base = payload.rows.first { $0.kind == "targets" }?.values ?? .init()
         let saved = payload.rows.first { $0.kind == "nutrition-plan" }?.carbCycle
         _fields = State(initialValue: Dictionary(uniqueKeysWithValues: NutritionMetric.allCases.map { ($0, nutritionInput($0[base])) }))
@@ -2483,7 +2510,7 @@ private struct NativeNutritionPlanning: View {
         defer { busy = false }
         do {
             try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner, "data": record])
-            if case .goals = destination, appliedEstimate {
+            if appliedEstimate {
                 NativeNutritionEstimatePreferences(source: goalChoice.activitySource, manualActivity: goalChoice.manualActivity?.rawValue)
                     .save(api: api, owner: owner)
             }

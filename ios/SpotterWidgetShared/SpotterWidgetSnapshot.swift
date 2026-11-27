@@ -6,11 +6,13 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
         let title: String
         let day: String
         let minutes: Int
+        let planID: String?
 
-        init(title: String, day: String, minutes: Int) {
+        init(title: String, day: String, minutes: Int, planID: String? = nil) {
             self.title = SpotterWidgetSnapshot.widgetTitle(title, fallback: "训练计划")
             self.day = day
             self.minutes = min(1_440, max(0, minutes))
+            self.planID = planID
         }
     }
 
@@ -81,25 +83,34 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
         let fat: Double
         let waterML: Double
         let goals: Goals?
+        let offersUpdatedEstimate: Bool?
         private let mealShortcuts: [FrequentMeal]?
 
         var frequentMeals: [FrequentMeal] { mealShortcuts ?? [] }
 
         private enum CodingKeys: String, CodingKey {
-            case calories, protein, carbs, fat, waterML, goals
+            case calories, protein, carbs, fat, waterML, goals, offersUpdatedEstimate
             case mealShortcuts = "frequentMeals"
         }
 
         init(calories: Double, protein: Double, carbs: Double, fat: Double, waterML: Double,
-             goals: Goals? = nil, frequentMeals: [FrequentMeal] = []) {
+             goals: Goals? = nil, frequentMeals: [FrequentMeal] = [], offersUpdatedEstimate: Bool? = nil) {
             self.calories = calories
             self.protein = protein
             self.carbs = carbs
             self.fat = fat
             self.waterML = waterML
             self.goals = goals
+            self.offersUpdatedEstimate = offersUpdatedEstimate
             self.mealShortcuts = frequentMeals.isEmpty ? nil : Array(frequentMeals.prefix(3))
         }
+    }
+
+    struct WeekDay: Codable, Equatable, Sendable {
+        let trainingState: DayState
+        let trainingProgress: Double
+        let nutritionProgress: Double?
+        let hasNutritionRecord: Bool?
     }
 
     struct Weekly: Codable, Equatable, Sendable {
@@ -127,10 +138,11 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
     let nutrition: Nutrition?
     let weekly: Weekly?
     let year: Year?
+    let progressWeek: [WeekDay]?
 
     init(updatedAt: Date, day: String, todayCompleted: Int, weekStart: String, weekCheckins: [Bool],
          nextWorkout: Workout?, activeWorkout: Active?, buddy: Buddy? = nil, nutrition: Nutrition? = nil,
-         weekly: Weekly? = nil, year: Year? = nil) {
+         weekly: Weekly? = nil, year: Year? = nil, progressWeek: [WeekDay]? = nil) {
         self.updatedAt = updatedAt
         self.day = day
         self.todayCompleted = todayCompleted
@@ -142,6 +154,7 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
         self.nutrition = nutrition
         self.weekly = weekly
         self.year = year
+        self.progressWeek = progressWeek
     }
 
     var expiresAt: Date { updatedAt.addingTimeInterval(36 * 60 * 60) }
@@ -168,6 +181,16 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
         return (0..<7).compactMap { offset in
             calendar.date(byAdding: .day, value: offset, to: start).map { dayKey(for: $0, timeZone: .gmt) }
         }
+    }
+
+    static func isDayKey(_ value: String) -> Bool {
+        midnight(value, in: calendar(in: .gmt)) != nil
+    }
+
+    static func isEntryID(_ value: String) -> Bool {
+        (1...120).contains(value.utf16.count) &&
+        value == value.trimmingCharacters(in: .whitespacesAndNewlines) &&
+        value.rangeOfCharacter(from: .controlCharacters) == nil
     }
 
     static func yearDays(endingAt date: Date, timeZone: TimeZone = .current) -> [String?] {
@@ -227,7 +250,8 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
               currentDay.timeIntervalSince(firstDay) < 7 * 24 * 60 * 60 else { return false }
         if let nextWorkout {
             guard nextWorkout.day >= day, Self.midnight(nextWorkout.day, in: calendar) != nil,
-                  (0...1_440).contains(nextWorkout.minutes), (1...72).contains(nextWorkout.title.count) else { return false }
+                  (0...1_440).contains(nextWorkout.minutes), (1...72).contains(nextWorkout.title.count),
+                  nextWorkout.planID.map(Self.isEntryID) != false else { return false }
         }
         if let activeWorkout {
             guard (0...10_000).contains(activeWorkout.totalSets),
@@ -267,13 +291,19 @@ struct SpotterWidgetSnapshot: Codable, Equatable, Sendable {
                       return date >= first && date <= currentDay && minutes >= 0
                   }) else { return false }
         }
+        if let progressWeek {
+            guard progressWeek.count == 7, progressWeek.allSatisfy({
+                (0...1).contains($0.trainingProgress) && ($0.nutritionProgress.map { (0...1).contains($0) } ?? true)
+            }) else { return false }
+        }
         return true
     }
 
     fileprivate func matchesVisibleContent(of other: Self) -> Bool {
         day == other.day && todayCompleted == other.todayCompleted && weekStart == other.weekStart &&
             weekCheckins == other.weekCheckins && nextWorkout == other.nextWorkout && activeWorkout == other.activeWorkout &&
-            buddy == other.buddy && nutrition == other.nutrition && weekly == other.weekly && year == other.year
+            buddy == other.buddy && nutrition == other.nutrition && weekly == other.weekly && year == other.year &&
+            progressWeek == other.progressWeek
     }
 }
 
@@ -285,7 +315,8 @@ struct SpotterWidgetStore: Sendable {
     static let nutritionKind = "SpotterNutritionWidget"
     static let weeklyKind = "SpotterWeeklyWidget"
     static let yearKind = "SpotterYearWidget"
-    static let widgetKinds = [buddyKind, nutritionKind, weeklyKind, yearKind]
+    static let progressWeekKind = "SpotterWeekProgressWidget"
+    static let widgetKinds = [widgetKind, buddyKind, nutritionKind, weeklyKind, yearKind, progressWeekKind]
     static let shared = Self(directoryURL: sharedDirectory)
 
     private static let filename = "spotter-training-widget-v1.json"

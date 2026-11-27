@@ -82,6 +82,13 @@
 		A130000000000000000000DD /* NativeNutritionGoalEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000DE /* NativeNutritionGoalEstimator.swift */; };
 		A130000000000000000000E1 /* NativeCoachOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000E0 /* NativeCoachOverlay.swift */; };
 		A130000000000000000000E3 /* NativeDraftSwipeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000E2 /* NativeDraftSwipeRow.swift */; };
+		A130000000000000000000E8 /* SpotterWatchWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A130000000000000000000E5 /* SpotterWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A130000000000000000000ED /* SpotterWatchWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000EA /* SpotterWatchWidget.swift */; };
+		A130000000000000000000EE /* SpotterWatchWidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000EB /* SpotterWatchWidgetSnapshot.swift */; };
+		A130000000000000000000EF /* SpotterWatchWidgetSnapshot.swift in Watch Sources */ = {isa = PBXBuildFile; fileRef = A130000000000000000000EB /* SpotterWatchWidgetSnapshot.swift */; };
+		A13000000000000000000106 /* NativeWorkoutModels.swift in Watch Sources */ = {isa = PBXBuildFile; fileRef = A13000000000000000000044 /* NativeWorkoutModels.swift */; };
+		A13000000000000000000107 /* NativeWatchTraining.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13000000000000000000109 /* NativeWatchTraining.swift */; };
+		A13000000000000000000108 /* NativeWatchTraining.swift in Watch Sources */ = {isa = PBXBuildFile; fileRef = A13000000000000000000109 /* NativeWatchTraining.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -93,6 +100,7 @@
 			remoteInfo = SpotterWidget;
 		};
 		A130000000000000000000AA /* SpotterWatch target proxy */ = {isa = PBXContainerItemProxy; containerPortal = A13000000000000000000001; proxyType = 1; remoteGlobalIDString = A130000000000000000000A0; remoteInfo = SpotterWatch; };
+		A130000000000000000000E6 /* SpotterWatchWidget target proxy */ = {isa = PBXContainerItemProxy; containerPortal = A13000000000000000000001; proxyType = 1; remoteGlobalIDString = A130000000000000000000E4; remoteInfo = SpotterWatchWidget; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -112,6 +120,15 @@
 			dstSubfolderSpec = 16;
 			files = (A130000000000000000000A9);
 			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A13000000000000000000103 /* Embed Watch App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (A130000000000000000000E8 /* SpotterWatchWidget.appex in Embed App Extensions */);
+			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -196,17 +213,23 @@
 		A130000000000000000000DE /* NativeNutritionGoalEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNutritionGoalEstimator.swift; sourceTree = "<group>"; };
 		A130000000000000000000E0 /* NativeCoachOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCoachOverlay.swift; sourceTree = "<group>"; };
 		A130000000000000000000E2 /* NativeDraftSwipeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDraftSwipeRow.swift; sourceTree = "<group>"; };
+		A130000000000000000000E5 /* SpotterWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SpotterWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A130000000000000000000EA /* SpotterWatchWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotterWatchWidget.swift; sourceTree = "<group>"; };
+		A130000000000000000000EB /* SpotterWatchWidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotterWatchWidgetSnapshot.swift; sourceTree = "<group>"; };
+		A130000000000000000000EC /* SpotterWatchWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SpotterWatchWidget.entitlements; sourceTree = "<group>"; };
+		A130000000000000000000F0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A13000000000000000000109 /* NativeWatchTraining.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWatchTraining.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
-		A13000000000000000000003 = {isa = PBXGroup; children = (A13000000000000000000004 /* SpotterHealth */, A13000000000000000000082 /* SpotterWidget */, A13000000000000000000083 /* SpotterWidgetShared */, A130000000000000000000A2 /* SpotterWatch */, A13000000000000000000005 /* Products */); sourceTree = "<group>"; };
+		A13000000000000000000003 = {isa = PBXGroup; children = (A13000000000000000000004 /* SpotterHealth */, A13000000000000000000082 /* SpotterWidget */, A13000000000000000000083 /* SpotterWidgetShared */, A130000000000000000000A2 /* SpotterWatch */, A130000000000000000000E9 /* SpotterWatchWidget */, A13000000000000000000005 /* Products */); sourceTree = "<group>"; };
 		A13000000000000000000004 /* SpotterHealth */ = {
 			isa = PBXGroup;
-			children = (A13000000000000000000020, A13000000000000000000021, A13000000000000000000022, A13000000000000000000023, A13000000000000000000024, A13000000000000000000025, A13000000000000000000026, A13000000000000000000029, A1300000000000000000002A, A1300000000000000000002C, A1300000000000000000002D, A1300000000000000000002E, A13000000000000000000040, A13000000000000000000041, A13000000000000000000042, A13000000000000000000043, A13000000000000000000044, A13000000000000000000045, A13000000000000000000046, A13000000000000000000047, A13000000000000000000048, A13000000000000000000049, A1300000000000000000004A, A1300000000000000000004B, A1300000000000000000004C, A1300000000000000000004D, A1300000000000000000004E, A1300000000000000000004F, A13000000000000000000060, A13000000000000000000061, A13000000000000000000062, A13000000000000000000066, A13000000000000000000063, A13000000000000000000064, A13000000000000000000067, A13000000000000000000068, A13000000000000000000069, A1300000000000000000006A, A1300000000000000000006B, A1300000000000000000006C, A1300000000000000000006D, A1300000000000000000006E, A1300000000000000000006F, A13000000000000000000095, A130000000000000000000B3, A130000000000000000000B4, A130000000000000000000BC /* NativeSocialNotifications.swift */, A130000000000000000000BE /* NativePermissionOnboarding.swift */, A130000000000000000000C0 /* NativeOfficialTemplateModel.swift */, A130000000000000000000C2 /* NativeOfficialTemplates.swift */, A130000000000000000000C4 /* official-training-templates.json */, A130000000000000000000C6 /* NativeAccountAvatar.swift */, A130000000000000000000C8 /* NativeCoachRecommendations.swift */, A130000000000000000000CA /* NativeWorkoutHealthSync.swift */, A130000000000000000000CC /* NativeAgentAccess.swift */, A130000000000000000000CE /* NativeProductHelp.swift */, A130000000000000000000D0 /* product-help.json */, A130000000000000000000D2 /* NativePlanBuilder.swift */, A130000000000000000000D4 /* NativeMealLogger.swift */, A130000000000000000000D6 /* food-catalog.json */, A130000000000000000000D8 /* NativeFocusedWorkout.swift */, A130000000000000000000DC /* NativeNutritionGoalModel.swift */, A130000000000000000000E0 /* NativeCoachOverlay.swift */, A130000000000000000000E2 /* NativeDraftSwipeRow.swift */, A130000000000000000000DE /* NativeNutritionGoalEstimator.swift */);
+			children = (A13000000000000000000020, A13000000000000000000021, A13000000000000000000022, A13000000000000000000023, A13000000000000000000024, A13000000000000000000025, A13000000000000000000026, A13000000000000000000029, A1300000000000000000002A, A1300000000000000000002C, A1300000000000000000002D, A1300000000000000000002E, A13000000000000000000040, A13000000000000000000041, A13000000000000000000042, A13000000000000000000043, A13000000000000000000044, A13000000000000000000045, A13000000000000000000046, A13000000000000000000047, A13000000000000000000048, A13000000000000000000049, A1300000000000000000004A, A1300000000000000000004B, A1300000000000000000004C, A1300000000000000000004D, A1300000000000000000004E, A1300000000000000000004F, A13000000000000000000060, A13000000000000000000061, A13000000000000000000062, A13000000000000000000066, A13000000000000000000063, A13000000000000000000064, A13000000000000000000067, A13000000000000000000068, A13000000000000000000069, A1300000000000000000006A, A1300000000000000000006B, A1300000000000000000006C, A1300000000000000000006D, A1300000000000000000006E, A1300000000000000000006F, A13000000000000000000095, A130000000000000000000B3, A130000000000000000000B4, A130000000000000000000BC /* NativeSocialNotifications.swift */, A130000000000000000000BE /* NativePermissionOnboarding.swift */, A130000000000000000000C0 /* NativeOfficialTemplateModel.swift */, A130000000000000000000C2 /* NativeOfficialTemplates.swift */, A130000000000000000000C4 /* official-training-templates.json */, A130000000000000000000C6 /* NativeAccountAvatar.swift */, A130000000000000000000C8 /* NativeCoachRecommendations.swift */, A130000000000000000000CA /* NativeWorkoutHealthSync.swift */, A130000000000000000000CC /* NativeAgentAccess.swift */, A130000000000000000000CE /* NativeProductHelp.swift */, A130000000000000000000D0 /* product-help.json */, A130000000000000000000D2 /* NativePlanBuilder.swift */, A130000000000000000000D4 /* NativeMealLogger.swift */, A130000000000000000000D6 /* food-catalog.json */, A130000000000000000000D8 /* NativeFocusedWorkout.swift */, A130000000000000000000DC /* NativeNutritionGoalModel.swift */, A130000000000000000000E0 /* NativeCoachOverlay.swift */, A130000000000000000000E2 /* NativeDraftSwipeRow.swift */, A130000000000000000000DE /* NativeNutritionGoalEstimator.swift */, A13000000000000000000109 /* NativeWatchTraining.swift */);
 			path = SpotterHealth;
 			sourceTree = "<group>";
 		};
-		A13000000000000000000005 /* Products */ = {isa = PBXGroup; children = (A13000000000000000000027 /* Spotter.app */, A13000000000000000000081 /* SpotterWidget.appex */, A130000000000000000000A1 /* SpotterWatch.app */); name = Products; sourceTree = "<group>"; };
+		A13000000000000000000005 /* Products */ = {isa = PBXGroup; children = (A13000000000000000000027 /* Spotter.app */, A13000000000000000000081 /* SpotterWidget.appex */, A130000000000000000000A1 /* SpotterWatch.app */, A130000000000000000000E5 /* SpotterWatchWidget.appex */); name = Products; sourceTree = "<group>"; };
 		A13000000000000000000082 /* SpotterWidget */ = {
 			isa = PBXGroup;
 			children = (A13000000000000000000084 /* SpotterWidget.swift */, A13000000000000000000085 /* Info.plist */, A13000000000000000000086 /* SpotterWidget.entitlements */, A13000000000000000000097);
@@ -220,6 +243,12 @@
 			sourceTree = "<group>";
 		};
 		A130000000000000000000A2 /* SpotterWatch */ = {isa = PBXGroup; children = (A130000000000000000000A3, A130000000000000000000A4, A130000000000000000000A5, A130000000000000000000A6); path = SpotterWatch; sourceTree = "<group>"; };
+		A130000000000000000000E9 /* SpotterWatchWidget */ = {
+			isa = PBXGroup;
+			children = (A130000000000000000000EA /* SpotterWatchWidget.swift */, A130000000000000000000EB /* SpotterWatchWidgetSnapshot.swift */, A130000000000000000000EC /* SpotterWatchWidget.entitlements */, A130000000000000000000F0 /* Info.plist */);
+			path = SpotterWatchWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -248,13 +277,24 @@
 		A130000000000000000000A0 /* SpotterWatch */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A130000000000000000000B0;
-			buildPhases = (A130000000000000000000AD /* Sources */, A130000000000000000000AE /* Frameworks */, A130000000000000000000AF /* Resources */);
+			buildPhases = (A130000000000000000000AD /* Sources */, A130000000000000000000AE /* Frameworks */, A130000000000000000000AF /* Resources */, A13000000000000000000103 /* Embed Watch App Extensions */);
 			buildRules = ();
-			dependencies = ();
+			dependencies = (A130000000000000000000E7 /* SpotterWatchWidget dependency */);
 			name = SpotterWatch;
 			productName = SpotterWatch;
 			productReference = A130000000000000000000A1 /* SpotterWatch.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A130000000000000000000E4 /* SpotterWatchWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A130000000000000000000F4;
+			buildPhases = (A130000000000000000000F1 /* Sources */, A130000000000000000000F2 /* Frameworks */, A130000000000000000000F3 /* Resources */);
+			buildRules = ();
+			dependencies = ();
+			name = SpotterWatchWidget;
+			productName = SpotterWatchWidget;
+			productReference = A130000000000000000000E5 /* SpotterWatchWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -266,7 +306,8 @@
 				TargetAttributes = {
 					A13000000000000000000002 = { SystemCapabilities = { com.apple.ApplicationGroups.iOS = { enabled = 1; }; com.apple.HealthKit = { enabled = 1; }; com.apple.SignInWithApple = { enabled = 1; }; }; };
 					A13000000000000000000080 = { SystemCapabilities = { com.apple.ApplicationGroups.iOS = { enabled = 1; }; }; };
-					A130000000000000000000A0 = { SystemCapabilities = { com.apple.HealthKit = { enabled = 1; }; }; };
+					A130000000000000000000A0 = { SystemCapabilities = { com.apple.ApplicationGroups.iOS = { enabled = 1; }; com.apple.HealthKit = { enabled = 1; }; }; };
+					A130000000000000000000E4 = { SystemCapabilities = { com.apple.ApplicationGroups.iOS = { enabled = 1; }; }; };
 				};
 			};
 			buildConfigurationList = A13000000000000000000006;
@@ -278,24 +319,29 @@
 			productRefGroup = A13000000000000000000005;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (A13000000000000000000002, A13000000000000000000080, A130000000000000000000A0);
+			targets = (A13000000000000000000002, A13000000000000000000080, A130000000000000000000A0, A130000000000000000000E4);
 		};
 /* End PBXProject section */
 
-		A13000000000000000000008 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A13000000000000000000030, A13000000000000000000031, A13000000000000000000032, A13000000000000000000033, A13000000000000000000034, A13000000000000000000036, A13000000000000000000037, A13000000000000000000039, A1300000000000000000003B, A13000000000000000000050, A13000000000000000000051, A13000000000000000000052, A13000000000000000000053, A13000000000000000000054, A13000000000000000000055, A13000000000000000000056, A13000000000000000000057, A13000000000000000000058, A13000000000000000000059, A1300000000000000000005C, A13000000000000000000070, A13000000000000000000071, A13000000000000000000076, A13000000000000000000073, A13000000000000000000077, A13000000000000000000078, A13000000000000000000079, A1300000000000000000007A, A1300000000000000000007B, A1300000000000000000007C, A1300000000000000000007D, A1300000000000000000007E, A1300000000000000000007F, A1300000000000000000008A /* SpotterWidgetSnapshot.swift in Sources */, A130000000000000000000B8 /* SpotterWidgetMealIntent.swift in Sources */, A130000000000000000000BB /* NativeSocialNotifications.swift in Sources */, A13000000000000000000098, A13000000000000000000099, A130000000000000000000B5, A130000000000000000000B6, A130000000000000000000BD /* NativePermissionOnboarding.swift in Sources */, A130000000000000000000BF /* NativeOfficialTemplateModel.swift in Sources */, A130000000000000000000C1 /* NativeOfficialTemplates.swift in Sources */, A130000000000000000000C5 /* NativeAccountAvatar.swift in Sources */, A130000000000000000000C7 /* NativeCoachRecommendations.swift in Sources */, A130000000000000000000C9 /* NativeWorkoutHealthSync.swift in Sources */, A130000000000000000000CB /* NativeAgentAccess.swift in Sources */, A130000000000000000000CD /* NativeProductHelp.swift in Sources */, A130000000000000000000D1 /* NativePlanBuilder.swift in Sources */, A130000000000000000000D3 /* NativeMealLogger.swift in Sources */, A130000000000000000000D9 /* NativeFocusedWorkout.swift in Sources */, A130000000000000000000DB /* NativeNutritionGoalModel.swift in Sources */, A130000000000000000000E1 /* NativeCoachOverlay.swift in Sources */, A130000000000000000000E3 /* NativeDraftSwipeRow.swift in Sources */, A130000000000000000000DD /* NativeNutritionGoalEstimator.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
+		A13000000000000000000008 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A13000000000000000000030, A13000000000000000000031, A13000000000000000000032, A13000000000000000000033, A13000000000000000000034, A13000000000000000000036, A13000000000000000000037, A13000000000000000000039, A1300000000000000000003B, A13000000000000000000050, A13000000000000000000051, A13000000000000000000052, A13000000000000000000053, A13000000000000000000054, A13000000000000000000055, A13000000000000000000056, A13000000000000000000057, A13000000000000000000058, A13000000000000000000059, A1300000000000000000005C, A13000000000000000000070, A13000000000000000000071, A13000000000000000000076, A13000000000000000000073, A13000000000000000000077, A13000000000000000000078, A13000000000000000000079, A1300000000000000000007A, A1300000000000000000007B, A1300000000000000000007C, A1300000000000000000007D, A1300000000000000000007E, A1300000000000000000007F, A1300000000000000000008A /* SpotterWidgetSnapshot.swift in Sources */, A130000000000000000000B8 /* SpotterWidgetMealIntent.swift in Sources */, A130000000000000000000BB /* NativeSocialNotifications.swift in Sources */, A13000000000000000000098, A13000000000000000000099, A130000000000000000000B5, A130000000000000000000B6, A130000000000000000000BD /* NativePermissionOnboarding.swift in Sources */, A130000000000000000000BF /* NativeOfficialTemplateModel.swift in Sources */, A130000000000000000000C1 /* NativeOfficialTemplates.swift in Sources */, A130000000000000000000C5 /* NativeAccountAvatar.swift in Sources */, A130000000000000000000C7 /* NativeCoachRecommendations.swift in Sources */, A130000000000000000000C9 /* NativeWorkoutHealthSync.swift in Sources */, A130000000000000000000CB /* NativeAgentAccess.swift in Sources */, A130000000000000000000CD /* NativeProductHelp.swift in Sources */, A130000000000000000000D1 /* NativePlanBuilder.swift in Sources */, A130000000000000000000D3 /* NativeMealLogger.swift in Sources */, A130000000000000000000D9 /* NativeFocusedWorkout.swift in Sources */, A130000000000000000000DB /* NativeNutritionGoalModel.swift in Sources */, A130000000000000000000E1 /* NativeCoachOverlay.swift in Sources */, A130000000000000000000E3 /* NativeDraftSwipeRow.swift in Sources */, A130000000000000000000DD /* NativeNutritionGoalEstimator.swift in Sources */, A13000000000000000000107 /* NativeWatchTraining.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
 		A13000000000000000000009 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A13000000000000000000010 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1300000000000000000003A, A1300000000000000000003D, A1300000000000000000005A, A1300000000000000000005B, A1300000000000000000005D, A1300000000000000000005E, A13000000000000000000072, A13000000000000000000074, A130000000000000000000C3 /* official-training-templates.json in Resources */, A130000000000000000000CF /* product-help.json in Resources */, A130000000000000000000D5 /* food-catalog.json in Resources */); runOnlyForDeploymentPostprocessing = 0; };
 		A1300000000000000000008F /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A13000000000000000000088, A13000000000000000000089, A130000000000000000000B9 /* SpotterWidgetMealIntent.swift in Sources */, A1300000000000000000009A, A1300000000000000000009B); runOnlyForDeploymentPostprocessing = 0; };
 		A13000000000000000000090 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A13000000000000000000091 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 
-		A130000000000000000000AD /* Watch Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A130000000000000000000A7, A130000000000000000000B7); runOnlyForDeploymentPostprocessing = 0; };
+		A130000000000000000000AD /* Watch Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A130000000000000000000A7, A130000000000000000000B7, A130000000000000000000EF /* SpotterWatchWidgetSnapshot.swift in Watch Sources */, A13000000000000000000106 /* NativeWorkoutModels.swift in Watch Sources */, A13000000000000000000108 /* NativeWatchTraining.swift in Watch Sources */); runOnlyForDeploymentPostprocessing = 0; };
 		A130000000000000000000AE /* Watch Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A130000000000000000000AF /* Watch Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A130000000000000000000A8); runOnlyForDeploymentPostprocessing = 0; };
+
+		A130000000000000000000F1 /* Watch Widget Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A130000000000000000000ED /* SpotterWatchWidget.swift in Sources */, A130000000000000000000EE /* SpotterWatchWidgetSnapshot.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
+		A130000000000000000000F2 /* Watch Widget Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A130000000000000000000F3 /* Watch Widget Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXTargetDependency section */
 		A1300000000000000000008E /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = A13000000000000000000080 /* SpotterWidget */; targetProxy = A1300000000000000000008D /* PBXContainerItemProxy */; };
 		A130000000000000000000AC /* SpotterWatch dependency */ = {isa = PBXTargetDependency; target = A130000000000000000000A0; targetProxy = A130000000000000000000AA; };
+		A130000000000000000000E7 /* SpotterWatchWidget dependency */ = {isa = PBXTargetDependency; target = A130000000000000000000E4 /* SpotterWatchWidget */; targetProxy = A130000000000000000000E6 /* SpotterWatchWidget target proxy */; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -423,12 +469,53 @@
 			};
 			name = Release;
 		};
+		A130000000000000000000F5 /* SpotterWatchWidget Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = SpotterWatchWidget/SpotterWatchWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SpotterWatchWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks");
+				PRODUCT_BUNDLE_IDENTIFIER = "$(SPOTTER_PHONE_BUNDLE_ID).watchkitapp.widget";
+				PRODUCT_NAME = SpotterWatchWidget;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SPOTTER_PHONE_BUNDLE_ID = app.spotter.health;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		A130000000000000000000F6 /* SpotterWatchWidget Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = SpotterWatchWidget/SpotterWatchWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SpotterWatchWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks");
+				PRODUCT_BUNDLE_IDENTIFIER = "$(SPOTTER_PHONE_BUNDLE_ID).watchkitapp.widget";
+				PRODUCT_NAME = SpotterWatchWidget;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SPOTTER_PHONE_BUNDLE_ID = app.spotter.health;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 		A13000000000000000000006 = {isa = XCConfigurationList; buildConfigurations = (A13000000000000000000011, A13000000000000000000012); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A13000000000000000000007 = {isa = XCConfigurationList; buildConfigurations = (A13000000000000000000013, A13000000000000000000014); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A13000000000000000000092 = {isa = XCConfigurationList; buildConfigurations = (A13000000000000000000093, A13000000000000000000094); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A130000000000000000000B0 = {isa = XCConfigurationList; buildConfigurations = (A130000000000000000000B1, A130000000000000000000B2); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A130000000000000000000F4 = {isa = XCConfigurationList; buildConfigurations = (A130000000000000000000F5, A130000000000000000000F6); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 	};
 	rootObject = A13000000000000000000001 /* Project object */;
 }

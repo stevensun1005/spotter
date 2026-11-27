@@ -57,7 +57,10 @@ test("the Spotter project ships the Live Activity in both Debug and Release", as
   }
 
   const bundle = await source("ios/SpotterWidget/SpotterWidget.swift");
-  assert.match(bundle, /struct SpotterWidgets: WidgetBundle[\s\S]*SpotterWorkoutLiveActivity\(\)/);
+  assert.match(bundle, /struct SpotterLegacyWidgets: WidgetBundle[\s\S]*SpotterWorkoutLiveActivity\(\)/);
+  assert.match(bundle, /struct SpotterWidgetsWithWatch: WidgetBundle[\s\S]*SpotterWorkoutLiveActivityWithWatch\(\)/);
+  const activity = await source("ios/SpotterWidget/SpotterWorkoutLiveActivity.swift");
+  assert.match(activity, /supplementalActivityFamilies\(\[\.small\]\)/);
 });
 
 test("a running workout's activity is not latched off after iOS ends it", async () => {
@@ -78,7 +81,14 @@ test("a running workout's activity is not latched off after iOS ends it", async 
   assert.match(settings, /UIApplication\.openSettingsURLString/);
 });
 
-async function fakeApp(t, { liveActivities = true, widget = true, widgetBinary = "SpotterWorkoutLiveActivity SpotterTrainingActivityAttributes", debugDylib = false } = {}) {
+async function fakeApp(t, {
+  liveActivities = true,
+  widget = true,
+  widgetBinary = "SpotterWorkoutLiveActivity SpotterWorkoutLiveActivityWithWatch SpotterTrainingActivityAttributes",
+  watchWidget = true,
+  watchWidgetBinary = "app.spotter.health.watch.training app.spotter.health.watch.next",
+  debugDylib = false,
+} = {}) {
   const directory = await mkdtemp(join(tmpdir(), "spotter-bundle-test-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const app = join(directory, "Spotter.app");
@@ -105,10 +115,21 @@ async function fakeApp(t, { liveActivities = true, widget = true, widgetBinary =
     });
     await write(join(appex, "SpotterWidget"), `\0${widgetBinary}\0`);
   }
-  await write(join(app, "Watch", "SpotterWatch.app", "Info.plist"), {
+  const watchApp = join(app, "Watch", "SpotterWatch.app");
+  await write(join(watchApp, "Info.plist"), {
     CFBundleIdentifier: "app.spotter.health.watchkitapp", ...version, WKCompanionAppBundleIdentifier: "app.spotter.health",
     WKApplication: true, WKBackgroundModes: ["workout-processing"],
   });
+  if (watchWidget) {
+    const appex = join(watchApp, "PlugIns", "SpotterWatchWidget.appex");
+    await write(join(appex, "Info.plist"), {
+      CFBundleIdentifier: "app.spotter.health.watchkitapp.widget", CFBundleExecutable: "SpotterWatchWidget", ...version,
+      NSExtension: { NSExtensionPointIdentifier: "com.apple.widgetkit-extension" },
+    });
+    const path = join(appex, "SpotterWatchWidget");
+    await write(path, debugDylib ? "stub" : watchWidgetBinary);
+    if (debugDylib) await write(path + ".debug.dylib", watchWidgetBinary);
+  }
   return app;
 }
 
@@ -131,4 +152,15 @@ test("bundle check reports what keeps the Dynamic Island from showing", async (t
   const noIsland = checkAppBundle(await fakeApp(t, { widgetBinary: "SpotterBuddyWidget" }), { plist: jsonPlist });
   assert.equal(noIsland.length, 1);
   assert.match(noIsland[0], /SpotterWorkoutLiveActivity/);
+});
+
+
+test("bundle check reports a missing Watch widget or complication", async (t) => {
+  const missingExtension = checkAppBundle(await fakeApp(t, { watchWidget: false }), { plist: jsonPlist });
+  assert.equal(missingExtension.length, 1);
+  assert.match(missingExtension[0], /SpotterWatchWidget\.appex/);
+
+  const missingComplication = checkAppBundle(await fakeApp(t, { watchWidgetBinary: "app.spotter.health.watch.next" }), { plist: jsonPlist });
+  assert.equal(missingComplication.length, 1);
+  assert.match(missingComplication[0], /app\.spotter\.health\.watch\.training/);
 });

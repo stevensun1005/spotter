@@ -112,6 +112,8 @@ final class NativeWorkoutStore: ObservableObject {
     private var anatomyEditRevision = 0
     private var localCompletedPlanIds: Set<String> = []
     private var lastSetCompletion: LastSetCompletion?
+    private var receivedWatchCheckins: [UUID] = []
+    private var watchHistory: (revision: Int, history: NativeExerciseHistory)?
 
     private(set) var plans: [NativeWorkoutEntry] = []
     private(set) var logs: [NativeWorkoutEntry] = []
@@ -263,6 +265,7 @@ final class NativeWorkoutStore: ObservableObject {
             draftNeedsSync = active != nil && (saved.draftNeedsSync ?? true)
             pendingCheckins = saved.pending.filter { $0.owner == owner && $0.kind == "log" }
             discardedDrafts = (saved.discarded ?? []).filter { UUID(uuidString: $0) != nil }
+            receivedWatchCheckins = saved.receivedWatchCheckins ?? []
         }
         if let snapshotURL, let data = try? Data(contentsOf: snapshotURL), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
            snapshot.owner == owner, snapshot.origin == api.origin {
@@ -316,6 +319,7 @@ final class NativeWorkoutStore: ObservableObject {
         let draftNeedsSync: Bool?
         let lastSetCompletion: LastSetCompletion?
         let setCountdown: NativeWorkoutSession.SetCountdown?
+        var receivedWatchCheckins: [UUID]? = nil
     }
 
     private struct Snapshot: Codable {
@@ -350,7 +354,7 @@ final class NativeWorkoutStore: ObservableObject {
             let completion = lastSetCompletion.flatMap { $0.workoutID == active?.id ? $0 : nil }
             let recovery = Recovery(origin: origin, owner: owner, active: active, pending: pendingCheckins,
                                     discarded: discardedDrafts, draftNeedsSync: draftNeedsSync, lastSetCompletion: completion,
-                                    setCountdown: activeSetCountdown)
+                                    setCountdown: activeSetCountdown, receivedWatchCheckins: receivedWatchCheckins)
             try Self.writeLocal(recovery, to: cacheURL)
             return true
         } catch { errorMessage = "本机恢复记录未保存，请保持 App 打开并联网保存。"; return false }
@@ -683,6 +687,8 @@ final class NativeWorkoutStore: ObservableObject {
         recentHistoryStart = nil
         lastSetCompletion = nil
         setCountdown = nil
+        receivedWatchCheckins = []
+        watchHistory = nil
         active = nil; pendingCheckins = []; entries = []; room = .null
         libraryRows = []
         viewerAnatomyVariant = nil
@@ -926,26 +932,114 @@ final class NativeWorkoutStore: ObservableObject {
         mutate { session in if session.isRunning { session.pause() } }
     }
 
+    var watchBinding: String {
+        SHA256.hash(data: Data((origin + "\n" + owner).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    var watchLaunchOptions: [NativeWatchLaunchOption] {
+        let today = NativeWorkoutSession.day()
+        let upcoming = todayPendingPlans + (nextPlan(after: today).map { [$0] } ?? [])
+        let resume = (active ?? drafts.first { $0.day == today }).map {
+            NativeWatchLaunchOption(id: $0.id, title: String($0.displayTitle.prefix(45)), day: today, isResume: true)
+        }
+        var seen = Set<String>()
+        if let planID = (active ?? drafts.first { $0.day == today })?.data["planId"].string { seen.insert(planID) }
+        let scheduled = upcoming.filter { seen.insert($0.id).inserted }.prefix(7).map { entry in
+            let plan = NativePlan(raw: entry.data)
+            let supportsOffline = !plan.exercises.isEmpty && plan.video.isEmpty
+            return NativeWatchLaunchOption(id: entry.id, title: String(entry.displayTitle.prefix(45)), day: entry.day,
+                                           isResume: false, plan: supportsOffline ? entry.data : nil)
+        }
+        return (resume.map { [$0] } ?? []) + scheduled
+    }
+
+    func startWatchLaunch(_ request: NativeWatchNearbyLaunch) -> NativeWorkoutEntry? {
+        guard request.binding == watchBinding, !isBusy else { return nil }
+        if let active, active.id == request.optionID || active.data["planId"].string == request.optionID {
+            if active.session?.isRunning == false { toggleClock() }
+            return self.active
+        }
+        guard active == nil else { return nil }
+        let today = NativeWorkoutSession.day()
+        if let draft = drafts.first(where: { $0.id == request.optionID && $0.day == today }) {
+            resume(draft)
+        } else if let scheduled = todayPendingPlans.first(where: { $0.id == request.optionID }) {
+            guard !NativePlan(raw: scheduled.data).exercises.isEmpty else { return nil }
+            startScheduled(scheduled)
+        }
+        return active
+    }
+
+    func acceptWatchCheckin(_ archive: NativeWatchOfflineCheckin) -> Bool {
+        guard archive.binding == watchBinding else { return false }
+        let id = archive.id.uuidString.lowercased()
+        if receivedWatchCheckins.contains(archive.id) || logs.contains(where: { $0.id == id }) { return true }
+        let workout = NativeWorkoutSession(raw: archive.finished)
+        let ended = Int(workout.raw["ended"].number)
+        guard workout.raw["clock"]["runningSince"] == .null, ended >= workout.started,
+              (try? workout.finalizing(at: ended)) != nil else { return false }
+        let checkin = NativeWorkoutEntry(id: id, owner: owner, kind: "log",
+                                         updated: Date(timeIntervalSince1970: Double(ended) / 1_000).formatted(.iso8601),
+                                         data: archive.finished)
+        let oldCheckins = pendingCheckins
+        let oldReceipts = receivedWatchCheckins
+        pendingCheckins.append(checkin)
+        receivedWatchCheckins = Array((receivedWatchCheckins + [archive.id]).suffix(256))
+        guard persist() else {
+            pendingCheckins = oldCheckins
+            receivedWatchCheckins = oldReceipts
+            return false
+        }
+        if let summary = archive.summary {
+            let health = NativeWorkoutHealthSync.shared
+            _ = health.expect(token: archive.id, origin: origin, owner: owner, entry: checkin)
+            health.accept(.init(token: archive.id, data: summary))
+        }
+        if active == nil { status = "手表打卡已保存到本机，正在上传" }
+        Task { await retryPending() }
+        return true
+    }
+
+    func watchSnapshot() -> NativeWatchWorkoutSnapshot? {
+        guard let session = active?.session else { return nil }
+        if watchHistory?.revision != entryRevision {
+            watchHistory = (entryRevision, NativeExerciseHistory(logs: logs, owner: owner))
+        }
+        return .init(session: session, previous: undoableSet, countdown: activeSetCountdown, history: watchHistory?.history)
+    }
+
     func applyWatchAction(_ command: NativeWatchWorkoutCommand, workoutID: String) -> NativeWatchWorkoutSnapshot? {
-        guard !isBusy, let entry = active, entry.owner == owner, entry.id == workoutID, let session = entry.session else { return nil }
+        guard !isBusy, let entry = active, entry.owner == owner, entry.id == workoutID,
+              let session = entry.session else { return nil }
         let previous = undoableSet
+        let position = command.position.map { NativeWorkoutSession.SetPosition(move: $0.move, row: $0.row) }
         switch command.action {
         case .completeSet:
-            guard let target = command.position else { return nil }
-            let position = NativeWorkoutSession.SetPosition(move: target.move, row: target.row)
-            guard session.nextSet(after: previous) == position else { return nil }
+            guard let position else { return nil }
             var completed = false
+            let timer = activeSetCountdown
             mutate { workout in
                 var candidate = workout
-                if let weight = command.weight { candidate.setLine(move: target.move, row: target.row, key: "weight", value: .number(weight)) }
-                if let reps = command.reps { candidate.setLine(move: target.move, row: target.row, key: "reps", value: .number(Double(reps))) }
-                if let seconds = command.seconds { candidate.setLine(move: target.move, row: target.row, key: "seconds", value: .number(Double(seconds))) }
-                guard let result = candidate.completeSet(at: position, after: previous) else { return }
+                guard let result = candidate.completeWatchSet(command, at: position, after: previous,
+                                                              countdown: timer) else { return }
                 workout = candidate
                 self.lastSetCompletion = LastSetCompletion(workoutID: workoutID, completion: result)
                 completed = true
             }
             guard completed else { return nil }
+        case .startSetTimer:
+            guard let position, session.nextSet(after: previous) == position, activeSetCountdown == nil else { return nil }
+            if let seconds = command.seconds {
+                setNumber(move: position.move, row: position.row, key: "seconds", value: Double(seconds))
+            }
+            startSetCountdown(at: position)
+            guard activeSetCountdown?.position == position else { return nil }
+        case .cancelSetTimer:
+            guard let position, activeSetCountdown?.position == position else { return nil }
+            cancelSetCountdown(at: position)
+        case .finishWorkout:
+            let snapshot = watchSnapshot()
+            return finishLocally() == nil ? nil : snapshot
         case .setRunning:
             guard let running = command.running else { return nil }
             if running != session.isRunning { toggleClock() }
@@ -959,8 +1053,7 @@ final class NativeWorkoutStore: ObservableObject {
         case .refresh:
             break
         }
-        guard let updated = active?.session else { return nil }
-        return NativeWatchWorkoutSnapshot(session: updated, previous: undoableSet)
+        return watchSnapshot()
     }
 
     private func changed() {
@@ -1009,7 +1102,9 @@ final class NativeWorkoutStore: ObservableObject {
         }
     }
 
-    func finish() async -> NativeWorkoutEntry? {
+    func finish() async -> NativeWorkoutEntry? { finishLocally() }
+
+    private func finishLocally() -> NativeWorkoutEntry? {
         guard !isBusy, let current = active, let session = current.session else { return nil }
         do {
             let final = try session.finalizing()
@@ -1350,6 +1445,12 @@ private enum NativeHomeHeaderLayout {
     }
 }
 
+struct NativeHomeWorkoutFocus: Identifiable {
+    let id = UUID()
+    let planID: String
+    let day: String
+}
+
 @MainActor
 struct NativeWorkoutView: View {
     @ObservedObject var store: NativeWorkoutStore
@@ -1366,6 +1467,7 @@ struct NativeWorkoutView: View {
     var openPrograms: (() -> Void)? = nil
     var openFriends: (() -> Void)? = nil
     var homeDate: Binding<Date>? = nil
+    var homeWorkoutFocus: Binding<NativeHomeWorkoutFocus?>? = nil
     var homeNutrition: ((Date, @escaping () -> Void) -> AnyView)? = nil
     var nutritionRing: ((Date) -> SpotterWeekDateStrip.Day)? = nil
     var refreshNutritionWeek: ((Date, Bool) async -> Void)? = nil
@@ -1585,6 +1687,13 @@ struct NativeWorkoutView: View {
             .onChange(of: selectedDay) { _ in
                 if homeHeaderCompression < 0.65 { scroll.scrollTo("spotter-home-top", anchor: .top) }
             }
+            .task(id: focusedHomeWorkout?.id) {
+                guard let focus = focusedHomeWorkout else { return }
+                await Task.yield()
+                guard !Task.isCancelled, focusedHomeWorkout?.id == focus.id else { return }
+                withAnimation(motion) { scroll.scrollTo("spotter-home-plan-\(focus.planID)", anchor: .center) }
+                homeWorkoutFocus?.wrappedValue = nil
+            }
             .animation(motion, value: planNotice != nil)
             .refreshable {
                 let date = selectedDate
@@ -1593,6 +1702,13 @@ struct NativeWorkoutView: View {
                 await workout
             }
         }
+    }
+
+    private var focusedHomeWorkout: NativeHomeWorkoutFocus? {
+        guard let focus = homeWorkoutFocus?.wrappedValue, focus.day == selectedDay,
+              store.plansByKey[.init(owner: store.owner, id: focus.planID)]?.day == focus.day,
+              !store.hasCompletedPlan(id: focus.planID) else { return nil }
+        return focus
     }
 
     @ViewBuilder private var homeScrollSurface: some View {
@@ -2015,6 +2131,7 @@ struct NativeWorkoutView: View {
             .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
         }
         .padding(10).spotterCard(radius: 16)
+        .id("spotter-home-plan-\(entry.id)")
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("spotter-home-plan-\(entry.id)")
     }

@@ -131,12 +131,14 @@ AI 教练是右下方的 48 点圆角方形按钮，外圈是四种强调色组�
 | 使用方式 | 路径与数据边界 | 实现 |
 | --- | --- | --- |
 | iPhone 查看 Apple 健康 | 「设置 → 手表与健康 → 授权 Apple 健康」，由系统选择具体类别。健康和身体页面在前台支持读取刷新。系统样本取决于设备、系统可读类型和用户选择。 | [HealthKitReader](../ios/SpotterHealth/HealthKitReader.swift) · [NativeHealth](../ios/SpotterHealth/NativeHealth.swift) |
-| Apple Watch 实时训练 | iPhone 打开训练后，点底栏「手表 → 连接」。第一次在手表确认权限。手表可看动作和组次、记录当前组、调节休息、暂停或继续。实时读数为当前训练内的配对设备通信，在训练类型旁显示，过期时隐藏。完成打卡从 iPhone 发起。 | [Watch App](../ios/SpotterWatch/SpotterWatchApp.swift) · [iPhone 镜像管理](../ios/SpotterHealth/NativeWatchHeartRate.swift) |
+| Apple Watch 专注训练 | Watch App 默认显示当前动作、A1/A2 分组、组次、重量次数或时长，以及当次可用心率。点数值可用表冠输入，支持左右两侧。单击完成组，完整列表位于第二页。计时和休息显示倒数，休息可加减 15 秒或跳过。手机发起的训练沿用手机草稿和 A1/A2 顺序。 | [Watch App](../ios/SpotterWatch/SpotterWatchApp.swift) · [组次排序](../ios/SpotterHealth/NativeWorkoutModels.swift) · [配对通信](../ios/SpotterHealth/NativeWatchHeartRate.swift) |
+| 从 Apple Watch 开练和结束 | iPhone 可连接时，表上选今日计划或继续训练，并可结束同一份草稿。此前同步的当天力量或计时计划可从表上离线开练，草稿在手表存续，结束后等待回传。重连后按同一堂训练同步打卡和可用健康摘要。手机发起的训练在断线期间保留最近进度，等待重新连接。 | [Watch App](../ios/SpotterWatch/SpotterWatchApp.swift) · [训练数据协议](../ios/SpotterHealth/NativeWatchHeartRatePacket.swift) |
+| Apple Watch 表盘与智能叠放 | 表盘圆形「开练」显示入口或组数。矩形「下一练」可用于表盘和智能叠放，显示下一堂计划或当前组数，点按进入 Watch App。界面使用限时摘要，计划标题支持系统隐私隐藏。配对 iPhone 训练的腕上实时活动显示计时、组次和休息，取决于系统和用户设置。 | [Watch 小组件](../ios/SpotterWatchWidget/) · [训练实时活动](../ios/SpotterWidget/SpotterWorkoutLiveActivity.swift) |
 | 手表完成摘要与历史心率 | 打卡后按真实训练时间和连接令牌归属摘要，显示活跃热量、总热量和平均心率。总热量使用同段活跃与静息热量；缺项显示「—」。训练详情「训练心率」右上角的圆形同步按钮可补读曲线和相符的 Apple Watch 运动；正式记入的摘要和原始心率独立存储。训练热量只作训练展示。 | [Watch 数据协议](../ios/SpotterHealth/NativeWatchHeartRatePacket.swift) · [摘要补传](../ios/SpotterHealth/NativeWorkoutHealthSync.swift) · [摘要 API](../cloudflare/app/api/health/workout-summary/route.ts) |
 | Garmin、WHOOP、Google 和 RENPHO | 这些来源已写入 Apple 健康的受支持字段随 HealthKit 读取；源设备未写入的字段需要厂商能力。网页训练详情有 FIT/TCX、Apple 健康导出、WHOOP CSV/ZIP 和通用 CSV 入口。WHOOP 在线同步是网页功能，需要已配置的厂商 OAuth。RENPHO 分段肌肉和脂肪依赖支持分段的秤与可用导出，目前没有从 Apple 健康取得这类分段指标的入口。 | [设备说明](../ios/README.md) · [网页心率导入](../cloudflare/features/heart/) |
 | 独立 Node 的原生配对 | 网页生成五分钟的一次性配对码。手机在测试/自托管 HTTPS 地址使用 Keychain 设备令牌，按账号及窗口上传选定的心率、体重、活动和运动。重复样本与已写运动保持幂等。重新配对替换旧凭据，断开后旧设备失效。 | [Apple 设备 API](../app/api/health/apple/) · [配对与同步说明](health-device-sync.md) |
 | 私密 Sites 的 iPhone 历史导入 | 在 iPhone Safari 的打卡详情用快捷指令读取训练时段；预览后由网页账号保存。也支持网页文件流程，是否可用以已发布版为准。 | [Sites 接入差异](health-device-sync.md#两种现有接入的区别) |
-| 主屏小组件 | 长按 iPhone 主屏 → 添加小组件 → 搜索「训练搭子」。「搭子督练」支持小号或中号，小号并排查看本周进度。「今日饮食」和「我的训练周报」为中号。「年度训练热力图」为中号或大号。周报展示最近完整周；热力图展示最近 365 天。点摘要打开对应 App 页面。 | [Widget 卡片](../ios/SpotterWidget/SpotterWidget.swift) · [共享摘要](../ios/SpotterWidgetShared/) |
+| 主屏小组件 | 「今天开练」小号直达进行中、当天计划或下次计划。「本周双环」中号按周一至周日对齐训练和饮食环。「搭子督练」小号或中号展示双方自然周记录，中号可直达搭子某日详情。「今日饮食」显示剩余热量、宏量营养和饮水，提供相机、预填饮水和自动估算入口。周报显示最近完整周，热力图显示近 365 天。 |
 | 锁屏实时活动和灵动岛 | 「设置 → 计时提醒 → 锁屏实时训练」。在训练进入前台时立即请求。App 内的训练页顶部和最小化训练条展示计时、组数和可用心率。离开 App 后灵动岛显示时间和完成组数，展开可查看下一组、休息倒数和近期 Watch 心率。可点按回到进行中的训练。iPhone 设置关闭了 App 的「实时活动」时，开关下方显示「打开 iPhone 设置」。App 运行期间在锁屏划掉本次训练后显示「重新显示本次训练」，iOS 拒绝请求时显示原因。系统结束的活动在下次回到前台时重新开始。手机锁定时 iOS 在后台唤醒 App 读不到钥匙串，此时保留登录状态和实时活动，解锁通知或下次打开 App 时重新恢复账号。支持能力取决于 iOS 版本、设备和系统设置。 | [App ActivityKit 管理](../ios/SpotterHealth/NativeTrainingLiveActivity.swift) · [锁屏与灵动岛](../ios/SpotterWidget/SpotterWorkoutLiveActivity.swift) · [状态行](../ios/SpotterHealth/NativeWebSecondary.swift) · [归档检查](../tools/verify-ios-archive.mjs) |
 
 主屏小组件使用当前账号的限时摘要，签出后清理。iOS 系统可以隐藏小组件敏感内容。健康说明中的模拟器编译或合成协议验证不能证明真机授权、实际心率及 Watch 后台队列已验证。[App 与设备核验](iphone-app.md)
@@ -301,3 +303,9 @@ AI 教练是右下方的 48 点圆角方形按钮，外圈是四种强调色组�
 2026-11-27 内测发布记录。1.0.1 Build 64 从 GitHub `main` 提交 `d40ec7cae36ac2bcad07feadd2f23b3b95d64d7e` 归档。包含 PR #6 的个性化营养目标及界面、扫码按数量记餐、饮食快捷入口、开练与最小化计时、悬浮 AI 教练和原生左滑。源码检查、模拟器打包、原生冒烟、独立版 29 项测试、Cloudflare 394 项测试和小屏模拟器营养目标流程通过。签名归档核对 iPhone、Apple Watch、小组件、生产推送、灵动岛、共用帮助和食物库及 5,685 段离线动作演示。Xcode 以 TestFlight Internal Only 上传，App Store Connect 的「训练搭子内测」显示 `Internal` 和 `Testing`。App 沿用 Cloudflare 98，已可估算和保存热量及营养素目标值。训练天数、进度偏好的服务端保存以及新版文字自动记餐需要后续 Worker 发布。
 
 2026-11-27 TestFlight 上传记录。1.0.1 Build 65 从 GitHub `main` 提交 `f08c1d793a0cbc3b1aef4dd4e48879a3287011f2` 归档，包含 Apple 健康、训练日历和自动动态热量估算。源码检查、模拟器打包、原生冒烟、独立版 29 项测试、Cloudflare 394 项测试及 iPhone SE 的三项营养估算测试通过。分发归档核对 iPhone、Apple Watch、小组件、生产推送、灵动岛、帮助、食物库和 5,685 段离线动作演示。Xcode 以支持内外测的配置上传成功。App Store Connect 的「训练搭子内测」显示 Build 65 为 `Testing`。经用户确认撤回 Build 62 的外测审核，旧构建恢复为 `Ready to Submit`。Build 65 已加入「训练搭子公开外测」并提交 Beta App Review，显示 `Waiting for Review`。测试说明涵盖动态热量估算及目标保存，审核通过后自动通知外测测试员。
+
+2026-11-27，基于 Build 65 的 iPhone 与 Watch 开发更新。主屏新增「今天开练」和「本周双环」，更新「今日饮食」及「搭子督练」。由 `NativeApp.swift` 写入按账号隔离的 `SpotterWidgetSnapshot`，WidgetKit 按系统时间线刷新。深绿训练环和浅蓝饮食环使用自然周口径，饮食环遵循已保存目标。相应入口更新到共用产品帮助。
+
+`SpotterWatchApp.swift` 新增腕上专注、休息和整堂训练列表。近机开练、记组、结束由 iPhone 的训练草稿处理。已同步的当天分组计划也可在手表离线执行。两端复用 `NativeWatchTraining.swift` 和 `NativeWorkoutModels.swift` 的组次、计时与完训规则。手表用原子写入保留离线草稿及待同步记录，WatchConnectivity 回传带账号绑定和稳定 ID 的打卡，确认 iPhone 保存后移除待同步记录。Apple 健康摘要使用现有私有接口。新增 watchOS WidgetKit 扩展，配对 iPhone 的实时活动增加腕上布局。iOS 17／watchOS 10 起支持跨设备训练，腕上实时活动按系统版本可用。
+
+验证覆盖 iPhone 与 watchOS 模拟器目标编译及嵌套扩展、原生冒烟、离线恢复、分组轮换、左右侧记录、计时、重复操作和共用帮助。真实 Apple 健康授权、表盘刷新和配对设备断线后的回传需真机验证。分发前还须为 Watch 小组件签名并配置 App Group。

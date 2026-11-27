@@ -4,10 +4,23 @@
 <dict>
     <key>CFBundleDisplayName</key>
     <string>训练搭子</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>CFBundleURLName</key>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER).training</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>spotter-watch</string>
+            </array>
+        </dict>
+    </array>
     <key>NSHealthShareUsageDescription</key>
     <string>在训练时从 Apple Watch 读取实时心率，并在训练结束时将平均心率、活跃热量和总热量同步到配对的 iPhone。</string>
     <key>NSHealthUpdateUsageDescription</key>
-    <string>运行训练搭子的 Apple Watch 训练会话，用于实时心率和完训摘要。完成后由训练搭子记录本次训练。</string>
+    <string>在 Apple Watch 上开始训练时读取实时心率和热量，并将手表上完成的训练记录保存到 Apple 健康。</string>
     <key>WKApplication</key>
     <true/>
     <key>WKBackgroundModes</key>

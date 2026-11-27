@@ -15,7 +15,7 @@ function binaryHas(path, names) {
 
 /**
  * Checks a built Spotter.app (simulator build or the Release app inside an .xcarchive):
- * the widget extension that draws the Lock Screen and Dynamic Island Live Activity, and the Watch app.
+ * the iPhone widget extension, the Watch app and its embedded Watch widget extension.
  * Returns a list of problems in Chinese; an empty list means the bundle is complete.
  */
 export function checkAppBundle(app, { plist = readPlist, watch = true } = {}) {
@@ -54,7 +54,7 @@ export function checkAppBundle(app, { plist = readPlist, watch = true } = {}) {
     let missing;
     try {
       missing = binaryHas(join(appex, widget.CFBundleExecutable ?? "SpotterWidget"),
-        ["SpotterWorkoutLiveActivity", "SpotterTrainingActivityAttributes"]);
+        ["SpotterWorkoutLiveActivity", "SpotterWorkoutLiveActivityWithWatch", "SpotterTrainingActivityAttributes"]);
     } catch {
       missing = ["SpotterWidget"];
     }
@@ -62,9 +62,10 @@ export function checkAppBundle(app, { plist = readPlist, watch = true } = {}) {
   }
 
   if (watch) {
+    const watchPath = join(app, "Watch", "SpotterWatch.app");
     let watchApp;
     try {
-      watchApp = plist(join(app, "Watch", "SpotterWatch.app", "Info.plist"));
+      watchApp = plist(join(watchPath, "Info.plist"));
     } catch {
       problems.push("App 里没有 Apple Watch 配套 App。");
     }
@@ -74,6 +75,31 @@ export function checkAppBundle(app, { plist = readPlist, watch = true } = {}) {
         watchApp.WKCompanionAppBundleIdentifier !== host.CFBundleIdentifier || watchApp.WKApplication !== true ||
         !watchApp.WKBackgroundModes?.includes("workout-processing"))) {
       problems.push("Apple Watch 配套 App 的标识、版本或训练后台模式与 App 不一致。");
+    }
+    if (watchApp) {
+      const extensionPath = join(watchPath, "PlugIns", "SpotterWatchWidget.appex");
+      let watchWidget;
+      try {
+        watchWidget = plist(join(extensionPath, "Info.plist"));
+      } catch {
+        problems.push("Apple Watch 配套 App 里没有 SpotterWatchWidget.appex，表盘和智能叠放小组件不会显示。");
+      }
+      if (watchWidget) {
+        if (watchWidget.CFBundleIdentifier !== `${watchApp.CFBundleIdentifier}.widget` ||
+            watchWidget.CFBundleVersion !== watchApp.CFBundleVersion ||
+            watchWidget.CFBundleShortVersionString !== watchApp.CFBundleShortVersionString ||
+            watchWidget.NSExtension?.NSExtensionPointIdentifier !== "com.apple.widgetkit-extension") {
+          problems.push("Apple Watch 小组件扩展的标识、版本或扩展类型与手表 App 不一致。");
+        }
+        let missing;
+        try {
+          missing = binaryHas(join(extensionPath, watchWidget.CFBundleExecutable ?? "SpotterWatchWidget"),
+            ["app.spotter.health.watch.training", "app.spotter.health.watch.next"]);
+        } catch {
+          missing = ["SpotterWatchWidget"];
+        }
+        if (missing.length) problems.push(`Apple Watch 小组件扩展缺少 ${missing.join("、")}。`);
+      }
     }
   }
   return problems;

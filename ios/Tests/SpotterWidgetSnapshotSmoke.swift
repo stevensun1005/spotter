@@ -13,6 +13,10 @@ struct SpotterWidgetSnapshotSmoke {
         precondition(SpotterWidgetSnapshot.weekDays(startingAt: "2026-11-16")
             == ["2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20", "2026-11-21", "2026-11-22"])
         precondition(SpotterWidgetSnapshot.weekDays(startingAt: "2026-11-17").isEmpty)
+        precondition(SpotterWidgetSnapshot.isDayKey("2024-02-29"))
+        precondition(!SpotterWidgetSnapshot.isDayKey("2026-02-29"))
+        precondition(SpotterWidgetSnapshot.isEntryID("synthetic-plan"))
+        precondition(!SpotterWidgetSnapshot.isEntryID(" plan\n"))
         let heatmap = SpotterWidgetSnapshot.yearDays(endingAt: date, timeZone: toronto)
         let heatmapDays = heatmap.compactMap { $0 }
         precondition(heatmap.count == 371 && heatmapDays.count == 365)
@@ -29,6 +33,7 @@ struct SpotterWidgetSnapshotSmoke {
         let unavailable = SpotterWidgetStore(directoryURL: nil)
 
         let workout = SpotterWidgetSnapshot.Workout(title: "  示范\n训练  ", day: "2026-11-22", minutes: 40)
+        let exactWorkout = SpotterWidgetSnapshot.Workout(title: "示范训练", day: "2026-11-22", minutes: 40, planID: "synthetic-plan")
         let paused = SpotterWidgetSnapshot.Active(title: "示范训练", completedSets: 1, totalSets: 3, isRunning: false)
         let running = SpotterWidgetSnapshot.Active(title: "示范训练", completedSets: 1, totalSets: 3, isRunning: true)
         let week = [true, false, true, false, false, false, false]
@@ -84,11 +89,18 @@ struct SpotterWidgetSnapshotSmoke {
         let weekly = SpotterWidgetSnapshot.Weekly(weekStart: "2026-11-09", dailyMinutes: [44, 0, 52, 0, 0, 48, 0],
                                                 trainingDays: 3, totalMinutes: 144, completedSets: 51, previousTrainingDays: 3)
         let yearly = SpotterWidgetSnapshot.Year(dailyMinutes: ["2025-11-23": 20, "2026-11-16": 0, "2026-11-22": 48])
+        let progress = [
+            SpotterWidgetSnapshot.WeekDay(trainingState: .planned, trainingProgress: 0.5,
+                                          nutritionProgress: 0.75, hasNutritionRecord: true),
+            .init(trainingState: .rest, trainingProgress: 0, nutritionProgress: nil, hasNutritionRecord: false)
+        ] + Array(repeating: .init(trainingState: .unavailable, trainingProgress: 0,
+                                    nutritionProgress: nil, hasNutritionRecord: nil), count: 5)
         func collection(at updatedAt: Date = date, nutrition: SpotterWidgetSnapshot.Nutrition? = nutrition,
-                        year: SpotterWidgetSnapshot.Year? = yearly) -> SpotterWidgetSnapshot {
+                        year: SpotterWidgetSnapshot.Year? = yearly, progressWeek: [SpotterWidgetSnapshot.WeekDay]? = progress)
+        -> SpotterWidgetSnapshot {
             SpotterWidgetSnapshot(updatedAt: updatedAt, day: "2026-11-22", todayCompleted: 1, weekStart: "2026-11-16",
-                                  weekCheckins: week, nextWorkout: nil, activeWorkout: nil,
-                                  buddy: buddy, nutrition: nutrition, weekly: weekly, year: year)
+                                  weekCheckins: week, nextWorkout: exactWorkout, activeWorkout: nil,
+                                  buddy: buddy, nutrition: nutrition, weekly: weekly, year: year, progressWeek: progressWeek)
         }
         let cards = collection()
         precondition(buddy.name == "示例 搭子" && buddy.todayTitle == "示例 训练")
@@ -96,8 +108,14 @@ struct SpotterWidgetSnapshotSmoke {
         precondition(!store.write(collection(year: .init(dailyMinutes: ["2025-11-22": 40]))))
         precondition(!store.write(collection(year: .init(dailyMinutes: ["2026-11-23": 40]))))
         precondition(!store.write(collection(nutrition: .init(calories: 0, protein: 0, carbs: 0, fat: 0, waterML: .infinity))))
+        precondition(!store.write(collection(progressWeek: Array(progress.dropLast()))))
+        precondition(!store.write(collection(progressWeek: Array(repeating: .init(
+            trainingState: .none, trainingProgress: 0, nutritionProgress: 1.1, hasNutritionRecord: true), count: 7))))
         precondition(store.write(cards))
         precondition(store.read(at: date) == cards)
+        precondition(store.read(at: date)?.nextWorkout?.planID == "synthetic-plan")
+        precondition(store.read(at: date)?.progressWeek?[1].hasNutritionRecord == false)
+        precondition(store.read(at: date)?.progressWeek?[2].hasNutritionRecord == nil)
         precondition(store.read(at: date)?.year?.dailyMinutes["2026-11-16"] == 0)
         precondition(!store.write(collection(at: date.addingTimeInterval(60))))
         let newNutrition = SpotterWidgetSnapshot.Nutrition(calories: 1_840, protein: 112, carbs: 204, fat: 63, waterML: 1_500)
@@ -105,6 +123,6 @@ struct SpotterWidgetSnapshotSmoke {
         precondition(store.read(at: date)?.nutrition?.waterML == 1_500)
         precondition(store.read(at: date)?.nutrition?.frequentMeals.isEmpty == true)
         precondition(store.remove())
-        print("PASS widget snapshots: civil-day boundaries, rolling year, four payloads, refresh, expiry and sign-out removal")
+        print("PASS widget snapshots: civil-day boundaries, workout routes, weekly rings, rolling year, refresh, expiry and sign-out removal")
     }
 }
