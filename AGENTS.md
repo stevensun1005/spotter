@@ -28,7 +28,7 @@
 - 使用连续蒙皮的浅灰色人体、深色运动短裤和鞋、浅灰背景、柔和地面阴影。用适度的局部肌肉红色高亮，器械按真实结构、握法、负荷和锚点绘制。选能看清关节和器械轨迹的三分之四视角或侧视，起始、发力、回程都要连续。封面从实际渲染帧截取。
 - 新交付的素材不以线条人、静帧拼接、通用替身或外部现成视频替代。先查目录并复用完全相同的动作 ID，保留左右侧、器械、握法及不同变式。缺少准确动作或器械时，先完善配方和渲染器，并在发布前核对全程。
 - 官方素材按目录 ID 登记，App 和网页使用同一示范。外部 Agent 的操作与格式见 [Agent 接入指南](cloudflare/docs/agent-api.md#用-spotter-技能生成动作示范)。
-- 动画替换以目录实际选中的示范为准。用 [目录审计](cloudflare/scripts/audit-exercise-animations.mjs) 的 `--list-illustrations` 盘点当前线条动画，旧动图用 `--list-legacy`。核对关键帧后，用 [素材登记工具](tools/spotter-demo/promote-reviewed-legacy.mjs) 的 `--illustrations` 模式核对目录 ID、渲染收据和文件校验和，更新视频和封面。原有旧动图检查用 `--require-original-replacements`，全库 3D 覆盖检查用 `--require-all-3d`。登记后生成 iPhone 离线资源。
+- 动画替换以目录实际选中的示范为准。用 [目录审计](cloudflare/scripts/audit-exercise-animations.mjs) 的 `--list-illustrations` 盘点当前线条动画，旧动图用 `--list-legacy`。核对关键帧后，用 [素材登记工具](tools/spotter-demo/promote-reviewed-legacy.mjs) 的 `--illustrations` 模式核对目录 ID、渲染收据和文件校验和，更新视频和封面。已登记的同编号视频需要修正时，用 `--refresh` 重新核对收据并更新视频和封面。原有旧动图检查用 `--require-original-replacements`，全库 3D 覆盖检查用 `--require-all-3d`。登记后生成 iPhone 离线资源。
 
 ## 软件设计文档与使用帮助
 

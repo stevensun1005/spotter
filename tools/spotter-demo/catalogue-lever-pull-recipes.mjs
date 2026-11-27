@@ -146,8 +146,49 @@ function hold(pose, side, wrist, pole) {
   pose[side+"w"] = wrist;
 }
 
+function rearPivotTBarBody(config,phase,action) {
+  const t=rep(phase);
+  const prone=config.tBar==="prone";
+  const incline=config.tBar==="incline";
+  const hips=config.hinge?[0,mix(.721,.885,t),mix(-.200,-.013,t)]
+    :prone?[0,.837,-.302]:incline?[0,.704,-.258]:[0,.737,-.192];
+  const pitch=config.hinge?mix(1.15,.032,t):prone?1.51:incline?.902:1.03;
+  const at=(distance,x=0)=>add(hips,[x,distance*Math.cos(pitch),distance*Math.sin(pitch)]);
+  const pose={hips,chest:at(.382),neck:at(.610),head:at(.717),ls:at(.489,.192),rs:at(.489,-.192),
+    lh:at(0,.105),rh:at(0,-.105),planted:{}};
+  const angle=mix(config.arc,config.close,t);
+  for(const [side,sign] of sides){
+    const ankle=prone?[sign*.133,.822,-1.073]
+      :incline?[sign*.183,.117,-.568]:[sign*.239,.121,-.075];
+    const hip=pose[side+"h"];
+    const v=sub(ankle,hip);
+    const direction=unit(v);
+    const reach=clamp(size(v),.004,.839);
+    const along=(.422**2+reach**2-.424**2)/(2*reach);
+    const pole=prone?[sign*.09,-.86,-.19]:[sign*.16,.04,.97];
+    const facing=unit(sub(pole,scale(direction,dot(pole,direction))));
+    pose[side+"k"]=add(add(hip,scale(direction,along)),scale(facing,Math.sqrt(.422**2-along**2)));
+    pose[side+"a"]=add(hip,scale(direction,reach));
+    pose[side+"t"]=add(pose[side+"a"],prone?[sign*.012,-.109,-.095]:[sign*.022,-.063,.144]);
+    if(!prone)pose.planted[side]=incline?.050:.053;
+    if(side==="l"&&action==="right"){
+      const target=config.tBar==="standing"?add(hip,[.146,-.193,.152]):[.191,at(.24)[1]-.082,at(.24)[2]+.078];
+      hold(pose,side,target,[.89,-.39,-.31]);
+      continue;
+    }
+    const wrist=leverPullGrip(config,sign,angle);
+    const elbow=config.hinge?[sign*.21,-.19,-.85]:[sign*(config.wide?.91:.35),.28,-.87];
+    hold(pose,side,wrist,elbow);
+    pose[side+"Grip"]=config.neutral?[0,.26,.965]:config.under?[-1,0,0]:horizontal;
+    pose[side+"Fingers"]=config.neutral?[sign*.99,.05,-.07]:config.under?[0,.70,-.71]:[0,-.85,.52];
+  }
+  pose.leverPullAngles=[angle,angle];
+  return pose;
+}
+
 function poseFor(preset, phase, action) {
   const config = leverPulls[preset];
+  if (config.rearPivot) return rearPivotTBarBody(config,phase,action);
   if (config.utility) return utilityBody(config,rep(phase));
   const pose = config.tBar === "standing" ? bentOverBody()
     : config.preacher || config.pullover ? supportedBenchBody(config) : seatedBody(config);
@@ -164,6 +205,10 @@ function poseFor(preset, phase, action) {
         pose[side+"e"]=[sign*.208,config.pivotY,config.pivotZ];
         pose[side+"w"]=hand;
       }else{
+        if(config.scapula) {
+          const start=leverPullGrip(config,sign,config.arc);
+          pose[side+"s"]=add(pose[side+"s"],[0,hand[1]-start[1],hand[2]-start[2]]);
+        }
         hold(pose,side,hand,[sign * (config.diagonal ? .98 : .63),-.64,-.71]);
       }
       pose[side+"Grip"] = config.tBar === "standing" ? [sign*.36,.064,.93] :
@@ -203,6 +248,40 @@ const jobs = [
   ["0604","lever-seated-shrug",["trap"],{...sideView,yaw:54,height:1.80,focus:[0,.773,.15]}],
   ["2288","lever-hand-gripper",["forearm"],{...sideView,yaw:44,elevation:18,height:1.67,focus:[0,.765,.23]}],
   ["2286","lever-hip-footplate",["glute","hamstring"],{...sideView,yaw:66,height:2.07,focus:[0,.842,.27]}],
+  ["3096","lever-plate-close-horizontal",lat,sideView,"alternating"],
+  ["3102","lever-plate-close-horizontal",lat,{...sideView,yaw:39}],
+  ["4214","lever-plate-low-horizontal",lat,{...sideView,yaw:53}],
+  ["4215","lever-plate-low-horizontal",["r:lat","r:biceps"],{...sideView,yaw:-51},"right"],
+  ["1235","lever-stack-middle-neutral",["r:lat","r:biceps"],{...sideView,yaw:-42},"right"],
+  ["5447","lever-plate-middle-over",high,sideView],
+  ["1237","lever-plate-middle-neutral",lat,{...sideView,yaw:48}],
+  ["2664","lever-plate-middle-neutral",lat,{...sideView,yaw:42}],
+  ["5448","lever-plate-scapula-over",["trap","rearShoulder"],{...sideView,yaw:67}],
+  ["11056","lever-plate-scapula-neutral",["trap","rearShoulder"],{...sideView,yaw:63}],
+  ["2662","lever-plate-high-neutral",high,{...topView,yaw:110}],
+  ["2663","lever-plate-high-over",high,{...topView,yaw:115}],
+  ["4378","lever-plate-high-under",lat,{...topView,yaw:121}],
+  ["1870","lever-plate-lateral-neutral",lat,{...topView,yaw:106}],
+  ["2665","lever-lever-lateral-wide",lat,{...topView,yaw:109}],
+  ["2736","lever-lever-lateral-under",lat,{...topView,yaw:108}],
+  ["11309","lever-plate-lateral-under",["r:lat","r:biceps"],{...topView,yaw:-112},"right"],
+  ["1872","lever-plate-preacher-joined",["biceps"],{...sideView,yaw:61,height:1.82,focus:[0,.756,.270]}],
+  ["2660","lever-plate-preacher-low",["biceps"],{...sideView,yaw:63,height:1.80,focus:[0,.734,.266]}],
+  ["9862","lever-plate-preacher-independent",["r:biceps"],{...sideView,yaw:-59,height:1.80,focus:[0,.734,.266]},"right"],
+  ["6514","lever-tbar-chest-neutral",lat,{yaw:59,elevation:14,height:2.12,focus:[0,.77,-.04]}],
+  ["6513","lever-tbar-chest-std",lat,{yaw:64,elevation:14,height:2.12,focus:[0,.77,-.04]}],
+  ["10866","lever-tbar-single-lat",["r:lat","r:biceps"],{yaw:-56,elevation:14,height:2.09,focus:[0,.77,-.04]},"right"],
+  ["6515","lever-tbar-chest-neutral",["r:lat","r:biceps"],{yaw:-58,elevation:14,height:2.09,focus:[0,.77,-.04]},"right"],
+  ["6517","lever-tbar-chest-wide",["r:lat","r:rearShoulder"],{yaw:-59,elevation:14,height:2.09,focus:[0,.77,-.04]},"right"],
+  ["6516","lever-tbar-chest-wide",high,{yaw:56,elevation:14,height:2.12,focus:[0,.77,-.04]}],
+  ["4899","lever-tbar-chest-heavy",high,{yaw:62,elevation:14,height:2.15,focus:[0,.77,-.04]}],
+  ["10867","lever-tbar-incline-neutral",lat,{yaw:64,elevation:15,height:2.08,focus:[0,.74,-.11]}],
+  ["10646","lever-tbar-incline",lat,{yaw:60,elevation:15,height:2.08,focus:[0,.74,-.11]}],
+  ["4062","lever-tbar-lying-band",high,{yaw:53,elevation:15,height:2.09,focus:[0,.69,-.17]}],
+  ["1194","lever-tbar-lying",high,{yaw:60,elevation:15,height:2.09,focus:[0,.69,-.17]}],
+  ["11880","lever-tbar-chest-close",lat,{yaw:52,elevation:15,height:2.09,focus:[0,.77,-.04]}],
+  ["5327","lever-tbar-rdl",["glute","hamstring"],{yaw:67,elevation:12,height:2.31,focus:[0,.92,-.04]}],
+  ["1351","lever-tbar-underhand",lat,{yaw:55,elevation:13,height:2.09,focus:[0,.77,-.04]}],
 ];
 
 const [directory, ...requested] = process.argv.slice(2);

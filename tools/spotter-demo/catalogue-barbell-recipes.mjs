@@ -183,8 +183,8 @@ function supineArc(phase, { kind = "flat", type = "pullover", grip = "standard",
   return pose;
 }
 
-function curl(phase, { mode = "standing", width = .249, reverse = false, smith = false, strict = false } = {}) {
-  const amount = strict ? rep(phase, .41, .62) : rep(phase, .44, .55);
+function curl(phase, { mode = "standing", width = .249, reverse = false, smith = false, strict = false, travel } = {}) {
+  const amount = travel ?? (strict ? rep(phase, .41, .62) : rep(phase, .44, .55));
   const seated = mode === "seated" || mode === "concentration";
   const preacher = mode === "preacher";
   const prone = mode === "prone";
@@ -258,15 +258,16 @@ function standingPull(phase, { type, width = .29, smith = false } = {}) {
 
 function squatWithBar(phase, { rack = "back", width = .179, depth = .36, smith = false, fast = false,
   jump = false, single = false, kneeling = false, thruster = false, box = false, feet = .112,
-  pause = false, turnout = false, upright = false } = {}) {
+  pause = false, turnout = false, upright = false, railRack = false, pinStart = false, benchContact = false } = {}) {
   const up = jump ? smooth((phase - .49) / .21) * smooth((.91 - phase) / .15) : 0;
-  const amount = pause ? rep(phase, .27, .65) : rep(phase, fast ? .53 : .45, fast ? .58 : .57);
+  const amount = pinStart ? 1-smooth((phase-.13)/.33)*smooth((.87-phase)/.32)
+    : pause ? rep(phase, .27, .65) : rep(phase, fast ? .53 : .45, fast ? .58 : .57);
   const restY = kneeling ? .495 : .887;
   const barDepth = .041;
   const shoulderPitch = upright ? .25 : rack === "low" ? .52 : rack === "back" ? .39 : .25;
   const hips = [single ? -.060 : 0, restY - (kneeling ? .266 : depth) * amount + .13 * up,
-    kneeling ? -.12 - .31 * amount : smith ? barDepth - .041 - (rack === "front" ? .100 : -.086)
-      - .505 * Math.sin(.037 + shoulderPitch * amount) : -.021 - (box ? .179 : .139) * amount];
+    kneeling ? -.12 - .31 * amount : smith ? barDepth - .041 - (rack === "front" || (railRack && rack === "freefront") ? .100 : railRack && rack === "zercher" ? .218 : -.086)
+      - .505 * Math.sin(.037 + shoulderPitch * amount) : -.021 - (benchContact ? .338 : box ? .179 : .139) * amount];
   const pose = athlete(hips,.037 + shoulderPitch * amount);
   if (kneeling) {
     for (const [side, sign] of sides) {
@@ -290,17 +291,24 @@ function squatWithBar(phase, { rack = "back", width = .179, depth = .36, smith =
   const front = rack === "front" || rack === "freefront";
   const overhead = rack === "overhead";
   const handsFree = rack === "freefront";
-  const offsetY = front ? .041 : lowBar ? -.043 : .030;
+  const offsetY = front ? (railRack && !handsFree ? .060 : .041) : lowBar ? -.043 : .030;
   const offsetZ = front ? .109 : -.087;
   const c = [0,pose.ls[1] + (overhead ? .460 : rack === "zercher" ? -.205 : offsetY + .515 * extended),
     smith ? barDepth : pose.ls[2] + (overhead ? -.066 : rack === "zercher" ? .218 : offsetZ - .112 * extended)];
   if (handsFree) {
     for (const [side, sign] of sides) arm(pose, side, add(pose[side + "s"], [sign*.025,.015,.609]), [sign*.34, -.60, .05]);
     pose.barbell = { center: c, axis };
+  } else if (front && railRack) {
+    for (const [side,sign] of sides) {
+      const grip=add(c,[sign*.246,0,0]);
+      [pose[side+"e"],pose[side+"w"]]=joints(pose[side+"s"],grip,[0,-.1,1],.252,.213);
+      pose[side+"Grip"]=axis;
+    }
+    pose.barbell={center:c,axis};
   } else if (rack === "zercher") {
     for (const [side,sign] of sides) {
       pose[side + "e"] = [sign * .199,c[1] - .017,c[2] + .004];
-      pose[side + "w"] = [sign * .151,c[1] + .310,c[2] - .187];
+      pose[side + "w"] = [sign * (railRack ? -.115 : .151),c[1] + .310,c[2] - .187];
     }
     pose.barbell = {center:c,axis};
   } else {
@@ -351,7 +359,7 @@ function hinge(phase, { style = "lift", reverse = false, smith = false, width = 
 }
 
 function lunge(phase, { direction = "forward", smith = false, staticStance = false, sprint = false,
-  alternate = false, fixedWide = false, frontRack = false, longSplit = false, stableStance = false } = {}) {
+  alternate = false, fixedWide = false, frontRack = false, longSplit = false, stableStance = false, railAligned = false } = {}) {
   const active = alternate && phase >= .5 ? -1 : 1;
   const time = alternate ? phase * 2 % 1 : phase;
   const amplitude = rep(time,.42,.58);
@@ -359,10 +367,11 @@ function lunge(phase, { direction = "forward", smith = false, staticStance = fal
   const sideStep = direction === "side";
   const reverse = direction === "reverse";
   const x = sideStep ? active * .269 * amplitude : 0;
-  const position = stableStance ? longSplit ? .315 : .278 : sideStep ? -.063 : reverse ? -.152 * travel : .182 * travel;
+  const pitch = frontRack ? .035 + .043 * amplitude : .053 + amplitude * .17;
+  const position = railAligned ? .108 - .505 * Math.sin(pitch) : stableStance ? longSplit ? .315 : .278
+    : sideStep ? -.063 : reverse ? -.152 * travel : .182 * travel;
   const hipHeight = stableStance ? .824 - amplitude * (longSplit ? .322 : .308) : .875 - amplitude * (longSplit ? .369 : .346);
-  const pose = athlete([x,hipHeight,position],
-    frontRack ? .035 + .043 * amplitude : .053 + amplitude * .17);
+  const pose = athlete([x,hipHeight,position], pitch);
   if (sideStep) {
     for (const [side,sign] of sides) {
       const widened = sign === active || fixedWide;
@@ -395,10 +404,10 @@ function lunge(phase, { direction = "forward", smith = false, staticStance = fal
   return pose;
 }
 
-function calfRaise(phase, { step = false, single = false, seated = false, smith = false, supported = false, highHandle = false } = {}) {
+function calfRaise(phase, { step = false, single = false, seated = false, smith = false, supported = false, highHandle = false, platformDepth } = {}) {
   const amount = rep(phase, .44,.61);
   const height = step ? .122 : 0;
-  const depth = seated ? .571 : step ? .296 : .047;
+  const depth = seated ? .571 : step ? platformDepth ?? .296 : .047;
   const lift = mix(step ? -.045 : 0, .092, amount);
   const hips = [single ? -.069 : 0,seated ? .556 : .878 + height + lift, seated ? -.021 : supported ? .068 + .027 * amount : .009 + .035 * amount];
   const pose = athlete(hips,.032);
@@ -414,7 +423,7 @@ function calfRaise(phase, { step = false, single = false, seated = false, smith 
   return pose;
 }
 
-function bridge(phase, feetElevated) {
+function bridge(phase, feetElevated, barPosition=-.067) {
   const amount = rep(phase,.44,.63);
   const hip = [0,mix(.154,feetElevated ? .461 : .408,amount),mix(-.143,-.092,amount)];
   const pose = athlete(hip,-Math.PI / 2);
@@ -427,7 +436,7 @@ function bridge(phase, feetElevated) {
   const height = feetElevated ? .504 : 0;
   for (const [side,sign] of sides)
     foot(pose,side,sign,[sign*.142,.077+height,feetElevated ? .564 : .495],height,0,[sign*.19,.99,.1]);
-  loadedBar(pose,[0,hip[1] + .128,hip[2]-.067],.264,sign => [sign*.84,.01,.18]);
+  loadedBar(pose,[0,hip[1] + .128,hip[2]+barPosition],.264,sign => [sign*.84,.01,.18]);
   return pose;
 }
 
@@ -782,12 +791,12 @@ function catalogueShrug(phase, { behind = false, width = .248, seated = false } 
   return pose;
 }
 
-function wideDragCurl(phase) {
+function wideDragCurl(phase, { width = .343, rail = false } = {}) {
   const amount = rep(phase, .43, .57);
   const pose = athlete([0, .899, .008]);
   stance(pose, .157, .056);
-  const center = [0, mix(.826, 1.325, amount), mix(.135, .162, amount)];
-  loadedBar(pose, center, .343, sign => [sign * .16, -.34, -.92]);
+  const center = [0, mix(.826, 1.325, amount), rail ? .143 : mix(.135, .162, amount)];
+  loadedBar(pose, center, width, sign => [sign * .16, -.34, -.92]);
   return pose;
 }
 
@@ -876,11 +885,11 @@ function hingedAthlete(hipHeight, hipDepth, pitch, barCenter, width) {
   return athlete([0, Math.min(hipHeight, barCenter[1] + armReach - shoulderLift), hipDepth], pitch);
 }
 
-function catalogueDeadlift(phase, { pause = false, wide = false, snatch = false, frog = false } = {}) {
+function catalogueDeadlift(phase, { pause = false, wide = false, snatch = false, frog = false, rail = false } = {}) {
   const rise = deadliftRise(phase, pause);
   const initialHip = wide ? .518 : snatch ? .552 : .565;
   const width = snatch ? .434 : wide ? .153 : .226;
-  const center = [0, mix(.197, snatch ? .853 : .817, rise), mix(.136, .128, rise)];
+  const center = [0, mix(.197, snatch ? .853 : .817, rise), rail ? .136 : mix(.136, .128, rise)];
   const pose = hingedAthlete(mix(initialHip, .877, rise), mix(wide ? -.220 : -.261, -.016, rise),
     mix(wide ? .91 : .995, .022, rise), center, width);
   for (const [side, sign] of sides) {
@@ -892,10 +901,10 @@ function catalogueDeadlift(phase, { pause = false, wide = false, snatch = false,
   return pose;
 }
 
-function stiffLegDeadlift(phase, { wide = false } = {}) {
+function stiffLegDeadlift(phase, { wide = false, rail = false } = {}) {
   const amount = rep(phase, .45, .53);
   const width = wide ? .177 : .224;
-  const center = [0, mix(.804, .463, amount), mix(.144, .282, amount)];
+  const center = [0, mix(.804, .463, amount), rail ? .186 : mix(.144, .282, amount)];
   const pose = hingedAthlete(mix(.869, wide ? .801 : .827, amount), mix(-.009, -.236, amount),
     mix(.024, 1.16, amount), center, width);
   for (const [side, sign] of sides) {
@@ -917,7 +926,7 @@ function chestSupportedBarbellAthlete(overTop = false) {
   return pose;
 }
 
-function catalogueRow(phase, { supported = false, rearDelt = false, reverse = false, width = .300 } = {}) {
+function catalogueRow(phase, { supported = false, rearDelt = false, reverse = false, width = .300, rail = false } = {}) {
   const amount = rep(phase, .42, .59);
   const pose = supported ? chestSupportedBarbellAthlete() : athlete([0,.780,-.195], 1.095);
   if (!supported) stance(pose, .151, .045);
@@ -926,7 +935,7 @@ function catalogueRow(phase, { supported = false, rearDelt = false, reverse = fa
   const topZ = shoulderZ + (supported ? rearDelt ? .020 : .080 : rearDelt ? -.036 : -.152);
   // The support rail slopes down toward the seat. Keep the shaft below it.
   const topY = supported ? .648 - (topZ + .110) - .052 : pose.ls[1] - (rearDelt ? .118 : .166);
-  const center = [0, mix(hangingY, topY, amount), mix(shoulderZ, topZ, amount)];
+  const center = [0, mix(hangingY, topY, amount), rail ? mix(shoulderZ, topZ, .55) : mix(shoulderZ, topZ, amount)];
   loadedBar(pose, center, width,
     sign => [sign * (supported ? -1 : 1) * (rearDelt ? .97 : .23), .54, supported ? .64 : -.77],
     reverse, supported ? [-1,0,0] : axis);
@@ -1109,6 +1118,444 @@ addRows([["10047"], ["11789", {stiff:true}]], staggeredHinge, ["l:hamstring","l:
 addRows([["4016", {seated:true,width:.265}]], catalogueShrug, ["trap"], "barbell-seat",
   {...standing,yaw:52,focus:[0,.74,.12],height:1.75}, 4300);
 addRows([["0075"]], behindBackRaise, ["rearShoulder","trap"], "barbell", {...standing,yaw:135}, 4350);
+
+function inclineShoulderRaise(phase) {
+  const amount = rep(phase,.40,.60);
+  const pose = benchBody("incline");
+  for (const [side] of sides) pose[side+"s"][1] += .067 * amount;
+  const center = [0,1.529+.067*amount,-.093];
+  loadedBar(pose,center,.260,sign=>[sign*.17,-.55,.71]);
+  return pose;
+}
+
+function smithRackPull(phase) {
+  const rise=rep(phase,.38,.58);
+  const center=[0,mix(.503,.814,rise),.143];
+  const pose=hingedAthlete(mix(.774,.870,rise),mix(-.184,-.013,rise),mix(.838,.028,rise),center,.227);
+  stance(pose,.155,.058);
+  loadedBar(pose,center,.227,sign=>[sign*.20,-.19,-.90]);
+  return pose;
+}
+
+function californiaEZExtension(phase) {
+  const amount=rep(phase,.48,.57);
+  const shoulderTurn=smooth((amount-.55)/.45);
+  const pose=benchBody("flat");
+  const elbowY=pose.ls[1]+.236-.057*shoulderTurn;
+  const elbowZ=pose.ls[2]-.029-.109*shoulderTurn;
+  const angle=mix(.02,1.60,amount);
+  const center=[.1,elbowY+.371*Math.cos(angle),elbowZ-.371*Math.sin(angle)];
+  for (const [side,sign] of sides) {
+    pose[side+"e"]=[.1+sign*.173,elbowY,elbowZ];
+    pose[side+"w"]=add(center,[sign*.173,0,0]);
+    pose[side+"Grip"]=axis;
+  }
+  pose.barbell={center,axis};
+  return pose;
+}
+
+function ezWristCurl(phase, {seated=false,behind=false,reverse=false}={}) {
+  const amount=rep(phase,.42,.61);
+  const pose=athlete([0,seated?.558:.879,seated?-.022:.014],seated?.48:.029);
+  stance(pose,seated?.154:.147,seated?.465:.064);
+  const height=seated?.547:.775;
+  const depth=seated?.484:behind?-.155:.135;
+  const center=[0,height+.042*amount,depth+(behind?-1:1)*.025*amount];
+  const angle=mix(-.42,.65,amount)*(reverse?-1:1);
+  for (const [side,sign] of sides) {
+    pose[side+"e"]=[sign*.162,seated?.631:1.131,seated?.146:behind?-.091:.035];
+    pose[side+"w"]=add(center,[sign*.173,0,0]);
+    pose[side+"Grip"]=reverse?[-1,0,0]:axis;
+    pose[side+"Fingers"]=[0,Math.sin(angle),(behind?-1:1)*Math.cos(angle)];
+    pose[side+"PalmSide"]=[sign,0,0];
+  }
+  pose.barbell={center,axis};
+  return pose;
+}
+
+// Guided rail variants fix shaft depth across the complete cycle as indicated by
+// the source machine drawings. Grip, stance and support are explicit per ID.
+const smithSide={...standing,yaw:58,height:2.62};
+addRows([
+  ["0754",{kind:"decline",smith:true,reverse:true,gripWidth:.239}], ["0758",{kind:"incline",smith:true,reverse:true,gripWidth:.212}],
+  ["0764",{smith:true,reverse:true,gripWidth:.215}],
+],benchPress,["pec","triceps"],benchHardware,benchCamera,4350);
+addRows([
+  ["10116",{kind:"incline",smith:true,grip:"close",gripWidth:.169}], ["9385",{smith:true,action:"jm",grip:"close"}],
+],benchPress,["triceps","pec"],benchHardware,benchCamera,4350);
+addRows([["0759"]],inclineShoulderRaise,["pec","shoulder"],"smith-incline",benchCamera({kind:"incline",smith:true}),4350);
+addRows([["1224",{smith:true,width:.213}]],standingPress,["shoulder","triceps"],"smith-standing",smithSide,4350);
+addRows([
+  ["5225",{behind:true,width:.428}], ["5223",{width:.422}],
+],catalogueShrug,["trap"],"smith-standing",({behind})=>({...smithSide,yaw:behind?133:47}),4200);
+addRows([
+  ["5316",{rail:true,width:.152}], ["0761",{rail:true,reverse:true,width:.150}], ["2671",{rail:true,width:.145}],
+],catalogueRow,["lat","trap"],"smith-standing",smithSide,4350);
+addRows([["0762",{rail:true,rearDelt:true,width:.365}]],catalogueRow,["rearShoulder","trap"],"smith-standing",smithSide,4350);
+addRows([["4546",{width:.195,rail:true}]],wideDragCurl,["biceps"],"smith-standing",smithSide,4400);
+addRows([
+  ["1594",{rack:"freefront",smith:true,railRack:true,depth:.382}], ["1595",{rack:"front",smith:true,railRack:true,depth:.401}],
+  ["1598",{rack:"zercher",smith:true,railRack:true,depth:.391}],
+],squatWithBar,["quad","glute"],"smith-standing",smithSide,4900);
+addRows([["5825",{direction:"reverse",smith:true,railAligned:true}]],lunge,["quad","glute"],
+  "smith-standing",smithSide,4700);
+addRows([
+  ["1050",{step:true,smith:true,platformDepth:.122}], ["1164",{step:true,smith:true,platformDepth:.106}],
+],calfRaise,["calf"],"smith-low-step",{...smithSide,yaw:65},4300);
+addRows([["1393",{single:true,smith:true}]],calfRaise,["r:calf"],"smith-standing",{...smithSide,yaw:66},4300);
+addRows([["1597",{rail:true}]],stiffLegDeadlift,["hamstring","glute"],"smith-standing",smithSide,4600);
+addRows([["7374",{rail:true,wide:true}]],catalogueDeadlift,["glute","hamstring"],"smith-standing",smithSide,4950,.055);
+addRows([["4171"]],smithRackPull,["glute","hamstring"],"smith-standing",{...smithSide,yaw:64},4600);
+
+addRows([["4130"]],californiaEZExtension,["triceps"],"bench-ez-bar",{...benchCamera({}),yaw:73},4750);
+addRows([["4422",{width:.173}]],wideDragCurl,["biceps"],"ez-barbell",{...standing,yaw:55});
+addRows([["3990",{width:.158,seated:true}],["1226",{width:.226}]],standingPress,["shoulder","triceps"],
+  ({seated})=>seated?"ez-seat":"ez-barbell",({seated})=>({...standing,focus:[0,seated?.805:1.025,.048],height:seated?1.99:2.25}),4350);
+addRows([["7114",{type:"upright",width:.235}]],standingPull,["shoulder","trap"],"ez-barbell",standing,4350);
+addRows([["6406",{mode:"preacher",width:.173}]],curl,["biceps"],"ez-preacher",supportCam,4400);
+addRows([["1628"]],spiderCurl,["biceps"],"ez-chest-bench",{...standing,yaw:120,focus:[0,.78,.22],height:2.02},4500);
+addRows([
+  ["5579",{seated:true}], ["6364",{seated:true,reverse:true}], ["6358"], ["6361",{reverse:true}], ["6365",{behind:true}],
+],ezWristCurl,["forearm"],({seated})=>seated?"ez-seat":"ez-barbell",
+({seated,behind})=>({...standing,yaw:behind?139:56,focus:[0,seated?.660:.91,.126],height:seated?1.72:2.11}),4300);
+
+function fixedSupportSplit(phase,{frontStep=false,rearBench=false}={}) {
+  const amount=rep(phase,.43,.59);
+  const pitch=.044+.182*amount;
+  const hipY=mix(frontStep?.907:.838,frontStep?.548:.489,amount);
+  const pose=athlete([0,hipY,.091-.505*Math.sin(pitch)],pitch);
+  const frontSurface=frontStep?.121:0;
+  foot(pose,"l",1,[.149,.075+frontSurface,frontStep?.276:.372],frontSurface,0,[.19,.17,.95]);
+  if(rearBench){
+    foot(pose,"r",-1,[-.155,.524,-.503],null,0,[-.13,-.14,.91]);
+    pose.rt=add(pose.ra,[-.026,-.072,-.131]);
+    pose.planted.r=.451;
+  }else{
+    foot(pose,"r",-1,[-.153,.162,-.329],0,.086,[-.17,.09,.95]);
+  }
+  const center=[0,pose.ls[1]+.030,.006];
+  loadedBar(pose,center,.351,sign=>[sign*.58,-.67,-.53]);
+  return pose;
+}
+
+function pinnedGoodMorning(phase,{smith=false}={}) {
+  const upright=smith?1-rep(phase,.44,.57):smooth((phase-.14)/.32)*smooth((.86-phase)/.33);
+  const pitch=mix(1.16,.025,upright);
+  const hips=[0,mix(.795,.884,upright),smith ? .071-.505*Math.sin(pitch) : mix(-.237,-.022,upright)];
+  const pose=athlete(hips,pitch);
+  stance(pose,.158,smith?.041:.073);
+  const center=[0,pose.ls[1]+.035,smith?-.012:pose.ls[2]-.084];
+  loadedBar(pose,center,.351,sign=>[sign*.50,-.72,-.47]);
+  return pose;
+}
+
+function squatRow(phase) {
+  const down=smooth(phase/.25)*smooth((.61-phase)/.31);
+  const pull=smooth((phase-.36)/.29)*smooth((1-phase)/.24);
+  const pose=athlete([0,.882-.342*down,-.023-.183*down],.023+.392*down);
+  stance(pose,.174,.063);
+  const center=[0,.818-.278*down+.585*pull,.151+.075*down];
+  loadedBar(pose,center,.216,sign=>[sign*.86,.38,-.32]);
+  return pose;
+}
+
+function curlTwentyOne(phase) {
+  const marks=[0,.50,0,.50,1,.50,0,1,0];
+  const segment=Math.min(7,Math.floor(phase*8));
+  const amount=mix(marks[segment],marks[segment+1],smooth(phase*8-segment));
+  return curl(phase,{width:.173,travel:amount});
+}
+
+function inclineEZRaise(phase) {
+  const amount=rep(phase,.43,.60);
+  const pose=benchBody("incline");
+  const sweep=mix(1.10,1.89,amount);
+  const reach=mix(.545,.594,amount);
+  const center=[0,pose.ls[1]-reach*Math.cos(sweep),pose.ls[2]+reach*Math.sin(sweep)];
+  loadedBar(pose,center,.177,sign=>[sign*.35,-.71,-.48]);
+  return pose;
+}
+
+function fingerCurlBehind(phase) {
+  const amount=rep(phase,.44,.61);
+  const pose=athlete([0,.878,.012],.028);
+  stance(pose,.153,.064);
+  const center=[0,.795+.046*amount,-.168-.018*amount];
+  loadedBar(pose,center,.238,sign=>[sign*.22,-.32,-.92],true);
+  for(const [side,sign] of sides) {
+    pose[side+"FingerCurl"]=amount;
+    pose[side+"Fingers"]=[0,-.92+.34*amount,-.17-.35*amount];
+    pose[side+"PalmSide"]=[sign,0,0];
+  }
+  return pose;
+}
+
+addRows([
+  ["5659",{pinStart:true,depth:.449}], ["5701",{pinStart:true,depth:.356}],
+  ["4848",{rack:"front",railRack:true,pinStart:true,depth:.385}],
+],squatWithBar,["quad","glute"],"barbell-squat-pins",{...standing,yaw:55,height:2.45},4850,.59);
+addRows([["0878",{depth:.441,upright:true}]],squatWithBar,["quad","glute"],"barbell-squat-rack",
+  {...standing,yaw:52,height:2.48},4750);
+addRows([
+  ["0024",{depth:.335,benchContact:true,rack:"front",railRack:true}],
+  ["3727",{depth:.334,benchContact:true,rack:"front",railRack:true}], ["0026",{depth:.333,benchContact:true}],
+],squatWithBar,["quad","glute"],"barbell-rear-bench",{...standing,yaw:63,height:2.24},4750);
+addRows([["4962",{depth:.451,benchContact:true,pause:true}]],squatWithBar,["quad","glute"],
+  "barbell-box-squat",{...standing,yaw:63,height:2.24},4850);
+addRows([
+  ["11303",{box:true,smith:true,depth:.381,feet:.155}],["1596",{box:true,smith:true,depth:.382,feet:.177}],
+],squatWithBar,["quad","glute"],"smith-box",smithSide,4800);
+addRows([
+  ["9042",{rearBench:true}],["9041",{frontStep:true}],["11568",{rearBench:true,frontStep:true}],
+],fixedSupportSplit,["l:quad","l:glute"],({frontStep,rearBench})=>frontStep?rearBench?"smith-rear-bench-step":"smith-low-step":"smith-rear-bench",
+  {...smithSide,yaw:67},4900);
+addRows([["4851"],["1519",{smith:true}]],pinnedGoodMorning,["hamstring","glute"],
+  ({smith})=>smith?"smith-standing":"barbell-squat-pins",{...smithSide,yaw:63},4700);
+addRows([["2964"]],phase=>bridge(phase,false,-.086),["glute"],"barbell",{yaw:63,elevation:17,focus:[0,.4,.06],height:1.49},4500);
+addRows([["1541"]],squatRow,["quad","shoulder","trap"],"barbell",{...standing,yaw:55,height:2.23},4900,.66);
+addRows([["5450"]],curlTwentyOne,["biceps"],"ez-barbell",{...standing,yaw:47},6500,.53);
+addRows([["1610"]],fingerCurlBehind,["forearm"],"barbell",{...standing,yaw:137,focus:[0,.92,.01],height:1.95},4300);
+addRows([["3989"]],inclineEZRaise,["shoulder"],"ez-incline-free",{...standing,yaw:55,focus:[0,.93,.03],height:2.07},4500);
+
+// Each stop sets the pelvis, bar and stance for one phase of the Olympic lift.
+const olympicPose = {
+  floor: [.510,-.246,.997,.225,.212,.154,.066,.066,0,0,0],
+  knee: [.622,-.222,.720,.519,.189,.154,.066,.066,0,0,0],
+  belowKnee: [.656,-.211,.782,.490,.204,.155,.070,.070,0,0,0],
+  highHang: [.807,-.075,.452,.678,.208,.153,.070,.070,0,0,0],
+  standHang: [.885,.004,.025,.835,.153,.152,.069,.069,0,0,0],
+  extension: [.907,.012,-.073,1.003,.172,.154,.068,.068,.025,.025,.18],
+  turnover: [.871,.012,-.025,1.289,.199,.163,.066,.066,0,0,.13],
+  highPull: [.895,.007,-.018,1.373,.198,.156,.068,.068,.016,.016,.03],
+  deepCatch: [.531,-.116,.288,1.075,.173,.229,.097,.097,0,0,1],
+  wideCatch: [.560,-.111,.244,1.105,.163,.239,.108,.108,0,0,1],
+  highCatch: [.756,-.049,.166,1.294,.139,.193,.097,.097,0,0,1],
+  highRack: [.857,-.019,.076,1.405,.120,.159,.079,.079,0,0,1],
+  rack: [.886,.009,.015,1.431,.116,.165,.078,.078,0,0,1],
+  dip: [.792,-.014,.046,1.335,.126,.166,.078,.078,0,0,1],
+  drive: [.890,.023,-.065,1.645,.125,.165,.094,.064,.022,.022,.31],
+  leftSplit: [.689,.055,.052,1.758,.083,.166,.442,-.346,0,.071,0],
+  rightSplit: [.705,.068,.047,1.777,.087,.169,-.341,.423,.085,0,0],
+  leftRecover: [.801,.047,.019,1.892,.070,.161,.206,-.237,0,.042,0],
+  rightRecover: [.806,.056,.021,1.907,.071,.164,-.226,.202,.043,0,0],
+  overhead: [.887,.012,.010,1.984,.066,.165,.082,.089,0,0,0],
+};
+
+const olympicSequence = {
+  jerk: [[0,'floor'],[.10,'knee'],[.19,'extension'],[.25,'turnover'],[.33,'deepCatch'],
+    [.46,'rack'],[.53,'rack'],[.59,'dip'],[.63,'drive'],[.71,'leftSplit'],
+    [.75,'leftSplit'],[.81,'leftRecover'],[.86,'overhead'],[.90,'rack'],[.94,'knee'],[1,'floor']],
+  wideJerk: [[0,'floor'],[.09,'knee'],[.17,'extension'],[.24,'turnover'],[.33,'wideCatch'],
+    [.45,'rack'],[.52,'rack'],[.58,'dip'],[.62,'drive'],[.70,'rightSplit'],
+    [.75,'rightSplit'],[.80,'rightRecover'],[.86,'overhead'],[.91,'rack'],[.96,'knee'],[1,'floor']],
+  pull: [[0,'floor'],[.19,'knee'],[.35,'extension'],[.46,'highPull'],[.49,'highPull'],
+    [.63,'standHang'],[.83,'knee'],[1,'floor']],
+  belowKnee: [[0,'belowKnee'],[.15,'knee'],[.31,'extension'],[.39,'turnover'],[.50,'wideCatch'],
+    [.67,'rack'],[.73,'rack'],[.84,'standHang'],[1,'belowKnee']],
+  hangPower: [[0,'standHang'],[.16,'highHang'],[.30,'extension'],[.37,'turnover'],[.47,'highCatch'],
+    [.60,'rack'],[.70,'rack'],[.91,'standHang'],[1,'standHang']],
+  muscle: [[0,'floor'],[.16,'knee'],[.29,'extension'],[.42,'highPull'],[.54,'highRack'],
+    [.64,'rack'],[.72,'rack'],[.85,'standHang'],[.93,'knee'],[1,'floor']],
+};
+
+function olympicLift(phase,{type,width}) {
+  const sequence=olympicSequence[type];
+  const end=sequence.findIndex(([time])=>time>=phase&&time>0);
+  const [startTime,from]=sequence[end-1];
+  const [endTime,to]=sequence[end];
+  const [hipY,hipZ,pitch,barY,barZ,stanceX,footL,footR,heelL,heelR,rackElbows]=
+    lerp(olympicPose[from],olympicPose[to],smooth((phase-startTime)/(endTime-startTime)));
+  const pose=athlete([0,hipY,hipZ],pitch);
+  const swingFoot=(offset,previous,next)=>{
+    if (Math.abs(previous-next)<.065) return 0;
+    const amount=(offset-previous)/(next-previous);
+    return .067*Math.sin(Math.PI*amount);
+  };
+  const airborne=[swingFoot(footL,olympicPose[from][6],olympicPose[to][6]),
+    swingFoot(footR,olympicPose[from][7],olympicPose[to][7])];
+  for(const [index,[side,sign]] of sides.entries()){
+    const ankle=[sign*stanceX,.076+airborne[index]+(index===0?heelL:heelR),index===0?footL:footR];
+    foot(pose,side,sign,ankle,airborne[index]>.010?null:0,index===0?heelL:heelR);
+  }
+  let localBar=[0,barY,barZ];
+  const apparent=length(minus(add(localBar,[width,0,0]),pose.ls));
+  if(apparent>.616) {
+    // Set stop points within the exact rig reach during stance transitions.
+    const along=unit(minus(localBar,[0,pose.ls[1],pose.ls[2]]));
+    const limit=Math.sqrt(.616**2-(width-pose.ls[0])**2);
+    localBar=add([0,pose.ls[1],pose.ls[2]],scale(along,limit));
+  }
+  const highPullStyle=type==='pull'||type==='muscle';
+  const pullPole=[.86,highPullStyle?.14:-.51,highPullStyle?-.46:.36];
+  const rackPole=[.47,.15,.92];
+  loadedBar(pose,localBar,width,sign=>lerp(pullPole,rackPole,rackElbows)
+    .map((value,index)=>index===0?sign*value:value),false);
+  return pose;
+}
+
+addRows([["5122",{type:"jerk",width:.295}],["5190",{type:"wideJerk",width:.328}]],
+  olympicLift,["quad","glute","shoulder","triceps"],"barbell",
+  {...standing,yaw:42,focus:[0,1.04,.095],height:2.65},6500,.70);
+addRows([["5705",{type:"pull",width:.312}]],olympicLift,["glute","quad","trap"],"barbell",
+  {...standing,yaw:56,focus:[0,.92,.082],height:2.30},4650,.48);
+addRows([["3183",{type:"belowKnee",width:.311}],["5704",{type:"hangPower",width:.284}]],
+  olympicLift,["glute","quad","trap"],"barbell",
+  {...standing,yaw:55,focus:[0,.94,.09],height:2.32},5300,.48);
+addRows([["5075",{type:"muscle",width:.328}]],olympicLift,["glute","quad","trap"],"barbell",
+  {...standing,yaw:51,focus:[0,.93,.084],height:2.30},5250,.52);
+
+function ezRaiseTwist(phase,{across=false}) {
+  const part=(phase*2)%1;
+  const sign=phase<.5?1:-1;
+  const turn=rep(part,.40,.57);
+  const rise=across?1-turn:rep(phase,.45,.57);
+  const yaw=sign*(across?.78*turn:.24*rise);
+  const pose=athlete([0,.895,.007],.013,yaw);
+  pose.lh=[.105,.895,.007];
+  pose.rh=[-.105,.895,.007];
+  stance(pose,across?.203:.151,.057);
+  const directional=[Math.sin(yaw),0,Math.cos(yaw)];
+  const shoulder=scale(add(pose.ls,pose.rs),.50);
+  const angle=across?mix(1.40,2.91,rise):mix(.18,1.57,rise);
+  const center=add(shoulder,add(scale(directional,.558*Math.sin(angle)),[0,-.572*Math.cos(angle),0]));
+  const crosswise=unit([Math.cos(yaw),across?.174*sign*turn:.228*rise,-Math.sin(yaw)]);
+  loadedBar(pose,center,.179,sign=>[sign*.77,-.48,.18],false,crosswise);
+  return pose;
+}
+
+function ezRollout(phase) {
+  const reach=rep(phase,.44,.59);
+  const pose=athlete([0,mix(.499,.243,reach),mix(-.173,.155,reach)],mix(1.32,1.51,reach));
+  for(const [side,sign] of sides){
+    pose[side+"k"]=[sign*.127,.116,-.232];
+    pose[side+"a"]=[sign*.146,.081,-.651];
+    pose[side+"t"]=[sign*.156,.011,-.755];
+  }
+  const position=[0,.089,mix(.562,1.234,reach)];
+  loadedBar(pose,position,.173,sign=>[sign*.33,-.60,-.89]);
+  return pose;
+}
+
+function ezWeightedCore(phase,{kind}) {
+  const reverse=kind==='reverse';
+  const twisting=kind==='twist';
+  const press=kind==='press';
+  const side=kind==='side';
+  const alternate=(twisting||side)?(2*phase)%1:phase;
+  const which=phase<.5?1:-1;
+  const amount=rep(alternate,press?.38:.42,press?.67:.58);
+  const turn=(twisting||side)?which*rep(alternate,.45,.60):0;
+  const setup=benchSetups.floor;
+  const hips=reverse?[0,.138+.112*amount,.19-.128*amount]:setup.hips;
+  const pitch=-Math.PI/2+(reverse?0:press?1.53:twisting?1.38:.908)*amount;
+  const yaw=twisting?.51*turn:side?.19*turn:0;
+  const pose=athlete(hips,pitch,yaw);
+  if(reverse){
+    const base=benchBody('floor');
+    for(const jointName of ['chest','neck','head','ls','rs'])pose[jointName]=base[jointName];
+    pose.chest=add(pose.chest,[0,.023*amount,.020*amount]);
+  }
+  for(const [index,[limb,sign]] of sides.entries()){
+    if(side){
+      const ankle=[sign*.138+.251*turn,mix(.239,.436,amount),mix(.630,.354,amount)];
+      foot(pose,limb,sign,ankle,null,0,[.52*turn+sign*.092,.84,.29]);
+    }else if(reverse){
+      const knee=[sign*.151,mix(.411,.594,amount),mix(.399,hips[2]+.089,amount)];
+      const ankle=add(knee,[sign*.022,-.086-.074*amount,mix(.409,.383,amount)]);
+      pose[limb+'k']=knee;
+      pose[limb+'a']=ankle;
+      pose[limb+'t']=add(ankle,[sign*.012,.103,.089]);
+    }else foot(pose,limb,sign,setup.ankles[index],0,0,[sign*.54,1,.22]);
+  }
+  const raised=press?rep(phase,.53,.58)*smooth((phase-.34)/.16):0;
+  const shoulder=scale(add(pose.ls,pose.rs),.50);
+  const center=reverse?[0,.357,-.638]:add(shoulder,
+    [twisting?.12*turn:0,press?mix(.156,.545,raised):.465-.229*amount,
+      press?mix(.181,.074,raised):.095+.122*amount]);
+  const alignment=unit(minus(pose.ls,pose.rs));
+  loadedBar(pose,center,press?.170:.173,sign=>[sign*.65,-.46,.62],false,alignment);
+  return pose;
+}
+
+function ezAntiGravity(phase) {
+  const pose=chestSupportedBarbellAthlete(true);
+  const amount=rep(phase,.43,.57);
+  const shoulder=scale(add(pose.ls,pose.rs),.50);
+  const center=add(shoulder,[0,mix(-.167,.334,amount),mix(-.175,-.440,amount)]);
+  loadedBar(pose,center,.173,sign=>[-sign*.71,-.53,.09],true,[-1,0,0]);
+  return pose;
+}
+
+function ezDeadliftCurl(phase) {
+  if(phase>.51)return curl((phase-.51)/.49,{width:.174});
+  const t=rep(phase/.51,.43,.51);
+  const pose=athlete([0,mix(.899,.745,t),mix(.008,-.184,t)],mix(.018,1.06,t));
+  stance(pose,.157,.056);
+  const shoulder=scale(add(pose.ls,pose.rs),.50);
+  const target=minus([0,mix(.789,.411,t),mix(.060,.274,t)],shoulder);
+  const center=add(shoulder,scale(target,Math.min(1,.614/length(target))));
+  loadedBar(pose,center,.174,sign=>[sign*.49,-.31,-.66]);
+  return pose;
+}
+
+function ezStandingPreacher(phase) {
+  const pose=athlete([0,.799,-.163],1.049);
+  stance(pose,.171,-.211);
+  const angle=mix(.141,2.412,rep(phase));
+  const elbow=[0,.830,.411];
+  const center=add(elbow,[0,-.371*Math.cos(angle),.371*Math.sin(angle)]);
+  for(const [limb,sign] of sides){
+    pose[limb+'e']=add(elbow,[sign*.191,0,0]);
+    pose[limb+'w']=add(center,[sign*.173,0,0]);
+    pose[limb+'Grip']=[-1,0,0];
+  }
+  pose.barbell={center,axis};
+  return pose;
+}
+
+function olympicHammer(phase) {
+  const pose=curl(phase,{width:.182,strict:true});
+  pose.lGrip=[0,0,1];
+  pose.rGrip=[0,0,1];
+  pose.lPalmSide=[-1,0,0];
+  pose.rPalmSide=[1,0,0];
+  return pose;
+}
+
+function ezSingleWrist(phase) {
+  const amount=rep(phase,.36,.60);
+  const pose=athlete([0,.895,.013],.018);
+  stance(pose,.156,.064);
+  arm(pose,"r",[-.283,.778+.033*amount,.063],
+    [-.74,-.59,-.05],[0,0,1]);
+  arm(pose,"l",[.267,.853,.128],[.77,-.62,-.19],axis);
+  const tilt=mix(-.180,.348,amount);
+  const driver=[0,Math.sin(tilt),Math.cos(tilt)];
+  pose.rGrip=driver;
+  pose.barbell={center:add(pose.rw,scale(driver,.299)),axis:driver};
+  return pose;
+}
+
+const floorEzCamera={yaw:63,elevation:20,focus:[0,.37,.11],height:1.64};
+addRows([["3986"]],ezRaiseTwist,["shoulder"],"ez-barbell",{...standing,yaw:56},4600);
+addRows([["4190",{across:true}]],ezRaiseTwist,["shoulder","core"],"ez-barbell",{...standing,yaw:51,height:2.51},5500);
+addRows([["4189"]],ezRollout,["core","lat"],"ez-barbell",{...floorEzCamera,yaw:67,focus:[0,.37,.27],height:1.55},4600);
+addRows([["4188",{kind:"reverse"}]],ezWeightedCore,["core"],"ez-barbell",floorEzCamera,4450);
+addRows([["4187",{kind:"side"}]],ezWeightedCore,["core"],"ez-barbell",{...floorEzCamera,yaw:52,height:1.79},5600,.25);
+addRows([["5308",{kind:"twist"}]],ezWeightedCore,["core"],"ez-barbell",{...floorEzCamera,yaw:49,height:1.97},5900,.24);
+addRows([["5309",{kind:"press"}]],ezWeightedCore,["core","shoulder"],"ez-barbell",{...floorEzCamera,yaw:63,height:2.45,focus:[0,.74,.16]},5100,.53);
+addRows([["1820"]],phase=>curl(phase,{mode:"preacher",width:.173,travel:mix(.293,.027,rep(phase,.28,.71))}),
+  ["biceps"],"ez-preacher",{...supportCam,yaw:59},5350);
+addRows([["0445"]],ezAntiGravity,["shoulder","triceps"],"ez-chest-bench",
+  {...standing,yaw:117,focus:[0,.91,.06],height:2.19},4600);
+addRows([["5240"]],ezDeadliftCurl,["hamstring","glute","biceps"],"ez-barbell",{...standing,yaw:57},5600,.72);
+addRows([["2900"]],ezStandingPreacher,["biceps"],"ez-standing-preacher",
+  {...standing,yaw:49,focus:[0,.89,.126],height:2.17},4600);
+addRows([["6268"]],ezSingleWrist,["r:forearm"],"ez-barbell",{...standing,yaw:-56},4300);
+addRows([["0636"]],olympicHammer,["biceps","forearm"],"olympic-neutral-bar",
+  {...standing,yaw:52},4450);
+addRows([["1506"]],phase=>curl(phase,{width:.175,strict:true}),["biceps"],"ez-floor-band",
+  {...standing,yaw:52},4450);
 
 function fitBarbellCamera(camera, keyframes) {
   const yaw = camera.yaw * Math.PI / 180;

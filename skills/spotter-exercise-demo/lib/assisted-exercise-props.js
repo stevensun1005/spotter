@@ -70,9 +70,11 @@ export function buildAssistedExercise(root,preset,sample) {
     box(machine,.128,.078,1.36,frame,x,.045,.348);
     box(machine,.138,.051,.185,pad,x,.030,-.325);
     box(machine,.082,upper,.097,frame,x,upper*.5,.702);
-    box(machine,.143,.121,.231,pad,sign*.428,.119,.199);
-    box(machine,.145,.084,.192,frame,sign*.44,.166,.229);
-    box(machine,.149,.049,.198,pad,sign*.44,.199,.228);
+    if(!config.supportFloor){
+      box(machine,.143,.121,.231,pad,sign*.428,.119,.199);
+      box(machine,.145,.084,.192,frame,sign*.44,.166,.229);
+      box(machine,.149,.049,.198,pad,sign*.44,.199,.228);
+    }
     cylinder(machine,.012,1.16,bolts,sign*.212,.707,.49);
   }
   box(machine,1.045,.069,.105,frame,0,.079,.743);

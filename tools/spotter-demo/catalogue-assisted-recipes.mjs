@@ -21,9 +21,7 @@ function cycle(phase) {
   return ease(phase/.42) * (1-ease((phase-.55)/.45));
 }
 
-function armJoint(shoulder, wrist, pole) {
-  const upper=.255;
-  const lower=.371;
+function armJoint(shoulder, wrist, pole, upper=.255, lower=.371) {
   const delta=sub(wrist,shoulder);
   const distance=size(delta);
   if (distance < lower-upper+.001 || distance >= upper+lower) {
@@ -35,8 +33,30 @@ function armJoint(shoulder, wrist, pole) {
   return add(add(shoulder,scale(direction,projected)),scale(sideways,Math.sqrt(upper**2-projected**2)));
 }
 
+function pressPedal(config,t) {
+  const hips=[-.073,config.supportFloor?.855:1.013,-.115];
+  const joint=(length,x=0)=>add(hips,[x,length*Math.cos(.075),length*Math.sin(.075)]);
+  const assistedPadY=config.supportFloor?mix(.578,.109,t):mix(.654,.217,t);
+  const pose={hips,chest:joint(.377),neck:joint(.604),head:joint(.716),
+    ls:joint(.488,.191),rs:joint(.488,-.191),lh:joint(0,.103),rh:joint(0,-.103),
+    assistedPadY, planted:{r:config.supportFloor?0:.223}};
+  for(const [side,sign] of sides) {
+    const moving=sign>0;
+    const ankle=moving?[.090,assistedPadY+.074,.013]:config.supportFloor?[-.351,.075,.127]:[-.439,.296,.207];
+    pose[side+'k']=armJoint(pose[side+'h'],ankle,[sign*.14,.02,.98],.422,.424);
+    pose[side+'a']=ankle;
+    pose[side+'t']=add(ankle,[sign*.021,-.068,moving?.139:.111]);
+    const grip=assistedGrip(config,sign);
+    pose[side+'e']=armJoint(pose[side+'s'],grip,[sign*.65,-.73,-.04]);
+    pose[side+'w']=grip;
+    pose[side+'Grip']=[1,0,0];
+  }
+  return pose;
+}
+
 function poseAt(config,phase) {
   const t=cycle(phase);
+  if(config.singleFoot) return pressPedal(config,t);
   const dip=config.grip==="dip";
   const height=dip?mix(1.371,.963,t):config.platform?mix(.945,1.423,t):mix(.933,1.415,t);
   const z=dip?mix(-.116,-.157,t):mix(-.048,-.093,t);
@@ -81,6 +101,11 @@ const jobs=[
   ["1432","assist-standing-pull",back,{...pull,yaw:113}],
   ["0019","assist-triceps-dip",["triceps"],{...dip,yaw:115}],
   ["2364","assist-wide-chest-dip",chest,{...dip,yaw:130}],
+  ["0572","assist-kneeling-chin",back,{...pull,yaw:108}],
+  ["1222","assist-standing-close-chin",back,{...pull,yaw:113}],
+  ["1028","assist-standing-triceps-dip",["triceps"],{...dip,yaw:113}],
+  ["1027","assist-single-leg-press",["l:quad","l:glute"],{...pull,yaw:123,focus:[0,1.02,.34]}],
+  ["2749","assist-single-leg-floor-press",["l:quad","l:glute"],{...pull,yaw:113,focus:[0,1.02,.34]}],
 ];
 
 const [directory,...ids]=process.argv.slice(2);

@@ -164,9 +164,11 @@ try {
             const status = await renderItem(item, config);
             totals[status]++;
             console.log(item.id, status);
-          } catch {
+          } catch (error) {
             totals.failed++;
-            console.error(item.id + " failed. Verify the recipe, media tools or existing receipt.");
+            const diagnostic = kind === "catalogue" && process.env.SPOTTER_DEMO_RENDER_DIAGNOSTICS === "1";
+            console.error(item.id + (diagnostic ? " failed. " + error.message :
+              " failed. Verify the recipe, media tools or existing receipt."));
           }
         }
       }));

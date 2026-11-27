@@ -66,7 +66,83 @@ function seatedRig(root, config) {
   }
 }
 
+function rearPivotSupport(root,config) {
+  const floor=vector(0,.045,-.261);
+  slab(root,.095,.079,1.74,floor,metal);
+  slab(root,.729,.066,.155,vector(0,.042,.543),dark);
+  if(config.tBar==='prone'||config.tBar==='incline'){
+    const incline=config.tBar==='incline';
+    const end=vector(0,incline?.817:.780,incline?.098:.027);
+    const tail=vector(0,incline?.590:.723,incline?-.334:-.773);
+    const center=tail.clone().lerp(end,.5);
+    const padDepth=end.distanceTo(tail);
+    const cushion=slab(root,incline?.290:.351,.087,padDepth,center,pad);
+    cushion.rotation.x=-Math.atan2(end.y-tail.y,end.z-tail.z);
+    for(const z of [tail.z,end.z-.14]){
+      const y=tail.y+(end.y-tail.y)*(z-tail.z)/(end.z-tail.z);
+      link(root,vector(0,.078,z),vector(0,y-.038,z),.081,metal);
+    }
+    if(incline){
+      for(const x of [-.183,.183]){
+        slab(root,.226,.051,.344,vector(x,.024,-.511),dark);
+        for(let i=0;i<6;i++)slab(root,.188,.006,.013,vector(x,.050,-.626+i*.035),hardware);
+      }
+    }else{
+      slab(root,.451,.073,.187,vector(0,.776,-.890),pad);
+      link(root,vector(0,.077,-.782),vector(0,.749,-.889),.067,dark);
+    }
+    return;
+  }
+  for(const sign of [-1,1]){
+    const x=sign*.239;
+    slab(root,.242,.040,.418,vector(x,.035,.015),dark);
+    for(let i=0;i<7;i++)slab(root,.205,.009,.017,vector(x,.055,-.159+i*.053),hardware);
+  }
+  if(config.tBar==='chest'){
+    const contact=slab(root,.298,.082,.276,vector(0,.899,.117),pad);
+    contact.rotation.x=-.50;
+    link(root,vector(0,.091,.488),vector(0,.874,.14),.069,metal);
+  }
+}
+
+function buildRearPivotTBar(root,config) {
+  rearPivotSupport(root,config);
+  const pivot=vector(0,config.pivotY,config.pivotZ);
+  slab(root,.713,.064,.148,vector(0,.034,config.pivotZ),dark);
+  slab(root,.159,.138,.110,pivot,metal);
+  pin(root,.047,.203,pivot,hardware);
+  const moveLever=link(root,pivot,pivot,.058,metal);
+  const moveRiser=link(root,pivot,pivot,.046,hardware);
+  const moveGrip=link(root,pivot,pivot,.026,metal);
+  const gripDirection=config.neutral?vector(0,.26,.965).normalize():vector(1,0,0);
+  const grips=[-1,1].map(()=>pin(root,.024,.137,pivot,dark,gripDirection));
+  const radii=config.heavy?[.190,.177,.167]:[.163,.147];
+  const weights=radii.map(radius=>pin(root,radius,.036,pivot,plateColor));
+  const plateSleeve=pin(root,.026,.28,pivot,hardware);
+  const bands=config.band?[-1,1].map(sign=>{
+    const anchor=vector(sign*.190,.082,.347);
+    pin(root,.038,.045,anchor,hardware,up);
+    return {sign,anchor,draw:link(root,anchor,anchor,.015,pad)};
+  }):[];
+  return (angles)=>{
+    const middle=vector(...leverPullGrip(config,0,angles[0]));
+    const beamTip=middle.clone().add(vector(0,-.109,.015));
+    moveLever(pivot,beamTip);
+    moveRiser(beamTip,middle);
+    moveGrip(middle.clone().add(vector(-config.width,0,0)),
+      middle.clone().add(vector(config.width,0,0)));
+    for(const [i,sign] of [-1,1].entries())grips[i].position.copy(middle).add(vector(sign*config.width,0,0));
+    const pinCenter=pivot.clone().lerp(beamTip,.77);
+    plateSleeve.position.copy(pinCenter).add(vector(.145,0,0));
+    for(const [index,plate] of weights.entries())
+      plate.position.copy(pinCenter).add(vector(.078+index*.043,0,0));
+    for(const {sign,anchor,draw} of bands)
+      draw(anchor,beamTip.clone().add(vector(sign*.062,.046,-.023)));
+  };
+}
+
 function buildTBar(root, config) {
+  if(config.rearPivot)return buildRearPivotTBar(root,config);
   const standing = config.tBar === 'standing';
   if (!standing) seatedRig(root,config);
   const pivot = vector(0,config.pivotY,config.pivotZ);
@@ -151,7 +227,7 @@ function buildPostureLever(root, config) {
       weights.forEach((weight,index)=>weight.position.copy(counter).add(vector(sign*(.049+index*.034),0,0)));
     };
   });
-  const joinBar=config.neutral?null:link(root,vector(0,0,0),vector(0,0,0),.019,hardware);
+  const joinBar=config.neutral||config.independent?null:link(root,vector(0,0,0),vector(0,0,0),.019,hardware);
   return (angles)=>{
     updateSides.forEach((update,index)=>update(angles[index]));
     if(joinBar) joinBar(
@@ -234,12 +310,27 @@ export function buildLeverPull(root,preset) {
   if (!preset) return null;
   const config = leverPulls[preset];
   const machine = new THREE.Group();
-  machine.name = 'Plate-loaded lever pull machine';
+  machine.name = config.stack ? 'Selectorized lever pull machine' : 'Plate-loaded lever pull machine';
   root.add(machine);
   if (config.tBar) return buildTBar(machine,config);
   if (config.preacher || config.pullover) return buildPostureLever(machine,config);
   if (config.utility) return buildUtilityLever(machine,config);
   seatedRig(machine,config);
+  let stackBlock;
+  let stackCable;
+  if(config.stack){
+    const x=.64,z=.539;
+    slab(machine,.250,.064,.244,vector(x,.045,z),metal);
+    slab(machine,.250,.064,.244,vector(x,1.39,z),metal);
+    for(const dx of [-.085,.085])link(machine,vector(x+dx,.073,z),vector(x+dx,1.386,z),.014,hardware);
+    for(let i=0;i<11;i++)slab(machine,.193,.035,.163,vector(x,.104+i*.040,z),dark);
+    stackBlock=slab(machine,.201,.121,.169,vector(x,.624,z),plateColor);
+    const header=vector(x,1.355,z);
+    const pivotFeed=vector(.545,config.pivotY+.058,config.pivotZ);
+    link(machine,header,pivotFeed,.011,hardware);
+    const draw=link(machine,header,header,.007,dark);
+    stackCable=()=>draw(header,stackBlock.position.clone().add(vector(0,.062,0)));
+  }
   const updates = [-1,1].map((sign) => {
     const pivot = vector(sign*.545,config.pivotY,config.pivotZ);
     slab(machine,.116,.078,.752,vector(sign*.545,.044,config.pivotZ-.11),dark);
@@ -252,17 +343,19 @@ export function buildLeverPull(root,preset) {
     const moveBracket = link(machine,pivot,pivot,.034,metal);
     const moveArm = link(machine,pivot,pivot,.060,metal);
     const grip = pin(machine,.024,.111,pivot, dark, config.neutral ? vector(0,1,0) : vector(1,0,0));
-    const collar = pin(machine,.024,.219,pivot,hardware);
-    const plates = [0,1].map(() => pin(machine,config.heavy ? .172 : .122,.036,pivot,plateColor));
+    const collar = config.stack ? null : pin(machine,.024,.219,pivot,hardware);
+    const plates = config.stack ? [] : [0,1].map(() => pin(machine,config.heavy ? .172 : .122,.036,pivot,plateColor));
     return (angle) => {
       const tip = vector(...leverPullGrip(config,sign,angle));
       const outer = vector(...leverPullGrip(config,sign,angle,.545));
       moveMember(pivot,outer);
       moveBracket(outer,tip);
       grip.position.copy(tip);
-      const opposite = outer.clone().sub(pivot).normalize().multiplyScalar(config.heavy ? -.36 : -.28).add(pivot);
+      const radial = outer.clone().sub(pivot).normalize();
+      const opposite = config.raisedPeg ? vector(0,-radial.z,radial.y).multiplyScalar(.257).add(pivot)
+        : radial.multiplyScalar(config.heavy ? -.36 : -.28).add(pivot);
       moveArm(pivot,opposite);
-      collar.position.copy(opposite).add(vector(sign*.079,0,0));
+      if(collar)collar.position.copy(opposite).add(vector(sign*.079,0,0));
       plates.forEach((plate,index) => plate.position.copy(opposite).add(vector(sign*(.051+index*.042),0,0)));
     };
   });
@@ -270,10 +363,14 @@ export function buildLeverPull(root,preset) {
   if (config.overhead) {
     link(machine,vector(-.545,config.pivotY+.08,config.pivotZ),vector(.545,config.pivotY+.08,config.pivotZ),.072,metal);
   }
-  const bridge = config.overhead && config.under
+  const bridge = config.overhead && config.under && !config.independent
     ? link(machine,vector(0,0,0),vector(0,0,0),.024,hardware) : null;
   return (angles) => {
     updates.forEach((update,index) => update(angles[index]));
+    if(stackBlock){
+      stackBlock.position.y=.624+.147*Math.max(...angles.map(angle=>Math.abs(angle-config.arc)));
+      stackCable();
+    }
     if (bridge) bridge(
       vector(...leverPullGrip(config,-1,angles[0])),
       vector(...leverPullGrip(config,1,angles[1])),

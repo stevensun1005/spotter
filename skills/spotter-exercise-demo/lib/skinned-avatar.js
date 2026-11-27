@@ -53,6 +53,9 @@ const highlights = {
   trap:[.129,1.407,-.056,.099,.083,.062],
   calf:[.106,.327,-.058,.071,.129,.064],
   hamstring:[.127,.681,-.057,.071,.154,.072],
+  adductor:[.061,.728,.021,.043,.164,.085],
+  shin:[.106,.320,.055,.052,.145,.063],
+  neck:[.046,1.496,.008,.043,.088,.069],
 };
 const pale = new T.Color(0xd6d8d3), shorts = new T.Color(0x373d3c);
 const shoe = new T.Color(0x33393a), tint = new T.Color(0xba5345);

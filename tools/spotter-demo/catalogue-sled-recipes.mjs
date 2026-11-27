@@ -10,6 +10,9 @@ const dot = (a,b) => a.reduce((sum,value,index) => sum + value * b[index],0);
 const unit = (a) => scale(a,1 / (Math.hypot(...a) || 1));
 const stride = Math.SQRT1_2;
 const rep = (index) => (1 - Math.cos(index * 2 * Math.PI)) / 2;
+const mix=(a,b,t)=>a+(b-a)*t;
+const smooth=(value)=>{const x=Math.max(0,Math.min(1,value));return x*x*(3-2*x);};
+const ramp=(time,start,end)=>smooth((time-start)/(end-start));
 
 function solve(root, target, reference, a, b) {
   const offset = minus(target,root);
@@ -74,6 +77,61 @@ function squat(phase,{narrow,calves}) {
   return pose;
 }
 
+function exactPress(phase,{kind='standard',bend=91,width=.166,feetHeight=.055,toesOut=0}) {
+  const unilateral=kind==='one'||kind==='one-lying'||kind==='side';
+  const negative=kind==='negative';
+  const calves=kind==='calf'||kind==='calf-lying';
+  const lying=kind==='vertical'||kind==='calf-lying'||kind==='one-lying';
+  const side=kind==='side';
+  const time=negative?(phase*2)%1:phase;
+  const sideDown=phase<.5?1:-1;
+  const descent=negative?ramp(time,.09,.73)*(1-ramp(time,.74,.94)):rep(phase);
+  const release=negative?ramp(time,0,.12)*(1-ramp(time,.70,.84)):0;
+  const calfPosition=rep(phase);
+  const hips=lying?[0,.267,-.051]:side?[.019,.467,-.213]:[0,.426,-.218];
+  const pitch=lying?-1.535:-.990;
+  const pose=torso(hips,pitch);
+  if(side){
+    const tilt=1.07;
+    const torsion=[0,Math.cos(pitch),Math.sin(pitch)];
+    const from=[Math.cos(tilt),-Math.sin(pitch)*Math.sin(tilt),Math.cos(pitch)*Math.sin(tilt)];
+    for(const [side,sign] of sides){
+      pose[side+'s']=plus(plus(hips,scale(torsion,.500)),scale(from,sign*.185));
+      pose[side+'h']=plus(hips,scale(from,sign*.100));
+    }
+    pose.head=plus(pose.head,[.043,.008,-.018]);
+  }
+  const normal=lying?[0,1,0]:[0,stride,stride];
+  const along=lying?[0,0,-1]:[0,stride,-stride];
+  const plate=lying?[0,.490,.440]:[0,.604,.182];
+  const flex=calves?mix(.94,.45,calfPosition):.628;
+  const sole=plus(scale(along,-.149*Math.cos(flex)),scale(normal,-.149*Math.sin(flex)));
+  const fore=plus(plus(plate,scale(along,calves?lying?-.105:-.168:feetHeight)),scale(normal,-.015));
+  const foreX=unilateral?side?.083:.063:width;
+  const baseline=plus(plus(fore,[foreX+toesOut,0,0]),sole);
+  const distance=minus(baseline,pose.lh);
+  const projected=dot(distance,normal);
+  const kneeAngle=(calves?164:mix(160,bend,descent))*Math.PI/180;
+  const targetSquared=2*.422**2*(1-Math.cos(kneeAngle));
+  const travel=Math.max(0,Math.sqrt(Math.max(0,targetSquared-dot(distance,distance)+projected**2))-projected);
+  pose.machineTravel=travel;
+  const bar=plus(fore,scale(normal,travel));
+  for(const [limb,sign] of sides){
+    const handle=[sign*(side?.244:.290),lying?.269:.460,side?-.211:-.253];
+    grip(pose,limb,sign,handle,[0,0,1]);
+    const rest=unilateral&&sign<0;
+    const footX=unilateral?side?.083:.063:sign*width;
+    const toe=plus(bar,[footX+sign*toesOut,0,0]);
+    const platformHeel=plus(toe,sole);
+    const spare=lying?[sign*.316,.329,.307]:side?[-.241,.471,.257]:[sign*.447,.081,.152];
+    const drop=negative&&sign!==sideDown?release:rest?1:0;
+    const ankle=platformHeel.map((value,index)=>mix(value,spare[index],drop));
+    const rotated=minus(toe,platformHeel).map((value,index)=>mix(value,[sign*.013,-.062,.152][index],drop));
+    foot(pose,limb,sign,ankle,rotated,null);
+  }
+  return pose;
+}
+
 const specifications = [
   ['0760',press,{smith:true},'sled-smith',64], ['2611',press,{single:true,horizontal:true},'sled-horizontal',78],
   ['1425',press,{single:true},'sled-press',66],['0738',press,{calves:true},'sled-press',77],
@@ -81,6 +139,18 @@ const specifications = [
   ['0740',press,{wide:true},'sled-press',54],['0741',squat,{narrow:true},'sled-hack',52],
   ['0742',squat,{calves:true},'sled-standing-calf',68],['0743',squat,{},'sled-hack',63],
   ['0744',press,{lying:true},'sled-press-lying',76],['1392',press,{single:true,calves:true},'sled-press',62],
+  ['2224',exactPress,{bend:91},'sled-press',82],
+  ['3616',exactPress,{bend:91,width:.079,feetHeight:.039},'sled-press',76],
+  ['3617',exactPress,{bend:86,width:.277,toesOut:.047},'sled-press',67],
+  ['1575',exactPress,{bend:78,width:.064,feetHeight:.068},'sled-press',72],
+  ['10198',exactPress,{kind:'negative',bend:94},'sled-press',69],
+  ['6734',exactPress,{kind:'one',bend:81},'sled-press',77],
+  ['1391',exactPress,{kind:'calf'},'sled-press',70],
+  ['7593',exactPress,{bend:91,width:.265,feetHeight:.175,toesOut:.031},'sled-press',60],
+  ['2334',exactPress,{kind:'calf-lying'},'sled-press-lying',68],
+  ['10764',exactPress,{kind:'one-lying',bend:89},'sled-press-lying',76],
+  ['8660',exactPress,{kind:'side',bend:82},'sled-press',105],
+  ['4327',exactPress,{kind:'vertical',bend:76,feetHeight:.124},'sled-press-lying',81],
 ];
 const [folder,...ids] = process.argv.slice(2);
 if (!folder) throw new Error('Pass an output directory.');
@@ -90,8 +160,10 @@ const items = [];
 for (const [id,move,option,equipment,yaw] of specifications) {
   if(ids.length&&!ids.includes(id))continue;
   const data = {
-    version:1,durationMs:option.single ? 5800 : 4100,equipment,
-    muscles:option.calves ? ['calf'] : ['quad','glute'],
+    version:1,durationMs:option.kind==='negative'?6450:option.single?5800:4100,
+    equipment:move===exactPress?equipment+'-contact':equipment,
+    muscles:option.calves||option.kind?.startsWith('calf')?['calf']:
+      option.kind?.startsWith('one')||option.kind==='side'?['l:quad','l:glute']:['quad','glute'],
     camera:{yaw,elevation:17,focus:[0,equipment === 'sled-press-lying' ? .64 : .90,0],height:option.smith?2.58:2.18},
     keyframes:Array.from({length:61},(_,i)=>({at:i/60,...move(i/60,option)})),
   };

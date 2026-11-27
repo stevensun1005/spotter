@@ -41,7 +41,7 @@ function body(spec,amount) {
     lh:at(0,.104),rh:at(0,-.104),planted:{l:0,r:0},leverPressHandles:[]};
 }
 function motion(t,spec) {
-  const {grip,incline,decline,standing,inner,fly,shoulder,lateral,dip,curl,extension,variant,single}=spec;
+  const {grip,incline,decline,standing,inner,fly,shoulder,lateral,dip,curl,extension,variant,single,highFly}=spec;
   const amount=rep(t);
   const p=body(spec,amount);
   for (const [side,sign] of sides) {
@@ -54,10 +54,10 @@ function motion(t,spec) {
     let normal=[1,0,0];
     let offset=-.53;
     let guide=[sign*.88,-.66,.05];
-    let axis=[sign,0,0];
+    let axis=grip==='vertical'?[0,1,0]:grip==='under'?[-sign,0,0]:[sign,0,0];
     if (fly) {
-      const close=plus(s,[-sign*.122,-.075,.498]);
-      const wide=plus(s,[sign*.538,-.098,.052]);
+      const close=plus(s,[-sign*.122,highFly?.034:-.075,.498]);
+      const wide=plus(s,[sign*.538,highFly?.012:-.098,.052]);
       [start,end]=fly==='reverse'?[close,wide]:[wide,close];
       normal=[0,sign,0];offset=.41;guide=[sign*.34,-.73,.06];axis=grip==='neutral'?[0,1,0]:[sign,0,0];
     } else if (lateral) {
@@ -68,7 +68,7 @@ function motion(t,spec) {
       start=plus(s,[sign*.148,.058,.132]);
       end=plus(s,[sign*(variant===3?.155:.060),.576,variant===2?.164:.089]);
       offset=variant===3 ? .43 : -.49;
-      axis=variant===2 ? [0,0,1] : [sign,0,0];
+      axis=variant===2 ? [0,0,1] : grip==='under'?[-sign,0,0]:[sign,0,0];
     } else if (dip||extension||curl) {
       start=plus(s,[sign*(curl?.083:.193),-.223,curl?.440:.187]);
       end=plus(s,[sign*(curl?.083:.193),curl?.027:-.555,curl?.193:.174]);
@@ -202,6 +202,155 @@ function lowerBody(t,spec) {
   return p;
 }
 
+function seatedStation(lean=.02) {
+  const p=body({},0);
+  const at=(height,x=0)=>[x,.535+height*Math.cos(lean),.013+height*Math.sin(lean)];
+  Object.assign(p,{hips:at(0),chest:at(.370),neck:at(.602),head:at(.729),
+    ls:at(.496,.191),rs:at(.496,-.191),lh:at(0,.104),rh:at(0,-.104)});
+  return p;
+}
+
+function groundStation(p) {
+  for(const [side,sign] of sides){
+    [p[side+'k'],p[side+'a']]=limb(p[side+'h'],[sign*.162,.075,.471],[sign*.192,.53,.28],.422,.424);
+    p[side+'t']=plus(p[side+'a'],[sign*.019,-.073,.138]);
+  }
+}
+
+function paddedPress(t,{contact}) {
+  const p=seatedStation();
+  groundStation(p);
+  const amount=rep(t);
+  for(const [side,sign] of sides){
+    const shoulder=p[side+'s'];
+    const lateral=contact==='lateral';
+    const spread=lateral ? .158+1.26*amount : 1.37*(1-amount)+.08;
+    const point=lateral
+      ? plus(shoulder,[sign*.255*Math.sin(spread),-.257*Math.cos(spread),.037])
+      : plus(shoulder,[sign*(.252*Math.sin(spread)-.052*amount),-.083,.242*Math.cos(spread)]);
+    const axis=lateral?[0,0,1]:[sign*Math.cos(spread),0,Math.sin(spread)];
+    p[side+'e']=point;
+    p[side+'w']=plus(point,lateral?[sign*.015,.061,.278]:[0,.260,0]);
+    p[side+'Grip']=axis;
+    const pivot=lateral?[sign*.294,shoulder[1],shoulder[2]-.106]:[sign*.191,shoulder[1]+.106,shoulder[2]-.111];
+    p.leverPressHandles.push({pivot,point,axis});
+  }
+  return p;
+}
+
+function elbowStation(t,{extension=false,alternate=false}) {
+  const p=seatedStation(.157);
+  groundStation(p);
+  for(const [side,sign] of sides){
+    const active=alternate ? (t<.5?1:-1)===sign ? rep((t*2)%1):0 : rep(t);
+    const angle=extension ? 2.29-2.13*active : .32+2.09*active;
+    const pivot=[sign*.225,.788,.321];
+    const point=plus(pivot,[0,-.356*Math.cos(angle),.356*Math.sin(angle)]);
+    const axis=[extension?sign:-sign,0,0];
+    p[side+'e']=pivot;
+    p[side+'w']=point;
+    p[side+'Grip']=axis;
+    p.leverPressHandles.push({pivot,point,axis});
+  }
+  return p;
+}
+
+function kneeStation(t,{leg='both',toeIn=false,range=1,curling=false}) {
+  const p=seatedStation();
+  for(const [side,sign] of sides){
+    const free=leg==='single'&&sign<0;
+    const alternates=leg==='alternating';
+    const otherSide=alternates&&(t<.5?1:-1)!==sign;
+    const amount=free||otherSide ? 0 : rep(alternates?(t*2)%1:t);
+    const angle=curling ? 1.475-1.91*amount*range : .21+1.28*amount*range;
+    const pivot=[sign*.329,.524,.355];
+    const knee=[sign*.145,pivot[1],pivot[2]];
+    const ankle=[knee[0],knee[1]-.422*Math.cos(angle),knee[2]+.422*Math.sin(angle)];
+    const direction=curling?-1:1;
+    const point=[knee[0],knee[1]-.351*Math.cos(angle)+.075*direction*Math.sin(angle),
+      knee[2]+.351*Math.sin(angle)+.075*direction*Math.cos(angle)];
+    p[side+'k']=free?[sign*.245,.487,.355]:knee;
+    p[side+'a']=free?[sign*.311,.074,.401]:ankle;
+    p[side+'t']=plus(p[side+'a'],[sign*(toeIn?-.065:.018),-.075+.164*(curling?1-amount:amount),.141]);
+    if(!free)delete p.planted[side];
+    const grip=[sign*.262,.517,.176];
+    [p[side+'e'],p[side+'w']]=limb(p[side+'s'],grip,[sign*.48,-.43,-.65],.252,.371);
+    p[side+'Grip']=[0,0,1];
+    p.leverPressHandles.push({pivot,point,axis:[1,0,0]});
+  }
+  return p;
+}
+
+function proneKneeStation(phase,{single=false,kneeling=false}) {
+  const amount=rep(phase);
+  const bodyPitch=kneeling?.641:Math.PI/2;
+  const hips=kneeling?[0,.927,-.186]:[0,.652,-.017];
+  const at=(height,x=0)=>[x,hips[1]+height*Math.cos(bodyPitch),hips[2]+height*Math.sin(bodyPitch)];
+  const p={hips,chest:at(.370),neck:at(.602),head:at(.720),
+    ls:at(.496,.191),rs:at(.496,-.191),lh:at(0,.104),rh:at(0,-.104),planted:{},leverPressHandles:[]};
+  if(!kneeling)p.headAim=[0,-.139,1];
+  for(const [side,sign] of sides){
+    const resting=single&&sign<0;
+    const travel=resting?0:amount;
+    const angle=kneeling ? -.055+1.48*travel : -.112+1.67*travel;
+    const knee=kneeling?[sign*.157,resting?.528:.500,resting?-.115:-.184]:[sign*.121,.626,-.441];
+    const direction=kneeling?[0,-Math.cos(angle),-Math.sin(angle)]:[0,Math.sin(angle),-Math.cos(angle)];
+    const offset=kneeling?[0,Math.sin(angle),-Math.cos(angle)]:[0,Math.cos(angle),Math.sin(angle)];
+    const ankle=plus(knee,scale(direction,.423));
+    const contact=plus(plus(knee,scale(direction,.351)),scale(offset,.069));
+    p[side+'k']=knee;
+    p[side+'a']=kneeling&&resting?plus(knee,[.012,-.013,-.423]):ankle;
+    p[side+'t']=plus(p[side+'a'],[sign*.015,-.058,kneeling&&!resting?.139:-.132]);
+    const grip=kneeling?[sign*.226,.953,.532]:[sign*.243,.538,.687];
+    [p[side+'e'],p[side+'w']]=limb(p[side+'s'],grip,[sign*.70,-.42,-.64],.252,.371);
+    p[side+'Grip']=[1,0,0];
+    p.leverPressHandles.push({
+      pivot:[sign*.326,knee[1],knee[2]],
+      point:kneeling&&resting?[sign*.421,.353,-.467]:contact,
+      axis:[1,0,0],
+    });
+  }
+  return p;
+}
+
+function seatedCalfStation(t,{single=false}) {
+  const amount=rep(t);
+  const p=seatedStation(.012);
+  for(const [side,sign] of sides){
+    const resting=single&&sign<0;
+    const a=resting?[sign*.242,.075,.258]:[sign*.161,.133+.087*amount,.367];
+    [p[side+'k'],p[side+'a']]=limb(p[side+'h'],a,[sign*.13,.88,.314],.422,.424);
+    p[side+'t']=plus(p[side+'a'],[sign*.014,resting?-.068:.067-a[1],.142]);
+    p.planted[side]=resting?0:.063;
+    const top=plus(p[side+'k'],[0,.061,-.074]);
+    const grip=resting?[sign*.226,.558,.213]:plus(top,[sign*.056,.109,-.044]);
+    [p[side+'e'],p[side+'w']]=limb(p[side+'s'],grip,[sign*.66,-.46,-.52],.252,.371);
+    p[side+'Grip']=[0,0,1];
+    p.leverPressHandles.push({pivot:[sign*.329,.369,.711],point:top,axis:[1,0,0]});
+  }
+  return p;
+}
+
+function hipMachine(phase,{adduct=false}) {
+  const p=seatedStation();
+  const amount=rep(phase);
+  const spread=adduct?.86-.64*amount:.20+.66*amount;
+  for(const [side,sign] of sides){
+    const x=sign*(.106+.389*Math.sin(spread));
+    const z=.013+.389*Math.cos(spread);
+    const knee=[x,.497,z];
+    p[side+'k']=knee;
+    p[side+'a']=[x,.077,z+.049];
+    p[side+'t']=plus(p[side+'a'],[sign*.029,-.067,.137]);
+    const grip=[sign*.263,.554,.219];
+    [p[side+'e'],p[side+'w']]=limb(p[side+'s'],grip,[sign*.56,-.68,.06],.252,.371);
+    p[side+'Grip']=[0,0,1];
+    p.leverPressHandles.push({pivot:[sign*.109,.479,.067],
+      point:plus(knee,[sign*(adduct?.069:-.069),-.039,-.022]),axis:[0,0,1]});
+  }
+  return p;
+}
+
 const lowerRows=[
   ['2287',{motion:'leg',single:true},'leg',['quad','glute']],
   ['2315',{motion:'calf',variant:'rotary'},'rotary-calf',['calf']],
@@ -231,24 +380,74 @@ const rows=[
   ['0596',{fly:'chest'},'fly',['pec']],['1451',{dip:true},'flat',['triceps','pec']],
   ['0591',{dip:true,standing:true},'standing',['triceps','pec']],['0575',{curl:true},'flat',['biceps']],
   ['0607',{extension:true},'flat',['triceps']],
+  ['1455',{},'flat-floor',['pec','triceps']],['2277',{inner:true},'flat-floor',['pec','triceps']],
+  ['1029',{},'flat-floor',['pec','triceps']],['2278',{decline:true},'flat-floor',['pec','triceps']],
+  ['2659',{incline:true},'incline-plate',['pec','shoulder']],
+  ['1195',{incline:true,grip:'vertical'},'incline-stack',['pec','shoulder']],
+  ['4371',{incline:true,single:true},'incline-plate',['l:pec','l:shoulder']],
+  ['5576',{incline:true,single:true},'incline-plate',['l:pec','l:shoulder']],
+  ['2974',{single:true},'flat-plate',['l:pec','l:triceps']],
+  ['10669',{incline:true},'incline-stack',['pec','shoulder']],
+  ['10670',{incline:true,single:true},'incline-stack',['l:pec','l:shoulder']],
+  ['10671',{},'flat-stack',['pec','triceps']],
+  ['10672',{single:true},'flat-stack',['l:pec','l:triceps']],
+  ['1030',{contact:'forearm-fly'},'fly-pad-stack',['pec']],
+  ['3344',{fly:'chest',grip:'neutral'},'fly-stack',['pec']],
+  ['5843',{fly:'chest',incline:true,highFly:true,grip:'neutral'},'fly-incline-stack',['pec']],
+  ['1876',{contact:'lateral'},'lateral-pad-plate',['shoulder']],
+  ['3343',{contact:'lateral'},'lateral-pad-stack',['shoulder']],
+  ['2962',{shoulder:true,variant:2},'flat-stack',['shoulder','triceps']],
+  ['4174',{shoulder:true,grip:'under'},'flat-plate',['shoulder','triceps']],
+  ['1454',{shoulder:true},'flat-floor',['shoulder','triceps']],
+  ['1032',{elbows:true,alternate:true},'elbow-pad-stack',['biceps']],
+  ['4336',{elbows:true},'elbow-pad-stack',['biceps']],
+  ['1871',{dip:true},'dip-plate',['triceps','pec']],
+  ['1033',{elbows:true,extension:true},'elbow-pad-stack',['triceps']],
+  ['2198',{elbows:true,extension:true},'elbow-pad-stack',['triceps']],
 ];
+const kneeRows=[
+  ['1873',{knee:true},'knee-plate',['quad']],
+  ['1874',{knee:true,leg:'alternating'},'knee-plate',['quad']],
+  ['3386',{knee:true,range:.91},'knee-stack',['quad']],
+  ['7108',{knee:true,range:.94},'knee-stack',['quad']],
+  ['7327',{knee:true,toeIn:true},'knee-stack',['quad']],
+  ['1571',{knee:true,leg:'single'},'knee-stack',['l:quad']],
+  ['5178',{knee:true,leg:'single'},'knee-plate',['l:quad']],
+  ['8604',{knee:true,curling:true},'knee-curl-plate',['hamstring']],
+  ['1586',{knee:true,curling:true,leg:'single'},'knee-curl-stack',['l:hamstring']],
+  ['10763',{knee:true,curling:true,leg:'single'},'knee-curl-plate',['l:hamstring']],
+  ['9676',{prone:true},'knee-prone-plate',['hamstring']],
+  ['1590',{prone:true,single:true},'knee-prone-stack',['l:hamstring']],
+  ['0582',{prone:true,kneeling:true,single:true},'knee-kneeling-plate',['l:hamstring']],
+  ['2666',{seatedCalf:true},'seated-calf-plate',['calf']],
+  ['1216',{seatedCalf:true,single:true},'seated-calf-plate',['l:calf']],
+  ['1869',{hip:true},'hip-stack',['glute']],
+  ['1867',{hip:true,adduct:true},'hip-stack',[]],
+];
+
 const [folder,kind,...ids]=process.argv.slice(2);
 if(!folder) throw new Error('Pass an output directory.');
 const out=resolve(folder);
 await mkdir(out,{recursive:true});
 const items=[];
 const failures=[];
-for(const [id,options,rig,muscles] of (kind==='lower'?lowerRows:rows)) {
+const source = kind==='lower' ? [...lowerRows,...kneeRows] : rows;
+for(const [id,options,rig,muscles] of source) {
   if(ids.length&&!ids.includes(id))continue;
   const recipe=id+'.json';
-  const data={version:1,durationMs:options.single&&options.motion==='leg'?5600:4200,equipment:'lever-press-'+rig,muscles,
-    camera:{yaw:options.lateral?22:options.fly?31:options.variant==='abduct'||options.variant==='adduct'?21:63,elevation:16,focus:[0,options.standing?1.03:.84,.045],height:options.standing?2.31:2.00},
-    keyframes:Array.from({length:61},(_,i)=>({at:i/60,...(options.motion?lowerBody(i/60,options):motion(i/60,options))}))};
+  const animate=options.knee?kneeStation:options.prone?proneKneeStation:options.seatedCalf?seatedCalfStation
+    :options.hip?hipMachine:options.motion?lowerBody:options.contact?paddedPress:options.elbows?elbowStation:motion;
+  const tall=options.standing||options.shoulder&&rig.includes('-');
+  const data={version:1,durationMs:options.single&&options.motion==='leg'||options.alternate||options.leg==='alternating'?5600:4200,
+    equipment:'lever-press-'+rig,muscles,
+    camera:{yaw:options.prone?(options.kneeling?79:58):options.lateral||options.contact==='lateral'?22:options.fly||options.contact?31:options.hip||options.variant==='abduct'||options.variant==='adduct'?21:63,
+      elevation:16,focus:[0,tall?1.03:.84,options.knee?.29:.045],height:tall?2.31:2.00},
+    keyframes:Array.from({length:61},(_,i)=>({at:i/60,...animate(i/60,options)}))};
   try {
     prepareRecipe(data);
     const intervals=data.keyframes.flatMap(f=>sides.map(([side],i)=>options.single&&i===1?0:Math.hypot(...minus(f[side+'w'],f.leverPressHandles[i].point))));
     const gripError=Math.max(...intervals);
-    if(!options.motion&&gripError>.039) throw new Error('Hands lose grip by '+gripError.toFixed(3)+' m.');
+    if(animate===motion&&gripError>.039) throw new Error('Hands lose grip by '+gripError.toFixed(3)+' m.');
     await writeFile(resolve(out,recipe),JSON.stringify(data)+'\n');
     items.push({id,recipe});
   } catch(error) { failures.push({id,error:error.message}); }

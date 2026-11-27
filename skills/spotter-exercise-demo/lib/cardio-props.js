@@ -267,14 +267,25 @@ export function buildCardio(group,options){
  }
  if(options.projectile){
   const ball=new T.Group();group.add(ball);
-  mesh(ball,new T.SphereGeometry(.111,36,26),green);
-  mesh(ball,new T.TorusGeometry(.1105,.0031,8,40),black).rotation.x=.41;
-  mesh(ball,new T.TorusGeometry(.110,.0020,7,40),black).rotation.y=.88;
+  const massage=options.massageBall;
+  const radius=massage ? .046 : .111;
+  mesh(ball,new T.SphereGeometry(radius,36,26),green);
+  mesh(ball,new T.TorusGeometry(radius-.0005,massage ? .0014 : .0031,8,40),black).rotation.x=.41;
+  mesh(ball,new T.TorusGeometry(radius-.001,massage ? .0009 : .0020,7,40),black).rotation.y=.88;
+  if(massage==='massage-front-wall'||massage==='massage-rear-wall'){
+   box(group,pale,[1.03,1.96,.073],[0,.98,massage==='massage-front-wall'?.693:-.503]);
+  }
+  if(massage==='massage-table'){
+   box(group,pale,[.835,.045,.545],[.172,.895,.534]);
+   for(const x of [-.192,.530]) for(const z of [.318,.754]) box(group,black,[.046,.880,.046],[x,.440,z]);
+  }
   if(options.targetWall){
-   box(group,pale,[.955,1.77,.105],[0,.888,1.419]);
+   const height=options.tallTargetWall?2.93:1.77;
+   const targetHeight=options.tallTargetWall?2.52:1.30;
+   box(group,pale,[.955,height,.105],[0,.003+height/2,1.419]);
    box(group,green,[.949,.084,.076],[0,.044,1.397]);
-   box(group,green,[.949,.074,.076],[0,1.737,1.397]);
-   const target=mesh(group,new T.TorusGeometry(.196,.0056,10,56),green,[0,1.30,1.365]);
+   box(group,green,[.949,.074,.076],[0,height-.033,1.397]);
+   const target=mesh(group,new T.TorusGeometry(.196,.0056,10,56),green,[0,targetHeight,1.365]);
    target.castShadow=false;
   }
   return p=>{
@@ -306,9 +317,10 @@ export function buildCardio(group,options){
   };
  }
  if(options.contactWall){
-  box(group,pale,[1.123,1.867,.102],[0,.938,.590]);
+  const height=options.tallContactWall?2.30:1.867;
+  box(group,pale,[1.123,height,.102],[0,height/2+.0045,.590]);
   box(group,green,[1.124,.066,.107],[0,.037,.590]);
-  box(group,green,[1.123,.062,.105],[0,1.846,.590]);
+  box(group,green,[1.123,.062,.105],[0,height-.021,.590]);
   for(const x of [-.219,.219])box(group,green,[.099,.133,.005],[x,1.251,.537]);
  }
  if(options.suitcaseBar){

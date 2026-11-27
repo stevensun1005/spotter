@@ -11,6 +11,33 @@ function light(scene, color, intensity, position) {
   return source;
 }
 
+function formLabel(title, background) {
+  const image = document.createElement('canvas');
+  image.width = 192;
+  image.height = 72;
+  const context = image.getContext('2d');
+  context.fillStyle = background;
+  context.beginPath();
+  context.roundRect(4,4,184,64,25);
+  context.fill();
+  context.font = '600 37px -apple-system, sans-serif';
+  context.fillStyle = '#ffffff';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(title,96,37);
+  const texture = new T.CanvasTexture(image);
+  texture.colorSpace = T.SRGBColorSpace;
+  const material = new T.SpriteMaterial({map:texture,depthTest:false,depthWrite:false,toneMapped:false});
+  const label = new T.Sprite(material);
+  label.scale.set(.39,.146,1);
+  return label;
+}
+
+function labelPosition(label, body) {
+  const center = body.chest;
+  label.position.set(center[0],Math.max(body.head[1],body.hips[1],body.chest[1])+.189,center[2]);
+}
+
 function studio(recipe, width, height) {
   const renderer = new T.WebGLRenderer({antialias: true, preserveDrawingBuffer: true});
   renderer.toneMapping = T.ACESFilmicToneMapping;
@@ -37,8 +64,12 @@ function studio(recipe, width, height) {
   floor.receiveShadow = true;
   const avatar = createSkinnedAvatar();
   avatar.setFocus(recipe.muscles.length > 0, recipe.muscles);
+  const partner = recipe.partner ? createSkinnedAvatar() : undefined;
   const gear = createEquipment(recipe.options, recipe.sample);
   scene.add(floor, gear.group, avatar.group);
+  if (partner) scene.add(partner.group);
+  const labels = recipe.formComparison ? [formLabel('正确','#315848'),formLabel('需调整','#8b5a43')] : [];
+  if (labels.length) scene.add(...labels);
   const halfHeight = recipe.camera.height / 2;
   const halfWidth = halfHeight * width / height;
   const camera = new T.OrthographicCamera(-halfWidth, halfWidth, halfHeight, -halfHeight, .05, 35);
@@ -56,10 +87,19 @@ function studio(recipe, width, height) {
       camera.position.z = baseZ + pose.followZ;
       camera.lookAt(x, y, z + pose.followZ);
       avatar.update(pose);
+      if (partner) partner.update(pose.partner);
+      if (labels.length) {
+        labelPosition(labels[0],pose);
+        labelPosition(labels[1],pose.partner);
+      }
       gear.update(pose);
       renderer.render(scene, camera);
     },
     dispose() {
+      for (const label of labels) {
+        label.material.map.dispose();
+        label.material.dispose();
+      }
       renderer.dispose();
       renderer.forceContextLoss();
     },

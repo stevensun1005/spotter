@@ -94,11 +94,18 @@ export function buildCatalogueSmallProp(scene, kind) {
     return null;
   }
   if (kind === 'tire') return buildTire(scene);
-  if (!kind || kind === 'medicine') return null;
+  if (!kind || kind === 'medicine' || kind.startsWith('massage')) return null;
   const roller=new THREE.Group();
   scene.add(roller);
-  if (kind === 'foam') buildFoamRoller(roller);
+  if (kind.startsWith('foam')) buildFoamRoller(roller);
   else buildWheel(roller);
+  if (kind === 'foam-long') roller.scale.y = 1.73;
+  if (kind === 'foam-wall') {
+    place(scene,new THREE.BoxGeometry(1.24,2.36,.072),green,0,1.18,1.385);
+  }
+  if (kind === 'wheel-wall') {
+    place(scene,new THREE.BoxGeometry(1.33,1.55,.071),green,0,.775,1.385);
+  }
   if (kind === 'wheel-band') {
     place(scene,new THREE.BoxGeometry(.340,.048,.290),rubber,0,.024,-.860);
     place(scene,new THREE.BoxGeometry(.079,.478,.080),gray,0,.270,-.860);

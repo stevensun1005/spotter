@@ -347,6 +347,53 @@ function suspension(group, preset) {
   };
 }
 
+export function buildAdjustableSuspension(group, kind, sample) {
+  const links = sample(0).straps;
+  const [, height, depth] = links[0].anchor;
+  const span = Math.max(.86, ...links.map(({ anchor }) => Math.abs(anchor[0]) + .30));
+  for (const side of [-1, 1]) {
+    const x = side * span;
+    box(group, rubber, [.183, .045, .75], [x, .022, depth]);
+    strut(group, [x, .047, depth], [x, height + .027, depth]);
+  }
+  strut(group, [-span, height + .027, depth], [span, height + .027, depth]);
+  const rigs = links.map(({ anchor }) => {
+    const ring = kind.startsWith('ring');
+    const foot = kind.endsWith('foot');
+    const loop = ring || foot;
+    const radius = ring ? .086 : foot ? .059 : .061;
+    const strap = box(group, frame, [.029, 1, .008], anchor);
+    cylinder(group, .020, .053, trim, anchor);
+    const grip = new THREE.Group();
+    group.add(grip);
+    if (loop) {
+      const band = mesh(grip, new THREE.TorusGeometry(radius, .011, 10, 39), rubber, [0,radius,0]);
+      if (foot) band.scale.set(1.18, .82, 1);
+    } else {
+      for (const sign of [-1, 1]) strut(grip, [sign * .073,0,0], [0,.118,0]);
+      const shaft = cylinder(grip, .018, .157, rubber, [0,0,0]);
+      shaft.rotation.z = Math.PI / 2;
+    }
+    return { strap, grip, joint: loop ? 2 * radius : .118 };
+  });
+  return ({ straps }) => {
+    for (const [index,{ anchor, end, axis }] of straps.entries()) {
+      const { strap, grip, joint } = rigs[index];
+      const top = v(anchor);
+      const base = v(end);
+      const up = top.clone().sub(base).normalize();
+      const start = base.clone().addScaledVector(up,joint);
+      grip.position.copy(base);
+      const alignment = new THREE.Quaternion().setFromUnitVectors(floorAxis,up);
+      const x = v(axis).addScaledVector(up, -v(axis).dot(up)).normalize();
+      grip.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, up, x.clone().cross(up)));
+      strap.quaternion.copy(alignment);
+      strap.position.copy(start).lerp(top,.5);
+      strap.scale.y = start.distanceTo(top);
+    }
+  };
+}
+
 export function buildBodyweightProps(group, preset) {
   if (preset === 'extension-45' || preset === 'extension-flat') extensionBench(group, preset === 'extension-45');
   if (preset === 'doorway') doorway(group);
@@ -360,6 +407,15 @@ export function buildBodyweightProps(group, preset) {
   if (preset === 'handstand-wall') handstandWall(group);
   if (preset === 'drop-steps') dropSteps(group);
   if (preset === 'plyo-box') solidBox(group);
+  if (preset === 'push-up-handles') {
+    for (const side of [-1, 1]) {
+      const x=side*.225;
+      box(group,rubber,[.141,.036,.307],[x,.023,.520]);
+      for(const z of [.406,.634])strut(group,[x,.039,z],[x,.176,z]);
+      const grip=cylinder(group,.021,.264,rubber,[x,.176,.520]);
+      grip.rotation.x=Math.PI/2;
+    }
+  }
   if (preset === 'back-plate') return backPlate(group);
   if (preset === 'parallel-dips' || preset === 'cage-dips' || preset === 'straight-dip') dipStations(group, preset);
   if (preset === 'dip-bench' || preset === 'double-dip-bench') dipBenches(group, preset === 'double-dip-bench');

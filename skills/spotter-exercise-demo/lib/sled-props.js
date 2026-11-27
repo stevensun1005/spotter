@@ -41,11 +41,101 @@ function weights(parent) {
   }
 }
 
+function movingTube(group,radius,material){
+  const object=part(group,new THREE.CylinderGeometry(radius,radius,1,14),material,0,0,0);
+  return (from,to)=>{
+    const delta=to.clone().sub(from);
+    const length=delta.length();
+    object.position.copy(from).lerp(to,.5);
+    object.scale.y=length;
+    if(length>.0001)object.quaternion.setFromUnitVectors(up,delta.divideScalar(length));
+  };
+}
+
+function buildProwler(group,style){
+  const harness=style==='harness';
+  const axis=style==='axis';
+  const rope=style==='rope'||axis;
+  const tank=style==='tank';
+  const rear=style==='rear';
+  const frame=new THREE.Group();
+  group.add(frame);
+  if(tank){
+    for(const x of [-.259,.259]){
+      for(const z of [-.218,.218]) {
+        const wheel=part(frame,new THREE.CylinderGeometry(.132,.132,.094,22),'pad',x,.136,z);
+        const hub=part(frame,new THREE.CylinderGeometry(.062,.062,.101,18),'steel',x,.136,z);
+        wheel.rotateZ(Math.PI/2);
+        hub.rotateZ(Math.PI/2);
+      }
+    }
+    pad(frame,[.431,.141,.518],[0,.226,.004],'frame');
+    pad(frame,[.358,.051,.311],[0,.307,.064],'plate');
+    for(let i=0;i<3;i++)pad(frame,[.285,.018,.086],[0,.338,-.02+i*.103],'steel');
+    for(const x of [-.308,.308]){
+      rail(frame,.035,'frame',[x*.71,.252,-.263],[x,.739,-.289]);
+      rail(frame,.025,'plate',[x,.738,-.290],[x,.893,-.290]);
+      rail(frame,.027,'pad',[x,.893,-.350],[x,.893,-.218]);
+    }
+  }else{
+    for(const x of [-.246,.246]){
+      pad(frame,[.177,.071,.781],[x,.040,0],'plate');
+      pad(frame,[.168,.053,.161],[x,.071,-.340],'steel',.15);
+      pad(frame,[.169,.053,.161],[x,.071,.340],'steel',-.15);
+      rail(frame,.031,'frame',[x,.123,-.325],[x,.129,.354]);
+    }
+    for(const z of [-.282,.237])pad(frame,[.577,.067,.095],[0,.141,z],'frame');
+    pad(frame,[.489,.068,.372],[0,.123,.006],'plate');
+    const count=style==='axis'?2:3;
+    for(let i=0;i<count;i++){
+      part(frame,new THREE.CylinderGeometry(.176-i*.013,.176-i*.013,.049,36),'pad',0,.176+i*.050,.083);
+      part(frame,new THREE.CylinderGeometry(.041,.041,.051,20),'steel',0,.178+i*.050,.083);
+    }
+    rail(frame,.024,'steel',[0,.146,.085],[0,.422,.085]);
+    for(const x of [-.240,.240]){
+      const height=rear?.654:1.012;
+      if(style==='front'||rear){
+        rail(frame,.033,'frame',[x,.141,-.347],[x,height,-.346]);
+        if(rear){
+          const direction=Math.sign(x);
+          rail(frame,.027,'pad',[x,.654,-.346],[direction*.309,.654,-.346]);
+        }else rail(frame,.028,'pad',[x,.921,-.346],[x,1.045,-.346]);
+      }else{
+        const attachZ=harness?.326:-.346;
+        const eye=part(frame,new THREE.TorusGeometry(.030,.008,10,22),'steel',x*.64,.163,attachZ);
+        eye.rotateY(Math.PI/2);
+      }
+    }
+  }
+  const lines=rope||harness?[-1,1].map(sign=>({sign,tube:movingTube(group,.012,'plate')})):[];
+  const harnessSegments=harness?Array.from({length:8},()=>movingTube(group,.043,'pad')):[];
+  return (pose)=>{
+    const shift=pose.machineTravel-1;
+    frame.position.set(axis?shift:0,0,(harness?-.908:axis?1.032:.992)+(axis?0:shift));
+    const waist=new THREE.Vector3(...pose.hips).add(new THREE.Vector3(0,.075,0));
+    if(harnessSegments.length){
+      const points=Array.from({length:8},(_,i)=>{
+        const angle=2*Math.PI*i/8;
+        return waist.clone().add(new THREE.Vector3(.163*Math.sin(angle),0,.126*Math.cos(angle)));
+      });
+      for(const [i,segment] of harnessSegments.entries())segment(points[i],points[(i+1)%points.length]);
+    }
+    for(const {sign,tube} of lines){
+      const side=sign>0?'l':'r';
+      const anchor=frame.position.clone().add(new THREE.Vector3(sign*.154,.163,harness?.326:-.346));
+      const grip=harness?waist.clone().add(new THREE.Vector3(sign*.093,0,-.116)):new THREE.Vector3(...pose[side+'w']);
+      tube(anchor,grip);
+    }
+  };
+}
+
 export function buildSledProps(group, preset) {
   if (!preset) return;
+  if (preset.startsWith('prowler-')) return buildProwler(group,preset.slice(8));
   const hack = preset === 'hack';
   const forward = preset === 'standing-calf';
-  const lying = preset === 'press-lying';
+  const precise = preset.endsWith('-contact');
+  const lying = preset === 'press-lying' || preset === 'press-lying-contact';
   const smith = preset === 'smith';
   const horizontal = preset === 'horizontal';
   const origin = smith ? [0,.535,.512] : horizontal ? [0,.515,.542] : hack ? [0,.92,-.41] : forward ? [0,1.16,.31] : lying ? [0,.49,.44] : [0,.604,.182];
@@ -86,7 +176,8 @@ export function buildSledProps(group, preset) {
     pad(group,[.413,.068,.322],[0,lying ? .169 : .353,-.235]);
     for (const x of [-.29,.29]) rail(group,.024,'pad',[x,lying ? .26 : .46,-.36],[x,lying ? .26 : .46,-.15]);
     const footplate = new THREE.Group();
-    footplate.rotation.x = lying ? Math.PI : horizontal ? Math.PI / 2 : 2.36;
+    footplate.rotation.x = precise ? lying ? 0 : Math.PI / 4
+      : lying ? Math.PI : horizontal ? Math.PI / 2 : 2.36;
     motion.add(footplate);
     pad(footplate,[.796,.060,.51],[0,.031,0],'plate');
     for (let i = 0; i < 7; i++) pad(footplate,[.72,.009,.013],[0,-.003,-.21 + .062 * i],'steel');
