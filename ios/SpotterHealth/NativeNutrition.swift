@@ -101,19 +101,39 @@ struct NutritionPayload: Decodable {
     var recentMeals: [RecentMeal]? = nil
 
     func recentServings(for meal: NutritionShortcut) -> [NativeRecentServing] {
-        guard meal.isMeal, let recentMeals else { return [] }
-        let personal: [NativeNutritionFood] = rows.compactMap { row in
-            guard row.kind == "food", let id = row.id, let name = row.name, let facts = row.per100g else { return nil }
-            return NativeNutritionFood(id: id, name: name, facts: facts)
+        guard meal.isMeal else { return [] }
+        return recentServings(for: [meal])[meal] ?? []
+    }
+
+    func recentServingsByMeal() -> [NutritionShortcut: [NativeRecentServing]] {
+        recentServings(for: NutritionShortcut.allCases.filter(\.isMeal))
+    }
+
+    private func recentServings(for meals: [NutritionShortcut]) -> [NutritionShortcut: [NativeRecentServing]] {
+        guard let recentMeals, !recentMeals.isEmpty else { return [:] }
+        let personal = rows.reduce(into: [String: NativeNutritionFood]()) { foods, row in
+            guard row.kind == "food", let id = row.id, foods[id] == nil,
+                  let name = row.name, let facts = row.per100g else { return }
+            foods[id] = NativeNutritionFood(id: id, name: name, facts: facts)
         }
-        let foods = personal + NativeNutritionFood.builtIn
+        return Dictionary(uniqueKeysWithValues: meals.map { meal in
+            (meal, recentServings(for: meal, from: recentMeals, personal: personal))
+        })
+    }
+
+    private func recentServings(for meal: NutritionShortcut, from recentMeals: [RecentMeal],
+                                personal: [String: NativeNutritionFood]) -> [NativeRecentServing] {
+        var servings: [NativeRecentServing] = []
         var seen: Set<String> = []
-        let ranked = recentMeals.filter { $0.meal == meal.rawValue } + recentMeals
-        return Array(ranked.compactMap { previous -> NativeRecentServing? in
-            guard seen.insert(previous.foodId).inserted, (0.1...3000).contains(previous.grams),
-                  let food = foods.first(where: { $0.id == previous.foodId }) else { return nil }
-            return NativeRecentServing(food: food, grams: previous.grams)
-        }.prefix(4))
+        for sameMeal in [true, false] {
+            for previous in recentMeals where (previous.meal == meal.rawValue) == sameMeal {
+                guard seen.insert(previous.foodId).inserted, (0.1...3000).contains(previous.grams),
+                      let food = personal[previous.foodId] ?? NativeNutritionFood.builtInByID[previous.foodId] else { continue }
+                servings.append(NativeRecentServing(food: food, grams: previous.grams))
+                if servings.count == 4 { return servings }
+            }
+        }
+        return servings
     }
 
     func targets(on date: String, countingWorkoutIDs ids: Set<String>?) -> Values {
@@ -2701,6 +2721,8 @@ extension NativeNutritionFood {
         let catalog = NativeFoodCatalog.shared?.nutritionFoods ?? []
         return catalog.isEmpty ? fallback : catalog
     }()
+
+    fileprivate static let builtInByID = Dictionary(builtIn.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
     /// The original everyday list. Recommendations rank only these, like the web nutrition tools.
     static let core: [Self] = {

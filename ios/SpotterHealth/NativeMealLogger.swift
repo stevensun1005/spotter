@@ -411,6 +411,23 @@ private struct NativeFoodEmoji: View {
 // MARK: - Meal logger
 
 @MainActor
+private final class NativeMealSelection: ObservableObject {
+    @Published var meal: NutritionShortcut
+
+    init(_ meal: NutritionShortcut) {
+        self.meal = meal
+    }
+}
+
+@MainActor
+private struct NativeMealSelectionView<Content: View>: View {
+    @ObservedObject var selection: NativeMealSelection
+    @ViewBuilder var content: (Binding<NutritionShortcut>) -> Content
+
+    var body: some View { content($selection.meal) }
+}
+
+@MainActor
 struct NativeMealLogger: View {
     fileprivate enum Tab: String, CaseIterable, Identifiable {
         case search = "搜索", custom = "自定义", favorites = "收藏", templates = "固定模版"
@@ -443,13 +460,15 @@ struct NativeMealLogger: View {
     let date: String
     let payload: NutritionPayload
     let onSaved: (NativeQuickMealReceipt?) -> Void
+    private let recentsByMeal: [NutritionShortcut: [NativeRecentServing]]
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterGuide) private var guide
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dynamicTypeSize) private var textSize
-    @State private var meal: NutritionShortcut
+    // Observe meal changes only in the controls and recent strip that display them.
+    @State private var mealSelection: NativeMealSelection
     @State private var tab = Tab.search
     @State private var query = ""
     @State private var category: String
@@ -480,6 +499,7 @@ struct NativeMealLogger: View {
 
     private static let catalog = NativeFoodCatalog.shared
     private static let foods = NativeNutritionFood.builtIn
+    private static let foodsByCategory = Dictionary(grouping: foods) { $0.category ?? "" }
 
     init(api: NativeAPI, owner: String, date: String, meal: NutritionShortcut, payload: NutritionPayload,
          onSaved: @escaping (NativeQuickMealReceipt?) -> Void) {
@@ -488,7 +508,8 @@ struct NativeMealLogger: View {
         self.date = date
         self.payload = payload
         self.onSaved = onSaved
-        _meal = State(initialValue: meal.isMeal ? meal : .snack)
+        self.recentsByMeal = payload.recentServingsByMeal()
+        _mealSelection = State(initialValue: NativeMealSelection(meal.isMeal ? meal : .snack))
         _category = State(initialValue: Self.catalog?.categories.first?.id ?? "")
     }
 
@@ -507,6 +528,7 @@ struct NativeMealLogger: View {
     private var store: NativeFoodLocalStore { .init(api: api, owner: owner) }
     private var templateStore: NativeFavoriteMealStore { .init(api: api, owner: owner) }
     private var guiding: Bool { guide?.step.presentation == .mealEditor }
+    private var meal: NutritionShortcut { mealSelection.meal }
     private var allFoods: [NativeNutritionFood] { personal + Self.foods }
     private var totals: NativeNutritionFood.Facts {
         basket.reduce(.init(calories: 0, protein: 0, carbs: 0, fat: 0)) { $0.adding($1.facts) }
@@ -573,8 +595,10 @@ struct NativeMealLogger: View {
             .accessibilityLabel(basket.isEmpty ? "返回" : "放弃已选食物并返回")
             .disabled(busy)
             Spacer(minLength: 0)
-            Text("记录" + meal.rawValue).font(.headline).lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
+            NativeMealSelectionView(selection: mealSelection) { meal in
+                Text("记录" + meal.wrappedValue.rawValue).font(.headline).lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+            }
             Spacer(minLength: 0)
             Menu {
                 Button { cover = .scanner } label: { Label("扫食物条码", systemImage: "barcode.viewfinder") }
@@ -597,11 +621,13 @@ struct NativeMealLogger: View {
     }
 
     private var mealChoice: some View {
-        SpotterGlassSegments(options: NutritionShortcut.allCases.filter(\.isMeal), value: $meal, glass: false, compact: true,
-                             guideTarget: { $0 == .breakfast ? .mealChoice : nil }) { $0.rawValue }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("记入餐次")
-            .disabled(busy)
+        NativeMealSelectionView(selection: mealSelection) { meal in
+            SpotterGlassSegments(options: NutritionShortcut.allCases.filter(\.isMeal), value: meal, glass: false, compact: true,
+                                 guideTarget: { $0 == .breakfast ? .mealChoice : nil }) { $0.rawValue }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("记入餐次")
+        }
+        .disabled(busy)
     }
 
     private var searchField: some View {
@@ -716,8 +742,6 @@ struct NativeMealLogger: View {
         .scrollDismissesKeyboard(.interactively)
     }
 
-    private var recents: [NativeRecentServing] { payload.recentServings(for: meal) }
-
     @ViewBuilder private var browser: some View {
         if let catalog = Self.catalog, !catalog.categories.isEmpty {
             let current = catalog.categories.first { $0.id == category } ?? catalog.categories[0]
@@ -768,12 +792,16 @@ struct NativeMealLogger: View {
     }
 
     private func categoryList(_ current: NativeFoodCatalog.Category) -> some View {
-        let inCategory = Self.foods.filter { $0.category == current.id }
+        let inCategory = Self.foodsByCategory[current.id] ?? []
         let shown = group.map { selected in inCategory.filter { $0.group == selected } } ?? inCategory
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
-                if !recents.isEmpty && current.id == Self.catalog?.categories.first?.id && group == nil {
-                    recentStrip
+                if current.id == Self.catalog?.categories.first?.id && group == nil {
+                    NativeMealSelectionView(selection: mealSelection) { meal in
+                        if let recents = recentsByMeal[meal.wrappedValue], !recents.isEmpty {
+                            recentStrip(recents)
+                        }
+                    }
                 }
                 groupChips(current)
                 VStack(alignment: .leading, spacing: 3) {
@@ -821,7 +849,7 @@ struct NativeMealLogger: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var recentStrip: some View {
+    private func recentStrip(_ recents: [NativeRecentServing]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("最近记过 · 按上次份量").font(.subheadline.weight(.semibold))
             ScrollView(.horizontal, showsIndicators: false) {
@@ -1059,19 +1087,21 @@ struct NativeMealLogger: View {
                 .disabled(basket.isEmpty)
                 .accessibilityLabel(basket.isEmpty ? "还没有选择食物" : "已选 \(basket.count) 项，共 \(nutritionNumber(totals.calories)) 千卡")
                 .accessibilityHint("查看和调整已选食物")
-                Button { Task { await save() } } label: {
-                    ZStack {
-                        if busy { ProgressView().tint(SpotterPalette.deep) }
-                        else { Text(basket.isEmpty ? "完成" : "完成（\(basket.count)）").fontWeight(.bold) }
+                NativeMealSelectionView(selection: mealSelection) { meal in
+                    Button { Task { await save() } } label: {
+                        ZStack {
+                            if busy { ProgressView().tint(SpotterPalette.deep) }
+                            else { Text(basket.isEmpty ? "完成" : "完成（\(basket.count)）").fontWeight(.bold) }
+                        }
+                        .foregroundStyle(SpotterPalette.deep)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .background(accent.fill.opacity(basket.isEmpty ? 0.5 : 1), in: Capsule())
+                        .contentShape(Capsule())
                     }
-                    .foregroundStyle(SpotterPalette.deep)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(accent.fill.opacity(basket.isEmpty ? 0.5 : 1), in: Capsule())
-                    .contentShape(Capsule())
+                    .buttonStyle(.spotterPress)
+                    .disabled(basket.isEmpty || busy || guiding)
+                    .accessibilityLabel(busy ? "正在保存" : "完成，记入\(meal.wrappedValue.rawValue)")
                 }
-                .buttonStyle(.spotterPress)
-                .disabled(basket.isEmpty || busy || guiding)
-                .accessibilityLabel(busy ? "正在保存" : "完成，记入\(meal.rawValue)")
             }
         }
         .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 6)
