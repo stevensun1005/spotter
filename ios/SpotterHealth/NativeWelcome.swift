@@ -5,14 +5,14 @@ enum NativeGuideStep: Hashable {
     enum Presentation: Equatable { case dock, tabContent, planEditor, mealEditor, invitation, coachPanel, agentAccess }
 
     case trainingTab, newPlan, planFields, officialTemplates, officialFilters
-    case todayTab, mainMeal, mealChoice, mealFields
+    case todayTab, mainMeal, mealFields
     case friendsTab, findBuddy, buddySearch, privacy, coach
     case coachMenu, agentConnect, agentTutorial
 
     var section: Section {
         switch self {
         case .trainingTab, .newPlan, .planFields, .officialTemplates, .officialFilters: return .training
-        case .todayTab, .mainMeal, .mealChoice, .mealFields: return .nutrition
+        case .todayTab, .mainMeal, .mealFields: return .nutrition
         case .friendsTab, .findBuddy, .buddySearch, .privacy: return .friends
         case .coach, .coachMenu, .agentConnect, .agentTutorial: return .coach
         }
@@ -21,7 +21,7 @@ enum NativeGuideStep: Hashable {
     var presentation: Presentation {
         switch self {
         case .planFields: return .planEditor
-        case .mealChoice, .mealFields: return .mealEditor
+        case .mealFields: return .mealEditor
         case .buddySearch: return .invitation
         case .trainingTab, .todayTab, .friendsTab, .coach: return .dock
         case .coachMenu, .agentConnect: return .coachPanel
@@ -46,7 +46,6 @@ enum NativeGuideStep: Hashable {
         case .officialFilters: return "挑符合目标的周计划"
         case .todayTab: return "回首页记一餐"
         case .mainMeal: return "打开正餐记录"
-        case .mealChoice: return "试着选早餐"
         case .mealFields: return "搜索并加入食物"
         case .friendsTab: return "找到你的训练搭子"
         case .findBuddy: return "打开找搭子"
@@ -68,8 +67,7 @@ enum NativeGuideStep: Hashable {
         case .officialFilters: return "按目标和水平筛选。以后点开模板即可查看练习日和休息日，选好开始日再排进日历。"
         case .todayTab: return "点底部「今日」。最上方的饮食卡片可以直接记餐。"
         case .mainMeal: return "点「记录正餐」。拍一张照片也能记，用同一排的「拍照记录」。"
-        case .mealChoice: return "点这里的「早餐」。也可以在这排选午餐、晚餐或加餐。"
-        case .mealFields: return "在这里搜索食物，也可以从下方分类里挑，点「+」加入。点「下一步」继续引导。之后真正记餐时点右下角「完成」。"
+        case .mealFields: return "搜索或从分类挑选食物，点「+」加入。正式记餐时，点右下角「完成」，再选早餐、午餐、晚餐或加餐。"
         case .friendsTab: return "点底部的「好友」。联系人、朋友圈和共享权限都在这里。"
         case .findBuddy: return "邀请一起练的人时点「找搭子」，加普通朋友时点旁边的「添加好友」。"
         case .buddySearch: return "填对方的用户名或完整的「用户名#数字」，搜索后就能核对结果。发送前看一眼页面上的共享范围。"
@@ -84,7 +82,7 @@ enum NativeGuideStep: Hashable {
     static func path(officialTemplates: Bool, nutrition: Bool, friends: Bool) -> [Self] {
         [.trainingTab, .newPlan, .planFields]
             + (officialTemplates ? [.officialTemplates, .officialFilters] : [])
-            + (nutrition ? [.todayTab, .mainMeal, .mealChoice, .mealFields] : [])
+            + (nutrition ? [.todayTab, .mainMeal, .mealFields] : [])
             + (friends ? [.friendsTab, .findBuddy, .buddySearch, .privacy] : [])
             + [.coach, .coachMenu, .agentConnect, .agentTutorial]
     }

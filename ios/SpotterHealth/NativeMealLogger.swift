@@ -503,6 +503,7 @@ struct NativeMealLogger: View {
     let date: String
     let payload: NutritionPayload
     let onSaved: (NativeQuickMealReceipt?) -> Void
+    private let choosesMealOnCompletion: Bool
     private let recentsByMeal: [NutritionShortcut: [NativeRecentServing]]
     private let savedPersonal: [NativeNutritionFood]
 
@@ -535,6 +536,7 @@ struct NativeMealLogger: View {
     @State private var notice: (id: UUID, text: String)?
     @State private var busy = false
     @State private var error: String?
+    @State private var choosingMeal = false
     @State private var savingTemplate = false
     /// Payloads sent by attempts whose reply never confirmed the save, by record id.
     @State private var unconfirmed: [String: Set<Data>] = [:]
@@ -542,19 +544,21 @@ struct NativeMealLogger: View {
     @FocusState private var searchFocused: Bool
 
     private static let catalog = NativeFoodCatalog.shared
+    private static let mealOptions = NutritionShortcut.allCases.filter(\.isMeal)
     private static let foods = NativeNutritionFood.builtIn
     private static let foodsByCategory = Dictionary(grouping: foods) { $0.category ?? "" }
     private static let foodsByGroup = foodsByCategory.mapValues { foods in
         Dictionary(grouping: foods) { $0.group ?? "" }
     }
 
-    init(api: NativeAPI, owner: String, date: String, meal: NutritionShortcut, payload: NutritionPayload,
+    init(api: NativeAPI, owner: String, date: String, meal: NutritionShortcut?, payload: NutritionPayload,
          onSaved: @escaping (NativeQuickMealReceipt?) -> Void) {
         self.api = api
         self.owner = owner
         self.date = date
         self.payload = payload
         self.onSaved = onSaved
+        self.choosesMealOnCompletion = meal == nil
         self.recentsByMeal = payload.recentServingsByMeal()
         self.savedPersonal = payload.rows.compactMap { row in
             guard row.kind == "food", let id = row.id, let name = row.name, let facts = row.per100g else { return nil }
@@ -563,7 +567,8 @@ struct NativeMealLogger: View {
             food.emoji = "⭐️"
             return food
         }
-        _mealSelection = State(initialValue: NativeMealSelection(meal.isMeal ? meal : .snack))
+        let browsingMeal = meal ?? .suggestedMainMeal
+        _mealSelection = State(initialValue: NativeMealSelection(browsingMeal.isMeal ? browsingMeal : .snack))
         _category = State(initialValue: Self.catalog?.categories.first?.id ?? "")
     }
 
@@ -593,7 +598,9 @@ struct NativeMealLogger: View {
         NavigationStack {
             VStack(spacing: 0) {
                 header
-                mealChoice.padding(.horizontal, 14).padding(.top, 6)
+                if !choosesMealOnCompletion {
+                    mealChoice.padding(.horizontal, 14).padding(.top, 6)
+                }
                 searchField.padding(.horizontal, 14).padding(.top, 10)
                 SpotterSegments("食物来源", options: Tab.allCases, value: $tab, usesUIKitControl: true, title: \.rawValue)
                     .padding(.horizontal, 14).padding(.top, 6)
@@ -638,7 +645,11 @@ struct NativeMealLogger: View {
             Button("取消", role: .cancel) {}
             Button("保存") { saveTemplate() }
         } message: {
-            Text("把已选的 \(basket.count) 项存为「\(meal.rawValue)」模版，以后在「固定模版」一键加入。")
+            if choosesMealOnCompletion {
+                Text("把已选的 \(basket.count) 项存为固定模版，以后可以一键加入。")
+            } else {
+                Text("把已选的 \(basket.count) 项存为「\(meal.rawValue)」模版，以后在「固定模版」一键加入。")
+            }
         }
     }
 
@@ -655,7 +666,8 @@ struct NativeMealLogger: View {
             .disabled(busy)
             Spacer(minLength: 0)
             NativeMealSelectionView(selection: mealSelection) { meal in
-                Text("记录" + meal.wrappedValue.rawValue).font(.headline).lineLimit(1)
+                Text(choosesMealOnCompletion ? "记录正餐" : "记录" + meal.wrappedValue.rawValue)
+                    .font(.headline).lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
             }
             Spacer(minLength: 0)
@@ -681,8 +693,7 @@ struct NativeMealLogger: View {
 
     private var mealChoice: some View {
         NativeMealSelectionView(selection: mealSelection) { meal in
-            SpotterSegments("记入餐次", options: NutritionShortcut.allCases.filter(\.isMeal), value: meal, usesUIKitControl: true,
-                            guideTarget: { $0 == .breakfast ? .mealChoice : nil }, title: \.rawValue)
+            SpotterSegments("记入餐次", options: Self.mealOptions, value: meal, usesUIKitControl: true, title: \.rawValue)
         }
         .disabled(busy)
     }
@@ -1125,7 +1136,15 @@ struct NativeMealLogger: View {
                 .accessibilityLabel(basket.isEmpty ? "还没有选择食物" : "已选 \(basket.count) 项，共 \(nutritionNumber(totals.calories)) 千卡")
                 .accessibilityHint("查看和调整已选食物")
                 NativeMealSelectionView(selection: mealSelection) { meal in
-                    Button { Task { await save() } } label: {
+                    Button {
+                        if choosesMealOnCompletion {
+                            searchFocused = false
+                            choosingMeal = true
+                        } else {
+                            let target = meal.wrappedValue
+                            Task { await save(meal: target) }
+                        }
+                    } label: {
                         ZStack {
                             if busy { ProgressView().tint(SpotterPalette.deep) }
                             else { Text(basket.isEmpty ? "完成" : "完成（\(basket.count)）").fontWeight(.bold) }
@@ -1137,7 +1156,14 @@ struct NativeMealLogger: View {
                     }
                     .buttonStyle(.spotterPress)
                     .disabled(basket.isEmpty || busy || guiding)
-                    .accessibilityLabel(busy ? "正在保存" : "完成，记入\(meal.wrappedValue.rawValue)")
+                    .accessibilityLabel(busy ? "正在保存" : (choosesMealOnCompletion ? "完成" : "完成，记入\(meal.wrappedValue.rawValue)"))
+                    .accessibilityHint(choosesMealOnCompletion ? "选择要记入的餐次" : "")
+                    .confirmationDialog("记到哪一餐？", isPresented: $choosingMeal, titleVisibility: .visible) {
+                        ForEach(Self.mealOptions) { target in
+                            Button(target.rawValue) { Task { await save(meal: target) } }
+                        }
+                        Button("取消", role: .cancel) {}
+                    }
                 }
             }
         }
@@ -1186,7 +1212,7 @@ struct NativeMealLogger: View {
                 append(portionItem, message: "已加入「\(food.name)」· \(portionItem.amountText)")
             }
         case .basket:
-            NativeMealBasketSheet(items: $basket, meal: meal, saveTemplate: guiding ? nil : {
+            NativeMealBasketSheet(items: $basket, meal: choosesMealOnCompletion ? nil : meal, saveTemplate: guiding ? nil : {
                 sheet = nil
                 templateName = ""
                 savingTemplate = true
@@ -1295,7 +1321,7 @@ struct NativeMealLogger: View {
         } catch { self.error = "暂时无法保存模版。" }
     }
 
-    private func save() async {
+    private func save(meal: NutritionShortcut) async {
         guard !busy, !basket.isEmpty, !guiding else { return }
         let records = basket.compactMap { $0.record(meal: meal, day: date) }
         guard records.count == basket.count else {
@@ -1617,7 +1643,7 @@ private struct NativeFoodPortionSheet: View {
 @MainActor
 private struct NativeMealBasketSheet: View {
     @Binding var items: [NativeMealLoggerItem]
-    let meal: NutritionShortcut
+    let meal: NutritionShortcut?
     let saveTemplate: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -1670,7 +1696,9 @@ private struct NativeMealBasketSheet: View {
                         }
                         .buttonStyle(.spotterControl)
                     }
-                    Text("点「完成」后按\(meal.rawValue)逐项记入饮食记录。").font(.caption).foregroundStyle(SpotterPalette.muted)
+                    Text(meal.map { "点「完成」，把已选食物记入\($0.rawValue)。" }
+                         ?? "点「完成」后选一个餐次，已选食物会一起记入。")
+                        .font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
                 .padding(16)
             }

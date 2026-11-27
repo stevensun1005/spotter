@@ -479,10 +479,7 @@ struct NativeHomeNutrition: View {
                     if let onCollapse { NativeHomeNutritionCollapseButton(action: onCollapse) }
                 }
             Divider().overlay(SpotterPalette.line)
-            NutritionShortcuts(onMainMeal: {
-                // The guide demonstrates selecting breakfast in the native picker.
-                destination = .logger(guide?.step == .mainMeal ? .lunch : .suggestedMainMeal)
-            },
+            NutritionShortcuts(onMainMeal: { destination = .logger(nil) },
                                onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
                                onFavorites: { destination = .favorites },
                                onPhoto: { photoCapture = NutritionPhotoRequest(day: spotterDay()) })
@@ -545,13 +542,13 @@ struct NativeHomeNutrition: View {
 }
 
 private enum NutritionDestination: Identifiable {
-    case logger(NutritionShortcut)
+    case logger(NutritionShortcut?)
     case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
     case settings, goals, cycle, recipes, recommendations, protein, stats, voice, energy, copy, favorites
 
     var id: String {
         switch self {
-        case .logger(let meal): return "logger/" + meal.rawValue
+        case .logger(let meal): return "logger/" + (meal?.rawValue ?? "main")
         case .entry(let shortcut, let row, let food, _): return row?.id ?? food?.id ?? shortcut.rawValue
         case .settings: return "settings"
         case .goals: return "goals"
@@ -834,7 +831,7 @@ struct NativeNutritionDetail: View {
     }
 
     private var toolbar: some View {
-        NutritionShortcuts(onMainMeal: { destination = .logger(.suggestedMainMeal) },
+        NutritionShortcuts(onMainMeal: { destination = .logger(nil) },
                            onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
                            onFavorites: { destination = .favorites },
                            onPhoto: { photoCapture = NutritionPhotoRequest(day: day) })
