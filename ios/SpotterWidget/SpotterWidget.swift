@@ -589,14 +589,15 @@ private struct SpotterHomeCard: View {
     private func calorieRing(_ value: SpotterWidgetSnapshot.Nutrition) -> some View {
         let amount = number(value.calories, decimals: 0)
         let target = value.goals.map { number($0.calories, decimals: 0) }
+        let nutritionBlue = Color(red: 178 / 255, green: 219 / 255, blue: 247 / 255)
         return ZStack {
             Circle()
-                .strokeBorder(track, lineWidth: 4)
+                .strokeBorder(fullColor ? nutritionBlue.opacity(0.22) : track, lineWidth: 4)
             if let fraction = fraction(value.calories, target: value.goals?.calories), fraction > 0 {
                 Circle()
                     .inset(by: 2)
                     .trim(from: 0, to: fraction)
-                    .stroke(green, style: .init(lineWidth: 4, lineCap: .round))
+                    .stroke(fullColor ? nutritionBlue : .primary, style: .init(lineWidth: 4, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .widgetAccentable()
             }

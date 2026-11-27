@@ -435,22 +435,8 @@ private struct NativeNutritionDailySummary: View {
         HStack(spacing: 4) {
             Text("饮食记录").font(.headline).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
-            if let onOpen {
-                Button(action: onOpen) {
-                    Label("明细", systemImage: "arrow.up.right")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(accent.tint)
-                        .labelStyle(.titleAndIcon)
-                        .padding(.horizontal, 5)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.spotterPress)
-                .accessibilityLabel("查看饮食明细")
-                .accessibilityIdentifier("home-nutrition-summary")
-                .nativeGuideTarget(.mainMeal)
-            }
-            if let onCollapse { NativeHomeNutritionCollapseButton(action: onCollapse) }
+            if let onOpen { NativeHomeNutritionDetailsButton(action: onOpen) }
+            if let onCollapse { NativeHomeNutritionToggleButton(action: onCollapse) }
         }
     }
 
@@ -477,17 +463,18 @@ private struct NativeNutritionDailySummary: View {
         let eaten = totals.map { nutritionNumber($0.calories) } ?? "—"
         let percent = progress.formatted(.percent.precision(.fractionLength(0)))
         let goalText = goal > 0 ? "/ \(nutritionNumber(goal)) 千卡" : "千卡"
+        let palette = SpotterProgressRingPalette.nutrition
         return ZStack {
-            Circle().fill(accent.selection.opacity(0.40))
-            Circle().strokeBorder(accent.tint.opacity(0.15), lineWidth: 9)
+            Circle().fill(palette.tint.opacity(0.07))
+            Circle().strokeBorder(palette.track, lineWidth: 9)
             if fill > 0 {
                 Circle().inset(by: 4.5).trim(from: 0, to: fill)
-                    .stroke(accent.tint, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                    .stroke(palette.tint, style: StrokeStyle(lineWidth: 9, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             VStack(spacing: 2) {
                 Text(goal > 0 ? "已摄入 · \(percent)" : "已摄入")
-                    .font(.caption2.weight(.semibold)).foregroundStyle(accent.tint)
+                    .font(.caption2.weight(.semibold)).foregroundStyle(SpotterPalette.adaptive(0x345d7b, 0xb2dbf7))
                 Text(eaten).font(.title.weight(.bold).monospacedDigit())
                     .contentTransition(motion == nil ? .identity : .numericText())
                 Text(goalText).font(.caption2).foregroundStyle(SpotterPalette.muted)
@@ -662,23 +649,44 @@ private struct NutritionPhotoRequest: Identifiable {
 }
 
 @MainActor
-struct NativeHomeNutritionCollapseButton: View {
+struct NativeHomeNutritionDetailsButton: View {
     @Environment(\.spotterAccent) private var accent
-    @Environment(\.spotterInteractionMotion) private var motion
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "xmark").font(.footnote.weight(.semibold))
-                .foregroundStyle(SpotterPalette.muted)
+            Image(systemName: "arrow.up.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(accent.tint)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel("查看饮食明细")
+        .accessibilityIdentifier("home-nutrition-summary")
+        .nativeGuideTarget(.mainMeal)
+    }
+}
+
+@MainActor
+struct NativeHomeNutritionToggleButton: View {
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    var isCollapsed = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isCollapsed ? "fork.knife" : "xmark").font(.footnote.weight(.semibold))
+                .foregroundStyle(isCollapsed ? accent.tint : SpotterPalette.muted)
                 .frame(width: 34, height: 34)
                 .spotterGlass(in: Circle(), tint: accent.selection.opacity(0.34), interactive: motion != nil)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.spotterGlassPress)
-        .accessibilityLabel("收起饮食记录")
-        .accessibilityIdentifier("home-nutrition-collapse")
+        .accessibilityLabel(isCollapsed ? "展开饮食记录" : "收起饮食记录")
+        .accessibilityIdentifier(isCollapsed ? "spotter-home-nutrition-toggle" : "home-nutrition-collapse")
     }
 }
 
@@ -965,7 +973,7 @@ struct NativeNutritionDetail: View {
             }
             return nutritionWeek.ringDay(date, logs: logs, dailyPayload: spotterDay(date) == day && ready ? payload : nil)
         }
-        return SpotterWeekDateStrip(days: days, selection: date) { selected in
+        return SpotterWeekDateStrip(days: days, selection: date, ringPalette: .nutrition) { selected in
             if spotterDay(selected) != day { date = selected }
         }
     }

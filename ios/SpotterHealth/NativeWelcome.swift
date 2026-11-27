@@ -66,7 +66,7 @@ enum NativeGuideStep: Hashable {
         case .officialTemplates: return "点「官方模板」，里面有完整的每周训练安排。"
         case .officialFilters: return "按目标和水平筛选。以后点开模板即可查看练习日和休息日，选好开始日再排进日历。"
         case .todayTab: return "点底部「今日」，查看每天的饮食和训练。"
-        case .mainMeal: return "点饮食卡片右上角的「明细」试着记一餐。平时可点「开练 → 记录饮食」直达。"
+        case .mainMeal: return "点饮食卡片右上角的斜箭头试着记一餐。平时可点「开练 → 记录饮食」直达。"
         case .mealFields: return "搜索或从分类挑选食物，点「+」加入。正式记餐时，点右下角「完成」，再选早餐、午餐、晚餐或加餐。"
         case .friendsTab: return "点底部的「好友」。联系人、朋友圈和共享权限都在这里。"
         case .findBuddy: return "邀请一起练的人时点「找搭子」，加普通朋友时点旁边的「添加好友」。"

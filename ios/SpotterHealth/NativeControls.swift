@@ -75,6 +75,7 @@ struct SpotterWeekDateStrip: View {
 
     let days: [Day]
     let selection: Date
+    var ringPalette: SpotterProgressRingPalette = .training
     let onSelect: (Date) -> Void
 
     @Environment(\.spotterAccent) private var accent
@@ -117,7 +118,8 @@ struct SpotterWeekDateStrip: View {
                     .minimumScaleFactor(0.65)
                     .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
                 ZStack {
-                    SpotterDayProgressRings(primary: day.progress, secondary: day.secondaryProgress, size: diameter)
+                    SpotterDayProgressRings(primary: day.progress, secondary: day.secondaryProgress,
+                                            primaryPalette: ringPalette, size: diameter)
                     Text(calendar.component(.day, from: day.date), format: .number)
                         .font(.subheadline.weight(selected || today ? .bold : .semibold).monospacedDigit())
                         .lineLimit(1)
@@ -147,25 +149,35 @@ struct SpotterWeekDateStrip: View {
     }
 }
 
-struct SpotterDayProgressRings: View {
-    static let nutritionTint = SpotterPalette.adaptive(0xa95436, 0xf2a77c)
+enum SpotterProgressRingPalette {
+    case training, nutrition
 
+    var tint: Color {
+        switch self {
+        case .training: return SpotterPalette.accent
+        case .nutrition: return SpotterPalette.color(0xb2dbf7)
+        }
+    }
+
+    var track: Color { tint.opacity(0.22) }
+}
+
+struct SpotterDayProgressRings: View {
     let primary: Double
     let secondary: Double?
+    let primaryPalette: SpotterProgressRingPalette
     var size: CGFloat = 34
 
-    @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
 
     var body: some View {
         let outerWidth = secondary == nil ? min(size * 0.09, 3) : min(size * 0.08, 2.75)
         let innerWidth = min(size * 0.06, 2)
         return ZStack {
-            arc(primary, tint: accent.tint, track: SpotterPalette.line,
-                lineWidth: outerWidth, inset: outerWidth / 2)
+            arc(primary, palette: primaryPalette, lineWidth: outerWidth, inset: outerWidth / 2)
             if let secondary {
-                arc(secondary, tint: Self.nutritionTint, track: Self.nutritionTint.opacity(0.20),
-                    lineWidth: innerWidth, inset: outerWidth + size * 0.04 + innerWidth / 2)
+                arc(secondary, palette: .nutrition, lineWidth: innerWidth,
+                    inset: outerWidth + size * 0.04 + innerWidth / 2)
             }
         }
         .frame(width: size, height: size)
@@ -173,14 +185,14 @@ struct SpotterDayProgressRings: View {
         .allowsHitTesting(false)
     }
 
-    private func arc(_ value: Double, tint: Color, track: Color, lineWidth: CGFloat, inset: CGFloat) -> some View {
+    private func arc(_ value: Double, palette: SpotterProgressRingPalette, lineWidth: CGFloat, inset: CGFloat) -> some View {
         let progress = value.isFinite ? min(max(value, 0), 1) : 0
         let circle = Circle().inset(by: inset)
         return ZStack {
-            circle.stroke(track, lineWidth: lineWidth * 0.75)
+            circle.stroke(palette.track, lineWidth: lineWidth * 0.75)
             circle
                 .trim(from: 0, to: progress)
-                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .stroke(palette.tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .opacity(progress > 0 ? 1 : 0)
         }

@@ -1328,7 +1328,6 @@ struct NativeWorkoutView: View {
     @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
     @AppStorage(NativePreferenceKey.officialTemplates) private var showOfficialTemplates = true
     @State private var planDate = Date()
-    @State private var homeWeekEnd = Calendar.current.startOfDay(for: .now)
     @State private var trainingTab = "我的计划"
     @State private var completedPlans = false
     @StateObject private var catalogueBrowsing = NativeCatalogueBrowsingState()
@@ -1515,9 +1514,9 @@ struct NativeWorkoutView: View {
             let earliest = Calendar.current.date(byAdding: .day, value: -6, to: start) ?? start
             await store.loadOlderHistoryIfNeeded(from: spotterDay(earliest), through: spotterDay(end))
         }
-        .task(id: homeNutritionWeeks) {
+        .task(id: nutritionRing == nil ? nil : homeWeekDates.first) {
             guard !showsAllPlans else { return }
-            await refreshHomeNutrition(force: false)
+            await refreshNutritionWeek?(selectedDate, false)
         }
     }
 
@@ -1536,15 +1535,12 @@ struct NativeWorkoutView: View {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) { homeDateHeader }
-            .onAppear { keepHomeWeekVisible() }
-            .onChange(of: selectedDay) { _ in
-                keepHomeWeekVisible()
-                scroll.scrollTo("spotter-home-top", anchor: .top)
-            }
+            .onChange(of: selectedDay) { _ in scroll.scrollTo("spotter-home-top", anchor: .top) }
             .animation(motion, value: planNotice != nil)
             .refreshable {
+                let date = selectedDate
                 async let workout: Void = store.load()
-                await refreshHomeNutrition(force: true)
+                await refreshNutritionWeek?(date, true)
                 await workout
             }
         }
@@ -1579,7 +1575,7 @@ struct NativeWorkoutView: View {
             return matches.contains { $0.day == selectedDay } ? nil : matches.first
         }
         let dayRecords = (schedule.recordsByDay[selectedDay, default: []] + scheduledCompletions).sorted(by: newestRecord)
-        if let openNutrition { nutritionPanel { openNutrition(selectedDate) } }
+        if let openNutrition, !showsCollapsedNutrition { nutritionPanel { openNutrition(selectedDate) } }
         if selectedDay == today, !store.pendingCheckins.isEmpty || store.pendingDraftRemovalCount > 0 { pendingCard }
         HStack {
             Text(selectedDay == today ? "今日训练" : "\(shortDay(selectedDay))的训练")
@@ -1650,40 +1646,22 @@ struct NativeWorkoutView: View {
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13).padding(.vertical, 11).spotterCard(radius: 14)
     }
 
-    @ViewBuilder private func nutritionPanel(_ open: @escaping () -> Void) -> some View {
-        let inMealGuide = guide?.step == .mainMeal || guide?.step.presentation == .mealEditor
-        if nutritionCollapsed && !inMealGuide {
-            Button { setNutritionCollapsed(false) } label: {
-                HStack(spacing: 9) {
-                    tile("fork.knife", size: 32)
-                    Text("饮食记录").font(.subheadline.weight(.semibold))
+    private var showsCollapsedNutrition: Bool {
+        nutritionCollapsed && guide?.step != .mainMeal && guide?.step.presentation != .mealEditor
+    }
+
+    private func nutritionPanel(_ open: @escaping () -> Void) -> some View {
+        Group {
+            if let homeNutrition { homeNutrition(selectedDate) { setNutritionCollapsed(true) } }
+            else {
+                HStack {
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.down").font(.caption.weight(.semibold))
-                }
-                .frame(minHeight: 44)
-                .padding(.horizontal, 10)
-                .contentShape(Rectangle())
-                .spotterCard(radius: 14)
+                    NativeHomeNutritionDetailsButton(action: open)
+                    NativeHomeNutritionToggleButton { setNutritionCollapsed(true) }
+                }.padding(12).spotterCard()
             }
-            .buttonStyle(.spotterPress)
-            .accessibilityLabel("展开饮食记录")
-            .accessibilityIdentifier("home-nutrition-expand")
-            .transition(.opacity)
-        } else {
-            Group {
-                if let homeNutrition { homeNutrition(selectedDate) { setNutritionCollapsed(true) } }
-                else {
-                    HStack {
-                        Button(action: open) {
-                            HStack { Label("查看饮食记录", systemImage: "fork.knife"); Spacer(); Image(systemName: "arrow.up.right") }
-                                .frame(minHeight: 44).contentShape(Rectangle())
-                        }.buttonStyle(.spotterPress)
-                        NativeHomeNutritionCollapseButton { setNutritionCollapsed(true) }
-                    }.padding(12).spotterCard()
-                }
-            }
-            .transition(.offset(y: -8).combined(with: .opacity))
         }
+        .transition(.offset(y: -8).combined(with: .opacity))
     }
 
     private func setNutritionCollapsed(_ collapsed: Bool) {
@@ -1797,7 +1775,12 @@ struct NativeWorkoutView: View {
         let schedule = store.scheduleIndex
         return VStack(spacing: 2) {
             HStack(spacing: 6) {
-                Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+                if openNutrition != nil, showsCollapsedNutrition {
+                    NativeHomeNutritionToggleButton(isCollapsed: true) { setNutritionCollapsed(false) }
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                } else {
+                    Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+                }
                 Spacer(minLength: 0)
                 SpotterWeekNavigation(selection: selectedDate, calendarLabel: "首页日期",
                                       canGoBack: date > bounds.lowerBound,
@@ -1836,30 +1819,7 @@ struct NativeWorkoutView: View {
     }
 
     private var homeWeekDates: [Date] {
-        let calendar = Calendar(identifier: .gregorian)
-        let day = calendar.startOfDay(for: selectedDate)
-        let latestEnd = calendar.date(byAdding: .day, value: 6, to: day) ?? day
-        let end = min(max(homeWeekEnd, day), latestEnd)
-        return (-6...0).compactMap { calendar.date(byAdding: .day, value: $0, to: end) }
-    }
-
-    private func keepHomeWeekVisible() {
-        if let end = homeWeekDates.last, end != homeWeekEnd { homeWeekEnd = end }
-    }
-
-    private var homeNutritionWeeks: [Date] {
-        guard nutritionRing != nil, let first = homeWeekDates.first, let last = homeWeekDates.last,
-              let firstWeek = SpotterWeekDateStrip.dates(containing: first).first,
-              let lastWeek = SpotterWeekDateStrip.dates(containing: last).first else { return [] }
-        return firstWeek == lastWeek ? [firstWeek] : [firstWeek, lastWeek]
-    }
-
-    private func refreshHomeNutrition(force: Bool) async {
-        let weeks = homeNutritionWeeks
-        guard let refreshNutritionWeek, let last = weeks.last else { return }
-        async let latest: Void = refreshNutritionWeek(last, force)
-        if let first = weeks.first, first != last { await refreshNutritionWeek(first, force) }
-        await latest
+        SpotterWeekDateStrip.dates(containing: selectedDate)
     }
 
     private func homeTrainingProgress(on day: String, schedule: NativeWorkoutScheduleIndex) -> (progress: Double, status: String) {

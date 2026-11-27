@@ -34,8 +34,8 @@ AI 教练的星星位于底栏最右侧的圆角方形按钮内，外圈是四�
 
 | 入口 | 用户操作 | 实现位置 |
 | --- | --- | --- |
-| 今日 → 饮食记录 | 首页显示选中日的热量环、剩余热量、饮水和三项营养进度。点「明细」打开同一天的餐食列表及饮食快捷入口。明细里选日期也会反映到首页。点叉收起，点「饮食记录」恢复。 | [首页训练和饮食容器](../ios/SpotterHealth/NativeWorkouts.swift) · [饮食](../ios/SpotterHealth/NativeNutrition.swift) · [记餐页](../ios/SpotterHealth/NativeMealLogger.swift) |
-| 今日 → 日期切换与当天训练 | 顶部日期栏与七天双环在滚动时保持可用。默认显示今天及过去六天。点任一天或用左右箭头切换，选到当前范围之外时日期条随之移动。每天的外环显示训练完成度，内环显示热量达到目标的比例。同日待训练项目用等高卡片，保留开练、动作演示、跟练和计划操作。选中日期也会更新搭子打卡及截至该日的近 7 天打卡。 | [首页训练](../ios/SpotterHealth/NativeWorkouts.swift) · [双环控件](../ios/SpotterHealth/NativeControls.swift) · [计划改期](../ios/SpotterHealth/NativePlanSchedule.swift) |
+| 今日 → 饮食记录 | 首页显示选中日的热量环、剩余热量、饮水和三项营养进度。点卡片右上角的斜箭头打开同一天的餐食及饮食快捷入口。明细里选日期也会反映到首页。点叉收起后，点首页左上角的圆形餐具图标恢复。 | [首页训练和饮食容器](../ios/SpotterHealth/NativeWorkouts.swift) · [饮食](../ios/SpotterHealth/NativeNutrition.swift) · [记餐页](../ios/SpotterHealth/NativeMealLogger.swift) |
+| 今日 → 日期切换与当天训练 | 顶部日期栏与七天双环在滚动时保持可用。默认显示当前自然周，从周一排到周日。点任一天或用左右箭头切换，跨周时显示对应的自然周。深绿色外环显示训练完成度，浅蓝色内环显示热量达到目标的比例。同日待训练项目用等高卡片，保留开练、动作演示、跟练和计划操作。选中日期也会更新搭子打卡及截至该日的近 7 天打卡。 | [首页训练](../ios/SpotterHealth/NativeWorkouts.swift) · [双环控件](../ios/SpotterHealth/NativeControls.swift) · [计划改期](../ios/SpotterHealth/NativePlanSchedule.swift) |
 | 训练 → 我的计划 | 「新建计划」打开与训练页同版式的全屏编辑页：顶部是计划名、日期和类型，中间是动作卡片，底栏提供「更多」「开始训练」「添加动作」「统一休息」。「添加动作」打开带部位栏和器械分区栏的动作库，可连续添加。「开始训练」先保存再开练。iPhone 的编辑计划、个人模板编辑与安排、导入核对都使用这个编辑页。「添加计划」含「AI 教练起草」「粘贴已有内容」「训练周期」。可以导入训练文字、计划 JSON 或受支持的跟练链接，先核对再保存。「待训练」列表在底部集中展示已排期的「跟练视频」。 | [训练视图](../ios/SpotterHealth/NativeWorkouts.swift) · [计划导入](../ios/SpotterHealth/NativePlanImport.swift) |
 | 训练 → 个人模板 | 可新建、从计划或打卡另存，也可用模板「安排训练」。打开个人模板后可点每个动作名查看弹出的动作卡片。iPhone 用「改名」「编辑动作」或「编辑模板」更新，网页点「编辑」进入「编辑模板」。两端删除均需确认，已保存的跟练链接均列于底部「跟练视频」。 | [原生训练与模板](../ios/SpotterHealth/NativeWorkouts.swift) · [个人模板服务](../cloudflare/features/library/server.ts) |
 | 训练 → 官方模板 | 官方模板默认可见，可到「设置 → 功能模块」关闭。「训练目标」「训练水平」筛选默认均为全部。打开模板查看各周运动日与休息日，点动作名弹出动作卡片。「功能性训练」「高级」中的 12 周功能性力量训练可切换到任一周。设「周期开始日」后点「使用这个模板」，经排期预览和确认才加入日历。开发版移除了列表底部的编排参考和链接。 | [官方模板](../ios/SpotterHealth/NativeOfficialTemplates.swift) · [模板资源](../ios/SpotterHealth/Resources/official-training-templates.json) · [周期编排](../ios/SpotterHealth/NativePrograms.swift) |
@@ -45,7 +45,7 @@ AI 教练的星星位于底栏最右侧的圆角方形按钮内，外圈是四�
 | 好友 → 联系人 / 朋友圈 / 权限设置 | 「添加好友」「找搭子」通过账号用户名搜索，普通好友也可用邀请链接。联系人详情按日查看共享训练和饮食，可为对方设置私人备注，并设定本人给对方的权限。朋友圈显示自己和好友近期可见的打卡及加油。「权限设置」只保留朋友圈开关，不再列出联系人。 | [好友界面](../ios/SpotterHealth/NativeWebSecondary.swift) · [好友规则](../cloudflare/features/friends/) · [搭子模型](../cloudflare/features/pair/) |
 | 底栏最右侧星星 → AI 教练 | 可自由对话、点推荐操作、用计划问答生成草稿、拍照或从相册附图。向上展开可进入大面板。App 进程运行期间保持当前对话，完全退出后重新打开时从新对话开始。 | [入口位置](../ios/SpotterHealth/NativeApp.swift) · [原生教练](../ios/SpotterHealth/NativeCoach.swift) · [推荐卡片](../ios/SpotterHealth/NativeCoachRecommendations.swift) · [网页教练](../cloudflare/features/ai-coach/) |
 
-首页的训练、饮食与打卡共用一个所选日期。从首页打开饮食明细会沿用该日期，明细改选也会同步回来。Widget 入口按 Widget 的日期打开。首页顶部每个日期的外环显示当天已完成计划的比例，无计划的本人训练也能闭环。内环显示摄入热量占当日目标的比例，独立饮食明细显示自己的饮食单环。VoiceOver 可读出每个日期及两种进度。饮食环按账号复用 `/api/data?scope=nutrition&from=…&to=…` 周查询和已有营养目标，单日仍由 `/api/library` 提供明细。训练与打卡沿用日程索引和历史加载。
+首页的训练、饮食与打卡共用一个所选日期。从首页打开饮食明细会沿用该日期，明细改选也会同步回来。Widget 入口按 Widget 的日期打开。首页顶部每个日期的深绿色外环显示当天已完成计划的比例，无计划的本人训练也能闭环。浅蓝色内环显示摄入热量占当日目标的比例。饮食明细的日期环、每日热量大环和全彩模式的饮食小组件也用浅蓝色。VoiceOver 可读出每个日期及两种进度。饮食环按账号复用 `/api/data?scope=nutrition&from=…&to=…` 周查询和已有营养目标，单日仍由 `/api/library` 提供明细。训练与打卡沿用日程索引和历史加载。
 
 ### 训练、计划与详情
 
@@ -193,6 +193,7 @@ AI 教练的星星位于底栏最右侧的圆角方形按钮内，外圈是四�
 
 | 版本 | 功能与实现 | 核对 |
 | --- | --- | --- |
+| iPhone 开发版 · 自然周和饮食图标 | 首页日期条复用周一至周日的自然周计算，箭头仍逐日切换。饮食收起入口移到顶部左侧，展开时的斜箭头保留 VoiceOver 名称和引导锚点。`NativeControls.swift` 和 `NativeNutrition.swift` 沿用训练环的深绿 `#466036`（深色模式 `#B6DC86`），饮食环用 `#B2DBF7`。`SpotterWidget.swift` 的全彩饮食热量环也用 `#B2DBF7`。 | Xcode 模拟器构建、原生冒烟、独立版 29 项测试及帮助接口 19 项测试通过。在 iPhone SE 模拟器核对周日与周一双向跨周、圆形图标收起恢复、所选日期的明细入口，以及浅色和深色模式的配色。 |
 | iPhone 开发版 · 首页日期与开练 | `NativeApp.swift` 管理共享日期和开练路由。`NativeWorkouts.swift` 提供顶部紧凑日期切换、等高训练卡及从个人模板启动临时训练的入口。`NativeNutrition.swift` 复用饮食大环，并把记餐入口接到开练面板。`NativeControls.swift` 在首页顶部复用日期条组件绘制滚动七日的双环。日期可直接点按或用左右箭头切换。开练的记餐和模板入口复用训练方形按钮。 | Xcode 构建、原生冒烟、独立版 29 项测试及帮助接口 19 项测试通过。iPhone SE 模拟器核对跨周的七天双环、直接点按选日、箭头越界后移动日期条和饮食明细的日期联动。记餐和模板方形按钮与力量训练按钮等大，记餐写入所选日，模板生成独立训练草稿。 |
 | iPhone 开发版 · 饮食记录 | `NativeNutrition.swift` 在日期卡下显示中央热量环、热量余量与饮水、三项宏量进度条。五个快捷入口放到餐食列表上方，记录、营养目标与账号权限沿用现有接口。 | iPhone SE 模拟器使用合成数据核对热量与三项进度、选日及正餐提交。核对晚餐写入所选日期，保存后汇总随之更新。 |
 | iPhone 开发版 · 日期进度环 | 饮食详情和首页训练日程使用同款周历卡、中文日期、月历和细轨进度环，选中和当天分别标记。实现位于 `NativeControls.swift`、`NativeNutrition.swift` 和 `NativeWorkouts.swift`，沿用既有账号权限及 API。 | 在 375 点宽的 iPhone 模拟器用合成记录核对两处日期栏、选日、翻周、打开和关闭月历、热量与计划进度、重复训练打卡和仅饮水标记。Xcode 编译、原生冒烟、独立版生产构建及 29 项测试、共用帮助的 19 项 API 测试通过。 |
