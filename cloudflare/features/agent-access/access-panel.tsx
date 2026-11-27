@@ -20,6 +20,7 @@ const scopes: readonly [Scope, string][] = [
   ["body:write", "追加身体测量和档案"], ["templates:write", "追加训练模板"],
   ["templates:manage", "改名、编辑或删除个人模板"], ["exercise-demos:write", "添加或移除个人演示动图"],
 ];
+const allScopes: readonly Scope[] = scopes.map(([scope]) => scope);
 const dateTime = (value: string) => new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 
 async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -45,7 +46,8 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
   const [create, setCreate] = useState(false);
   const [name, setName] = useState("");
   const [days, setDays] = useState(30);
-  const [selectedScopes, setSelectedScopes] = useState<Scope[]>(["read:context", "plans:draft"]);
+  const [selectedScopes, setSelectedScopes] = useState<Scope[]>([...allScopes]);
+  const allSelected = allScopes.every((scope) => selectedScopes.includes(scope));
   const [secret, setSecret] = useState("");
   const promptButton = useRef<HTMLButtonElement>(null);
   const [revoke, setRevoke] = useState<string>();
@@ -153,7 +155,7 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
     <details className="card padded agent-settings" open={settingsOpen} onToggle={(event) => setSettingsOpen(event.currentTarget.open)}>
       <summary><KeyRound size={19} /><span>Agent 连接设置<small>通过 MCP 或个人令牌提交草稿和记录</small></span></summary>
       <div className="feature-stack agent-settings-body">
-        <p className="agent-privacy"><ShieldCheck size={18} /> 每个个人连接只对应你的账号。默认读取编排资料与提交草稿，可按类别另行授予追加权限。</p>
+        <p className="agent-privacy"><ShieldCheck size={18} /> 每个个人连接只对应你的账号。新建连接默认全选授权，可在创建前取消不需要的读取或写入类别。</p>
         <p className="muted">支持本站授权的 MCP 客户端可继续使用站点连接；支持自定义 HTTP 工具的 Agent 可创建个人令牌。普通聊天生成 JSON 时，无需配置这里。</p>
         <p className="muted">想让 Agent 为新动作制作 Spotter 示范时，开启「添加或移除个人演示动图」，再对 Agent 说「为这个新动作做示范」。内置动作会沿用动作库里的示范。</p>
         {enabled && profileRef ? <>
@@ -171,7 +173,7 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
         <details className="agent-help"><summary>MCP 与个人 API 的接入条件</summary><p>客户端需要支持自定义工具与相应授权。私密 Sites 的平台登录可能先于应用接口拦截请求，个人令牌不能绕过站点访问权限。</p><p>模型在你自己的 AI 中运行，不需要将模型 API key 交给 Spotter。</p></details>
         {manualGuide && <label>Agent 接入说明<textarea readOnly rows={8} value={manualGuide} onFocus={(event) => event.target.select()} /></label>}
         {enabled && <section className="feature-stack">
-          <div className="section-head"><h2>个人连接</h2><button className="button primary small" type="button" disabled={busy} onClick={() => { setCreate(true); setName(""); setDays(30); setSelectedScopes(["read:context", "plans:draft"]); setDialogError(""); }}><Plus size={17} />新建连接</button></div>
+          <div className="section-head"><h2>个人连接</h2><button className="button primary small" type="button" disabled={busy} onClick={() => { setCreate(true); setName(""); setDays(30); setSelectedScopes([...allScopes]); setDialogError(""); }}><Plus size={17} />新建连接</button></div>
           {loading && !connections.length ? <p className="muted" role="status">正在读取连接…</p> : !connections.length ? <p className="muted">还没有个人 API 连接。已授权的站点 MCP 连接可继续使用。</p> : <ul className="agent-connection-list">{connections.map((item) => {
             const expired = new Date(item.expiresAt).getTime() <= Date.now();
             const inactive = Boolean(item.revokedAt) || expired;
@@ -192,7 +194,7 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
       {!enabled ? <p className="muted">登录后可以接收并确认 Agent 草稿。</p> : loading && !drafts.length ? <p className="muted" role="status">正在读取草稿…</p> : !drafts.length ? <p className="empty-copy">暂无 Agent 草稿。可以先使用上方提示词起草，也可展开连接设置。</p> : <ul className="agent-connection-list">{drafts.map((draft) => <li key={draft.id}><div className="agent-connection-heading"><strong>{draft.title}</strong><span className="state-tag">{draft.status === "committed" ? "已排入日历" : "待确认"}</span></div><p className="muted">{draft.plans.length} 堂训练 · {dateTime(draft.createdAt)}</p><button className="button outline small" type="button" disabled={busy} onClick={() => void inspect(draft)}>{draft.status === "committed" ? "查看结果" : "查看与编辑"}</button></li>)}</ul>}
     </section>
     {create && <Dialog title="新建 Agent 连接" onClose={() => { if (!busy) setCreate(false); }}><form onSubmit={(event) => { event.preventDefault(); void createConnection(); }}>
-      <fieldset disabled={busy} className="dialog-body form-fields agent-fieldset"><label>连接名称<input required maxLength={60} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：我的训练助手" /></label><label>有效期<select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value={7}>7 天</option><option value={30}>30 天</option><option value={90}>90 天</option></select></label><strong>允许这个连接做什么</strong>{scopes.map(([scope, label]) => <label className="toggle-label" key={scope}><input type="checkbox" checked={selectedScopes.includes(scope)} onChange={(event) => setSelectedScopes((current) => event.target.checked ? [...current, scope] : current.filter((value) => value !== scope))} />{label}</label>)}<p className="muted">勾选这次连接需要的权限。每批追加记录前，由你核对账号和记录内容。</p>{dialogError && <p className="inline-error" role="alert">{dialogError}</p>}</fieldset><div className="dialog-footer"><button className="button primary" disabled={busy || !selectedScopes.length}>{busy ? "正在创建…" : "创建连接"}</button></div>
+      <fieldset disabled={busy} className="dialog-body form-fields agent-fieldset"><label>连接名称<input required maxLength={60} value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：我的训练助手" /></label><label>有效期<select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value={7}>7 天</option><option value={30}>30 天</option><option value={90}>90 天</option></select></label><strong>允许这个连接做什么</strong>{scopes.map(([scope, label]) => <label className="toggle-label" key={scope}><input type="checkbox" checked={selectedScopes.includes(scope)} onChange={(event) => setSelectedScopes((current) => event.target.checked ? [...current, scope] : current.filter((value) => value !== scope))} />{label}</label>)}<p className="muted">默认已全选授权，可取消这次连接不需要的权限。每批追加记录前，由你核对账号和记录内容。</p>{dialogError && <p className="inline-error" role="alert">{dialogError}</p>}</fieldset><div className="dialog-footer"><button className="button outline" type="button" disabled={busy} onClick={() => setSelectedScopes(allSelected ? [] : [...allScopes])}>{allSelected ? "取消全选" : "全选授权"}</button><button className="button primary" disabled={busy || !selectedScopes.length}>{busy ? "正在创建…" : "创建连接"}</button></div>
     </form></Dialog>}
     {preview && <Dialog title={preview.title} onClose={() => { if (!busy) { if (changed) setDiscard(true); else setPreview(undefined); } }} className="agent-draft-dialog"><div className="dialog-body feature-stack">
       <DraftProgress steps={["已接收草稿", "逐日核对", "排入日历"]} current={preview.status === "committed" ? 3 : 1} />
