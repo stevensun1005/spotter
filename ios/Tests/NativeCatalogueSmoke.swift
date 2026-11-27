@@ -58,13 +58,27 @@ struct NativeCatalogueSmoke {
         let registry = root.appendingPathComponent("cloudflare/features/exercises/spotter-demo-assets.json")
         let spotterDemos = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: registry))
         precondition(spotterDemos["0198"] == "/open-gym/spotter-3d/0198.mp4")
+        let webAssets = root.appendingPathComponent("cloudflare/public")
+        var offlineBytes = 0
+        var webBytes = 0
         for (id, path) in spotterDemos {
             let entry = index.entry(withID: id)!
             precondition(entry.hasCover && index.coverData(for: entry)?.prefix(2) == Data([0xff, 0xd8]))
             precondition(index.drawing(for: entry) == nil && index.animationData(for: entry) == nil)
-            precondition(index.bundledVideoURL(for: entry)?.path.hasSuffix("/video/spotter-3d/" + id + ".mp4") == true)
+            guard let offline = index.bundledVideoURL(for: entry) else {
+                preconditionFailure("Missing offline video for " + id)
+            }
+            precondition(offline.path.hasSuffix("/video/spotter-3d/" + id + ".mp4"))
             precondition(index.videoURL(for: entry)?.path == path)
+            let original = webAssets.appendingPathComponent(String(path.dropFirst()))
+            guard let offlineSize = try offline.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  let webSize = try original.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+                preconditionFailure("Could not measure the offline and web videos for " + id)
+            }
+            offlineBytes += offlineSize
+            webBytes += webSize
         }
+        precondition(offlineBytes < webBytes, "The offline catalogue must be smaller than the web masters.")
         precondition(index.entry(exactName: "A1 跪姿绳索三头下压")?.id == "0176")
         precondition(index.knows("barbell bench press"))
         precondition(index.entry(exactName: "A2 跪姿绳索三头下压（反握）") == nil)

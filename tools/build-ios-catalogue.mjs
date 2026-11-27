@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, readdir, rm, unlink, writeFile } from "node:
 import { registerHooks } from "node:module";
 import { deflateRawSync } from "node:zlib";
 import sharp from "sharp";
+import { buildIOSVideos } from "./spotter-demo/ios-videos.mjs";
 
 // Node strips the pure catalogue modules directly. Resolve their existing extensionless imports.
 registerHooks({
@@ -257,18 +258,12 @@ const metadata = {
 
 await mkdir(output, { recursive: true });
 const videoFiles = new Map([...new Set(Object.values(metadata.videos))].map(videoAsset));
+await buildIOSVideos(videoFiles, output);
 const mediaFiles = new Map([
   ...motion.animations.shards.map((bytes, index) => ["motion-" + index + ".bin", bytes]),
   ...motion.drawings.shards.map((bytes, index) => ["drawing-" + index + ".bin", bytes]),
 ]);
-await Promise.all([
-  ...[...mediaFiles].map(([name, bytes]) => writeFile(new URL(name, output), bytes)),
-  ...[...videoFiles].map(async ([name, source]) => {
-    const destination = new URL(name, output);
-    await mkdir(new URL("./", destination), { recursive: true });
-    await copyFile(source, destination);
-  }),
-]);
+await Promise.all([...mediaFiles].map(([name, bytes]) => writeFile(new URL(name, output), bytes)));
 await Promise.all([
   writeFile(new URL("metadata.json", output), JSON.stringify(metadata)),
   writeFile(new URL("covers.bin", output), Buffer.concat(rasters, offset)),
@@ -278,7 +273,7 @@ await Promise.all([
   copyFile(new URL("workout-guide/attribution.json", resource), new URL("WORKOUT-GUIDE-ATTRIBUTION.json", output)),
   copyFile(new URL("spotter-3d/CREDITS.txt", resource), new URL("SPOTTER-3D-CREDITS.txt", output)),
   writeFile(new URL("NATIVE-COVERS-NOTICE.txt", output),
-    "Spotter iPhone catalogue thumbnails are proportionally resized JPEGs of the web covers. Bundled Spotter MP4s are copied unchanged from the repository. The rig and mesh credits are in SPOTTER-3D-CREDITS.txt. If a bundle includes Flow or Workout Guide media, the source frames are resized and rasterized as timed GIFs. Workout Guide frames by Bryl Lim and credited Everkinetic artwork retain CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). See WORKOUT-GUIDE-ATTRIBUTION.json for individual frame sources and credits. Regenerate the bundle with node tools/build-ios-catalogue.mjs.\n"),
+    "Spotter iPhone catalogue thumbnails are proportionally resized JPEGs of the web covers. Bundled Spotter MP4s are compressed for offline iPhone playback from the corresponding web masters. The rig and mesh credits are in SPOTTER-3D-CREDITS.txt. If a bundle includes Flow or Workout Guide media, the source frames are resized and rasterized as timed GIFs. Workout Guide frames by Bryl Lim and credited Everkinetic artwork retain CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). See WORKOUT-GUIDE-ATTRIBUTION.json for individual frame sources and credits. Regenerate the bundle with node tools/build-ios-catalogue.mjs.\n"),
 ]);
 await Promise.all((await readdir(output))
   .filter((name) => /^(?:motion|drawing)-\d+\.bin$/.test(name) && !mediaFiles.has(name))
