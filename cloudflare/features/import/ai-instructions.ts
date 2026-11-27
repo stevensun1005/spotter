@@ -49,7 +49,7 @@ export function agentPlanningGuide(origin: string, profileRef: string) {
     ...planContentRules.map((rule) => "   - " + rule),
     "3. REST POST /api/agent/drafts，参数 {profileRef,requestId,plans,title?}；MCP 对应 stage_spotter_plans。requestId 是新 UUID，同一份内容重试复用；每批最多 20 堂。草稿出现在「添加计划 → 用自己的 AI」中，可编辑和校验，尚未排入日历。",
     "4. REST GET /api/agent/drafts?id=<draftId> 或 MCP preview_spotter_draft 获取最新 revision 和冲突预览。若用户在网页修改了草稿，必须重新读取，不得用旧 revision 确认。",
-    "5. 由用户在网页确认；只有用户明确授权本批写入且个人令牌具有 plans:write 时，才可 POST /api/agent/commit，参数 {profileRef,draftId,revision,confirmed:true}。MCP 对应 commit_spotter_draft。默认读取／草稿权限不能直接排入日历，不能使用普通导入的同名更新选项绕过此边界。",
+    "5. 由用户在网页确认；只有用户明确授权本批写入且个人令牌具有 plans:write 时，才可 POST /api/agent/commit，参数 {profileRef,draftId,revision,confirmed:true}。MCP 对应 commit_spotter_draft。只有读取／草稿权限时不能直接排入日历，不能使用普通导入的同名更新选项绕过此边界。",
     "6. 完整周期使用 Program（最多 52 周、364 堂），保留完整 sessions，不截断为普通 20 堂草稿。REST /api/agent/programs 的 stage → preview → commit，或 MCP stage_spotter_program → preview_spotter_program → commit_spotter_program；确认时使用最新 revision 和 previewToken。网页周期草稿在「训练周期」查看。",
     "7. 报告实际 added/updated/skipped 和日期范围；失败时不能说已保存。保留其他账号、进行中、已完成和已独立修改的记录。",
     "", "没有工具连接的普通聊天 AI 使用「添加计划」里的起草／整理提示词，返回 JSON 后粘贴预览即可。客户端能否接入取决于其工具与认证能力，不因模型品牌而自动获得访问。旧 add_spotter_plans 工具保持兼容，新接入优先采用以上草稿与确认流程。",

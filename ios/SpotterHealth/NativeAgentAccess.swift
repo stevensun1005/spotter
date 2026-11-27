@@ -155,7 +155,7 @@ struct NativeAgentTutorialView: View {
         var instruction: String {
             switch self {
             case .permission:
-                return "在「外部 Agent」点「新建 Agent 连接」，填写连接名称和有效期，再按要做的任务勾选权限。每个 AI 工具可以单独建一条连接。"
+                return "在「外部 Agent」点「新建 Agent 连接」，填写连接名称和有效期。权限默认全选，可以直接点底部的「创建连接」，也可以先点「取消全选」再按要做的任务勾选。每个 AI 工具可以单独建一条连接。"
             case .configuration:
                 return "连接创建成功后会回到「复制提示词」。首次设置工具时，在这张卡上点「复制令牌」，填到自己 AI 的工具凭据栏。"
             case .prompts:
@@ -213,7 +213,7 @@ struct NativeAgentTutorialView: View {
     @ViewBuilder private var details: some View {
         switch step {
         case .permission:
-            tip("分析记录", icon: "chart.xyaxis.line", detail: "只打开要分析的读取项，例如「读取训练计划与打卡」或「读取饮食与饮水」。")
+            tip("分析记录", icon: "chart.xyaxis.line", detail: "只想分析时，可以只保留要分析的读取项，例如「读取训练计划与打卡」或「读取饮食与饮水」。")
             tip("训练计划", icon: "calendar", detail: "打开「读取编排资料」，让 AI 先核对你的动作库并沿用同一动作。创建草稿需打开「保存训练草稿」，排入日历还需打开「将确认的计划加入日历」。")
             tip("模板与动作示范", icon: "film.stack", detail: "管理模板时，开启「读取个人模板」和「改名、编辑或删除个人模板」。让 Agent 用 Spotter 技能为新动作做示范时，开启「读取编排资料」和「添加或移除个人演示动图」。")
             tip("记饮食", icon: "fork.knife", detail: "打开「新增饮食与饮水」。需要在记餐前核对当天已有记录时，也可打开「读取饮食与饮水」。")
@@ -513,13 +513,16 @@ private struct NativeAgentCreateView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var name = ""
     @State private var days = 30
-    @State private var scopes: Set<NativeAgentScope> = [.context, .planDraft]
+    @State private var scopes = Set(NativeAgentScope.allCases)
     @State private var busy = false
     @State private var errorMessage: String?
 
     private var cleanName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var allSelected: Bool { scopes.count == NativeAgentScope.allCases.count }
+    private var canCreate: Bool { !busy && !cleanName.isEmpty && cleanName.utf16.count <= 60 && !scopes.isEmpty }
 
     var body: some View {
         Form {
@@ -531,17 +534,17 @@ private struct NativeAgentCreateView: View {
                 }
             }
             scopeSection("读取权限", scopes: NativeAgentScope.read)
-            scopeSection("写入权限", scopes: NativeAgentScope.write)
             Section {
-                if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
-                Button { Task { await create() } } label: {
-                    if busy { ProgressView() }
-                    else { Text("创建连接").fontWeight(.semibold) }
-                }
-                .disabled(busy || cleanName.isEmpty || cleanName.utf16.count > 60 || scopes.isEmpty)
-                .accessibilityIdentifier("spotter-agent-confirm-create")
+                scopeRows(NativeAgentScope.write)
+            } header: {
+                Text("写入权限")
+            } footer: {
+                Text("新建连接默认全选授权。可以单独取消不需要的权限，也可以用底部按钮一键全选或取消全选。")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) { controls }
         .navigationTitle("新建 Agent 连接")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(busy)
@@ -550,35 +553,75 @@ private struct NativeAgentCreateView: View {
         }
     }
 
-    private func scopeSection(_ title: String, scopes options: [NativeAgentScope]) -> some View {
-        Section(title) {
-            ForEach(options) { scope in
-                let selected = scopes.contains(scope)
-                Button {
-                    if selected { scopes.remove(scope) }
-                    else { scopes.insert(scope) }
-                } label: {
-                    HStack {
-                        Text(scope.title)
-                        Spacer(minLength: 8)
-                        Image(systemName: selected ? "checkmark.square.fill" : "square")
-                            .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
-                            .accessibilityHidden(true)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.spotterPress)
-                .disabled(busy)
-                .accessibilityValue(selected ? "已选择" : "未选择")
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityIdentifier("spotter-agent-scope-" + scope.rawValue)
+    private var controls: some View {
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+        return VStack(alignment: .leading, spacing: 8) {
+            if let errorMessage {
+                Text(errorMessage).font(.footnote).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            layout {
+                Button {
+                    scopes = allSelected ? [] : Set(NativeAgentScope.allCases)
+                } label: {
+                    Label(allSelected ? "取消全选" : "全选授权", systemImage: allSelected ? "square" : "checkmark.square")
+                        .frame(maxWidth: stacked ? .infinity : nil)
+                }
+                .buttonStyle(.spotterControl)
+                .disabled(busy)
+                .accessibilityHint(allSelected ? "取消全部读取和写入权限" : "选中全部读取和写入权限")
+                .accessibilityIdentifier("spotter-agent-scope-all")
+                Button { Task { await create() } } label: {
+                    Group {
+                        if busy { ProgressView() }
+                        else { Text("创建连接") }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.spotterPrimaryControl)
+                .disabled(!canCreate)
+                .accessibilityIdentifier("spotter-agent-confirm-create")
+            }
+        }
+        .frame(maxWidth: 520, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(SpotterPalette.background)
+    }
+
+    private func scopeSection(_ title: String, scopes options: [NativeAgentScope]) -> some View {
+        Section(title) { scopeRows(options) }
+    }
+
+    private func scopeRows(_ options: [NativeAgentScope]) -> some View {
+        ForEach(options) { scope in
+            let selected = scopes.contains(scope)
+            Button {
+                if selected { scopes.remove(scope) }
+                else { scopes.insert(scope) }
+            } label: {
+                HStack {
+                    Text(scope.title)
+                    Spacer(minLength: 8)
+                    Image(systemName: selected ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.spotterPress)
+            .disabled(busy)
+            .accessibilityValue(selected ? "已选择" : "未选择")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityIdentifier("spotter-agent-scope-" + scope.rawValue)
         }
     }
 
     private func create() async {
-        guard !busy, !cleanName.isEmpty, cleanName.utf16.count <= 60, !scopes.isEmpty else { return }
+        guard canCreate else { return }
         busy = true
         errorMessage = nil
         defer { busy = false }
