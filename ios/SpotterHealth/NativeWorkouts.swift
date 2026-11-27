@@ -1302,6 +1302,19 @@ final class NativeWorkoutStore: ObservableObject {
     }
 }
 
+private enum NativeHomeHeaderLayout {
+    static let scrollSpace = "spotter-home-scroll"
+    static let navigationHeight: CGFloat = 46
+    static let topPadding: CGFloat = 2
+    static let bottomPadding: CGFloat = 4
+    static let expandedHeight = navigationHeight + SpotterWeekDateStrip.expandedHeight + topPadding + bottomPadding
+
+    static func compression(at offset: CGFloat, reduceMotion: Bool) -> CGFloat {
+        let progress = min(max((offset - 12) / 92, 0), 1)
+        return reduceMotion ? (progress >= 0.65 ? 1 : 0) : (progress * 32).rounded() / 32
+    }
+}
+
 @MainActor
 struct NativeWorkoutView: View {
     @ObservedObject var store: NativeWorkoutStore
@@ -1323,7 +1336,8 @@ struct NativeWorkoutView: View {
     var refreshNutritionWeek: ((Date, Bool) async -> Void)? = nil
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterGuide) private var guide
-    @AppStorage("spotter.native.home.nutritionCollapsed") private var nutritionCollapsed = false
+    @State private var nutritionCollapsed = false
+    @State private var homeHeaderCompression: CGFloat = 0
     @AppStorage(NativePreferenceKey.weeklyCheckins) private var showCheckins = true
     @AppStorage(NativePreferenceKey.planShortcut) private var showPlanShortcut = true
     @AppStorage(NativePreferenceKey.officialTemplates) private var showOfficialTemplates = true
@@ -1528,14 +1542,16 @@ struct NativeWorkoutView: View {
 
     private var homeOverview: some View {
         ScrollViewReader { scroll in
-            ScrollView {
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: 1).id("spotter-home-top").accessibilityHidden(true)
-                    overviewContent(topPadding: 4)
+            homeScrollSurface
+            .overlay(alignment: .top) {
+                homeDateHeader(compression: homeHeaderCompression) {
+                    setNutritionCollapsed(false)
+                    withAnimation(motion) { scroll.scrollTo("spotter-home-top", anchor: .top) }
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) { homeDateHeader }
-            .onChange(of: selectedDay) { _ in scroll.scrollTo("spotter-home-top", anchor: .top) }
+            .onChange(of: selectedDay) { _ in
+                if homeHeaderCompression < 0.65 { scroll.scrollTo("spotter-home-top", anchor: .top) }
+            }
             .animation(motion, value: planNotice != nil)
             .refreshable {
                 let date = selectedDate
@@ -1543,6 +1559,34 @@ struct NativeWorkoutView: View {
                 await refreshNutritionWeek?(date, true)
                 await workout
             }
+        }
+    }
+
+    @ViewBuilder private var homeScrollSurface: some View {
+        let reduceMotion = motion == nil
+        let scroll = ScrollView {
+            VStack(spacing: 0) {
+                let anchor = Color.clear.frame(height: NativeHomeHeaderLayout.expandedHeight)
+                    .id("spotter-home-top")
+                    .accessibilityHidden(true)
+                if #available(iOS 18.0, *) {
+                    anchor
+                } else {
+                    anchor.onGeometryChange(for: CGFloat.self) { geometry in
+                        NativeHomeHeaderLayout.compression(at: -geometry.frame(in: .named(NativeHomeHeaderLayout.scrollSpace)).minY,
+                                                          reduceMotion: reduceMotion)
+                    } action: { homeHeaderCompression = $0 }
+                }
+                overviewContent(topPadding: 4)
+            }
+        }
+        if #available(iOS 18.0, *) {
+            scroll.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                NativeHomeHeaderLayout.compression(at: geometry.contentOffset.y + geometry.contentInsets.top,
+                                                     reduceMotion: reduceMotion)
+            } action: { _, compression in homeHeaderCompression = compression }
+        } else {
+            scroll.coordinateSpace(name: NativeHomeHeaderLayout.scrollSpace)
         }
     }
 
@@ -1768,39 +1812,87 @@ struct NativeWorkoutView: View {
             .background(purple ? SpotterPalette.adaptive(0xf4effa, 0x372c45) : SpotterPalette.wash.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private var homeDateHeader: some View {
+    private func homeDateHeader(compression: CGFloat, restoreNutrition: @escaping () -> Void) -> some View {
         let bounds = homeDateBounds
         let calendar = Calendar(identifier: .gregorian)
         let date = calendar.startOfDay(for: selectedDate)
         let schedule = store.scheduleIndex
-        return VStack(spacing: 2) {
-            HStack(spacing: 6) {
-                if openNutrition != nil, showsCollapsedNutrition {
-                    NativeHomeNutritionToggleButton(isCollapsed: true) { setNutritionCollapsed(false) }
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                } else {
-                    Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+        let expansion = 1 - compression
+        let condensed = compression >= 0.65
+        let navigationHeight = NativeHomeHeaderLayout.navigationHeight * expansion
+        let showRestore = openNutrition != nil && showsCollapsedNutrition
+        return VStack(spacing: 0) {
+            if condensed {
+                Color.clear.frame(height: navigationHeight)
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+            } else {
+                HStack(spacing: 6) {
+                    if showRestore {
+                        NativeHomeNutritionToggleButton(isCollapsed: true, action: restoreNutrition)
+                            .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    } else {
+                        Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+                    }
+                    Spacer(minLength: 0)
+                    SpotterWeekNavigation(selection: selectedDate, calendarLabel: "首页日期",
+                                          canGoBack: date > bounds.lowerBound,
+                                          canGoForward: date < calendar.startOfDay(for: bounds.upperBound),
+                                          compactDays: true, onMove: shiftHomeDay)
+                    Spacer(minLength: 0)
+                    settingsButton
                 }
-                Spacer(minLength: 0)
-                SpotterWeekNavigation(selection: selectedDate, calendarLabel: "首页日期",
-                                      canGoBack: date > bounds.lowerBound,
-                                      canGoForward: date < calendar.startOfDay(for: bounds.upperBound),
-                                      compactDays: true, onMove: shiftHomeDay)
-                Spacer(minLength: 0)
-                settingsButton
+                .frame(height: navigationHeight, alignment: .top)
+                .mask(alignment: .top) {
+                    Rectangle().padding(.horizontal, -14)
+                        .padding(.top, -12).padding(.bottom, -5 * expansion)
+                }
+                .opacity(max(0, 1 - compression * 1.5))
+                .contentShape(Rectangle())
             }
+
             SpotterWeekDateStrip(days: homeWeekDates.map { homeProgressDay($0, schedule: schedule) },
-                                 selection: selectedDate) { selectedDate = $0 }
-                .padding(.horizontal, 4)
-                .spotterCard(radius: 18)
+                                 selection: selectedDate, compression: compression) { selectedDate = $0 }
+                .padding(.horizontal, 4 * expansion)
+                .background {
+                    Color.clear.spotterCard(radius: 18)
+                        .opacity(expansion)
+                        .allowsHitTesting(false)
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("spotter-home-week-strip")
         }
         .padding(.horizontal, 14)
-        .padding(.top, 2).padding(.bottom, 4)
-        .background(SpotterPalette.background)
+        .padding(.top, NativeHomeHeaderLayout.topPadding)
+        .padding(.bottom, NativeHomeHeaderLayout.bottomPadding)
+        .background {
+            SpotterPalette.background.opacity(expansion)
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
+        }
+        .background {
+            if compression > 0 { homeHeaderBackdrop(compression: compression) }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("spotter-home-date-header")
+    }
+
+    private func homeHeaderBackdrop(compression: CGFloat) -> some View {
+        let fadeHeight = 48 * compression
+        return Rectangle().fill(.regularMaterial)
+            .overlay { SpotterPalette.background.opacity(0.40) }
+            .mask {
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: fadeHeight)
+                }
+            }
+            .padding(.bottom, -fadeHeight)
+            .opacity(compression)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private var homeDateBounds: ClosedRange<Date> {

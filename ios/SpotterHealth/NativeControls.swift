@@ -62,6 +62,9 @@ struct SpotterChoiceStyle: ButtonStyle {
 }
 
 struct SpotterWeekDateStrip: View {
+    static let expandedHeight: CGFloat = 64
+    static let compactHeight: CGFloat = 44
+
     struct Day: Identifiable {
         let date: Date
         var progress: Double = 0
@@ -76,6 +79,7 @@ struct SpotterWeekDateStrip: View {
     let days: [Day]
     let selection: Date
     var ringPalette: SpotterProgressRingPalette = .training
+    var compression: CGFloat? = nil
     let onSelect: (Date) -> Void
 
     @Environment(\.spotterAccent) private var accent
@@ -109,14 +113,20 @@ struct SpotterWeekDateStrip: View {
         let selected = calendar.isDate(day.date, inSameDayAs: selection)
         let today = calendar.isDateInToday(day.date)
         let weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][calendar.component(.weekday, from: day.date) - 1]
-        let diameter = min(ringSize, 34)
+        let progress = compression ?? 0
+        let expansion = 1 - progress
+        let diameter = min(ringSize, 34) - 8 * progress
+        let height = compression.map { _ in Self.compactHeight + (Self.expandedHeight - Self.compactHeight) * expansion }
         return Button { onSelect(day.date) } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: 4 * expansion) {
                 Text(weekday)
                     .font(.caption2.weight(selected ? .bold : .medium))
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
                     .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
+                    .frame(height: compression.map { _ in 15 * expansion }, alignment: .top)
+                    .clipped()
+                    .opacity(expansion)
                 ZStack {
                     SpotterDayProgressRings(primary: day.progress, secondary: day.secondaryProgress,
                                             primaryPalette: ringPalette, size: diameter)
@@ -125,17 +135,20 @@ struct SpotterWeekDateStrip: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.55)
                         .foregroundStyle(SpotterPalette.ink)
-                        .frame(width: max(1, diameter - (day.secondaryProgress == nil ? 8 : 13)))
+                        .frame(width: max(1, diameter - (day.secondaryProgress == nil ? 8 : 13 - 4 * progress)))
                 }
                 HStack(spacing: 3) {
                     if today { Circle().fill(accent.tint).frame(width: 4, height: 4) }
                     if day.showsMarker { Circle().strokeBorder(accent.tint, lineWidth: 1).frame(width: 4, height: 4) }
                 }
-                .frame(height: 4)
+                .frame(height: 4 * expansion)
+                .clipped()
+                .opacity(expansion)
                 .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, minHeight: height == nil ? 56 : nil)
+            .padding(.vertical, height == nil ? 4 : 0)
+            .frame(height: height)
             .background(selected ? accent.selection : .clear, in: Capsule())
             .contentShape(Rectangle())
             .animation(motion, value: selected)
