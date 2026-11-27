@@ -58,6 +58,7 @@ final class NativeWorkoutStore: ObservableObject {
         didSet { rebuildEntries(); widgetRevision &+= 1 }
     }
     @Published private(set) var active: NativeWorkoutEntry?
+    @Published private var setCountdown: NativeWorkoutSession.SetCountdown?
     @Published private(set) var pendingCheckins: [NativeWorkoutEntry] = [] {
         didSet { rebuildLogs(); widgetRevision &+= 1 }
     }
@@ -136,6 +137,11 @@ final class NativeWorkoutStore: ObservableObject {
         guard let active, let lastSetCompletion, lastSetCompletion.workoutID == active.id,
               active.session?.line(at: lastSetCompletion.completion.position)?["done"].bool == true else { return nil }
         return lastSetCompletion.completion.position
+    }
+    var activeSetCountdown: NativeWorkoutSession.SetCountdown? {
+        guard let active, let session = active.session, let setCountdown,
+              setCountdown.workoutID == active.id, setCountdown.matches(session) else { return nil }
+        return setCountdown
     }
     var pendingDraftRemovalCount: Int { discardedDrafts.count }
     var hasPendingSync: Bool { draftNeedsSync || !pendingCheckins.isEmpty || !discardedDrafts.isEmpty }
@@ -253,6 +259,7 @@ final class NativeWorkoutStore: ObservableObject {
            saved.owner == owner, saved.origin == api.origin {
             active = saved.active?.owner == owner && saved.active?.kind == "draft" ? saved.active : nil
             if let completion = saved.lastSetCompletion, completion.workoutID == active?.id { lastSetCompletion = completion }
+            setCountdown = saved.setCountdown
             draftNeedsSync = active != nil && (saved.draftNeedsSync ?? true)
             pendingCheckins = saved.pending.filter { $0.owner == owner && $0.kind == "log" }
             discardedDrafts = (saved.discarded ?? []).filter { UUID(uuidString: $0) != nil }
@@ -308,6 +315,7 @@ final class NativeWorkoutStore: ObservableObject {
         let discarded: [String]?
         let draftNeedsSync: Bool?
         let lastSetCompletion: LastSetCompletion?
+        let setCountdown: NativeWorkoutSession.SetCountdown?
     }
 
     private struct Snapshot: Codable {
@@ -341,7 +349,8 @@ final class NativeWorkoutStore: ObservableObject {
         do {
             let completion = lastSetCompletion.flatMap { $0.workoutID == active?.id ? $0 : nil }
             let recovery = Recovery(origin: origin, owner: owner, active: active, pending: pendingCheckins,
-                                    discarded: discardedDrafts, draftNeedsSync: draftNeedsSync, lastSetCompletion: completion)
+                                    discarded: discardedDrafts, draftNeedsSync: draftNeedsSync, lastSetCompletion: completion,
+                                    setCountdown: activeSetCountdown)
             try Self.writeLocal(recovery, to: cacheURL)
             return true
         } catch { errorMessage = "本机恢复记录未保存，请保持 App 打开并联网保存。"; return false }
@@ -673,6 +682,7 @@ final class NativeWorkoutStore: ObservableObject {
         completedPlanIds = []
         recentHistoryStart = nil
         lastSetCompletion = nil
+        setCountdown = nil
         active = nil; pendingCheckins = []; entries = []; room = .null
         libraryRows = []
         viewerAnatomyVariant = nil
@@ -783,7 +793,27 @@ final class NativeWorkoutStore: ObservableObject {
         current.data = session.raw
         current.updated = Date.now.formatted(.iso8601)
         active = current
+        if setCountdown != nil, activeSetCountdown == nil { setCountdown = nil }
         changed()
+    }
+
+    func startSetCountdown(at position: NativeWorkoutSession.SetPosition) {
+        guard !isBusy, activeSetCountdown == nil, let active, let session = active.session,
+              let target = session.countdownTarget(at: position) else { return }
+        let now = NativeWorkoutSession.nowMilliseconds
+        setCountdown = .init(workoutID: active.id, position: position,
+                             startedAtElapsed: session.elapsedMilliseconds(at: now), targetSeconds: target)
+        mutate { session in
+            session.clearRest()
+            session.resume(at: now)
+        }
+        if self.active?.data == active.data { persist() }
+    }
+
+    func cancelSetCountdown(at position: NativeWorkoutSession.SetPosition) {
+        guard !isBusy, activeSetCountdown?.position == position else { return }
+        setCountdown = nil
+        persist()
     }
 
     func setNumber(move: Int, row: Int, key: String, value: Double) {
@@ -802,6 +832,8 @@ final class NativeWorkoutStore: ObservableObject {
         guard let id = active?.id else { return false }
         let position = NativeWorkoutSession.SetPosition(move: move, row: row)
         let previousPosition = undoableSet
+        let countdown = activeSetCountdown.flatMap { $0.position == position ? $0 : nil }
+        let now = NativeWorkoutSession.nowMilliseconds
         var completed = false
         mutate { session in
             guard let line = session.line(at: position) else { return }
@@ -813,9 +845,12 @@ final class NativeWorkoutStore: ObservableObject {
                     session.setLine(move: move, row: row, key: "done", value: .bool(false))
                     if previousPosition == nil { session.clearRest() }
                 }
-            } else if let action = session.completeSet(at: position, after: previousPosition) {
-                lastSetCompletion = LastSetCompletion(workoutID: id, completion: action)
-                completed = true
+            } else {
+                let measured = countdown?.recordedSeconds(at: session.elapsedMilliseconds(at: now))
+                if let action = session.completeSet(at: position, after: previousPosition, measuredSeconds: measured, now: now) {
+                    lastSetCompletion = LastSetCompletion(workoutID: id, completion: action)
+                    completed = true
+                }
             }
         }
         return completed
@@ -2992,10 +3027,12 @@ struct NativeActiveWorkoutView: View {
     @AppStorage(NativePreferenceKey.showTempo) private var showTempo = true
     @AppStorage(NativePreferenceKey.showEffort) private var showEffort = true
     @AppStorage(NativePreferenceKey.autoAdvance) private var autoAdvance = false
+    @AppStorage(NativePreferenceKey.workoutPresentation) private var workoutPresentation: NativeWorkoutPresentation = .classic
     @AppStorage(NativePreferenceKey.restSound) private var restSound = false
     @AppStorage(NativePreferenceKey.restHaptics) private var restHaptics = false
     @AppStorage(NativePreferenceKey.keepAwake) private var keepAwake = false
     @State private var openedMove = 0
+    @State private var focusedSet: NativeWorkoutSession.SetPosition?
     @State private var edit: NativeSetTarget?
     @State private var editText = ""
     @State private var pristine = true
@@ -3073,6 +3110,7 @@ struct NativeActiveWorkoutView: View {
                 case .sync: syncPanel
                 case .add: NativeWorkoutAddPanel(store: store) {
                     openedMove = max(0, (store.active?.session?.plan.exercises.count ?? 1) - 1)
+                    focusedSet = .init(move: openedMove, row: 0)
                 }
                 case .demonstration:
                     if let panelMove {
@@ -3110,13 +3148,17 @@ struct NativeActiveWorkoutView: View {
 
     private func workout(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
         let compactHeight = verticalSizeClass == .compact
+        let focused = workoutPresentation == .focused && !session.plan.exercises.isEmpty && session.cardioActivity == nil
         let next = nextSet(session)
+        let nextPosition = next.map { NativeWorkoutSession.SetPosition(move: $0.move, row: $0.row) }
+        let focusedRest = focused && session.raw["rest"] != .null && store.activeSetCountdown == nil
+        let position = focused ? focusedPosition(in: session, next: nextPosition) : nil
         return VStack(spacing: 0) {
-            if !compactHeight { editorHeader(entry, session: session) }
+            if !compactHeight { workoutHeader(entry, session: session, focused: focused) }
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        if compactHeight { editorHeader(entry, session: session) }
+                        if compactHeight { workoutHeader(entry, session: session, focused: focused) }
                         if let cardio = session.cardioActivity { NativeWorkoutCardioFields(store: store, activity: cardio) }
                         if let video = URL(string: session.plan.video), !session.plan.video.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
@@ -3124,8 +3166,13 @@ struct NativeActiveWorkoutView: View {
                                 Toggle("已完成跟练", isOn: Binding(get: { session.raw["finishedVideo"].bool }, set: { value in store.mutate { $0.raw["finishedVideo"] = .bool(value) } }))
                             }.font(.system(size: 14)).padding(13).spotterCard()
                         }
-                        ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in
-                            exerciseCard(index, move: move, session: session, nextRow: showNext && next?.move == index ? next?.row : nil)
+                        if focused {
+                            focusedWorkout(session, position: position, next: nextPosition, resting: focusedRest)
+                                .id("focused-workout-top")
+                        } else {
+                            ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in
+                                exerciseCard(index, move: move, session: session, nextRow: showNext && next?.move == index ? next?.row : nil)
+                            }
                         }
                         if session.plan.exercises.isEmpty && session.raw["cardio"] == .null {
                             VStack(spacing: 12) { tile("dumbbell", size: 44); Text("添加动作，开始记录训练").font(.system(size: 15, weight: .semibold)); Button("添加动作") { panel = .add }.buttonStyle(SpotterNativeButtonStyle(primary: true)) }
@@ -3135,19 +3182,29 @@ struct NativeActiveWorkoutView: View {
                     }.padding(14)
                 }
                 .task(id: entry.key) {
-                    guard session.completedSets > 0, let next else { return }
+                    if let timer = store.activeSetCountdown, !focused { revealSet(timer.position); return }
+                    guard !focused, session.completedSets > 0, let next else { return }
                     revealSet(.init(move: next.move, row: next.row))
                 }
                 .onChange(of: store.undoableSet) { completed in
                     guard let completed, let session = store.active?.session else { return }
                     undoneSet = nil
+                    if focused {
+                        focusedSet = nil
+                        edit = nil
+                        withAnimation(motion) { scroll.scrollTo("focused-workout-top", anchor: .top) }
+                        return
+                    }
                     guard let target = session.nextSet(after: completed),
                           completed.move != target.move,
                           autoAdvance || session.isInSameGroup(completed.move, target.move) else { return }
                     revealSet(target)
                 }
+                .onChange(of: focusedRest) { _ in
+                    if focused { withAnimation(motion) { scroll.scrollTo("focused-workout-top", anchor: .top) } }
+                }
                 .task(id: setToReveal) {
-                    guard let target = setToReveal else { return }
+                    guard let target = setToReveal, !focused else { return }
                     await Task.yield()
                     guard !Task.isCancelled, target == setToReveal, target.move == openedMove else { return }
                     withAnimation(motion) { scroll.scrollTo(target, anchor: .center) }
@@ -3158,24 +3215,112 @@ struct NativeActiveWorkoutView: View {
             ZStack(alignment: .bottom) {
                 if let edit { keypad(edit, session: session).transition(.move(edge: .bottom).combined(with: .opacity)) }
                 else {
-                    actionBar(session)
-                        .transition(.opacity)
+                    VStack(spacing: 0) {
+                        if focused { focusedAction(session, position: position, hasNext: nextPosition != nil, resting: focusedRest) }
+                        actionBar(session)
+                    }
+                    .transition(.opacity)
                 }
             }
             .animation(motion, value: edit != nil)
-        }.background(SpotterPalette.wash).toolbar(.hidden, for: .navigationBar)
+        }.background(focused ? SpotterPalette.background : SpotterPalette.wash).toolbar(.hidden, for: .navigationBar)
+    }
+
+    @ViewBuilder private func workoutHeader(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession, focused: Bool) -> some View {
+        if focused { focusedHeader(entry, session: session) }
+        else { editorHeader(entry, session: session) }
+    }
+
+    private func focusedHeader(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
+        let volume = session.volumeKg
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                VStack(alignment: .leading, spacing: 1) {
+                    if session.raw["planId"].string.isEmpty {
+                        TextField("输入训练标题", text: workoutTitleBinding(session))
+                            .font(.subheadline.bold())
+                    } else {
+                        Text(entry.title).font(.subheadline.bold()).lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    HStack(spacing: 4) {
+                        workoutElapsed(session).font(.subheadline.weight(.semibold)).foregroundStyle(accent.tint)
+                        syncIndicator
+                        if #available(iOS 17.0, *) {
+                            NativeWatchWorkoutBPM(context: watchContext(entry, session: session))
+                        }
+                        Text(session.plan.category).font(.caption2).foregroundStyle(SpotterPalette.muted).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                focusedHeaderIcon(session.isRunning ? "暂停计时" : "继续计时", symbol: session.isRunning ? "pause.fill" : "play.fill") { store.toggleClock() }
+                    .disabled(store.isBusy)
+                    .accessibilityIdentifier("workout-clock-toggle")
+                focusedHeaderIcon("撤销上一组", symbol: "arrow.uturn.backward", action: undoLatestSet)
+                    .disabled(store.undoableSet == nil || store.isBusy || edit != nil)
+                    .accessibilityIdentifier("workout-undo-set")
+                Button { finish(entry) } label: {
+                    Text(store.isBusy ? "正在保存" : "结束训练")
+                        .font(.caption.weight(.bold)).lineLimit(1)
+                        .padding(.horizontal, 9).frame(minHeight: 44)
+                        .foregroundStyle(accent.tint)
+                        .background(accent.selection, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.spotterPress)
+                .disabled(store.isBusy || edit != nil)
+                .accessibilityIdentifier("workout-finish")
+            }
+            HStack(spacing: 10) {
+                ProgressView(value: Double(session.completedSets), total: Double(max(1, session.totalSets)))
+                    .tint(accent.tint).accessibilityHidden(true)
+                    .animation(motion, value: session.completedSets)
+                Text("\(session.completedSets)/\(session.totalSets) 组")
+                    .font(.caption.weight(.semibold)).monospacedDigit()
+                    .foregroundStyle(SpotterPalette.muted)
+                    .fixedSize()
+                    .accessibilityIdentifier("workout-sets-progress")
+                if volume > 0 {
+                    let total = volume.formatted(.number.precision(.fractionLength(0...1)))
+                    Text("\(total) kg")
+                        .font(.caption2).monospacedDigit().foregroundStyle(SpotterPalette.muted)
+                        .fixedSize().accessibilityLabel("训练容量 \(total) 千克")
+                }
+            }
+        }
+        .padding(.horizontal, 14).padding(.top, 6).padding(.bottom, 4)
+    }
+
+    private func focusedHeaderIcon(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.subheadline.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .background(SpotterPalette.card, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.spotterPress)
+        .accessibilityLabel(title)
+    }
+
+    private func workoutElapsed(_ session: NativeWorkoutSession) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text(NativeWorkoutView.duration(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1_000))))
+                .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
+        }
+        .accessibilityIdentifier("workout-elapsed")
+    }
+
+    private func workoutTitleBinding(_ session: NativeWorkoutSession) -> Binding<String> {
+        Binding(get: { session.plan.title == "自由训练" ? "" : session.plan.title }, set: { value in
+            let title = value.trimmingCharacters(in: .whitespaces)
+            store.mutate { $0.raw["plan"]["title"] = .string(title.isEmpty ? "自由训练" : String(value.prefix(100))) }
+        })
     }
 
     private func editorHeader(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 HStack(spacing: 7) {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(NativeWorkoutView.duration(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1000))))
-                            .font(.system(size: 43, weight: .heavy)).tracking(-2).monospacedDigit()
-                            .lineLimit(1).minimumScaleFactor(0.65)
-                    }
-                    .accessibilityIdentifier("workout-elapsed")
+                    workoutElapsed(session).font(.system(size: 43, weight: .heavy)).tracking(-2)
                     Button { store.toggleClock() } label: {
                         Image(systemName: session.isRunning ? "pause.fill" : "play.fill").font(.system(size: 16))
                             .frame(width: 44, height: 44)
@@ -3218,7 +3363,7 @@ struct NativeActiveWorkoutView: View {
                     if session.raw["planId"].string.isEmpty {
                         HStack(spacing: 5) {
                             Image(systemName: "pencil.line").font(.system(size: 15)).foregroundStyle(SpotterPalette.muted)
-                            TextField("输入训练标题", text: Binding(get: { session.plan.title == "自由训练" ? "" : session.plan.title }, set: { value in store.mutate { $0.raw["plan"]["title"] = .string(value.trimmingCharacters(in: .whitespaces).isEmpty ? "自由训练" : String(value.prefix(100))) } }))
+                            TextField("输入训练标题", text: workoutTitleBinding(session))
                                 .font(.system(size: 16, weight: .bold))
                         }.padding(.horizontal, 9).padding(.vertical, 7).background(SpotterPalette.card.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
                     } else {
@@ -3232,6 +3377,7 @@ struct NativeActiveWorkoutView: View {
                 } else {
                     VStack(alignment: .trailing, spacing: 3) {
                         Text("\(session.completedSets)/\(session.totalSets) 组").font(.system(size: 14, weight: .bold))
+                            .accessibilityIdentifier("workout-sets-progress")
                         Text("\(session.volumeKg.formatted(.number.precision(.fractionLength(0...1)))) kg 容量").font(.system(size: 11)).foregroundStyle(SpotterPalette.muted)
                     }
                 }
@@ -3272,6 +3418,94 @@ struct NativeActiveWorkoutView: View {
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { panel = nil } } }
     }
 
+    @ViewBuilder private func focusedWorkout(_ session: NativeWorkoutSession, position: NativeWorkoutSession.SetPosition?,
+                                             next: NativeWorkoutSession.SetPosition?, resting: Bool) -> some View {
+        if resting {
+            NativeFocusedWorkoutRestView(session: session, next: showNext ? next : nil, isBusy: store.isBusy,
+                                         onAdjust: { change in store.mutate { $0.adjustRest(by: change) } },
+                                         onTick: observeRestTime)
+                .onDisappear { lastRestRemaining = nil }
+        } else if let position {
+            let move = session.plan.exercises[position.move]
+            let rows = session.rows[position.move]
+            let previous = exerciseHistory.matching(.init(move)).first {
+                $0.isTimed == (move["seconds"].number > 0) && $0.warmup == NativeExerciseLabel(move).warmup
+            }
+            let previousLine = previous.flatMap { NativeExerciseHistory.previousRows(for: rows, from: $0, move: move)[position.row] }
+            NativeFocusedWorkoutSetView(session: session, position: position,
+                                        next: showNext ? followingSet(in: session, after: position) : nil,
+                                        previous: previousLine, previousUnit: previous?.unit, showTempo: showTempo,
+                                        showEffort: showEffort, isBusy: store.isBusy,
+                                        onSelect: { selected in edit = nil; focusedSet = selected },
+                                        onEdit: { key, right, value in
+                                            activate(.init(move: position.move, row: position.row, key: key, right: right), value: value)
+                                        },
+                                        onAdjust: { key, right, step in
+                                            guard let line = store.active?.session?.line(at: position) else { return }
+                                            let value = (right ? line["right"] : line)[key].number + step
+                                            if right { store.setRightNumber(move: position.move, row: position.row, key: key, value: value) }
+                                            else { store.setNumber(move: position.move, row: position.row, key: key, value: value) }
+                                        },
+                                        onDemonstration: { edit = nil; panelMove = move; panel = .demonstration },
+                                        onAddSet: { store.mutate { $0.addSet(move: position.move) } }) {
+                timedSetControl(session, position: position)
+            }
+        }
+    }
+
+    @ViewBuilder private func focusedAction(_ session: NativeWorkoutSession, position: NativeWorkoutSession.SetPosition?,
+                                            hasNext: Bool, resting: Bool) -> some View {
+        if resting {
+            focusedButton(hasNext ? "进入下一组" : "返回训练", symbol: "arrow.right") { store.mutate { $0.clearRest() } }
+                .accessibilityIdentifier("workout-rest-skip")
+        } else if let position, let line = session.line(at: position) {
+            let done = line["done"].bool
+            let number = position.row + 1
+            focusedButton(done ? "标记第 \(number) 组未完成" : "完成第 \(number) 组",
+                          symbol: done ? "arrow.uturn.backward" : "checkmark", primary: !done) {
+                toggleDone(move: position.move, row: position.row)
+            }
+            .accessibilityIdentifier("workout-focus-complete")
+        }
+    }
+
+    private func focusedButton(_ title: String, symbol: String, primary: Bool = true, action: @escaping () -> Void) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 17)
+        return Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.body.weight(.bold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .foregroundStyle(primary ? SpotterPalette.deep : SpotterPalette.ink)
+                .background(primary ? accent.fill : SpotterPalette.card, in: shape)
+                .overlay { shape.strokeBorder(primary ? .clear : SpotterPalette.line).allowsHitTesting(false) }
+                .contentShape(shape)
+        }
+        .buttonStyle(.spotterPress)
+        .disabled(store.isBusy)
+        .padding(.horizontal, 14)
+        .padding(.top, 5)
+    }
+
+    private func focusedPosition(in session: NativeWorkoutSession, next: NativeWorkoutSession.SetPosition?) -> NativeWorkoutSession.SetPosition? {
+        if let focusedSet, session.plan.exercises.indices.contains(focusedSet.move), session.line(at: focusedSet) != nil {
+            return focusedSet
+        }
+        if let position = store.activeSetCountdown?.position ?? next ?? store.undoableSet { return position }
+        let rows = session.rows
+        guard let move = rows.indices.last(where: { session.plan.exercises.indices.contains($0) && !rows[$0].isEmpty }),
+              let row = rows[move].indices.last else { return nil }
+        return .init(move: move, row: row)
+    }
+
+    private func followingSet(in session: NativeWorkoutSession,
+                              after position: NativeWorkoutSession.SetPosition) -> NativeWorkoutSession.SetPosition? {
+        var preview = session
+        preview.setLine(move: position.move, row: position.row, key: "done", value: .bool(true))
+        return preview.nextSet(after: position)
+    }
+
     private func restTimer(_ session: NativeWorkoutSession) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             if let rest = session.restStatus(at: Int(context.date.timeIntervalSince1970 * 1_000)) {
@@ -3287,15 +3521,17 @@ struct NativeActiveWorkoutView: View {
                     }
                 }
                 .onAppear { lastRestRemaining = rest.remainingSeconds }
-                .onChange(of: rest.remainingSeconds) { remaining in
-                    if (lastRestRemaining ?? 0) > 0, remaining == 0, phase == .active {
-                        if restSound { AudioServicesPlaySystemSound(1057) }
-                        if restHaptics { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-                    }
-                    lastRestRemaining = remaining
-                }
+                .onChange(of: rest.remainingSeconds, perform: observeRestTime)
             }
         }
+    }
+
+    private func observeRestTime(_ remaining: Int) {
+        if (lastRestRemaining ?? 0) > 0, remaining == 0, phase == .active {
+            if restSound { AudioServicesPlaySystemSound(1057) }
+            if restHaptics { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+        }
+        lastRestRemaining = remaining
     }
 
     private func restSummary(_ rest: NativeWorkoutSession.RestStatus) -> some View {
@@ -3374,7 +3610,7 @@ struct NativeActiveWorkoutView: View {
                     }
                     if let suggestion { progressionButton(index, move: move, rows: rows, suggestion: suggestion) }
                     ForEach(Array(rows.enumerated()), id: \.offset) { row, line in
-                        setRow(index, row: row, move: move, line: line,
+                        setRow(index, row: row, move: move, line: line, session: session,
                                previous: reference?[row], previousUnit: previous?.unit, isNext: row == nextRow)
                             .id(NativeWorkoutSession.SetPosition(move: index, row: row))
                     }
@@ -3484,7 +3720,7 @@ struct NativeActiveWorkoutView: View {
         }
     }
 
-    private func setRow(_ moveIndex: Int, row: Int, move: NativeJSON, line: NativeJSON,
+    private func setRow(_ moveIndex: Int, row: Int, move: NativeJSON, line: NativeJSON, session: NativeWorkoutSession,
                         previous: NativeJSON?, previousUnit: String?, isNext: Bool) -> some View {
         HStack(alignment: .top, spacing: 7) {
             VStack(spacing: 3) {
@@ -3494,7 +3730,7 @@ struct NativeActiveWorkoutView: View {
             VStack(spacing: 5) {
                 HStack(spacing: 5) {
                     setNumber(NativeSetTarget(move: moveIndex, row: row, key: "weight"), label: line["right"] == .null ? move["unit"].string : "左 \(move["unit"].string)", value: line["weight"].number, done: line["done"].bool)
-                    let timed = move["seconds"].number > 0
+                    let timed = move["seconds"].number > 0 || line["seconds"].number > 0
                     setNumber(NativeSetTarget(move: moveIndex, row: row, key: timed ? "seconds" : "reps"), label: timed ? "秒数" : (line["right"] == .null ? "次数" : "左 次数"), value: line[timed ? "seconds" : "reps"].number, done: line["done"].bool)
                 }
                 if case .object = line["right"] {
@@ -3510,6 +3746,7 @@ struct NativeActiveWorkoutView: View {
                         .foregroundStyle(SpotterPalette.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                timedSetControl(session, position: .init(move: moveIndex, row: row))
             }
             Button { toggleDone(move: moveIndex, row: row) } label: {
                 Image(systemName: line["done"].bool ? "checkmark.circle.fill" : "circle").font(.system(size: 24, weight: .medium)).frame(width: 38, height: 50)
@@ -3519,6 +3756,7 @@ struct NativeActiveWorkoutView: View {
             .buttonStyle(.spotterPress)
             .accessibilityLabel("标记第\(row + 1)组\(line["done"].bool ? "未完成" : "完成")")
             .accessibilityHint(isNext ? "下一组" : "")
+            .accessibilityIdentifier("workout-set-done-\(moveIndex)-\(row)")
         }
         .padding(7)
         .background(line["done"].bool ? SpotterPalette.wash : SpotterPalette.background, in: RoundedRectangle(cornerRadius: 11))
@@ -3528,6 +3766,53 @@ struct NativeActiveWorkoutView: View {
             }
         }
         .animation(motion, value: line["done"].bool)
+    }
+
+    @ViewBuilder private func timedSetControl(_ session: NativeWorkoutSession, position: NativeWorkoutSession.SetPosition) -> some View {
+        if session.countdownTarget(at: position) != nil {
+            let running = store.activeSetCountdown
+            let id = "\(position.move)-\(position.row)"
+            if let timer = running, timer.position == position {
+                HStack(spacing: 8) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let elapsed = session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1_000))
+                        let remaining = timer.remaining(at: elapsed)
+                        HStack(spacing: 5) {
+                            Image(systemName: remaining == 0 ? "checkmark" : "timer")
+                            Text(NativeWorkoutView.duration(remaining * 1_000)).monospacedDigit()
+                            if remaining == 0 || !session.isRunning {
+                                Text(remaining == 0 ? "计时结束" : "已暂停").font(.caption)
+                            }
+                        }
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(accent.tint)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(remaining == 0 ? "计时结束" : !session.isRunning ? "计时已暂停" : "动作倒计时")
+                        .accessibilityValue("剩余 \(remaining) 秒")
+                        .accessibilityAddTraits(.updatesFrequently)
+                        .accessibilityIdentifier("workout-set-timer-countdown-\(id)")
+                    }
+                    Spacer(minLength: 0)
+                    Button { store.cancelSetCountdown(at: position) } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.spotterControl)
+                        .accessibilityLabel("取消计时")
+                        .disabled(store.isBusy)
+                }
+                .padding(.leading, 10)
+                .background(accent.selection, in: RoundedRectangle(cornerRadius: 12))
+            } else {
+                Button {
+                    edit = nil
+                    store.startSetCountdown(at: position)
+                } label: {
+                    Label("开始计时", systemImage: "play.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.spotterControl)
+                .disabled(store.isBusy || running != nil)
+                .accessibilityHint(running == nil ? "按本组秒数倒计时" : "已有一组正在计时")
+                .accessibilityIdentifier("workout-set-timer-start-\(id)")
+            }
+        }
     }
 
     private func toggleDone(move: Int, row: Int) {
@@ -3547,6 +3832,7 @@ struct NativeActiveWorkoutView: View {
     private func revealSet(_ position: NativeWorkoutSession.SetPosition) {
         withAnimation(motion) {
             openedMove = position.move
+            focusedSet = position
             setToReveal = position
         }
     }

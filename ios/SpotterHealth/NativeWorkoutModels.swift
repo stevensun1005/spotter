@@ -1,6 +1,7 @@
 import Foundation
 
 enum NativePreferenceKey {
+    static let workoutPresentation = "spotter.native.workout.presentation"
     static let sets = "spotter.native.workout.sets"
     static let reps = "spotter.native.workout.reps"
     static let showNext = "spotter.native.workout.showNext"
@@ -46,6 +47,18 @@ enum NativePreferenceKey {
     }
 }
 
+enum NativeWorkoutPresentation: String, CaseIterable, Identifiable {
+    case classic, focused
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .classic: return "经典列表"
+        case .focused: return "专注训练"
+        }
+    }
+}
 
 /// Keeps optional fields from the current Cloudflare schema intact when editing native sets.
 enum NativeJSON: Codable, Equatable, Sendable {
@@ -394,11 +407,34 @@ struct NativeWorkoutSession: Equatable, Sendable {
         let position: SetPosition
         let previousPosition: SetPosition?
         let previousRest: NativeJSON
+        let previousSeconds: NativeJSON?
     }
 
     struct RestStatus: Equatable {
         let kind: String
         let remainingSeconds: Int
+        let totalSeconds: Int
+    }
+
+    struct SetCountdown: Codable, Equatable, Sendable {
+        let workoutID: String
+        let position: SetPosition
+        let startedAtElapsed: Int
+        let targetSeconds: Int
+
+        func matches(_ session: NativeWorkoutSession) -> Bool {
+            (0...NativeWorkoutSession.maximumElapsedMilliseconds).contains(startedAtElapsed) &&
+                session.countdownTarget(at: position) == targetSeconds
+        }
+
+        func remaining(at elapsed: Int) -> Int {
+            let milliseconds = max(0, targetSeconds * 1_000 - max(0, elapsed - startedAtElapsed))
+            return (milliseconds + 999) / 1_000
+        }
+
+        func recordedSeconds(at elapsed: Int) -> Int {
+            min(targetSeconds, (max(0, elapsed - startedAtElapsed) + 999) / 1_000)
+        }
     }
 
     private static let maximumElapsedMilliseconds = 86_400_000
@@ -470,7 +506,13 @@ struct NativeWorkoutSession: Equatable, Sendable {
         let rest = raw["rest"]
         guard let deadline = Self.restDeadline(rest) else { return nil }
         let remaining = max(0, deadline - Double(elapsedMilliseconds(at: now)))
-        return RestStatus(kind: rest["kind"].string, remainingSeconds: Int(ceil(remaining / 1_000)))
+        let kind = rest["kind"].string
+        let seconds = Int(ceil(remaining / 1_000))
+        let fallback = raw["defaultRestOverride"] != .null ? raw["defaultRestOverride"].number :
+            plan.raw["defaultRestSeconds"] != .null ? plan.raw["defaultRestSeconds"].number : Double(NativePreferenceKey.restSeconds)
+        let total = rest["duration"] == .null ? max(kind == "换站" ? 60 : 0, fallback) : rest["duration"].number
+        return RestStatus(kind: kind, remainingSeconds: seconds,
+                          totalSeconds: max(seconds, Int(min(Double(Self.maximumRestSeconds), max(1, total)).rounded(.up))))
     }
 
     @discardableResult
@@ -481,7 +523,10 @@ struct NativeWorkoutSession: Equatable, Sendable {
         let limit = elapsed + Double(Self.maximumRestSeconds) * 1_000
         let adjusted = min(limit, max(elapsed, max(elapsed, deadline) + Double(seconds) * 1_000))
         guard adjusted != deadline else { return false }
+        let original = Double(restStatus(at: now)?.totalSeconds ?? 0) * 1_000
+        let duration = deadline > elapsed ? max(adjusted - elapsed, original + adjusted - deadline) : adjusted - elapsed
         raw["rest"]["until"] = .number(adjusted)
+        raw["rest"]["duration"] = .number(ceil(duration / 1_000))
         return true
     }
 
@@ -569,18 +614,29 @@ struct NativeWorkoutSession: Equatable, Sendable {
         return groups[position.move][position.row]
     }
 
+    func countdownTarget(at position: SetPosition) -> Int? {
+        guard let line = line(at: position), !line["done"].bool,
+              plan.exercises.indices.contains(position.move),
+              let seconds = Int(exactly: line["seconds"].number), (1...18_000).contains(seconds) else { return nil }
+        return seconds
+    }
+
     @discardableResult
     mutating func completeSet(at position: SetPosition, after previousPosition: SetPosition? = nil,
-                              now: Int = Self.nowMilliseconds) -> SetCompletion? {
+                              measuredSeconds: Int? = nil, now: Int = Self.nowMilliseconds) -> SetCompletion? {
         guard plan.exercises.indices.contains(position.move), let line = line(at: position), !line["done"].bool else { return nil }
-        let completion = SetCompletion(position: position, previousPosition: previousPosition, previousRest: raw["rest"])
+        let completion = SetCompletion(position: position, previousPosition: previousPosition, previousRest: raw["rest"],
+                                       previousSeconds: measuredSeconds == nil ? nil : line["seconds"])
+        if let measuredSeconds {
+            setLine(move: position.move, row: position.row, key: "seconds", value: .number(Double(measuredSeconds)))
+        }
         setLine(move: position.move, row: position.row, key: "done", value: .bool(true))
         clearRest()
         if let next = nextSet(after: position) {
             let rest = restBetween(position, and: next)
             if rest.seconds > 0 {
                 raw["rest"] = .object(["until": .number(Double(elapsedMilliseconds(at: now)) + rest.seconds * 1_000),
-                                      "kind": .string(rest.kind)])
+                                      "kind": .string(rest.kind), "duration": .number(rest.seconds)])
             }
         }
         return completion
@@ -591,6 +647,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
         let position = completion.position
         guard line(at: position)?["done"].bool == true else { return false }
         setLine(move: position.move, row: position.row, key: "done", value: .bool(false))
+        if let seconds = completion.previousSeconds { setLine(move: position.move, row: position.row, key: "seconds", value: seconds) }
         let previousSetStillDone = completion.previousPosition.map { line(at: $0)?["done"].bool == true } ?? true
         if previousSetStillDone, let deadline = Self.restDeadline(completion.previousRest),
            deadline > Double(elapsedMilliseconds(at: now)) {

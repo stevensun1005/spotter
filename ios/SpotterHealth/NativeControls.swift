@@ -115,16 +115,18 @@ struct SpotterWeekDateStrip: View {
         let weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][calendar.component(.weekday, from: day.date) - 1]
         let progress = compression ?? 0
         let expansion = 1 - progress
-        let diameter = min(ringSize, 34) - 8 * progress
+        let expandedDetail = compression == nil ? 0 : max(0, 1 - progress / 0.65)
+        let diameter = min(ringSize, 34) - 8 * progress - 2 * expandedDetail
         let height = compression.map { _ in Self.compactHeight + (Self.expandedHeight - Self.compactHeight) * expansion }
         return Button { onSelect(day.date) } label: {
-            VStack(spacing: 4 * expansion) {
+            VStack(spacing: 4 * expansion - 1.5 * expandedDetail) {
                 Text(weekday)
                     .font(.caption2.weight(selected ? .bold : .medium))
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
                     .foregroundStyle(selected ? accent.tint : SpotterPalette.muted)
-                    .frame(height: compression.map { _ in 15 * expansion }, alignment: .top)
+                    .frame(height: compression.map { _ in 15 * expansion },
+                           alignment: expandedDetail > 0 ? .center : .top)
                     .clipped()
                     .opacity(expansion)
                 ZStack {
@@ -149,7 +151,21 @@ struct SpotterWeekDateStrip: View {
             .frame(maxWidth: .infinity, minHeight: height == nil ? 56 : nil)
             .padding(.vertical, height == nil ? 4 : 0)
             .frame(height: height)
-            .background(selected ? accent.selection : .clear, in: Capsule())
+            .background {
+                if selected {
+                    let pill = Capsule().fill(accent.selection)
+                    if expandedDetail > 0 {
+                        pill
+                            .overlay { Capsule().strokeBorder(accent.tint.opacity(0.18 * expandedDetail)) }
+                            .shadow(color: .black.opacity(0.12 * expandedDetail),
+                                    radius: 3 * expandedDetail, y: 1 * expandedDetail)
+                            .padding(.horizontal, 3 * expandedDetail)
+                            .padding(.vertical, 3 * expandedDetail)
+                    } else {
+                        pill
+                    }
+                }
+            }
             .contentShape(Rectangle())
             .animation(motion, value: selected)
         }
@@ -224,9 +240,13 @@ struct SpotterWeekNavigation: View {
     let onMove: (Int) -> Void
     var onOpenCalendar: (() -> Void)? = nil
 
+    private var highlightsToday: Bool {
+        compactDays && Calendar(identifier: .gregorian).isDateInToday(selection)
+    }
+
     private var dateLabel: String {
         let calendar = Calendar(identifier: .gregorian)
-        if compactDays, calendar.isDateInToday(selection) { return "今天" }
+        if highlightsToday { return "今天" }
         let parts = calendar.dateComponents([.year, .month, .day], from: selection)
         guard let year = parts.year, let month = parts.month, let day = parts.day else { return spotterDay(selection) }
         let short = "\(month)月\(day)日"
@@ -251,8 +271,10 @@ struct SpotterWeekNavigation: View {
                 .accessibilityLabel("\(calendarLabel)，\(spotterDay(selection))")
             } else {
                 dateText
-                    .padding(.horizontal, 2)
-                    .frame(minWidth: 72, minHeight: 44)
+                    .padding(.horizontal, compactDays ? 10 : 2)
+                    .frame(minWidth: 72, minHeight: compactDays ? 26 : 44)
+                    .background(highlightsToday ? accent.selection : .clear, in: Capsule())
+                    .frame(minHeight: 44)
                     .accessibilityLabel(calendarLabel)
                     .accessibilityValue(spotterDay(selection))
                     .accessibilityIdentifier("spotter-home-date-label")

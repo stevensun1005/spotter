@@ -2345,7 +2345,7 @@ struct NativeSettings: View {
         var detail: String {
             switch self {
             case .account: return "头像、昵称、用户名、登录绑定和隐私"
-            case .workout: return "默认组数和次数、下一组、动作节奏"
+            case .workout: return "训练界面、经典列表与专注训练、默认组次"
             case .protein: return "常喝的蛋白粉、一勺粉量和杯量"
             case .timer: return "休息时间、提示声音和震动、保持屏幕常亮"
             case .schedule: return "训练计划、固定休息日和临时休息"
@@ -2970,6 +2970,8 @@ private struct NativeSocialNotificationSettings: View {
 }
 
 private struct NativeWorkoutPreferences: View {
+    @AppStorage(NativePreferenceKey.workoutPresentation) private var presentation: NativeWorkoutPresentation = .classic
+    @Environment(\.spotterAccent) private var accent
     @AppStorage(NativePreferenceKey.sets) private var sets = 3
     @AppStorage(NativePreferenceKey.reps) private var reps = 10
     @AppStorage(NativePreferenceKey.showNext) private var showNext = true
@@ -2978,6 +2980,21 @@ private struct NativeWorkoutPreferences: View {
     @AppStorage(NativePreferenceKey.autoAdvance) private var autoAdvance = false
 
     var body: some View {
+        SecondaryGroup(title: "训练界面") {
+            ForEach(NativeWorkoutPresentation.allCases) { option in
+                if option != .classic { Divider().overlay(SpotterPalette.line) }
+                Button { presentation = option } label: {
+                    SecondaryRow(title: option.title,
+                                 detail: option == .classic ? "在列表里查看全部动作和组次。" : "每次记录一组，休息时显示大号倒计时。",
+                                 icon: option == .classic ? "list.bullet.rectangle" : "scope",
+                                 color: presentation == option ? accent.selection : secondarySlate,
+                                 accessory: presentation == option ? "checkmark.circle.fill" : "circle")
+                }
+                .buttonStyle(.spotterPress)
+                .accessibilityAddTraits(presentation == option ? .isSelected : [])
+                .accessibilityIdentifier("spotter-workout-presentation-\(option.rawValue)")
+            }
+        }
         SecondaryGroup(title: "新动作") {
             Stepper("默认组数 · \(sets) 组", value: $sets, in: 1...30).padding(13)
             Divider()

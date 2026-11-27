@@ -393,6 +393,8 @@ test("product help uses verified web or iPhone navigation without spending messa
     ["怎么上传动作 GIF？", /添加或移除个人演示动图/u],
     ["怎么给好友加备注？", /添加备注.*仅自己可见/su],
     ["怎么移除搭子备注？", /移除备注/u],
+    ["训练中怎么开始动作倒计时？", /iPhone App.*开始计时/su],
+    ["怎么切换专注训练界面？", /iPhone App.*训练偏好 → 训练界面/su],
   ]) {
     assert.match((await checked(ask(question))).reply, answer);
   }

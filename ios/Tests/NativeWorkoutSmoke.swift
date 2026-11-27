@@ -269,7 +269,7 @@ struct NativeWorkoutSmoke {
         expect(timedWorkout.restStatus(at: started) == nil && timedWorkout.runningRestDeadlineMilliseconds == nil,
                "A workout without a rest has no countdown or deadline")
         let firstCompletion = timedWorkout.completeSet(at: a1, now: started + 10_000)!
-        expect(timedWorkout.restStatus(at: started + 10_000) == .init(kind: "换动作", remainingSeconds: 25) &&
+        expect(timedWorkout.restStatus(at: started + 10_000) == .init(kind: "换动作", remainingSeconds: 25, totalSeconds: 25) &&
                timedWorkout.runningRestDeadlineMilliseconds == started + 35_000,
                "Marking the first set schedules the superset transition using the current workout clock")
         expect(timedWorkout.completeSet(at: a1, now: started + 12_000) == nil &&
@@ -282,7 +282,7 @@ struct NativeWorkoutSmoke {
                timedWorkout.line(at: a1)?["done"].bool == true && timedWorkout.line(at: b1)?["done"].bool == false &&
                timedWorkout.line(at: b1)?["weight"].number == 20 && timedWorkout.raw["note"].string == "Keep later edits",
                "Undo reopens the exact last set and keeps other sets and later edits")
-        expect(timedWorkout.restStatus(at: started + 20_000) == .init(kind: "换动作", remainingSeconds: 15) &&
+        expect(timedWorkout.restStatus(at: started + 20_000) == .init(kind: "换动作", remainingSeconds: 15, totalSeconds: 25) &&
                !timedWorkout.undoSetCompletion(secondCompletion, at: started + 21_000),
                "Undo restores only the still-running prior rest and cannot be repeated with a stale receipt")
         let repeatCompletion = timedWorkout.completeSet(at: b1, after: a1, now: started + 22_000)!
@@ -291,7 +291,8 @@ struct NativeWorkoutSmoke {
                "Undo cannot restart an expired prior rest")
         let timerCompletion = timedWorkout.completeSet(at: b1, after: a1, now: started + 40_000)!
         expect(timedWorkout.adjustRest(by: 15, at: started + 42_000) &&
-               timedWorkout.runningRestDeadlineMilliseconds == started + 105_000,
+               timedWorkout.runningRestDeadlineMilliseconds == started + 105_000 &&
+               timedWorkout.restStatus(at: started + 42_000)?.totalSeconds == 65,
                "Adding rest extends the deadline rather than restarting the countdown")
         timedWorkout.pause(at: started + 44_000)
         expect(timedWorkout.runningRestDeadlineMilliseconds == nil &&
@@ -319,6 +320,26 @@ struct NativeWorkoutSmoke {
                !timedWorkout.adjustRest(by: 15, at: started + 200_000) &&
                timedWorkout.line(at: timerCompletion.position)?["done"].bool == true,
                "Skipping rest removes its deadline and keeps the completed set")
+
+        var hold = NativeWorkoutSession.start(plan: plan, planId: "", now: started)
+        hold.setLine(move: a1.move, row: a1.row, key: "seconds", value: .number(10))
+        let holdTimer = NativeWorkoutSession.SetCountdown(workoutID: "timed", position: a1, startedAtElapsed: 4_000, targetSeconds: 10)
+        let restoredTimer = try JSONDecoder().decode(NativeWorkoutSession.SetCountdown.self, from: JSONEncoder().encode(holdTimer))
+        expect(restoredTimer.matches(hold) && restoredTimer.remaining(at: hold.elapsedMilliseconds(at: started + 7_100)) == 7,
+               "The recovered set countdown tracks elapsed time after starting mid-workout")
+        hold.pause(at: started + 8_000)
+        expect(holdTimer.remaining(at: hold.elapsedMilliseconds(at: started + 60_000)) == 6,
+               "Pausing the workout freezes the set countdown")
+        hold.resume(at: started + 60_000)
+        expect(holdTimer.remaining(at: hold.elapsedMilliseconds(at: started + 66_500)) == 0 &&
+               holdTimer.recordedSeconds(at: hold.elapsedMilliseconds(at: started + 66_500)) == 10 && hold.completedSets == 0,
+               "Expiry caps both timers at the target without logging a set")
+        let earlySeconds = holdTimer.recordedSeconds(at: hold.elapsedMilliseconds(at: started + 60_100))
+        let holdCompletion = hold.completeSet(at: a1, measuredSeconds: earlySeconds, now: started + 60_100)!
+        expect(earlySeconds == 5 && !holdTimer.matches(hold) && hold.line(at: a1)?["seconds"].number == 5,
+               "Early confirmation records the active seconds and closes the countdown")
+        expect(hold.undoSetCompletion(holdCompletion, at: started + 60_500) && hold.countdownTarget(at: a1) == 10,
+               "Undo restores the prescribed target for a fresh countdown")
 
         let imported = try NativePlanImport.parse("""
         ## Synthetic lower body

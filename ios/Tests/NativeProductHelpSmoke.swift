@@ -11,6 +11,8 @@ struct NativeProductHelpSmoke {
 
         precondition(help.reply(to: "怎么用训练搭子？")?.contains("高亮按钮") == true)
         precondition(help.reply(to: "我在哪重新看引导？")?.contains("关于与更新") == true)
+        precondition(help.reply(to: "训练中怎么开始动作倒计时？")?.contains("开始计时") == true)
+        precondition(help.reply(to: "怎么切换专注训练界面？")?.contains("训练偏好 → 训练界面") == true)
         precondition(help.reply(to: "怎么添加训练计划？")?.contains("我的计划」→「新建计划") == true)
         precondition(help.reply(to: "我在网页上怎么添加训练计划？")?.contains("· 网页版") == true)
         precondition(help.reply(to: "从哪添加官方模板？")?.contains("功能模块") == true)
