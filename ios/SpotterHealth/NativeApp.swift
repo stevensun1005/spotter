@@ -784,6 +784,11 @@ private enum NativeSpotterSection: String {
 private struct NativeSpotterTabs: View {
     private static let compactCoachDetent = PresentationDetent.fraction(0.44)
 
+    private enum TabDestination: Hashable {
+        case section(NativeSpotterSection)
+        case coach
+    }
+
     @ObservedObject var account: NativeAccount
     @StateObject private var workouts: NativeWorkoutStore
     @StateObject private var avatars: NativeAvatarStore
@@ -1441,18 +1446,32 @@ private struct NativeSpotterTabs: View {
     }
 
     @ViewBuilder private var navigationTabs: some View {
-        let selection = Binding(get: { selected }, set: { selectTab($0) })
-        let tabs = TabView(selection: selection) {
-            ForEach(contentSections, id: \.self) { section in
-                tabScene(section, active: selected == section)
-                    .tabItem { Label(section.rawValue, systemImage: section.icon) }
-                    .tag(section)
-            }
-        }
         if #available(iOS 26.0, *) {
-            tabs.tabBarMinimizeBehavior(.never)
+            let selection = Binding<TabDestination>(get: { .section(selected) }, set: { destination in
+                switch destination {
+                case .section(let section): selectTab(section)
+                case .coach: openCoach(startFromGuide: guideStep == .coach)
+                }
+            })
+            TabView(selection: selection) {
+                ForEach(contentSections, id: \.self) { section in
+                    Tab(section.rawValue, systemImage: section.icon, value: TabDestination.section(section)) {
+                        tabScene(section, active: selected == section)
+                    }
+                }
+                Tab("AI 教练", systemImage: "sparkles", value: TabDestination.coach, role: .search) {
+                    Color.clear.accessibilityHidden(true)
+                }
+            }
+            .tabBarMinimizeBehavior(.never)
         } else {
-            tabs
+            TabView(selection: Binding(get: { selected }, set: { selectTab($0) })) {
+                ForEach(contentSections, id: \.self) { section in
+                    tabScene(section, active: selected == section)
+                        .tabItem { Label(section.rawValue, systemImage: section.icon) }
+                        .tag(section)
+                }
+            }
         }
     }
 
@@ -1489,34 +1508,37 @@ private struct NativeSpotterTabs: View {
     private var quickActions: some View {
         let active = workouts.active
         return HStack(spacing: 8) {
-            Group {
-                if let active, let session = active.session {
-                    NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
-                                             watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
-                                             open: openActiveWorkout)
-                } else {
-                    Button(action: openTrainingLaunch) {
-                        Label(active == nil ? "开始训练" : "继续训练", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.spotterPress)
-                    .disabled(active == nil && workouts.isBusy)
-                    .accessibilityIdentifier("spotter-dock-play")
+            if let active, let session = active.session {
+                NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
+                                         watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
+                                         open: openActiveWorkout)
+                    .background(.bar, in: Capsule())
+            } else {
+                Spacer(minLength: 0)
+                Button(action: openTrainingLaunch) {
+                    Label(active == nil ? "开练" : "继续训练", systemImage: "play.fill")
+                        .padding(.horizontal, 14)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .spotterGlass(in: Capsule(), tint: accent.selection, interactive: allowsMotion)
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.spotterGlassPress)
+                .disabled(active == nil && workouts.isBusy)
+                .accessibilityLabel(active == nil ? "开始训练" : "继续训练")
+                .accessibilityIdentifier("spotter-dock-play")
             }
-            .background(.bar, in: Capsule())
-
-            Button { openCoach(startFromGuide: guideStep == .coach) } label: {
-                Image(systemName: "sparkles")
-                    .frame(width: 44, height: 44)
-                    .spotterGlass(in: Circle(), tint: accent.selection, interactive: allowsMotion)
-                    .contentShape(Circle())
+            if #unavailable(iOS 26.0) {
+                Button { openCoach(startFromGuide: guideStep == .coach) } label: {
+                    Image(systemName: "sparkles")
+                        .frame(width: 44, height: 44)
+                        .spotterGlass(in: Circle(), tint: accent.selection, interactive: allowsMotion)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.spotterGlassPress)
+                .accessibilityLabel("打开 AI 教练")
+                .accessibilityIdentifier("spotter-quick-coach")
+                .nativeGuideTarget(.coach)
             }
-            .buttonStyle(.spotterGlassPress)
-            .accessibilityLabel("打开 AI 教练")
-            .accessibilityIdentifier("spotter-quick-coach")
-            .nativeGuideTarget(.coach)
         }
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(accent.tint)

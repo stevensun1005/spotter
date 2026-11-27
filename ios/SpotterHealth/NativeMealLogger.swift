@@ -595,7 +595,7 @@ struct NativeMealLogger: View {
                 header
                 mealChoice.padding(.horizontal, 14).padding(.top, 6)
                 searchField.padding(.horizontal, 14).padding(.top, 10)
-                SpotterSegments("食物来源", options: Tab.allCases, value: $tab, title: \.rawValue)
+                SpotterSegments("食物来源", options: Tab.allCases, value: $tab, usesUIKitControl: true, title: \.rawValue)
                     .padding(.horizontal, 14).padding(.top, 6)
                 Divider().overlay(SpotterPalette.line)
                 content(search, request: request).frame(maxHeight: .infinity)
@@ -681,7 +681,7 @@ struct NativeMealLogger: View {
 
     private var mealChoice: some View {
         NativeMealSelectionView(selection: mealSelection) { meal in
-            SpotterSegments("记入餐次", options: NutritionShortcut.allCases.filter(\.isMeal), value: meal,
+            SpotterSegments("记入餐次", options: NutritionShortcut.allCases.filter(\.isMeal), value: meal, usesUIKitControl: true,
                             guideTarget: { $0 == .breakfast ? .mealChoice : nil }, title: \.rawValue)
         }
         .disabled(busy)

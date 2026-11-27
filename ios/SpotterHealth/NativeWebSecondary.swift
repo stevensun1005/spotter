@@ -3846,7 +3846,7 @@ struct NativeFriends: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    SpotterSegments("好友页面", options: NativeFriendsPage.allCases, value: $page,
+                    SpotterSegments("好友页面", options: NativeFriendsPage.allCases, value: $page, usesUIKitControl: true,
                                          guideTarget: { $0 == .privacy ? .privacy : nil }, title: \.rawValue)
                     notificationButton
                 }

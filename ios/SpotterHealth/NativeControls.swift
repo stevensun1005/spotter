@@ -196,13 +196,16 @@ struct SpotterSegments<Option: Hashable>: View {
     private let options: [Option]
     private let title: (Option) -> String
     private let guideTarget: (Option) -> NativeGuideStep?
+    private let usesUIKitControl: Bool
 
     init(_ label: String, options: [Option], value: Binding<Option>,
+         usesUIKitControl: Bool = false,
          guideTarget: @escaping (Option) -> NativeGuideStep? = { _ in nil },
          title: @escaping (Option) -> String) {
         self.label = label
         self.options = options
         _value = value
+        self.usesUIKitControl = usesUIKitControl
         self.guideTarget = guideTarget
         self.title = title
     }
@@ -218,6 +221,8 @@ struct SpotterSegments<Option: Hashable>: View {
         Group {
             if options.count > 5 || textSize.isAccessibilitySize {
                 picker.pickerStyle(.menu)
+            } else if usesUIKitControl {
+                SpotterUIKitSegments(label: label, options: options, titles: options.map(title), value: $value)
             } else {
                 picker.pickerStyle(.segmented).labelsHidden()
             }
@@ -226,6 +231,54 @@ struct SpotterSegments<Option: Hashable>: View {
         .nativeGuideTarget(target)
         .onChange(of: value) { option in
             if let step = guideTarget(option), guide?.step == step { guide?.advance(step) }
+        }
+    }
+}
+
+private struct SpotterUIKitSegments<Option: Hashable>: UIViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
+    let label: String
+    let options: [Option]
+    let titles: [String]
+    @Binding var value: Option
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UISegmentedControl {
+        let control = UISegmentedControl(items: titles)
+        control.addTarget(context.coordinator, action: #selector(Coordinator.selectionChanged(_:)), for: .valueChanged)
+        return control
+    }
+
+    func updateUIView(_ control: UISegmentedControl, context: Context) {
+        context.coordinator.select = { index in
+            guard options.indices.contains(index) else { return }
+            value = options[index]
+        }
+        control.accessibilityLabel = label
+        control.isEnabled = isEnabled
+
+        if control.numberOfSegments != titles.count {
+            control.removeAllSegments()
+            for (index, title) in titles.enumerated() { control.insertSegment(withTitle: title, at: index, animated: false) }
+        } else {
+            for (index, title) in titles.enumerated() where control.titleForSegment(at: index) != title {
+                control.setTitle(title, forSegmentAt: index)
+            }
+        }
+        let selected = options.firstIndex(of: value) ?? UISegmentedControl.noSegment
+        if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UISegmentedControl, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? uiView.intrinsicContentSize.width, height: 44)
+    }
+
+    final class Coordinator: NSObject {
+        var select: (Int) -> Void = { _ in }
+
+        @objc func selectionChanged(_ control: UISegmentedControl) {
+            select(control.selectedSegmentIndex)
         }
     }
 }
