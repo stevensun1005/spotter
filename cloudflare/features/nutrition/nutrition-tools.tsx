@@ -7,7 +7,7 @@ import { errorText } from "@/shared/client";
 import { offsetDate, weekdays } from "@/shared/dates";
 import type { TrainingEntry } from "@/shared/state";
 import { emptyNutrition, mealTypes, type LibraryItem, type LibraryRow, type MealEntry, type NutritionValues } from "@/features/library/model";
-import { foods, type Food } from "./foods";
+import { coreFoods, type Food } from "./foods";
 import { macroRatios, splitCalories, targetForDate } from "./nutrition-planning";
 import { carbCycleSchema, carbDays, cutStagesSchema, type NutritionPlanningItem } from "./nutrition-planning-schema";
 import { mealFit, recipes, type Recipe } from "./nutrition-recipes";
@@ -159,7 +159,7 @@ function MealIdeas({ tool, date, rows, totals, owner, logs, busy, work, reload, 
   const remaining = { calories: Math.max(0, targets.calories - totals.calories), protein: Math.max(0, targets.protein - totals.protein),
     carbs: Math.max(0, targets.carbs - totals.carbs), fat: Math.max(0, targets.fat - totals.fat) };
   const personal: Food[] = rows.flatMap((row) => row.kind === "food" ? [{ ...row, aliases: [] }] : []);
-  const options = [...personal, ...foods].sort((a, b) => mealFit(b.per100g, remaining) - mealFit(a.per100g, remaining)).slice(0, 8);
+  const options = [...personal, ...coreFoods].sort((a, b) => mealFit(b.per100g, remaining) - mealFit(a.per100g, remaining)).slice(0, 8);
   const ideas = [...recipes].sort((a, b) => mealFit(b.totals, remaining) - mealFit(a.totals, remaining));
   const amounts = (values: Food["per100g"]) => [displayNumber(values.calories) + " 千卡",
     ...macroFields.map((key) => macroLabels[key] + " " + displayNumber(values[key]) + " g")].join(" · ");

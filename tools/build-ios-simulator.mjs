@@ -82,6 +82,9 @@ try {
   const sourceHelp = await readFile(join(root, "cloudflare/shared/product-help.json"));
   const bundledHelp = await readFile(join(root, app, "product-help.json"));
   if (!sourceHelp.equals(bundledHelp)) throw new Error("App 内的使用帮助和共用帮助资料不一致。");
+  const sourceFoods = await readFile(join(root, "cloudflare/shared/food-catalog.json"));
+  const bundledFoods = await readFile(join(root, app, "food-catalog.json"));
+  if (!sourceFoods.equals(bundledFoods)) throw new Error("App 内的食物库和共用食物库不一致。");
   await mkdir(join(root, "outputs"), { recursive: true });
   const name = "Spotter-Simulator-" + after.head.slice(0, 8);
   const archive = join(root, "outputs", name + ".zip");
