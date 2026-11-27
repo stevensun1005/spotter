@@ -4,7 +4,7 @@ import Foundation
 struct NativeWorkoutSmoke {
     static func main() throws {
         func expect(_ value: @autoclosure () -> Bool, _ description: String) { precondition(value(), description) }
-        let started = 1_795_536_000_000
+        let started: Int64 = 1_795_536_000_000
         var plan = NativePlan(raw: .object([
             "title": .string("Synthetic native strength"), "date": .string("2026-11-24"), "category": .string("力量训练"),
             "minutes": .number(30), "shared": .bool(false), "video": .string(""),

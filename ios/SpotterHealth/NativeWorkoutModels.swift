@@ -447,7 +447,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
     var raw: NativeJSON
     var plan: NativePlan { NativePlan(raw: raw["plan"]) }
     var rows: [[NativeJSON]] { raw["rows"].array.map(\.array) }
-    var started: Int { Int(raw["started"].number) }
+    var started: Int64 { Int64(raw["started"].number) }
     var isRunning: Bool { if case .number = raw["clock"]["runningSince"] { return true }; return false }
     var totalSets: Int { rows.reduce(0) { $0 + $1.count } }
     var completedSets: Int { rows.flatMap { $0 }.filter { $0["done"].bool }.count }
@@ -481,32 +481,36 @@ struct NativeWorkoutSession: Equatable, Sendable {
         else { right = left > 0 && perSide ? left : 0 }
         return (left + right) * (move["unit"].string == "lb" ? 0.45359237 : 1)
     }
-    func elapsedMilliseconds(at now: Int = Self.nowMilliseconds) -> Int {
+    func elapsedMilliseconds(at now: Int64 = Self.nowMilliseconds) -> Int {
         let clock = raw["clock"]
-        guard case .object = clock else {
-            return min(Self.maximumElapsedMilliseconds, max(0, Int(raw["minutes"].number * 60_000)))
+        let elapsed: Double
+        if case .object = clock {
+            let saved = clock["elapsed"].number.rounded(.towardZero)
+            if case .number(let since) = clock["runningSince"], since.isFinite {
+                elapsed = saved + max(0, Double(now) - since.rounded(.towardZero))
+            } else {
+                elapsed = saved
+            }
+        } else {
+            elapsed = raw["minutes"].number * 60_000
         }
-        let saved = Int(clock["elapsed"].number)
-        let delta: Int
-        if case .number(let since) = clock["runningSince"] { delta = max(0, now - Int(since)) }
-        else { delta = 0 }
-        return min(Self.maximumElapsedMilliseconds, max(0, saved + delta))
+        return Int(min(Double(Self.maximumElapsedMilliseconds), max(0, elapsed)))
     }
-    mutating func pause(at now: Int = Self.nowMilliseconds) {
+    mutating func pause(at now: Int64 = Self.nowMilliseconds) {
         raw["clock"] = .object(["elapsed": .number(Double(elapsedMilliseconds(at: now))), "runningSince": .null])
     }
-    mutating func resume(at now: Int = Self.nowMilliseconds) {
+    mutating func resume(at now: Int64 = Self.nowMilliseconds) {
         guard !isRunning else { return }
         raw["clock"] = .object(["elapsed": .number(Double(elapsedMilliseconds(at: now))), "runningSince": .number(Double(now))])
     }
 
-    var runningRestDeadlineMilliseconds: Int? {
+    var runningRestDeadlineMilliseconds: Int64? {
         guard case .number(let since) = raw["clock"]["runningSince"],
               let deadline = Self.restDeadline(raw["rest"]) else { return nil }
-        return Int(exactly: (since + deadline - raw["clock"]["elapsed"].number).rounded(.up))
+        return Int64(exactly: (since + deadline - raw["clock"]["elapsed"].number).rounded(.up))
     }
 
-    func restStatus(at now: Int = Self.nowMilliseconds) -> RestStatus? {
+    func restStatus(at now: Int64 = Self.nowMilliseconds) -> RestStatus? {
         let rest = raw["rest"]
         guard let deadline = Self.restDeadline(rest) else { return nil }
         let remaining = max(0, deadline - Double(elapsedMilliseconds(at: now)))
@@ -520,7 +524,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
     }
 
     @discardableResult
-    mutating func adjustRest(by seconds: Int, at now: Int = Self.nowMilliseconds) -> Bool {
+    mutating func adjustRest(by seconds: Int, at now: Int64 = Self.nowMilliseconds) -> Bool {
         guard seconds != 0, let deadline = Self.restDeadline(raw["rest"]) else { return false }
         let elapsed = Double(elapsedMilliseconds(at: now))
         guard seconds > 0 || deadline > elapsed else { return false }
@@ -545,12 +549,12 @@ struct NativeWorkoutSession: Equatable, Sendable {
               (0...Double(Self.maximumElapsedMilliseconds + Self.maximumRestSeconds * 1_000)).contains(until) else { return nil }
         return until
     }
-    static var nowMilliseconds: Int { Int((Date().timeIntervalSince1970 * 1000).rounded()) }
+    static var nowMilliseconds: Int64 { Int64((Date().timeIntervalSince1970 * 1000).rounded()) }
     static func day(_ date: Date = Date()) -> String {
         let parts = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 2000, parts.month ?? 1, parts.day ?? 1)
     }
-    static func start(plan: NativePlan, planId: String, now: Int = nowMilliseconds) -> NativeWorkoutSession {
+    static func start(plan: NativePlan, planId: String, now: Int64 = nowMilliseconds) -> NativeWorkoutSession {
         let rows = plan.exercises.map { move in
             NativeJSON.array((0..<max(1, min(30, Int(move["sets"].number)))).map { _ in .object([
                 "weight": move["weight"], "reps": move["reps"], "seconds": move["seconds"], "done": .bool(false),
@@ -562,7 +566,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
             "note": .string(""), "finishedVideo": .bool(false), "rows": .array(rows),
         ]))
     }
-    static func free(cardio: CardioActivity? = nil, now: Int = nowMilliseconds) -> NativeWorkoutSession {
+    static func free(cardio: CardioActivity? = nil, now: Int64 = nowMilliseconds) -> NativeWorkoutSession {
         var session = start(plan: NativePlan(raw: .object([
             "title": .string(cardio?.initialTitle ?? "自由训练"), "date": .string(day()),
             "category": .string(cardio == nil ? "力量训练" : "有氧训练"), "minutes": .number(0),
@@ -571,14 +575,14 @@ struct NativeWorkoutSession: Equatable, Sendable {
         if let cardio { session.raw["cardio"] = .object(["activity": .string(cardio.rawValue)]) }
         return session
     }
-    func restarting(at now: Int = Self.nowMilliseconds) -> Self {
+    func restarting(at now: Int64 = Self.nowMilliseconds) -> Self {
         var fresh = Self.start(plan: plan, planId: raw["planId"].string, now: now)
         if let cardioActivity { fresh.raw["cardio"] = .object(["activity": .string(cardioActivity.rawValue)]) }
         if raw["defaultRestOverride"] != .null { fresh.raw["defaultRestOverride"] = raw["defaultRestOverride"] }
         return fresh
     }
 
-    func hasCheckinContent(at now: Int = Self.nowMilliseconds) -> Bool {
+    func hasCheckinContent(at now: Int64 = Self.nowMilliseconds) -> Bool {
         if cardioActivity != nil {
             return raw["cardio"]["durationSeconds"].number >= 1 || elapsedMilliseconds(at: now) >= 1_000
         }
@@ -627,7 +631,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
 
     @discardableResult
     mutating func completeSet(at position: SetPosition, after previousPosition: SetPosition? = nil,
-                              measuredSeconds: Int? = nil, now: Int = Self.nowMilliseconds) -> SetCompletion? {
+                              measuredSeconds: Int? = nil, now: Int64 = Self.nowMilliseconds) -> SetCompletion? {
         guard plan.exercises.indices.contains(position.move), let line = line(at: position), !line["done"].bool else { return nil }
         let completion = SetCompletion(position: position, previousPosition: previousPosition, previousRest: raw["rest"],
                                        previousSeconds: measuredSeconds == nil ? nil : line["seconds"])
@@ -647,7 +651,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
     }
 
     @discardableResult
-    mutating func undoSetCompletion(_ completion: SetCompletion, at now: Int = Self.nowMilliseconds) -> Bool {
+    mutating func undoSetCompletion(_ completion: SetCompletion, at now: Int64 = Self.nowMilliseconds) -> Bool {
         let position = completion.position
         guard line(at: position)?["done"].bool == true else { return false }
         setLine(move: position.move, row: position.row, key: "done", value: .bool(false))
@@ -746,7 +750,7 @@ struct NativeWorkoutSession: Equatable, Sendable {
         return (rest, "组间休息")
     }
 
-    func finalizing(at now: Int = Self.nowMilliseconds) throws -> NativeWorkoutSession {
+    func finalizing(at now: Int64 = Self.nowMilliseconds) throws -> NativeWorkoutSession {
         let cardio = cardioActivity != nil
         let cardioDuration = raw["cardio"]["durationSeconds"].number > 0 ? Int(raw["cardio"]["durationSeconds"].number) : min(43_200, elapsedMilliseconds(at: now) / 1000)
         if cardio {
@@ -1090,11 +1094,12 @@ struct NativeWorkoutEntry: Codable, Equatable, Identifiable, Sendable {
     }
     var startedAt: Date? { data["started"].number > 0 ? Date(timeIntervalSince1970: data["started"].number / 1000) : nil }
     var endedAt: Date? { workoutWindow.map { Date(timeIntervalSince1970: Double($0.to) / 1000) } }
-    var workoutWindow: (from: Int, to: Int)? {
-        let from = Int(data["started"].number)
+    var workoutWindow: (from: Int64, to: Int64)? {
+        let from = Int64(data["started"].number)
         guard from > 0 else { return nil }
-        let saved = Int(data["ended"].number)
-        return (from, saved > from ? saved : from + max(1, durationMinutes) * 60_000)
+        let saved = Int64(data["ended"].number)
+        let fallbackMinutes = min(Int64(max(1, data["minutes"].number)), (Int64.max - from) / 60_000)
+        return (from, saved > from ? saved : from + fallbackMinutes * 60_000)
     }
 }
 

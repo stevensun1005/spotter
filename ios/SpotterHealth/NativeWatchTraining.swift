@@ -50,9 +50,13 @@ extension NativeWatchWorkoutSnapshot {
 
         let deadline = milliseconds(session.raw["rest"]["until"],
                                     max: Self.maximumElapsedMilliseconds + Self.maximumRestMilliseconds)
+        let runningSince: Int64? = if case .number(let value) = clock["runningSince"],
+                                      (0...9_999_999_999_999.0).contains(value) {
+            Int64(value.rounded(.up))
+        } else { nil }
         self.init(title: text(session.plan.title, fallback: "训练"),
                   elapsedMilliseconds: milliseconds(clock["elapsed"], max: Self.maximumElapsedMilliseconds) ?? session.elapsedMilliseconds(),
-                  runningSinceMilliseconds: milliseconds(clock["runningSince"], max: 9_999_999_999_999).map(Int64.init),
+                  runningSinceMilliseconds: runningSince,
                   restElapsedDeadlineMilliseconds: deadline,
                   restLabel: deadline == nil ? nil : text(session.raw["rest"]["kind"].string, fallback: "组间休息", limit: 30),
                   next: next?.isValid == true ? next : nil, exercises: exercises,
@@ -147,7 +151,7 @@ struct NativeWatchOfflineCheckin: Codable, Equatable, Sendable {
 extension NativeWorkoutSession {
     mutating func completeWatchSet(_ command: NativeWatchWorkoutCommand, at position: SetPosition,
                                    after previous: SetPosition?, countdown: SetCountdown?,
-                                   now: Int = Self.nowMilliseconds) -> SetCompletion? {
+                                   now: Int64 = Self.nowMilliseconds) -> SetCompletion? {
         guard let line = line(at: position), nextSet(after: previous) == position else { return nil }
         if let weight = command.weight { setLine(move: position.move, row: position.row, key: "weight", value: .number(weight)) }
         if let reps = command.reps { setLine(move: position.move, row: position.row, key: "reps", value: .number(Double(reps))) }
@@ -178,7 +182,7 @@ struct NativeWatchOfflineWorkout: Codable, Equatable, Sendable {
         .init(token: id, revision: revision, snapshot: .init(session: workout, previous: previous, countdown: countdown))
     }
 
-    init?(option: NativeWatchLaunchOption, binding: String, now: Int = NativeWorkoutSession.nowMilliseconds) {
+    init?(option: NativeWatchLaunchOption, binding: String, now: Int64 = NativeWorkoutSession.nowMilliseconds) {
         guard !option.isResume, option.valid, let rawPlan = option.plan else { return nil }
         let plan = NativePlan(raw: rawPlan)
         guard (1...30).contains(plan.exercises.count), plan.video.isEmpty, plan.exercises.allSatisfy({
@@ -191,7 +195,7 @@ struct NativeWatchOfflineWorkout: Codable, Equatable, Sendable {
         self.raw = session.raw
     }
 
-    mutating func apply(_ command: NativeWatchWorkoutCommand, now: Int = NativeWorkoutSession.nowMilliseconds) -> Bool {
+    mutating func apply(_ command: NativeWatchWorkoutCommand, now: Int64 = NativeWorkoutSession.nowMilliseconds) -> Bool {
         guard command.encoded() != nil, state.allows(command) else { return false }
         var workout = self.workout
         let position = command.position.map { NativeWorkoutSession.SetPosition(move: $0.move, row: $0.row) }
@@ -228,7 +232,7 @@ struct NativeWatchOfflineWorkout: Codable, Equatable, Sendable {
         return true
     }
 
-    func finalizing(now: Int = NativeWorkoutSession.nowMilliseconds) throws -> NativeWatchOfflineCheckin {
+    func finalizing(now: Int64 = NativeWorkoutSession.nowMilliseconds) throws -> NativeWatchOfflineCheckin {
         .init(id: id, binding: binding, finished: try workout.finalizing(at: now).raw)
     }
 }

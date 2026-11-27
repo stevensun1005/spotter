@@ -127,7 +127,7 @@ struct NativeWatchHeartRateSmoke {
     }
 
     static func testOfflineWorkout(at date: Date) throws {
-        let now = Int(NativeWorkoutHealthSummary.milliseconds(date))
+        let now = NativeWorkoutHealthSummary.milliseconds(date)
         let binding = String(repeating: "a", count: 64)
         func exercise(_ name: String, slot: String, seconds: Int = 0) -> NativeJSON {
             var move = NativePreferenceKey.newMove(name: name, sets: 2, reps: seconds > 0 ? 0 : 8)
@@ -150,7 +150,7 @@ struct NativeWatchHeartRateSmoke {
         let secondA1 = NativeWatchWorkoutSnapshot.Position(move: 0, row: 1)
         let first = NativeWatchWorkoutCommand(token: draft.id, revision: 0, action: .completeSet,
                                               position: a1, weight: 15, reps: 8, rightWeight: 12, rightReps: 7)
-        precondition(draft.state.snapshot.exercises[0].block == "A1")
+        precondition(draft.state.snapshot.exercises[0].block == "A1" && draft.state.snapshot.runningSinceMilliseconds == now)
         precondition(!draft.state.snapshot.canFinish && draft.state.allows(first))
         precondition(draft.apply(first, now: now + 5_000))
         precondition(!draft.apply(first, now: now + 5_000))

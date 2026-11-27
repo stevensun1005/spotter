@@ -114,7 +114,7 @@ struct NativeOfficialTemplateSmoke {
         let a1 = exercises.firstIndex { $0["sourceSlot"].string == "A1" }!
         let a2 = exercises.firstIndex { $0["sourceSlot"].string == "A2" }!
         let a3 = exercises.firstIndex { $0["sourceSlot"].string == "A3" }!
-        let now = 1_795_536_000_000
+        let now: Int64 = 1_795_536_000_000
         var workout = NativeWorkoutSession.start(plan: plan, planId: planID, now: now)
         precondition(workout.isInSameGroup(a1, a2) && !workout.isInSameGroup(a1, a3),
                      "W01 D3 alternates the paired mat exercises before going to the separately prescribed cable station.")

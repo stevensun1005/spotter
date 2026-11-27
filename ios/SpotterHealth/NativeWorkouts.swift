@@ -783,7 +783,7 @@ final class NativeWorkoutStore: ObservableObject {
         guard active == nil, entry.owner == owner, entry.kind == "draft", let session = entry.session else { return }
         var restored = session
         // A draft opened from another device keeps saved elapsed time until explicitly resumed here.
-        if restored.isRunning { restored.pause(at: Int(restored.raw["clock"]["runningSince"].number)) }
+        if restored.isRunning { restored.pause(at: Int64(restored.raw["clock"]["runningSince"].number)) }
         restored.resume()
         lastSetCompletion = nil
         active = entry
@@ -975,7 +975,7 @@ final class NativeWorkoutStore: ObservableObject {
         let id = archive.id.uuidString.lowercased()
         if receivedWatchCheckins.contains(archive.id) || logs.contains(where: { $0.id == id }) { return true }
         let workout = NativeWorkoutSession(raw: archive.finished)
-        let ended = Int(workout.raw["ended"].number)
+        let ended = Int64(workout.raw["ended"].number)
         guard workout.raw["clock"]["runningSince"] == .null, ended >= workout.started,
               (try? workout.finalizing(at: ended)) != nil else { return false }
         let checkin = NativeWorkoutEntry(id: id, owner: owner, kind: "log",
@@ -3421,7 +3421,7 @@ struct NativeActiveWorkoutView: View {
 
     private func workoutElapsed(_ session: NativeWorkoutSession) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            Text(NativeWorkoutView.duration(session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1_000))))
+            Text(NativeWorkoutView.duration(session.elapsedMilliseconds(at: Int64(context.date.timeIntervalSince1970 * 1_000))))
                 .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
         }
         .accessibilityIdentifier("workout-elapsed")
@@ -3626,7 +3626,7 @@ struct NativeActiveWorkoutView: View {
 
     private func restTimer(_ session: NativeWorkoutSession) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            if let rest = session.restStatus(at: Int(context.date.timeIntervalSince1970 * 1_000)) {
+            if let rest = session.restStatus(at: Int64(context.date.timeIntervalSince1970 * 1_000)) {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 4) {
                         restSummary(rest).fixedSize(horizontal: true, vertical: false)
@@ -3893,7 +3893,7 @@ struct NativeActiveWorkoutView: View {
             if let timer = running, timer.position == position {
                 HStack(spacing: 8) {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        let elapsed = session.elapsedMilliseconds(at: Int(context.date.timeIntervalSince1970 * 1_000))
+                        let elapsed = session.elapsedMilliseconds(at: Int64(context.date.timeIntervalSince1970 * 1_000))
                         let remaining = timer.remaining(at: elapsed)
                         HStack(spacing: 5) {
                             Image(systemName: remaining == 0 ? "checkmark" : "timer")

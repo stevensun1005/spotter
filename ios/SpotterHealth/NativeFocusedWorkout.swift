@@ -308,7 +308,7 @@ struct NativeFocusedWorkoutRestView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            if let rest = session.restStatus(at: Int(context.date.timeIntervalSince1970 * 1_000)) {
+            if let rest = session.restStatus(at: Int64(context.date.timeIntervalSince1970 * 1_000)) {
                 VStack(spacing: 12) {
                     VStack(spacing: 10) {
                         restHeader(rest)

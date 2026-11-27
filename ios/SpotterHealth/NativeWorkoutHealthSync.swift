@@ -191,10 +191,10 @@ final class NativeWorkoutHealthSync: ObservableObject {
 
     private static func window(for entry: NativeWorkoutEntry, owner: String) -> WorkoutWindow? {
         guard entry.kind == "log", entry.owner == owner, let interval = entry.workoutWindow else { return nil }
-        let now = Int(NativeWorkoutHealthSummary.milliseconds(.now))
+        let now = NativeWorkoutHealthSummary.milliseconds(.now)
         guard UUID(uuidString: entry.id) != nil, (946_684_800_000...now).contains(interval.from),
               (interval.from + 1...min(now + 1_000, interval.from + 86_400_000)).contains(interval.to) else { return nil }
-        return WorkoutWindow(id: entry.id, from: interval.from, to: interval.to)
+        return WorkoutWindow(id: entry.id, from: Int(interval.from), to: Int(interval.to))
     }
 
     private func persist() {

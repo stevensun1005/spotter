@@ -2142,7 +2142,7 @@ private struct NativeWorkoutStatusStrip: View {
                 }
                 Spacer(minLength: 4)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    timer(at: Int(context.date.timeIntervalSince1970 * 1_000))
+                    timer(at: Int64(context.date.timeIntervalSince1970 * 1_000))
                 }
                 Image(systemName: "chevron.up")
                     .font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
@@ -2164,7 +2164,7 @@ private struct NativeWorkoutStatusStrip: View {
         return total > 0 ? "\(session.completedSets)/\(total) 组" : "训练中"
     }
 
-    private func timer(at now: Int) -> some View {
+    private func timer(at now: Int64) -> some View {
         let rest = session.restStatus(at: now)
         let remaining = rest?.remainingSeconds ?? 0
         let elapsed = session.elapsedMilliseconds(at: now)
@@ -2195,7 +2195,7 @@ final class NativeTrainingNotifications {
     }
 
     struct RestAlert: Equatable {
-        let deadlineMilliseconds: Int
+        let deadlineMilliseconds: Int64
         let playsSound: Bool
     }
 

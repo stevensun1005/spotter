@@ -308,6 +308,6 @@ AI 教练是右下方的 48 点圆角方形按钮，外圈是四种强调色组�
 
 2026-11-27，基于 Build 65 的 iPhone 与 Watch 开发更新。主屏新增「今天开练」和「本周双环」，更新「今日饮食」及「搭子督练」。由 `NativeApp.swift` 写入按账号隔离的 `SpotterWidgetSnapshot`，WidgetKit 按系统时间线刷新。深绿训练环和浅蓝饮食环使用自然周口径，饮食环遵循已保存目标。相应入口更新到共用产品帮助。
 
-`SpotterWatchApp.swift` 新增腕上专注、休息和整堂训练列表。近机开练、记组、结束由 iPhone 的训练草稿处理。已同步的当天分组计划也可在手表离线执行。两端复用 `NativeWatchTraining.swift` 和 `NativeWorkoutModels.swift` 的组次、计时与完训规则。手表用原子写入保留离线草稿及待同步记录，WatchConnectivity 回传带账号绑定和稳定 ID 的打卡，确认 iPhone 保存后移除待同步记录。Apple 健康摘要使用现有私有接口。新增 watchOS WidgetKit 扩展，配对 iPhone 的实时活动增加腕上布局。iOS 17／watchOS 10 起支持跨设备训练，腕上实时活动按系统版本可用。
+`SpotterWatchApp.swift` 新增腕上专注、休息和整堂训练列表。近机开练、记组、结束由 iPhone 的训练草稿处理。已同步的当天分组计划也可在手表离线执行。两端复用 `NativeWatchTraining.swift` 和 `NativeWorkoutModels.swift` 的组次、计时与完训规则。绝对毫秒时间戳在两端使用 `Int64`，让 arm64_32 手表保持同一计时和打卡格式。手表用原子写入保留离线草稿及待同步记录，WatchConnectivity 回传带账号绑定和稳定 ID 的打卡，确认 iPhone 保存后移除待同步记录。Apple 健康摘要使用现有私有接口。新增 watchOS WidgetKit 扩展，配对 iPhone 的实时活动增加腕上布局。iOS 17／watchOS 10 起支持跨设备训练，腕上实时活动按系统版本可用。
 
 验证覆盖 iPhone 与 watchOS 模拟器目标编译及嵌套扩展、原生冒烟、离线恢复、分组轮换、左右侧记录、计时、重复操作和共用帮助。真实 Apple 健康授权、表盘刷新和配对设备断线后的回传需真机验证。分发前还须为 Watch 小组件签名并配置 App Group。

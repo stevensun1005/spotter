@@ -151,7 +151,7 @@ struct NativeHeartView: View {
 
     private var window: WorkoutWindow? {
         guard entry.owner == owner, entry.kind == "log", let interval = entry.workoutWindow else { return nil }
-        let value = WorkoutWindow(id: entry.id, from: interval.from, to: interval.to)
+        let value = WorkoutWindow(id: entry.id, from: Int(interval.from), to: Int(interval.to))
         return value.canRead ? value : nil
     }
 
