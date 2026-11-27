@@ -61,7 +61,7 @@ enum NativeGuideStep: Hashable {
 
     var instruction: String {
         switch self {
-        case .trainingTab: return "点底部高亮的「训练」。这里能管理自己的计划、模板和动作。"
+        case .trainingTab: return "点底部的「训练」。这里能管理自己的计划、模板和动作。"
         case .newPlan: return "点「新建计划」，看看日期、动作和组次在哪填。"
         case .planFields: return "这里填计划名，下面可以选日期、填动作和组次。以后点右上角「保存」，计划就会出现在首页日程。"
         case .officialTemplates: return "点「官方模板」，里面有完整的每周训练安排。"
@@ -74,7 +74,7 @@ enum NativeGuideStep: Hashable {
         case .findBuddy: return "邀请一起练的人时点「找搭子」，加普通朋友时点旁边的「添加好友」。"
         case .buddySearch: return "填对方的用户名或完整的「用户名#数字」，搜索后就能核对结果。发送前看一眼页面上的共享范围。"
         case .privacy: return "点「权限设置」可查看朋友圈共享范围。也可以进某位联系人的资料调整对这个人的分享。"
-        case .coach: return "点右侧的星星，先看看教练怎样定制计划。回到教练后，可以继续学怎么连接自己的 AI。"
+        case .coach: return "点底栏上方的「AI 教练」，先看看教练怎样定制计划。回到教练后，可以继续学怎么连接自己的 AI。"
         case .coachMenu: return "点高亮的教练菜单，选择「用自己的 AI」。"
         case .agentConnect: return "点「设置连接与复制提示词」，查看该给自己的 Agent 开哪些权限。"
         case .agentTutorial: return "点「使用教学」，按步骤学会连接、复制提示词和发出第一条任务。可以先看示例。"
@@ -97,6 +97,7 @@ struct NativeGuideContext {
     let advance: (NativeGuideStep) -> Void
     let skipSection: (NativeGuideStep) -> Void
     let close: () -> Void
+    let navigationAction: (title: String, perform: () -> Void)?
 }
 
 private struct NativeGuideContextKey: EnvironmentKey {
@@ -197,7 +198,7 @@ private struct NativeGuideSpotlight: View {
                         fallbackTooltip
                     }
                 }
-            } else if showFallback {
+            } else if showFallback || guide.navigationAction != nil {
                 fallbackTooltip
             }
         }
@@ -213,11 +214,9 @@ private struct NativeGuideSpotlight: View {
     }
 
     private var fallbackTooltip: some View {
-        VStack {
-            Spacer(minLength: 0)
-            tooltip(space: 210, anchored: false)
-                .padding(12)
-        }
+        tooltip(space: 210, anchored: false)
+            .padding(12)
+            .frame(maxHeight: .infinity, alignment: guide.navigationAction == nil ? .bottom : .top)
     }
 
     private func scrims(canvas: CGRect, hole: CGRect) -> some View {
@@ -269,7 +268,8 @@ private struct NativeGuideSpotlight: View {
     }
 
     private func tooltipContent(anchored: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let navigationAction = anchored ? nil : guide.navigationAction
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("使用引导 \(guide.number)/\(guide.count)")
                     .font(.caption.weight(.semibold)).foregroundStyle(accent.tint)
@@ -292,7 +292,7 @@ private struct NativeGuideSpotlight: View {
                 .accessibilityIdentifier(anchored ? "spotter-guide-spotlight" : "spotter-guide-fallback")
             Text(guide.step.instruction).font(.subheadline).foregroundStyle(SpotterPalette.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            if guide.step.section != .coach || !guide.step.followsTargetTap {
+            if guide.step.section != .coach || !guide.step.followsTargetTap || navigationAction != nil {
                 HStack(spacing: 8) {
                     if guide.step.section != .coach {
                         Button("跳过本节") {
@@ -304,7 +304,11 @@ private struct NativeGuideSpotlight: View {
                         .frame(minHeight: 44)
                     }
                     Spacer(minLength: 0)
-                    if !guide.step.followsTargetTap {
+                    if let navigationAction {
+                        Button(navigationAction.title, action: navigationAction.perform)
+                            .buttonStyle(.spotterPrimaryControl)
+                            .accessibilityIdentifier("spotter-guide-open-navigation")
+                    } else if !guide.step.followsTargetTap {
                         Button("下一步") {
                             guide.advance(guide.step)
                             leave()

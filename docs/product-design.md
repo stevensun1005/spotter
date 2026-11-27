@@ -28,9 +28,9 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 
 ## iPhone 导航与核心流程
 
-底栏依次为「今日」「训练」、中央开始/继续训练按钮、「统计」「好友」，右侧独立星形按钮打开 AI 教练。好友入口可在功能模块隐藏。固定底栏和主要分段菜单使用适用版本的 SwiftUI 液态玻璃。普通表单和卡片按钮采用项目控件的按压反馈。外观遵循主题、文字大小和减少动态效果偏好。底栏先绘制点按或滑动的高亮，再切换导航页面。连续操作提交最后一次选择，系统入口直接切页。组件在 [NativeApp](../ios/SpotterHealth/NativeApp.swift) 和 [NativeControls](../ios/SpotterHealth/NativeControls.swift)。
+「今日」「训练」「统计」「好友」使用 SwiftUI 系统 `TabView`，每个标签有自己的导航栈。系统负责切页、选中状态和 iOS 26 的液态玻璃动效。好友入口可在功能模块隐藏。新手引导在标签栏上方提示需要打开的页面，也可以点提示卡里的按钮跳到该页。页内按钮继续使用定位高亮。主要分段菜单和普通控件保留各自的动效。[原生导航](../ios/SpotterHealth/NativeApp.swift) · [新手引导](../ios/SpotterHealth/NativeWelcome.swift)
 
-主导航把页面、进行中训练提示条和底栏排入各自的垂直区域。页面与二级详情共用止于底栏上方的可滚动区域。打卡月历按可用高度排版，空间太小时可滚动查看整个月。饮食详情的快捷操作和 AI 教练的输入栏也各自预留空间。较矮屏幕和辅助功能大字体下，训练详情及分享的扩展操作可随内容滚动到完整入口。
+底栏上方有「开始训练」和「AI 教练」两个快捷入口。训练进行时，开始按钮换成显示计时、组数及可用心率的状态条，点按可返回训练。快捷入口放在当前页面底部的安全区内，页面为它预留高度。打卡月历和二级详情按剩余高度排版，内容较长时可滚动查看。饮食详情的快捷操作和 AI 教练的输入栏各自预留空间。
 
 | 入口 | 用户操作 | 实现位置 |
 | --- | --- | --- |
@@ -40,10 +40,10 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 训练 → 个人模板 | 可新建、从计划或打卡另存，也可用模板「安排训练」。打开个人模板后可点每个动作名查看弹出的动作卡片。iPhone 用「改名」「编辑动作」或「编辑模板」更新，网页点「编辑」进入「编辑模板」。两端删除均需确认，已保存的跟练链接均列于底部「跟练视频」。 | [原生训练与模板](../ios/SpotterHealth/NativeWorkouts.swift) · [个人模板服务](../cloudflare/features/library/server.ts) |
 | 训练 → 官方模板 | 官方模板默认可见，可到「设置 → 功能模块」关闭。「训练目标」「训练水平」筛选默认均为全部。打开模板查看各周运动日与休息日，点动作名弹出动作卡片。「功能性训练」「高级」中的 12 周功能性力量训练可切换到任一周。设「周期开始日」后点「使用这个模板」，经排期预览和确认才加入日历。开发版移除了列表底部的编排参考和链接。 | [官方模板](../ios/SpotterHealth/NativeOfficialTemplates.swift) · [模板资源](../ios/SpotterHealth/Resources/official-training-templates.json) · [周期编排](../ios/SpotterHealth/NativePrograms.swift) |
 | 训练 → 动作库 | 搜索框下直接显示动作卡片，不再有横排的置顶与器械快捷条。右侧分区栏从结果栏顶部下移，按钮随可用高度平均分布。紧凑界面或大字号下可滚动查看全部分区。搜索框旁的筛选按钮提供「置顶动作」「常用动作」「只显示我的器械」和「高级筛选」，有筛选生效时按钮高亮。「高级筛选 → 器械」使用中文类别，合并同类主器械和附件。动作身份与场地器械偏好继续按原始键保存，详情显示具体的主器械和附件。卡片进入可见区域后循环播放已有示范，减少动效时显示封面。点按打开「要点」「历史」「统计」「变式」，可查看主要与辅助肌群、主器械和所需附件。变式卡片可打开自己的详情，同一训练中的不同变式各自累计历史。 | [动作库浏览和详情](../ios/SpotterHealth/NativeCatalogueView.swift) · [目录资源读取](../ios/SpotterHealth/NativeCatalogueData.swift) · [网页动作库](../cloudflare/features/exercises/) |
-| 中央开始训练 | 继续进行中的训练，或选计划、临时训练及有氧等入口。有氧可选跑步、跑步机、户外/室内骑车、划船机、椭圆机、步行、爬楼、游泳、跳绳等。实际训练保存计时，支持的项目可填距离或速度。 | [训练入口及逐组记录](../ios/SpotterHealth/NativeWorkouts.swift) · [训练模型](../ios/SpotterHealth/NativeWorkoutModels.swift) · [服务端有氧字段](../cloudflare/features/training/cardio.ts) |
+| 底栏上方 → 开始训练 | 继续进行中的训练，或选计划、临时训练及有氧等入口。有氧可选跑步、跑步机、户外/室内骑车、划船机、椭圆机、步行、爬楼、游泳、跳绳等。实际训练保存计时，支持的项目可填距离或速度。 | [训练入口及逐组记录](../ios/SpotterHealth/NativeWorkouts.swift) · [训练模型](../ios/SpotterHealth/NativeWorkoutModels.swift) · [服务端有氧字段](../cloudflare/features/training/cardio.ts) |
 | 统计 → 训练统计 / 打卡历史 | 顶部「训练统计」「打卡历史」和下方的周期卡片都用约 30 pt 的紧凑行。卡片第一行选周、月、季、年、最近或自定义，第二行是单行日期切换。有可查看的搭子记录时，「我」和搭子名字（有备注时显示备注）的切换并排在日期右侧，标题放不下时移到日期下一行。今年以外的周、最近和自定义范围在标题里带年份，跨年时起止都带年份。辅助功能大字号仍分行显示，保留 44 pt 行高。按所选范围回顾训练容量、次数/天数、时长和完成组数。历史以月历显示自己的训练及对方允许共享的记录。点日期或打卡看详情。 | [统计与月历](../ios/SpotterHealth/NativeWebSecondary.swift) · [网页统计](../cloudflare/features/stats/) · [网页历史](../cloudflare/features/history/) |
 | 好友 → 联系人 / 朋友圈 / 权限设置 | 「添加好友」「找搭子」通过账号用户名搜索，普通好友也可用邀请链接。联系人详情按日查看共享训练和饮食，可为对方设置私人备注，并设定本人给对方的权限。朋友圈显示自己和好友近期可见的打卡及加油。「权限设置」只保留朋友圈开关，不再列出联系人。 | [好友界面](../ios/SpotterHealth/NativeWebSecondary.swift) · [好友规则](../cloudflare/features/friends/) · [搭子模型](../cloudflare/features/pair/) |
-| 底栏星形按钮 → Spotter 教练 | 可自由对话、点推荐操作、用计划问答生成草稿、拍照或从相册附图。向上展开可进入大面板。App 进程运行期间保持当前对话，完全退出后重新打开时从新对话开始。 | [原生教练](../ios/SpotterHealth/NativeCoach.swift) · [推荐卡片](../ios/SpotterHealth/NativeCoachRecommendations.swift) · [网页教练](../cloudflare/features/ai-coach/) |
+| 底栏上方 → AI 教练 | 可自由对话、点推荐操作、用计划问答生成草稿、拍照或从相册附图。向上展开可进入大面板。App 进程运行期间保持当前对话，完全退出后重新打开时从新对话开始。 | [原生教练](../ios/SpotterHealth/NativeCoach.swift) · [推荐卡片](../ios/SpotterHealth/NativeCoachRecommendations.swift) · [网页教练](../cloudflare/features/ai-coach/) |
 
 ### 训练、计划与详情
 
@@ -228,6 +228,7 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 | 1.0.1 Build 53 | iPhone 的「训练 → 动作库」右侧索引下移并等距排列，「高级筛选 → 器械」改为中文同类分组及自适应网格。Agent 接入提示词更新连接校验及错误回复。iPhone 随包的 5,685 段原创 3D 演示改用 HEVC，保留离线播放及网页母片。 | 签名归档中 App 本体由 1,058,603,530 字节降至 312,075,017 字节，逐段解码验证 5,685 段视频。发布与分组状态见本版发布记录。 |
 | 1.0.1 Build 55 | 底栏的 [`NativeTabNavigation`](../ios/SpotterHealth/NativeApp.swift) 分开高亮和目标页状态。点击和左右滑动先高亮，动效开启时给高亮留出渲染时间再换页，连续操作以最后一次选择为准。系统入口、减少动态效果及引导保留各自切页行为。记餐页的 [`NativeMealSelectionView`](../ios/SpotterHealth/NativeMealLogger.swift) 仅更新餐次相关控件，分类数组和 [各餐次的最近食物](../ios/SpotterHealth/NativeNutrition.swift) 预计算后复用。 | iPhone SE（第三代）离线模拟器的输入测试通过，包含底栏四个标签、左右滑、播放按钮和三餐切换前后的食物篮与保存目标。程序化选择到首个帧回调的中位数，底栏为 121.1 → 83.0 ms，餐次为 17.4 → 12.3 ms。数据来自合成样本。 |
 | iPhone 离线动作视频压缩 · 开发版 | 生成 512 × 288 HEVC MP4，目标码率 130 kbps。网页母版保留 704 × 396 H.264，iPhone 使用同一目录 ID、封面和 20 FPS 动作时序。标准演示继续随 App 安装，入口和离线行为沿用。 | 5,685 段视频通过 AVFoundation 完整解码，逐帧核对显示时间。离线视频共 276,831,868 字节，较原包减少 73.0%。 |
+| Build 55 后的 iPhone 开发版 · 系统标签栏 | `NativeApp.swift` 改用 SwiftUI 系统 `TabView` 和独立导航栈，iOS 26 系统液态玻璃接管切页与选中动效。开始训练、进行中状态和 AI 教练放在当前页面的底部安全区。`NativeWelcome.swift` 为系统标签步骤提供引导按钮。沿用现有账号数据、接口及权限。 | 独立版生产构建、29 项测试、iOS 原生冒烟、源码基线及 Xcode 模拟器打包通过。当前为本地开发版。 |
 
 2026-11-25 发布记录。1.0 Build 40 的 App 构建提交为 `d251c088`，Cloudflare 92 对应 `e5733516`。模拟器包及 iPhone、Watch、小组件的分发签名均通过核对。Cloudflare 已部署并核对 HTTPS 接口，私密 Sites 保留原发布。TestFlight 的训练搭子内测与公开外测组均显示 Build 40 为 Testing。App Store 已用 Build 40 重新提交 1.0，状态为 Waiting for Review。
 

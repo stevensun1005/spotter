@@ -772,67 +772,11 @@ private enum NativeSpotterSection: String {
 
     var icon: String {
         switch self {
-        case .today: return "DockToday"
-        case .training: return "DockTraining"
-        case .stats: return "DockStats"
-        case .friends: return "DockFriends"
+        case .today: return "house"
+        case .training: return "dumbbell"
+        case .stats: return "chart.bar.xaxis"
+        case .friends: return "person.2"
         }
-    }
-}
-
-/// The dock can start its feedback before SwiftUI updates the page and its navigation stack.
-@MainActor
-private final class NativeTabNavigation {
-    @Published private(set) var highlighted: NativeSpotterSection = .today
-    @Published private(set) var destination: NativeSpotterSection = .today
-    private var pendingPage: Task<Void, Never>?
-
-    func show(_ section: NativeSpotterSection) {
-        pendingPage?.cancel()
-        pendingPage = nil
-        if highlighted != section { highlighted = section }
-        if destination != section { destination = section }
-    }
-
-    func cancelPendingSelection() {
-        if pendingPage != nil { show(destination) }
-    }
-
-    func selectFromDock(_ section: NativeSpotterSection, animated: Bool,
-                        didSelect: @escaping (NativeSpotterSection) -> Void) {
-        pendingPage?.cancel()
-        pendingPage = nil
-        if highlighted != section { highlighted = section }
-        guard animated && destination != section else {
-            show(section)
-            didSelect(section)
-            return
-        }
-        pendingPage = Task { [weak self] in
-            // Give highlighting a frame before evaluating the destination. Rapid input replaces this request.
-            do { try await Task.sleep(for: .milliseconds(24)) } catch { return }
-            guard let self, !Task.isCancelled else { return }
-            self.pendingPage = nil
-            self.show(section)
-            didSelect(section)
-        }
-    }
-}
-
-@MainActor
-private struct NativeTabPages<Page: View>: View {
-    let navigation: NativeTabNavigation
-    let sections: [NativeSpotterSection]
-    @ViewBuilder let page: (NativeSpotterSection, Bool) -> Page
-    @State private var destination: NativeSpotterSection = .today
-
-    var body: some View {
-        TabView(selection: Binding(get: { destination }, set: { navigation.show($0) })) {
-            ForEach(sections, id: \.self) { section in
-                page(section, destination == section).tag(section)
-            }
-        }
-        .onReceive(navigation.$destination) { destination = $0 }
     }
 }
 
@@ -847,7 +791,7 @@ private struct NativeSpotterTabs: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.spotterAccent) private var accent
     @EnvironmentObject private var socialNotifications: NativeSocialNotifications
-    @State private var tabNavigation = NativeTabNavigation()
+    @State private var selected: NativeSpotterSection = .today
     @State private var showCoach = false
     @State private var coachDetent = Self.compactCoachDetent
     @State private var showSettings = false
@@ -904,11 +848,6 @@ private struct NativeSpotterTabs: View {
 
     private var allowsMotion: Bool { !reduceMotion && !systemReduceMotion }
 
-    private var selected: NativeSpotterSection {
-        get { tabNavigation.destination }
-        nonmutating set { tabNavigation.show(newValue) }
-    }
-
     init(account: NativeAccount, owner: String, inboundInvite: Binding<String?>,
          widgetDestination: Binding<NativeWidgetDestination?>) {
         self.account = account
@@ -943,7 +882,7 @@ private struct NativeSpotterTabs: View {
                 avatars.refreshVisible()
             }
         }
-        .onReceive(tabNavigation.$destination.dropFirst()) { section in
+        .onChange(of: selected) { section in
             avatars.refreshVisible()
             if section == .friends { Task { await remarks.refresh() } }
         }
@@ -980,12 +919,9 @@ private struct NativeSpotterTabs: View {
         .onChange(of: socialNotifications.requestedItem) { _ in stageSocialNotification() }
         .onChange(of: inboundInvite) { _ in stageInvite() }
         .onChange(of: showsFriends) { visible in
-            guard !visible else { return }
-            if selected == .friends { selected = .today }
-            else if tabNavigation.highlighted == .friends { tabNavigation.cancelPendingSelection() }
+            if !visible && selected == .friends { selected = .today }
         }
         .onChange(of: scenePhase) { phase in
-            if phase != .active { tabNavigation.cancelPendingSelection() }
             if phase == .active {
                 Task {
                     async let overview: Void = refreshHome()
@@ -1224,7 +1160,20 @@ private struct NativeSpotterTabs: View {
     private var guideContext: NativeGuideContext? {
         guard let guideStep, let index = guidePath.firstIndex(of: guideStep) else { return nil }
         return NativeGuideContext(step: guideStep, number: index + 1, count: guidePath.count,
-                                  advance: advanceGuide, skipSection: skipGuideSection, close: finishGuide)
+                                  advance: advanceGuide, skipSection: skipGuideSection, close: finishGuide,
+                                  navigationAction: guideNavigationAction(for: guideStep))
+    }
+
+    private func guideNavigationAction(for step: NativeGuideStep) -> (title: String, perform: () -> Void)? {
+        let destination: NativeSpotterSection
+        switch step {
+        case .trainingTab: destination = .training
+        case .todayTab: destination = .today
+        case .friendsTab: destination = .friends
+        case .coach: return ("打开 AI 教练", { openCoach(startFromGuide: true) })
+        default: return nil
+        }
+        return ("打开" + destination.rawValue, { selectTab(destination) })
     }
 
     private func startGuideIfRequested() {
@@ -1251,7 +1200,8 @@ private struct NativeSpotterTabs: View {
         didFinishWelcome = true
     }
 
-    private func didTapGuideTab(_ section: NativeSpotterSection) {
+    private func selectTab(_ section: NativeSpotterSection) {
+        selected = section
         switch section {
         case .today: advanceGuide(from: .todayTab)
         case .training: advanceGuide(from: .trainingTab)
@@ -1423,7 +1373,6 @@ private struct NativeSpotterTabs: View {
 
     private func openCoach(startFromGuide: Bool = false) {
         guard !showCoach else { return }
-        tabNavigation.cancelPendingSelection()
         if startFromGuide {
             advanceGuide(from: .coach)
             guideCoachGoal = "general"
@@ -1435,7 +1384,6 @@ private struct NativeSpotterTabs: View {
     }
 
     private func openTrainingLaunch() {
-        tabNavigation.cancelPendingSelection()
         let plans = workouts.todayPendingPlans
         if workouts.active != nil { openActiveWorkout() }
         else if plans.count == 1, let entry = plans.first {
@@ -1492,27 +1440,20 @@ private struct NativeSpotterTabs: View {
         showsFriends ? [.today, .training, .stats, .friends] : [.today, .training, .stats]
     }
 
-    private var navigationTabs: some View {
-        // Give every navigation destination a viewport ending above the dock.
-        VStack(spacing: 0) {
-            NativeTabPages(navigation: tabNavigation, sections: contentSections) { section, active in
-                tabScene(section, active: active)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-
-            VStack(spacing: 0) {
-                if let active = workouts.active, let session = active.session, !showActiveWorkout {
-                    NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
-                                             watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
-                                             open: openActiveWorkout)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                dock
+    @ViewBuilder private var navigationTabs: some View {
+        let selection = Binding(get: { selected }, set: { selectTab($0) })
+        let tabs = TabView(selection: selection) {
+            ForEach(contentSections, id: \.self) { section in
+                tabScene(section, active: selected == section)
+                    .tabItem { Label(section.rawValue, systemImage: section.icon) }
+                    .tag(section)
             }
         }
-        .animation(allowsMotion ? .spring(response: 0.34, dampingFraction: 0.85) : nil,
-                   value: workouts.active != nil && !showActiveWorkout)
+        if #available(iOS 26.0, *) {
+            tabs.tabBarMinimizeBehavior(.never)
+        } else {
+            tabs
+        }
     }
 
     private func tabScene(_ section: NativeSpotterSection, active: Bool) -> some View {
@@ -1520,7 +1461,9 @@ private struct NativeSpotterTabs: View {
             sectionContent(section, active: active)
                 .nativeGuideLayer(.tabContent)
                 .toolbar(.hidden, for: .navigationBar)
-                .toolbar(.hidden, for: .tabBar)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if active { quickActions.background(.bar) }
+                }
         }
     }
 
@@ -1543,149 +1486,53 @@ private struct NativeSpotterTabs: View {
         }
     }
 
-    private var dock: some View {
-        HStack(spacing: 8) {
-            NativeDockTabRail(sections: contentSections, navigation: tabNavigation, play: dockPlay,
-                              didSelect: didTapGuideTab)
+    private var quickActions: some View {
+        let active = workouts.active
+        return HStack(spacing: 8) {
+            if let active, let session = active.session {
+                NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
+                                         watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
+                                         open: openActiveWorkout)
+            } else {
+                Button(action: openTrainingLaunch) {
+                    Label(active == nil ? "开始训练" : "继续训练", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.spotterPress)
+                .disabled(active == nil && workouts.isBusy)
+                .accessibilityIdentifier("spotter-dock-play")
+            }
+
+            Divider().frame(height: 19).accessibilityHidden(true)
 
             Button { openCoach(startFromGuide: guideStep == .coach) } label: {
-                Image("DockCoach").renderingMode(.template).resizable()
-                    .frame(width: 23, height: 23)
-                    .foregroundStyle(accent.tint)
-                    .frame(width: 51, height: 55)
-                    .contentShape(RoundedRectangle(cornerRadius: 23))
-                    .spotterGlass(cornerRadius: 23, tint: accent.selection.opacity(0.85), interactive: allowsMotion)
-            }
-            .buttonStyle(.spotterGlassPress)
-            .accessibilityLabel("打开 AI 教练")
-            .nativeGuideTarget(.coach)
-        }
-        .spotterGlassCluster(spacing: 4)
-        .frame(maxWidth: 530)
-        .padding(.horizontal, 10)
-        .padding(.top, 4)
-        .padding(.bottom, 4)
-    }
-
-    private var dockPlay: some View {
-        Button(action: openTrainingLaunch) {
-            Image(systemName: "play.fill")
-                .font(.system(size: 19, weight: .semibold))
-                .offset(x: 1)
-                .foregroundStyle(accent.tint)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.spotterPress)
-        .accessibilityLabel(workouts.active == nil ? "开始训练" : "继续训练")
-        .accessibilityIdentifier("spotter-dock-play")
-        .disabled(workouts.active == nil && workouts.isBusy)
-    }
-}
-
-@MainActor
-private struct NativeDockTabRail<Play: View>: View {
-    @Environment(\.spotterAccent) private var accent
-    @Environment(\.spotterInteractionMotion) private var motion
-    @GestureState private var dragDistance: CGFloat? = nil
-    let sections: [NativeSpotterSection]
-    let navigation: NativeTabNavigation
-    let play: Play
-    @State private var selection: NativeSpotterSection = .today
-    let didSelect: (NativeSpotterSection) -> Void
-
-    private let spacing: CGFloat = 2
-    private let playWidth: CGFloat = 53
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = max(0, (geometry.size.width - playWidth - CGFloat(sections.count) * spacing) / CGFloat(sections.count))
-            let offsets = sections.indices.map { index in
-                CGFloat(index) * (width + spacing) + (index >= (sections.firstIndex(of: .stats) ?? 2) ? playWidth + spacing : 0)
-            }
-            let base = offsets[sections.firstIndex(of: selection) ?? 0]
-            let position = min(offsets.last ?? base, max(offsets.first ?? base, base + (dragDistance ?? 0)))
-            let touchTab = nearest(to: position, offsets: offsets)
-            ZStack(alignment: .leading) {
-                Capsule().fill(accent.selection.opacity(0.2))
-                    .spotterGlass(in: Capsule(), tint: accent.fill.opacity(0.36), interactive: false)
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.62)) }
-                    .frame(width: width)
-                    .scaleEffect(dragDistance != nil && motion != nil ? 1.06 : 1)
-                    .offset(x: position)
-                    .animation(dragDistance == nil ? motion : nil, value: selection)
-                    .animation(dragDistance == nil ? motion : nil, value: dragDistance == nil)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                HStack(spacing: spacing) {
-                    ForEach(sections, id: \.self) { section in
-                        if section == .stats { play.frame(width: playWidth) }
-                        tab(section, highlighted: touchTab == section).frame(width: width)
+                Group {
+                    if active?.session == nil {
+                        Label("AI 教练", systemImage: "sparkles")
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Image(systemName: "sparkles").frame(width: 44)
                     }
                 }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
-            .highPriorityGesture(
-                DragGesture(minimumDistance: 12)
-                    .updating($dragDistance) { value, distance, transaction in
-                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                        transaction.animation = nil
-                        distance = value.translation.width
-                    }
-                    .onEnded { value in
-                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                        let momentum = value.predictedEndTranslation.width - value.translation.width
-                        let destination = base + value.translation.width + min(18, max(-18, momentum))
-                        let section = nearest(to: destination, offsets: offsets)
-                        navigation.selectFromDock(section, animated: motion != nil, didSelect: didSelect)
-                    }
-            )
+            .buttonStyle(.spotterPress)
+            .accessibilityLabel("打开 AI 教练")
+            .accessibilityIdentifier("spotter-quick-coach")
+            .nativeGuideTarget(.coach)
         }
-        .padding(4)
-        .frame(height: 59)
-        .spotterGlass(in: Capsule(), interactive: false)
-        .overlay { Capsule().strokeBorder(.white.opacity(0.36)).allowsHitTesting(false) }
-        .onReceive(navigation.$highlighted) { selection = $0 }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("spotter-dock-tabs")
-    }
-
-    private func nearest(to position: CGFloat, offsets: [CGFloat]) -> NativeSpotterSection {
-        guard let index = offsets.indices.min(by: { abs(offsets[$0] - position) < abs(offsets[$1] - position) }) else { return selection }
-        return sections[index]
-    }
-
-    private func tab(_ section: NativeSpotterSection, highlighted: Bool) -> some View {
-        Button {
-            navigation.selectFromDock(section, animated: motion != nil, didSelect: didSelect)
-        } label: {
-            VStack(spacing: 3) {
-                Image(section.icon).renderingMode(.template).resizable().frame(width: 21, height: 21)
-                Text(section.rawValue).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(highlighted ? accent.tint : SpotterPalette.muted)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.spotterPress)
-        .accessibilityLabel(section.rawValue)
-        .accessibilityAddTraits(selection == section ? .isSelected : [])
-        .nativeGuideTarget(guideTarget(section))
-    }
-
-    private func guideTarget(_ section: NativeSpotterSection) -> NativeGuideStep? {
-        switch section {
-        case .today: return .todayTab
-        case .training: return .trainingTab
-        case .friends: return .friendsTab
-        case .stats: return nil
-        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(accent.tint)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .padding(.horizontal, 8)
     }
 }
 
 private struct NativeWorkoutStatusStrip: View {
     @Environment(\.spotterAccent) private var accent
-    @Environment(\.spotterInteractionMotion) private var motion
     let title: String
     let session: NativeWorkoutSession
     let watchContext: NativeWatchWorkoutContext
@@ -1718,18 +1565,13 @@ private struct NativeWorkoutStatusStrip: View {
                     .accessibilityHidden(true)
             }
             .foregroundStyle(SpotterPalette.ink)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(minHeight: 46)
+            .padding(.leading, 6)
+            .frame(minHeight: 44)
             .contentShape(.rect)
         }
-        .buttonStyle(.spotterGlassPress)
+        .buttonStyle(.spotterPress)
         .accessibilityIdentifier("spotter-active-workout-strip")
         .accessibilityHint("返回进行中的训练")
-        .spotterGlass(cornerRadius: 20, tint: accent.fill.opacity(0.20), interactive: motion != nil)
-        .frame(maxWidth: 530)
-        .padding(.horizontal, 10)
-        .padding(.top, 4)
     }
 
     private var progressText: String {
