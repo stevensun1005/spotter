@@ -311,3 +311,5 @@ AI 教练是右下方的 48 点圆角方形按钮，外圈是四种强调色组�
 `SpotterWatchApp.swift` 新增腕上专注、休息和整堂训练列表。近机开练、记组、结束由 iPhone 的训练草稿处理。已同步的当天分组计划也可在手表离线执行。两端复用 `NativeWatchTraining.swift` 和 `NativeWorkoutModels.swift` 的组次、计时与完训规则。绝对毫秒时间戳在两端使用 `Int64`，让 arm64_32 手表保持同一计时和打卡格式。手表用原子写入保留离线草稿及待同步记录，WatchConnectivity 回传带账号绑定和稳定 ID 的打卡，确认 iPhone 保存后移除待同步记录。Apple 健康摘要使用现有私有接口。新增 watchOS WidgetKit 扩展，配对 iPhone 的实时活动增加腕上布局。iOS 17／watchOS 10 起支持跨设备训练，腕上实时活动按系统版本可用。
 
 验证覆盖 iPhone 与 watchOS 模拟器目标编译及嵌套扩展、原生冒烟、离线恢复、分组轮换、左右侧记录、计时、重复操作和共用帮助。真实 Apple 健康授权、表盘刷新和配对设备断线后的回传需真机验证。分发前还须为 Watch 小组件签名并配置 App Group。
+
+2026-11-27 内测发布记录。1.0.1 Build 66 从 \`main\` 提交 \`0a6c4a545f9777e37fbbe3d52a37731b727ad11c\` 归档。包括 iPhone「今天开练」「本周双环」和饮食及搭子卡片更新、腕上专注训练和离线回传、表盘及智能叠放小组件、从热量估算补齐身体档案及首页饮食留白调整。Watch 的绝对毫秒时间使用 64 位，并通过 arm64_32 构建。源码基线、模拟器打包、独立版 30 项测试和原生冒烟通过。签名归档核对四个包的版本和共享组、Apple 健康、iPhone 生产 APNs 及 Cloudflare 98 源码指针。Xcode 以 TestFlight Internal Only 上传。App Store Connect 已将 Build 66 加入「训练搭子内测」，状态为 \`Testing\`。
