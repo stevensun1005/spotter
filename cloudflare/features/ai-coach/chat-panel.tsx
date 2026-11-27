@@ -19,7 +19,8 @@ import type { ProteinProduct } from "@/features/training/protein";
 import type { ActivitySummary } from "./activity-summary";
 import { ChatTrainingDraft } from "./chat-draft";
 import { CoachReplyCard, type CoachReplyKind } from "./reply-card";
-import { asksForTrainingPlan, asksToLogMeal, cancelsMealLogging, continuesMealLogging } from "./chat-intent";
+import { asksForTrainingPlan, asksToAddReportedMeal, asksToLogMeal, cancelsMealLogging,
+  continuesMealLogging, reportsEatenMeal } from "./chat-intent";
 import { asksToReviseDraft, draftWindowFor, type DraftWindow } from "./plan-conversation";
 import { productHelpReply } from "./product-help";
 import { weightDialogue, type PendingWeight } from "./weight-dialogue";
@@ -64,6 +65,7 @@ type Turn = {
   mealEstimate?: string;
   mealDateAnchor?: string;
   savedMealDate?: string;
+  acknowledgedTextMeal?: boolean;
   proteinFollowup?: "scoop" | "nutrition";
   openWarehouse?: boolean;
   drink?: Extract<SavedProteinReceipt, { status: "complete" }>["records"][number];
@@ -728,8 +730,9 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     setError("");
     const clearInput = () => { if (!fromSuggestion) setInput(""); };
     const localDate = asDate();
-    if (lastTurn?.response?.mealAction?.kind === "ready") {
-      const confirmsMeal = /^(?:就这(?:些|两样)|只有这些|没(?:有)?别的(?:了)?|that['’]s (?:all|it))[。！.!\s]*$/iu.test(question);
+    const addsReportedMeal = asksToAddReportedMeal(question);
+    if (lastTurn?.response?.mealAction?.kind === "ready" || lastTurn?.acknowledgedTextMeal) {
+      const confirmsMeal = addsReportedMeal || /^(?:就这(?:些|两样)|只有这些|没(?:有)?别的(?:了)?|that['’]s (?:all|it))[。！.!\s]*$/iu.test(question);
       if (lastTurn.unsavedMeal && (confirmsMeal || question === lastTurn.question ||
         /^(?:重试(?:保存)?|再试(?:一次)?|再保存(?:一次)?|保存|确认(?:保存)?|retry|try again)[。！.!\s]*$/iu.test(question))) {
         clearInput();
@@ -738,7 +741,8 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       }
       if (lastTurn.savedMealDate && confirmsMeal) {
         clearInput();
-        addTurn("local", question, { replyKind: "meal", savedMealDate: lastTurn.savedMealDate, localReply: "刚才这顿已记入饮食。" });
+        addTurn("local", question, { replyKind: "meal", savedMealDate: lastTurn.savedMealDate,
+          acknowledgedTextMeal: true, localReply: "刚才这顿已记入饮食。" });
         return;
       }
     }
@@ -814,8 +818,11 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
       return;
     }
     const freshPlan = asksForTrainingPlan(question);
+    const followsReportedMeal = addsReportedMeal && lastTurn?.kind === "chat" &&
+      (lastTurn.response?.mealAction?.kind === "needs" || reportsEatenMeal(lastTurn.question) || asksToLogMeal(lastTurn.question));
     const mealRequest = textMealEnabled && !freshPlan &&
-      (asksToLogMeal(question) || pendingMeal && (cancelsMealLogging(question) || continuesMealLogging(question)));
+      (asksToLogMeal(question) || reportsEatenMeal(question) || followsReportedMeal ||
+        pendingMeal && (cancelsMealLogging(question) || continuesMealLogging(question)));
     const target = mealRequest ? undefined : revisionTarget ? turns.find((turn) => turn.id === revisionTarget)
       : !freshPlan && (asksToReviseDraft(question) || pending && latestModelTurn?.kind === "revision") ? latestDraft : undefined;
     const priorDraft = target?.response?.draft;
@@ -824,7 +831,7 @@ export function AiCoachPanel({ active, compact, onExpand, owner, today, selected
     const date = draftWindow?.date ?? (fromSuggestion ? selectedDate : chatDate);
     if (!date) { setError("请选择要附上的训练日期。"); return; }
     const { messages, mealHistoryStart } = recentMessages(turns, question);
-    const mealLogging = !draftWindow && textMealEnabled ? {
+    const mealLogging = !draftWindow && textMealEnabled && (!addsReportedMeal || lastTurn?.kind !== "local") ? {
       pending: pendingMeal, historyStart: mealHistoryStart,
       date: pendingMeal ? lastMealTurn?.mealDateAnchor ?? localDate : localDate,
     } : undefined;

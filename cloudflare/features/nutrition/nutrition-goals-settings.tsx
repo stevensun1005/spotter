@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { ArrowRight, Calculator, Check, Flame, Pencil, Plus, Repeat2, Scale, Trash2, TrendingDown } from "lucide-react";
+import { useId, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, Calculator, Check, ChevronDown, Flame, Pencil, Plus, Repeat2, Scale, Trash2, TrendingDown } from "lucide-react";
 import { readBodyInputs } from "@/features/body/profile";
 import { useLibrary } from "@/features/library/use-library";
 import { emptyNutrition, nutritionValues, type LibraryItem, type LibraryRow, type NutritionValues } from "@/features/library/model";
@@ -91,6 +91,8 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
     };
   });
   const [showEstimator, setShowEstimator] = useState(false);
+  const estimatorId = useId();
+  const dailyTargetsHeading = useRef<HTMLHeadingElement>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; warning?: boolean }>();
   const macroSizes = [values.protein * 4, values.carbs * 4, values.fat * 9];
@@ -134,8 +136,24 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
           <label className="form-fields"><span className="muted">目标体重（kg）</span><input type="number" inputMode="decimal" step="any" min={10} max={700}
             placeholder="未设定" value={targetWeight} onChange={(event) => setTargetWeight(event.target.value)} /></label>
         </section>
+        <div className="nutrition-estimator-panel">
+          <button type="button" className="settings-row nutrition-estimate-toggle" aria-expanded={showEstimator} aria-controls={estimatorId}
+            onClick={() => setShowEstimator(!showEstimator)}>
+            <span className="settings-icon" data-tone="green"><Calculator size={18} aria-hidden="true" /></span>
+            <span><strong>按身体数据计算</strong><small>结合日常活动和训练估算每日营养目标</small></span>
+            <ChevronDown className="settings-arrow" size={17} aria-hidden="true" />
+          </button>
+          <div id={estimatorId} hidden={!showEstimator}>
+            {showEstimator && <NutritionGoalEstimator body={body} enabled={enabled} today={today} draft={draft} loggedTrainingDays={trainingDays} onChange={setDraft}
+              water={values.water} targetWeightKg={targetWeight ? Number(targetWeight) : undefined} onApply={(next) => {
+                setValues(next);
+                setFeedback({ message: "已填入每日目标，可调整后保存。" });
+                dailyTargetsHeading.current?.focus();
+              }} onBody={onBody} />}
+          </div>
+        </div>
         <section className="feature-stack nutrition-daily-targets">
-          <div className="section-head"><h3>每日营养目标</h3></div>
+          <div className="section-head"><h3 ref={dailyTargetsHeading} tabIndex={-1}>每日营养目标</h3></div>
           <div className="form-fields">
             <label>每日热量（千卡）<input type="number" inputMode="decimal" min={0} max={20000} step="any" placeholder="未设定"
               value={values.calories || ""} onChange={(event) => setValues({ ...values, calories: Number(event.target.value) })} /></label>
@@ -148,22 +166,17 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
             </label>)}</div>
           </div>
         </section>
-        <SettingsRows title="营养规划">
-          {onPlanning && <>
-            <SettingsLink label="碳循环规划" detail="按星期安排高、中、低碳目标" icon={Repeat2} onClick={() => onPlanning("carbCycle")} />
-            <SettingsLink label="减脂规划" detail="安排阶段与每日目标" icon={TrendingDown} onClick={() => onPlanning("cut")} />
-          </>}
-          <SettingsLink label="用 TDEE 来规划" detail="按身体档案、活动量和近期记录估算" icon={Calculator} onClick={() => setShowEstimator(!showEstimator)} />
-          {onPlanning && <SettingsLink label="用热量来规划" detail="按热量拆分三大营养素" icon={Flame} onClick={() => onPlanning("calories")} />}
-        </SettingsRows>
-        {showEstimator && <NutritionGoalEstimator enabled={enabled} today={today} draft={draft} loggedTrainingDays={trainingDays} onChange={setDraft}
-          water={values.water} targetWeightKg={targetWeight ? Number(targetWeight) : undefined} onApply={setValues} onBody={onBody} />}
       </fieldset>
       <button className="button primary nutrition-goal-save" disabled={!enabled || !readyToEdit || busy}><Check size={17} aria-hidden="true" />{busy ? "保存中…" : "保存目标"}</button>
       {feedback && <p className={feedback.warning ? "inline-error" : "muted"} role={feedback.warning ? "alert" : "status"}>{feedback.message}</p>}
       {!enabled && <p className="muted"><Scale size={16} aria-hidden="true" /> 登录后可保存个人目标。</p>}
       {enabled && !readyToEdit && <p className="muted" role="status">请读取云端目标后再编辑。</p>}
     </form>
+    {onPlanning && <SettingsRows title="营养规划">
+      <SettingsLink label="碳循环规划" detail="按星期安排高、中、低碳目标" icon={Repeat2} onClick={() => onPlanning("carbCycle")} />
+      <SettingsLink label="减脂规划" detail="安排阶段与每日目标" icon={TrendingDown} onClick={() => onPlanning("cut")} />
+      <SettingsLink label="用热量来规划" detail="按热量拆分三大营养素" icon={Flame} onClick={() => onPlanning("calories")} />
+    </SettingsRows>}
     {readyToEdit && <TargetTemplates owner={owner} values={values} onApply={setValues} />}
   </div>;
 }

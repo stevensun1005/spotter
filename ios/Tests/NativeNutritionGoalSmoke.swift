@@ -115,6 +115,20 @@ struct NativeNutritionGoalSmoke {
             let actual = NativeEnergyCalibration.dayNumber(text(item["date"])).map { Double($0) }
             expect(actual == number(item["expected"]), "\(text(item["date"])): day number")
         }
-        print("PASS native nutrition goal: \(estimates.count) estimates, \(calibrations.count) calibrations, training days and ages match the web cases")
+
+        let bodyFat = list("bodyFat")
+        expect(!bodyFat.isEmpty, "Body-fat selection cases are present")
+        for item in bodyFat {
+            let readings = (item["readings"] as? [[String: Any]] ?? []).compactMap { row -> NativeNutritionGoalReading? in
+                guard let value = number(row["percent"]) else { return nil }
+                let day = text(row["date"])
+                return NativeNutritionGoalReading(day: day, updated: row["updated"] as? String ?? day + "T08:00:00Z", value: value)
+            }
+            let latest = NativeNutritionGoalRules.latestBodyFat(readings, through: text(item["through"]))
+            let expected = item["expected"] as? [String: Any]
+            expect(latest?.day == expected?["date"] as? String, "\(text(item["name"])): body-fat day")
+            expect(latest?.value == number(expected?["percent"]), "\(text(item["name"])): body-fat percentage")
+        }
+        print("PASS native nutrition goal: \(estimates.count) estimates, \(calibrations.count) calibrations, training days, ages and body-fat selection match the web cases")
     }
 }

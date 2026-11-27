@@ -153,6 +153,7 @@ struct NativeCoachView: View {
         var receipt: MealReceipt? = nil
         var proteinReceipt: ProteinOperationReceipt? = nil
         var mealConversationReply: String? = nil
+        var acknowledgedTextMealID: String? = nil
         var recommendations: [NativeCoachRecommendation]? = nil
     }
     private struct MealReceipt: Codable, Equatable, Identifiable {
@@ -1365,10 +1366,11 @@ struct NativeCoachView: View {
         }
         guard canSendConversation() else { return }
         let shortReply = input.trimmingCharacters(in: CharacterSet(charactersIn: "。！!，, "))
+        let addsReportedMeal = Self.asksToAddReportedMeal(input)
         if session.isTextMealDraft, let draft = session.mealDraft {
             if ["取消", "取消本次", "不用记了"].contains(shortReply) {
                 discardTextMealRetry()
-            } else if ["重试", "重试记录", "就这些", "保存"].contains(shortReply) {
+            } else if addsReportedMeal || ["重试", "重试记录", "就这些", "保存"].contains(shortReply) {
                 text = ""
                 Task { await retryMeal(draft) }
             } else {
@@ -1377,11 +1379,11 @@ struct NativeCoachView: View {
             return
         }
         if session.picture == nil, !session.weightPrompt,
-           let last = session.lines.last, last.mealConversationReply != nil, let receipt = last.receipt,
-           ["就这些", "没有了", "没别的"].contains(shortReply) {
+           let receipt = latestTextMealReceipt,
+           addsReportedMeal || ["就这些", "没有了", "没别的"].contains(shortReply) {
             text = ""
             session.lines += [Line(role: "local-user", content: input),
-                              Line(role: "local", content: "这餐已记入\(receipt.date)的\(receipt.meal)。")]
+                              Line(role: "local", content: "这餐已记入\(receipt.date)的\(receipt.meal)。", acknowledgedTextMealID: receipt.id)]
             return
         }
         if session.picture != nil {
@@ -1456,6 +1458,25 @@ struct NativeCoachView: View {
             text = ""
             openGuide()
         } else { submit(planMode || !session.planDrafts.isEmpty && asksToRevisePlan(input) ? .plan : .chat) }
+    }
+
+    private var latestTextMealReceipt: MealReceipt? {
+        guard let last = session.lines.last else { return nil }
+        if last.mealConversationReply != nil, let receipt = last.receipt { return receipt }
+        guard let id = last.acknowledgedTextMealID else { return nil }
+        return session.lines.last(where: { $0.receipt?.id == id })?.receipt
+    }
+
+    private static func asksToAddReportedMeal(_ input: String) -> Bool {
+        let text = input.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chinese = #"^(?:(?:请|麻烦(?:你)?)\s*)?(?:(?:帮|替|给)我\s*)?(?:把\s*(?:它|这个|这(?:一)?顿|刚才那(?:一)?顿|刚才那(?:一)?餐)\s*)?"#
+            + #"(?:(?:添加|加|记|录|补记|记录)(?:进(?:去|到)?|入|到|上|下|一下)?\s*"#
+            + #"(?:(?:我(?:的)?\s*)?(?:饮食(?:日记|日志|记录)?|餐食(?:记录)?|日记|日志)(?:里|里面|中)?|这(?:一)?餐|刚才那(?:一)?顿|刚才那(?:一)?餐)?|(?:给|替)我记)(?:吧|一下)?[。.!！]*$"#
+        let reference = #"进去|饮食|餐食|日记|日志|这(?:一)?餐|这(?:一)?顿|刚才|这(?:一)?个|它"#
+        let english = #"^(?:(?:please|can you|could you|would you|help me)\s+)*(?:log|record|save|add)\s+(?:it|that|this meal|that meal|the last meal)"#
+            + #"(?:\s+(?:to|in)\s+(?:my |the )?(?:food diary|nutrition log|meal log))?[.!?]*$"#
+        return text.range(of: english, options: [.regularExpression, .caseInsensitive]) != nil ||
+            (text.range(of: reference, options: .regularExpression) != nil && text.range(of: chinese, options: .regularExpression) != nil)
     }
 
     private func productHelpReply(to input: String) -> String? {
@@ -1944,7 +1965,9 @@ struct NativeCoachView: View {
                 "model": "haiku", "date": selection?.date ?? (attachingPlans ? spotterDay(contextDate) : spotterDay()),
                 "includePlans": attachingPlans, "messages": messages
             ]
-            if kind == .chat, session.textMealLoggingEnabled, session.mealDraft == nil {
+            let lastUserRole = session.lines[..<messageIndex].last { $0.role == "user" || $0.role == "local-user" }?.role
+            if kind == .chat, session.textMealLoggingEnabled, session.mealDraft == nil,
+               !Self.asksToAddReportedMeal(user.content) || lastUserRole != "local-user" {
                 request["mealLogging"] = [
                     "pending": session.textMealPendingDate != nil, "date": mealAnchorDate,
                     "historyStart": context.prefix { $0.offset < session.textMealHistoryStart }.count

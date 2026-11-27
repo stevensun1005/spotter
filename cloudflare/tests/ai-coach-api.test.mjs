@@ -176,6 +176,66 @@ test("text meal logging estimates the confirmed meal in the same conversation", 
   assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM personal_library").get().count, 0);
 });
 
+test("a completed meal report prepares an automatic record on the first turn", async (t) => {
+  const { calls, respond, sqlite } = setup(t);
+  const localDate = "2026-11-26";
+  const messages = [{ role: "user", content: "吃了一个蛋挞作加餐" }];
+  const draft = { name: "蛋挞 × 1", grams: 55, calories: 190, protein: 4, carbs: 19, fat: 11 };
+  const estimate = "按一个普通大小的蛋挞约 55 克估算。";
+  respond(photoTool("prepare_meal_log", { meal: "加餐", ...draft, estimate }));
+
+  const first = await checked(post(owner, { ...chat, messages, mealLogging: { date: localDate } }));
+  assert.deepEqual(first.mealAction, { kind: "ready", meal: "加餐", date: localDate, draft, estimate });
+  assert.ok(calls[0].messages[0].content.endsWith(JSON.stringify(messages)));
+  assert.equal(first.quota.dailyRemaining, 199);
+
+  const saved = [...messages, { role: "assistant", content: "已把刚才这餐记入饮食日记。" },
+    { role: "user", content: "帮我添加进去" }];
+  const followUp = await checked(post(owner, { ...chat, messages: saved, mealLogging: { date: localDate, historyStart: 2 } }));
+  assert.deepEqual(followUp, { reply: "刚才这餐已经记入饮食。", model: "haiku" });
+  assert.equal(calls.length, 1);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM personal_library").get().count, 0,
+    "The app saves only the structured ready action and owns the receipt.");
+});
+
+test("a short request to add it uses the latest unsaved meal in context", async (t) => {
+  const { calls, respond } = setup(t);
+  const localDate = "2026-11-26";
+  const food = { role: "user", content: "吃了一个蛋挞作加餐" };
+  const command = { role: "user", content: "帮我添加进去" };
+  const olderMeal = { role: "user", content: "昨天晚餐吃了一碗面" };
+  const advice = { role: "assistant", content: "蛋挞作加餐没问题。" };
+  const draft = { name: "蛋挞 × 1", grams: 55, calories: 190, protein: 4, carbs: 19, fat: 11 };
+  respond(photoTool("prepare_meal_log", { meal: "加餐", ...draft, estimate: "按普通大小估算。" }));
+
+  const messages = [olderMeal, advice, food, advice, command];
+  const result = await checked(post(owner, { ...chat, messages, mealLogging: { date: localDate } }));
+  assert.deepEqual(result.mealAction, {
+    kind: "ready", date: localDate, meal: "加餐", draft, estimate: "按普通大小估算。",
+  });
+  assert.match(calls[0].messages[0].content, /吃了一个蛋挞作加餐/u);
+  assert.doesNotMatch(calls[0].messages[0].content, /昨天晚餐吃了一碗面/u);
+});
+
+test("auto-logging leaves nutrition questions and other people's meals in chat", async (t) => {
+  const { calls } = setup(t);
+  const advice = { role: "assistant", content: "我们可以继续聊这顿。" };
+  const command = { role: "user", content: "帮我添加进去" };
+  for (const messages of [
+    [{ role: "user", content: "吃了一个蛋挞作加餐，热量会不会太高？" }],
+    [{ role: "user", content: "如果我吃一个蛋挞作加餐" }, advice, command],
+    [{ role: "user", content: "我朋友吃了一个蛋挞作加餐" }, advice, command],
+    [{ role: "user", content: "我没吃蛋挞" }],
+    [{ role: "user", content: "吃了一个蛋挞作加餐，别记" }],
+    [{ role: "user", content: "吃了一个蛋挞作加餐" }, advice,
+      { role: "user", content: "我的训练计划还有哪几天？" }, advice, command],
+  ]) {
+    const response = await checked(post(owner, { ...chat, messages, mealLogging: {} }));
+    assert.equal(response.mealAction, undefined, JSON.stringify(messages));
+    assert.equal(calls.at(-1).tools, undefined, JSON.stringify(messages));
+  }
+});
+
 test("text meal recognition requires current authorization and respects date and nutrition bounds", async (t) => {
   const { calls, respond } = setup(t);
   const command = "帮我加进饮食里";

@@ -14,6 +14,11 @@ struct NativeFoodPortion: Codable, Hashable, Identifiable, Sendable {
 
     var id: String { name + "/" + nutritionInput(grams) }
     var label: String { name + " · " + nutritionNumber(grams) + " g" }
+    var isPackagedUnit: Bool { name == "个" || name == "份" }
+
+    func amountLabel(_ count: Double) -> String {
+        isPackagedUnit ? "\(nutritionNumber(count)) \(name)" : "\(nutritionNumber(count)) × \(name)"
+    }
 }
 
 /// `cloudflare/shared/food-catalog.json`, bundled into the app and imported by the web nutrition tools.
@@ -344,7 +349,7 @@ struct NativeMealLoggerItem: Identifiable, Equatable {
         if per100g != nil, let grams {
             if let portion {
                 let count = grams / portion.grams
-                return "\(nutritionNumber(count)) × \(portion.name) · \(nutritionNumber(grams)) g"
+                return portion.amountLabel(count) + " · " + nutritionNumber(grams) + " g"
             }
             return nutritionNumber(grams) + " g"
         }
@@ -357,7 +362,8 @@ struct NativeMealLoggerItem: Identifiable, Equatable {
         if per100g != nil {
             let unit = portion?.grams ?? 10
             let next = ((grams ?? 0) + direction * unit)
-            grams = min(3_000, max(portion == nil ? 1 : portion!.grams / 2, (next * 100).rounded() / 100))
+            let minimum = portion.map { $0.isPackagedUnit ? $0.grams : $0.grams / 2 } ?? 1
+            grams = min(3_000, max(minimum, (next * 100).rounded() / 100))
         } else {
             servings = min(20, max(0.5, servings + direction * 0.5))
         }
@@ -443,23 +449,6 @@ private struct NativeFoodEmoji: View {
 // MARK: - Meal logger
 
 @MainActor
-private final class NativeMealSelection: ObservableObject {
-    @Published var meal: NutritionShortcut
-
-    init(_ meal: NutritionShortcut) {
-        self.meal = meal
-    }
-}
-
-@MainActor
-private struct NativeMealSelectionView<Content: View>: View {
-    @ObservedObject var selection: NativeMealSelection
-    @ViewBuilder var content: (Binding<NutritionShortcut>) -> Content
-
-    var body: some View { content($selection.meal) }
-}
-
-@MainActor
 struct NativeMealLogger: View {
     fileprivate enum Tab: String, CaseIterable, Identifiable, Sendable {
         case search = "搜索", custom = "自定义", favorites = "收藏", templates = "固定模版"
@@ -503,8 +492,8 @@ struct NativeMealLogger: View {
     let date: String
     let payload: NutritionPayload
     let onSaved: (NativeQuickMealReceipt?) -> Void
-    private let choosesMealOnCompletion: Bool
-    private let recentsByMeal: [NutritionShortcut: [NativeRecentServing]]
+    private let suggestedMeal: NutritionShortcut
+    private let recents: [NativeRecentServing]
     private let savedPersonal: [NativeNutritionFood]
 
     @Environment(\.dismiss) private var dismiss
@@ -512,8 +501,6 @@ struct NativeMealLogger: View {
     @Environment(\.spotterGuide) private var guide
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.dynamicTypeSize) private var textSize
-    // Observe meal changes only in the controls and recent strip that display them.
-    @State private var mealSelection: NativeMealSelection
     @State private var tab = Tab.search
     @State private var query = ""
     @State private var searchResults: [Tab: SearchResult] = [:]
@@ -551,24 +538,25 @@ struct NativeMealLogger: View {
         Dictionary(grouping: foods) { $0.group ?? "" }
     }
 
-    init(api: NativeAPI, owner: String, date: String, meal: NutritionShortcut?, payload: NutritionPayload,
+    init(api: NativeAPI, owner: String, date: String, payload: NutritionPayload,
          onSaved: @escaping (NativeQuickMealReceipt?) -> Void) {
         self.api = api
         self.owner = owner
         self.date = date
         self.payload = payload
         self.onSaved = onSaved
-        self.choosesMealOnCompletion = meal == nil
-        self.recentsByMeal = payload.recentServingsByMeal()
+        let suggestedMeal = NutritionShortcut.suggestedMeal
+        self.suggestedMeal = suggestedMeal
+        self.recents = payload.recentServings(for: suggestedMeal)
+        let portionsByFood = payload.savedFoodPortions
         self.savedPersonal = payload.rows.compactMap { row in
             guard row.kind == "food", let id = row.id, let name = row.name, let facts = row.per100g else { return nil }
             var food = NativeNutritionFood(id: id, name: name, facts: facts)
             food.isPersonal = true
             food.emoji = "⭐️"
+            food.portions = portionsByFood[id] ?? []
             return food
         }
-        let browsingMeal = meal ?? .suggestedMainMeal
-        _mealSelection = State(initialValue: NativeMealSelection(browsingMeal.isMeal ? browsingMeal : .snack))
         _category = State(initialValue: Self.catalog?.categories.first?.id ?? "")
     }
 
@@ -587,7 +575,6 @@ struct NativeMealLogger: View {
     private var store: NativeFoodLocalStore { .init(api: api, owner: owner) }
     private var templateStore: NativeFavoriteMealStore { .init(api: api, owner: owner) }
     private var guiding: Bool { guide?.step.presentation == .mealEditor }
-    private var meal: NutritionShortcut { mealSelection.meal }
     private var totals: NativeNutritionFood.Facts {
         basket.reduce(.init(calories: 0, protein: 0, carbs: 0, fat: 0)) { $0.adding($1.facts) }
     }
@@ -598,9 +585,6 @@ struct NativeMealLogger: View {
         NavigationStack {
             VStack(spacing: 0) {
                 header
-                if !choosesMealOnCompletion {
-                    mealChoice.padding(.horizontal, 14).padding(.top, 6)
-                }
                 searchField.padding(.horizontal, 14).padding(.top, 10)
                 SpotterSegments("食物来源", options: Tab.allCases, value: $tab, usesUIKitControl: true, title: \.rawValue)
                     .padding(.horizontal, 14).padding(.top, 6)
@@ -645,11 +629,7 @@ struct NativeMealLogger: View {
             Button("取消", role: .cancel) {}
             Button("保存") { saveTemplate() }
         } message: {
-            if choosesMealOnCompletion {
-                Text("把已选的 \(basket.count) 项存为固定模版，以后可以一键加入。")
-            } else {
-                Text("把已选的 \(basket.count) 项存为「\(meal.rawValue)」模版，以后在「固定模版」一键加入。")
-            }
+            Text("把已选的 \(basket.count) 项存为固定模版，以后可以一键加入。")
         }
     }
 
@@ -665,11 +645,8 @@ struct NativeMealLogger: View {
             .accessibilityLabel(basket.isEmpty ? "返回" : "放弃已选食物并返回")
             .disabled(busy)
             Spacer(minLength: 0)
-            NativeMealSelectionView(selection: mealSelection) { meal in
-                Text(choosesMealOnCompletion ? "记录正餐" : "记录" + meal.wrappedValue.rawValue)
-                    .font(.headline).lineLimit(1)
-                    .accessibilityAddTraits(.isHeader)
-            }
+            Text("记录饮食").font(.headline).lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
             Menu {
                 Button { cover = .scanner } label: { Label("扫食物条码", systemImage: "barcode.viewfinder") }
@@ -689,13 +666,6 @@ struct NativeMealLogger: View {
             .accessibilityLabel("快速录入：扫条码或识别营养表")
         }
         .padding(.leading, 6).padding(.trailing, 12).padding(.top, 6)
-    }
-
-    private var mealChoice: some View {
-        NativeMealSelectionView(selection: mealSelection) { meal in
-            SpotterSegments("记入餐次", options: Self.mealOptions, value: meal, usesUIKitControl: true, title: \.rawValue)
-        }
-        .disabled(busy)
     }
 
     private var searchField: some View {
@@ -849,12 +819,8 @@ struct NativeMealLogger: View {
         let shown = group.map { Self.foodsByGroup[current.id]?[$0] ?? [] } ?? (Self.foodsByCategory[current.id] ?? [])
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
-                if current.id == Self.catalog?.categories.first?.id && group == nil {
-                    NativeMealSelectionView(selection: mealSelection) { meal in
-                        if let recents = recentsByMeal[meal.wrappedValue], !recents.isEmpty {
-                            recentStrip(recents)
-                        }
-                    }
+                if current.id == Self.catalog?.categories.first?.id, group == nil, !recents.isEmpty {
+                    recentStrip(recents)
                 }
                 groupChips(current)
                 VStack(alignment: .leading, spacing: 3) {
@@ -988,7 +954,7 @@ struct NativeMealLogger: View {
                 }
                 if shown.isEmpty {
                     emptyState(templates.isEmpty ? "还没有固定模版" : "没有匹配的模版",
-                               detail: "先选好一餐常吃的食物，再点上方「存为模版」。和「常用餐」是同一份清单。") { EmptyView() }
+                               detail: "选好食物后打开食物篮，再点「存为固定模版」。") { EmptyView() }
                 } else {
                     ForEach(shown) { preset in templateCard(preset) }
                 }
@@ -1135,35 +1101,28 @@ struct NativeMealLogger: View {
                 .disabled(basket.isEmpty)
                 .accessibilityLabel(basket.isEmpty ? "还没有选择食物" : "已选 \(basket.count) 项，共 \(nutritionNumber(totals.calories)) 千卡")
                 .accessibilityHint("查看和调整已选食物")
-                NativeMealSelectionView(selection: mealSelection) { meal in
-                    Button {
-                        if choosesMealOnCompletion {
-                            searchFocused = false
-                            choosingMeal = true
-                        } else {
-                            let target = meal.wrappedValue
-                            Task { await save(meal: target) }
-                        }
-                    } label: {
-                        ZStack {
-                            if busy { ProgressView().tint(SpotterPalette.deep) }
-                            else { Text(basket.isEmpty ? "完成" : "完成（\(basket.count)）").fontWeight(.bold) }
-                        }
-                        .foregroundStyle(SpotterPalette.deep)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(accent.fill.opacity(basket.isEmpty ? 0.5 : 1), in: Capsule())
-                        .contentShape(Capsule())
+                Button {
+                    searchFocused = false
+                    choosingMeal = true
+                } label: {
+                    ZStack {
+                        if busy { ProgressView().tint(SpotterPalette.deep) }
+                        else { Text(basket.isEmpty ? "完成" : "完成（\(basket.count)）").fontWeight(.bold) }
                     }
-                    .buttonStyle(.spotterPress)
-                    .disabled(basket.isEmpty || busy || guiding)
-                    .accessibilityLabel(busy ? "正在保存" : (choosesMealOnCompletion ? "完成" : "完成，记入\(meal.wrappedValue.rawValue)"))
-                    .accessibilityHint(choosesMealOnCompletion ? "选择要记入的餐次" : "")
-                    .confirmationDialog("记到哪一餐？", isPresented: $choosingMeal, titleVisibility: .visible) {
-                        ForEach(Self.mealOptions) { target in
-                            Button(target.rawValue) { Task { await save(meal: target) } }
-                        }
-                        Button("取消", role: .cancel) {}
+                    .foregroundStyle(SpotterPalette.deep)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(accent.fill.opacity(basket.isEmpty ? 0.5 : 1), in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.spotterPress)
+                .disabled(basket.isEmpty || busy || guiding)
+                .accessibilityLabel(busy ? "正在保存" : "完成")
+                .accessibilityHint("选择要记入的餐次")
+                .confirmationDialog("记到哪一餐？", isPresented: $choosingMeal, titleVisibility: .visible) {
+                    ForEach(Self.mealOptions) { target in
+                        Button(target.rawValue) { Task { await save(meal: target) } }
                     }
+                    Button("取消", role: .cancel) {}
                 }
             }
         }
@@ -1212,25 +1171,25 @@ struct NativeMealLogger: View {
                 append(portionItem, message: "已加入「\(food.name)」· \(portionItem.amountText)")
             }
         case .basket:
-            NativeMealBasketSheet(items: $basket, meal: choosesMealOnCompletion ? nil : meal, saveTemplate: guiding ? nil : {
+            NativeMealBasketSheet(items: $basket, saveTemplate: guiding ? nil : {
                 sheet = nil
                 templateName = ""
                 savingTemplate = true
             })
         case .custom(let draft):
-            NativeCustomFoodEditor(api: api, owner: owner, draft: draft, existing: personal.map(\.name), locked: guiding,
+            NativeCustomFoodEditor(api: api, owner: owner, draft: draft, existing: personal.filter { $0.id != draft.id }.map(\.name), locked: guiding,
                                    takePhoto: { current in
                                        carryDraft = current
                                        queuedCover = .camera
                                        sheet = nil
-                                   }) { food, grams in
+                                   }) { food, grams, portion in
                 addedPersonal.removeAll { $0.id == food.id }
                 addedPersonal.insert(food, at: 0)
                 if let code = draft.barcode {
                     // An empty payload has not loaded yet, so it cannot say which saved foods still exist.
                     store.remember(barcode: code, food: food.id, known: payload.rows.isEmpty ? nil : Set(personal.map(\.id)))
                 }
-                if let grams { add(food, grams: grams) } else { show("已存入「我的食物」") }
+                if let grams { add(food, grams: grams, portion: portion) } else { show("已存入「我的食物」") }
             }
         case .manual:
             NativeManualMealItemEditor { append($0, message: "已加入「\($0.name)」") }
@@ -1276,8 +1235,8 @@ struct NativeMealLogger: View {
 
     private func add(_ food: NativeNutritionFood, grams: Double, portion: NativeFoodPortion? = nil) {
         guard grams > 0, grams <= 3_000 else { return }
-        append(NativeMealLoggerItem(food: food, grams: grams, portion: portion),
-               message: "已加入「\(food.name)」· " + (portion.map { "1 × " + $0.name } ?? nutritionNumber(grams) + " g"))
+        let item = NativeMealLoggerItem(food: food, grams: grams, portion: portion)
+        append(item, message: "已加入「\(food.name)」· \(item.amountText)")
     }
 
     private func append(_ item: NativeMealLoggerItem, message: String) {
@@ -1310,8 +1269,8 @@ struct NativeMealLogger: View {
         let name = templateName.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallback = basket.prefix(2).map(\.name).joined(separator: " + ") + (basket.count > 2 ? " 等 \(basket.count) 项" : "")
         let title = String((name.isEmpty ? fallback : name).prefix(60))
-        let preset = NativeFavoriteMeal(name: title, meal: meal.rawValue, foods: basket.map(NativeFavoriteMeal.Food.init(item:)))
-        guard preset.record(id: preset.id.uuidString, day: date, meal: meal, servings: 1) != nil else {
+        let preset = NativeFavoriteMeal(name: title, meal: suggestedMeal.rawValue, foods: basket.map(NativeFavoriteMeal.Food.init(item:)))
+        guard preset.record(id: preset.id.uuidString, day: date, meal: suggestedMeal, servings: 1) != nil else {
             error = "这份组合的总重量或营养数值超出记餐范围，请减少已选食物。"
             return
         }
@@ -1350,16 +1309,7 @@ struct NativeMealLogger: View {
                 let updated = try JSONDecoder().decode(NativeJSON.self, from: response)["updated"].string
                 if !updated.isEmpty { receipt = NativeQuickMealReceipt(id: item.id, updated: updated, name: item.name, day: date) }
             } else {
-                var query = URLComponents()
-                query.path = "/api/data"
-                query.queryItems = [URLQueryItem(name: "expectedOwner", value: owner)]
-                guard let path = query.string else { throw NativeAPIError.invalidRequest }
-                let body: [String: Any] = ["format": "spotter-backup", "version": 1, "training": [], "heart": [], "library": records]
-                let data = try await api.request(path, method: "POST", json: JSONSerialization.data(withJSONObject: body), for: owner)
-                let result = try JSONDecoder().decode(NativeJSON.self, from: data)
-                guard Int(result["added"].number) + Int(result["skipped"].number) == records.count else {
-                    throw NativeAPIError.invalidResponse
-                }
+                _ = try await api.importMealLibraryRows(records, owner: owner)
             }
             unconfirmed = [:]
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
@@ -1379,7 +1329,14 @@ struct NativeMealLogger: View {
             show("条码无法识别，请重新扫描。")
             return
         }
-        if let id = store.food(forBarcode: code), let food = personal.first(where: { $0.id == id }) {
+        if let id = store.food(forBarcode: code), var food = personal.first(where: { $0.id == id }) {
+            if food.portions.isEmpty {
+                working = "正在查询条码份量…"
+                if let portion = (try? await NativeOpenFoodFacts.product(code))?.portion {
+                    food.portions = [portion]
+                }
+                working = nil
+            }
             sheet = .portion(food, nil)
             return
         }
@@ -1397,7 +1354,10 @@ struct NativeMealLogger: View {
                 } else {
                     draft.note = "查到了商品名称，但缺少营养数据。可以点「拍营养标签」自动填写。"
                 }
-                if let serving = product.servingGrams { draft.consumed = nutritionInput(serving) }
+                if let portion = product.portion {
+                    draft.barcodeUnit = portion.name
+                    draft.barcodeUnitGrams = nutritionInput(portion.grams)
+                }
             } else {
                 draft.note = "没有查到条码 \(code)。拍营养标签或手动填写后保存，下次扫码直接使用。"
             }
@@ -1452,6 +1412,21 @@ struct NativeMealLogger: View {
                 : "站内识别暂不可用，已按每份填入手机识别出的数值。没有读到每份克数，请填写「每份重量」后保存。"
         }
         sheet = .custom(draft)
+    }
+}
+
+private extension NativeAPI {
+    func importMealLibraryRows(_ rows: [[String: Any]], owner: String) async throws -> Int {
+        var query = URLComponents()
+        query.path = "/api/data"
+        query.queryItems = [URLQueryItem(name: "expectedOwner", value: owner)]
+        guard let path = query.string else { throw NativeAPIError.invalidRequest }
+        let body: [String: Any] = ["format": "spotter-backup", "version": 1, "training": [], "heart": [], "library": rows]
+        let data = try await request(path, method: "POST", json: JSONSerialization.data(withJSONObject: body), for: owner)
+        let result = try JSONDecoder().decode(NativeJSON.self, from: data)
+        let skipped = Int(result["skipped"].number)
+        guard Int(result["added"].number) + skipped == rows.count else { throw NativeAPIError.invalidResponse }
+        return skipped
     }
 }
 
@@ -1523,14 +1498,14 @@ private struct NativeFoodPortionSheet: View {
                         }
                         HStack(spacing: 8) {
                             stepButton("减少", icon: "minus") { change(-1) }
-                            TextField(portion == nil ? "克数" : "份数", text: $amount)
+                            TextField(amountTitle, text: $amount)
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.center)
                                 .font(.title3.weight(.semibold)).monospacedDigit()
                                 .frame(minHeight: 44)
                                 .background(SpotterPalette.card, in: RoundedRectangle(cornerRadius: 12))
                                 .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
-                                .accessibilityLabel(portion == nil ? "克数" : "份数")
+                                .accessibilityLabel(amountTitle)
                             stepButton("增加", icon: "plus") { change(1) }
                             Text(portion?.name ?? "g").font(.subheadline).foregroundStyle(SpotterPalette.muted)
                                 .lineLimit(1).frame(minWidth: 26)
@@ -1584,8 +1559,8 @@ private struct NativeFoodPortionSheet: View {
 
     private func change(_ direction: Double) {
         let current = nutritionValue(amount) ?? 0
-        let step: Double = portion == nil ? 10 : 0.5
-        let next = max(portion == nil ? 1 : 0.5, ((current + direction * step) * 10).rounded() / 10)
+        let step: Double = portion == nil ? 10 : portion?.isPackagedUnit == true ? 1 : 0.5
+        let next = max(step == 0.5 ? 0.5 : 1, ((current + direction * step) * 10).rounded() / 10)
         amount = nutritionInput(next)
     }
 
@@ -1636,6 +1611,11 @@ private struct NativeFoodPortionSheet: View {
         .buttonStyle(.spotterPress)
         .accessibilityLabel(label)
     }
+
+    private var amountTitle: String {
+        if portion?.name == "个" { return "个数" }
+        return portion == nil ? "克数" : "份数"
+    }
 }
 
 // MARK: - Basket sheet
@@ -1643,7 +1623,6 @@ private struct NativeFoodPortionSheet: View {
 @MainActor
 private struct NativeMealBasketSheet: View {
     @Binding var items: [NativeMealLoggerItem]
-    let meal: NutritionShortcut?
     let saveTemplate: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -1696,8 +1675,7 @@ private struct NativeMealBasketSheet: View {
                         }
                         .buttonStyle(.spotterControl)
                     }
-                    Text(meal.map { "点「完成」，把已选食物记入\($0.rawValue)。" }
-                         ?? "点「完成」后选一个餐次，已选食物会一起记入。")
+                    Text("点「完成」后选一个餐次，已选食物会一起记入。")
                         .font(.caption).foregroundStyle(SpotterPalette.muted)
                 }
                 .padding(16)
@@ -1751,9 +1729,17 @@ struct NativeCustomFoodDraft {
     var fat = ""
     var consumed = ""
     var barcode: String?
+    var barcodeUnitGrams = ""
+    var barcodeUnit = "个"
+    var barcodeCount = 1
     var note: String?
 
     init(name: String = "") { self.name = String(name.prefix(100)) }
+
+    var barcodePortion: NativeFoodPortion? {
+        guard barcode != nil, let grams = nutritionValue(barcodeUnitGrams), (0.1...3_000).contains(grams) else { return nil }
+        return NativeFoodPortion(name: barcodeUnit, grams: grams)
+    }
 
     mutating func fill(per100g facts: NativeNutritionFood.Facts) {
         basis = .per100g
@@ -1793,6 +1779,10 @@ struct NativeCustomFoodDraft {
         // A weight in brackets on a per-100 g photo may be the package weight, so only per-serving photos set it.
         if let read, target == .serving { servingGrams = nutritionInput(read) }
         if target == .serving, consumed.isEmpty, let read { consumed = nutritionInput(read) }
+        if barcode != nil, barcodeUnitGrams.isEmpty, target == .serving, let read {
+            barcodeUnit = "份"
+            barcodeUnitGrams = nutritionInput(read)
+        }
         if let value = reading.calories { calories = nutritionInput(value) }
         if let value = reading.protein { protein = nutritionInput(value) }
         if let value = reading.carbs { carbs = nutritionInput(value) }
@@ -1808,17 +1798,19 @@ private struct NativeCustomFoodEditor: View {
     let existing: [String]
     let locked: Bool
     let takePhoto: (NativeCustomFoodDraft) -> Void
-    let saved: (NativeNutritionFood, Double?) -> Void
+    let saved: (NativeNutritionFood, Double?, NativeFoodPortion?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
     @Environment(\.spotterInteractionMotion) private var motion
     @State private var draft: NativeCustomFoodDraft
+    @State private var editsBarcodeUnit: Bool
+    @State private var showsNutritionValues: Bool
     @State private var busy = false
     @State private var error: String?
 
     init(api: NativeAPI, owner: String, draft: NativeCustomFoodDraft, existing: [String], locked: Bool,
-         takePhoto: @escaping (NativeCustomFoodDraft) -> Void, saved: @escaping (NativeNutritionFood, Double?) -> Void) {
+         takePhoto: @escaping (NativeCustomFoodDraft) -> Void, saved: @escaping (NativeNutritionFood, Double?, NativeFoodPortion?) -> Void) {
         self.api = api
         self.owner = owner
         self.existing = existing
@@ -1828,6 +1820,8 @@ private struct NativeCustomFoodEditor: View {
         var initial = draft
         if initial.consumed.isEmpty { initial.consumed = initial.basis == .serving ? initial.servingGrams : "" }
         _draft = State(initialValue: initial)
+        _editsBarcodeUnit = State(initialValue: draft.barcodePortion == nil)
+        _showsNutritionValues = State(initialValue: [draft.protein, draft.carbs, draft.fat].contains(where: \.isEmpty))
     }
 
     private var per100g: NativeNutritionFood.Facts? {
@@ -1848,12 +1842,19 @@ private struct NativeCustomFoodEditor: View {
     }
 
     private var consumedGrams: Double? {
+        if let portion = draft.barcodePortion {
+            let grams = Double(draft.barcodeCount) * portion.grams
+            return (0.1...3_000).contains(grams) ? grams : nil
+        }
         let typed = draft.consumed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty, let grams = nutritionValue(typed), (0.1...3_000).contains(grams) else { return nil }
         return grams
     }
 
     private var name: String { draft.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var quantityOutOfRange: Bool {
+        draft.barcodePortion != nil && draft.barcodeCount > 0 && consumedGrams == nil
+    }
 
     var body: some View {
         NavigationStack {
@@ -1869,20 +1870,15 @@ private struct NativeCustomFoodEditor: View {
                     Button { takePhoto(draft) } label: { Label("拍营养标签自动填写", systemImage: "camera") }
                         .disabled(busy)
                 }
+                if draft.barcode != nil { barcodeQuantity }
                 Section {
-                    SpotterSegments("营养数值单位", options: [NativeCustomFoodDraft.Basis.per100g, .serving], value: $draft.basis) {
-                        $0 == .per100g ? "每 100 g" : "每份"
+                    if draft.barcode != nil {
+                        DisclosureGroup("核对营养数值", isExpanded: $showsNutritionValues) { nutritionFields }
+                    } else {
+                        nutritionFields
                     }
-                    .accessibilityElement(children: .contain).accessibilityLabel("营养数值的基准")
-                    if draft.basis == .serving {
-                        numberField("每份重量（g）", $draft.servingGrams)
-                    }
-                    numberField("蛋白质（g）", $draft.protein)
-                    numberField("碳水（g）", $draft.carbs)
-                    numberField("脂肪（g）", $draft.fat)
-                    numberField("热量（千卡，留空自动估算）", $draft.calories)
                 } header: {
-                    Text("营养数值")
+                    if draft.barcode == nil { Text("营养数值") }
                 } footer: {
                     if let facts = per100g {
                         Text("每 100 g：\(facts.description)")
@@ -1890,23 +1886,25 @@ private struct NativeCustomFoodEditor: View {
                         Text("填写蛋白质、碳水和脂肪。按每份填写时需要每份克数，App 会换算成每 100 g 保存。")
                     }
                 }
-                Section {
-                    numberField("这次吃了多少克（选填）", $draft.consumed)
-                } footer: {
-                    Text("填写后保存时会同时加入这一餐。")
+                if draft.barcodePortion == nil {
+                    Section {
+                        numberField("这次吃了多少克（选填）", $draft.consumed)
+                    } footer: {
+                        Text("填写后保存时会同时加入这一餐。")
+                    }
                 }
                 if let error { Section { Text(error).font(.footnote).foregroundStyle(.red) } }
                 Section {
-                    Button { Task { await save(add: true) } } label: {
+                    Button { Task { await save() } } label: {
                         Text(busy ? "保存中…" : (consumedGrams == nil ? "保存到我的食物" : "保存并加入这一餐")).fontWeight(.semibold)
                     }
-                    .disabled(busy || locked || per100g == nil || !(1...100).contains(name.utf16.count))
+                    .disabled(busy || locked || per100g == nil || quantityOutOfRange || !(1...100).contains(name.utf16.count))
                 }
             }
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
             .background(SpotterPalette.background.ignoresSafeArea())
-            .navigationTitle("自定义食物")
+            .navigationTitle(draft.barcode == nil ? "自定义食物" : "扫码食物")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { NutritionDismissButton(label: "取消") { dismiss() }.disabled(busy) } }
             .animation(motion, value: draft.basis)
@@ -1916,12 +1914,50 @@ private struct NativeCustomFoodEditor: View {
         .presentationDetents([.large])
     }
 
+    private var barcodeQuantity: some View {
+        Section("这次吃了多少") {
+            if let portion = draft.barcodePortion {
+                Stepper(value: $draft.barcodeCount, in: 0...30_000) {
+                    LabeledContent("数量", value: portion.amountLabel(Double(draft.barcodeCount)))
+                }
+                .accessibilityIdentifier("nutrition-barcode-quantity")
+                if let grams = consumedGrams, let facts = per100g {
+                    Text("本次 \(nutritionNumber(grams)) g · \(facts.scaled(grams).description)")
+                        .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                        .accessibilityIdentifier("nutrition-barcode-totals")
+                } else if quantityOutOfRange {
+                    Text("本次食用总重量不能超过 3000 g。").font(.footnote).foregroundStyle(.red)
+                }
+            }
+            DisclosureGroup(draft.barcodePortion.map { "每\($0.name) \(nutritionNumber($0.grams)) g" } ?? "设置每个或每份的重量",
+                            isExpanded: $editsBarcodeUnit) {
+                Picker("计量单位", selection: $draft.barcodeUnit) {
+                    Text("个").tag("个")
+                    Text("份").tag("份")
+                }
+                numberField("每\(draft.barcodeUnit)重量（g）", $draft.barcodeUnitGrams)
+            }
+        }
+    }
+
+    @ViewBuilder private var nutritionFields: some View {
+        SpotterSegments("营养数值单位", options: [NativeCustomFoodDraft.Basis.per100g, .serving], value: $draft.basis) {
+            $0 == .per100g ? "每 100 g" : "每份"
+        }
+        .accessibilityElement(children: .contain).accessibilityLabel("营养数值的基准")
+        if draft.basis == .serving { numberField("每份重量（g）", $draft.servingGrams) }
+        numberField("蛋白质（g）", $draft.protein)
+        numberField("碳水（g）", $draft.carbs)
+        numberField("脂肪（g）", $draft.fat)
+        numberField("热量（千卡，留空自动估算）", $draft.calories)
+    }
+
     private func numberField(_ title: String, _ value: Binding<String>) -> some View {
         TextField(title, text: value).keyboardType(.decimalPad).accessibilityLabel(title)
     }
 
-    private func save(add: Bool) async {
-        guard !busy, let facts = per100g, (1...100).contains(name.utf16.count) else { return }
+    private func save() async {
+        guard !busy, !locked, !quantityOutOfRange, let facts = per100g, (1...100).contains(name.utf16.count) else { return }
         if existing.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
             error = "「我的食物」里已有这个名称。可以加上品牌或口味来区分。"
             return
@@ -1930,15 +1966,33 @@ private struct NativeCustomFoodEditor: View {
         error = nil
         defer { busy = false }
         do {
-            try await api.spotterSend("/api/library", body: [
-                "action": "save", "expectedOwner": owner,
-                "data": ["kind": "food", "id": draft.id, "name": name, "per100g": facts.payload]
-            ])
+            let record: [String: Any] = ["kind": "food", "id": draft.id, "name": name, "per100g": facts.payload]
+            let portion = draft.barcodePortion
+            if draft.barcode != nil {
+                let portions = portion.map { [$0] } ?? []
+                let servings: [String: Any] = ["kind": "food-portions", "id": draft.id,
+                                              "portions": portions.map { ["name": $0.name, "grams": $0.grams] }]
+                if try await api.importMealLibraryRows([record, servings], owner: owner) > 0 {
+                    // A previous request may have committed before its response was lost. Reconcile edits made since it.
+                    let data = try await api.request("/api/library?date=\(spotterDay())", method: "GET", json: nil, for: owner)
+                    let existing = try JSONDecoder().decode(NutritionPayload.self, from: data)
+                    let savedFood = existing.rows.first { $0.kind == "food" && $0.id == draft.id }
+                    if savedFood?.name != name || savedFood?.per100g != facts {
+                        try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner, "data": record])
+                    }
+                    if existing.savedFoodPortions[draft.id, default: []] != portions {
+                        try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner, "data": servings])
+                    }
+                }
+            } else {
+                try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner, "data": record])
+            }
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             var food = NativeNutritionFood(id: draft.id, name: name, facts: facts)
             food.isPersonal = true
             food.emoji = "⭐️"
-            saved(food, add ? consumedGrams : nil)
+            if let portion { food.portions = [portion] }
+            saved(food, consumedGrams, portion)
             dismiss()
         } catch { self.error = error.localizedDescription }
     }
@@ -2025,13 +2079,13 @@ enum NativeOpenFoodFacts {
     struct Product {
         let name: String
         let per100g: NativeNutritionFood.Facts?
-        let servingGrams: Double?
+        let portion: NativeFoodPortion?
     }
 
     static func product(_ code: String) async throws -> Product? {
         var components = URLComponents(string: "https://world.openfoodfacts.org/api/v2/product/\(code).json")
         components?.queryItems = [URLQueryItem(name: "fields",
-                                               value: "product_name,product_name_zh,product_name_en,product_name_fr,brands,nutriments,serving_quantity")]
+                                               value: "product_name,product_name_zh,product_name_en,product_name_fr,brands,nutriments,serving_size,serving_quantity,serving_quantity_unit")]
         guard let url = components?.url else { return nil }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)
         request.setValue("Spotter-iOS/1.0 (nutrition logging)", forHTTPHeaderField: "User-Agent")
@@ -2058,9 +2112,57 @@ enum NativeOpenFoodFacts {
                 facts = candidate
             }
         }
-        let serving = number(product["serving_quantity"]).flatMap { (0.1...3_000).contains($0) ? $0 : nil }
+        let portion = portion(servingSize: product["serving_size"] as? String,
+                              quantity: number(product["serving_quantity"]),
+                              unit: product["serving_quantity_unit"] as? String)
         guard !name.isEmpty || facts != nil else { return nil }
-        return Product(name: String(name.prefix(100)), per100g: facts, servingGrams: serving)
+        return Product(name: String(name.prefix(100)), per100g: facts, portion: portion)
+    }
+
+    /// OFF's normalized quantity can be grams or millilitres. Only a serving with a known mass
+    /// can scale the nutrition values. A count applies only to the stated serving, never the package.
+    static func portion(servingSize: String?, quantity: Double?, unit: String?) -> NativeFoodPortion? {
+        let label = (servingSize ?? "").folding(options: [.widthInsensitive, .diacriticInsensitive, .caseInsensitive],
+                                                locale: Locale(identifier: "en_US_POSIX"))
+        let normalizedUnit = unit?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let labelRange = NSRange(label.startIndex..., in: label)
+        let ambiguous = #"\bnet\s*(?:wt|weight|contents?)\b|\b(?:poids|contenu)\s+net\b|净重|淨重|净含量|淨含量|\d\s*[x×]\s*\d"#
+        guard normalizedUnit != "ml", label.range(of: ambiguous, options: .regularExpression) == nil else { return nil }
+
+        let masses = servingMass.matches(in: label, range: labelRange)
+        guard masses.count <= 1 else { return nil }
+        let match = masses.first
+        let statedGrams = match.flatMap { capture(label, in: $0, at: 1) }.flatMap(number)
+        let volume = #"\d\s*(?:m\s*l|millilit(?:er|re)s?|毫升)(?![a-z])"#
+        let normalizedGrams = normalizedUnit == "g" && label.range(of: volume, options: .regularExpression) == nil ? quantity : nil
+        guard let grams = statedGrams ?? normalizedGrams, (0.1...3_000).contains(grams) else { return nil }
+
+        var countLabel = label
+        if let match, let range = Range(match.range, in: countLabel) { countLabel.removeSubrange(range) }
+        countLabel = countLabel
+            .replacingOccurrences(of: #"^\s*(?:serving(?: size)?|taille de la portion|portion(?: de)?|per|pour|份量|每份)\s*[:：]?\s*"#,
+                                  with: "", options: .regularExpression)
+        let perItemMarker = #"\b(?:each|per (?:piece|unit|item)|chacun(?:e)?|par (?:unite|piece))\b|每[个個枚片块塊颗顆]"#
+        let weightPerItem = countLabel.range(of: perItemMarker, options: .regularExpression) != nil
+        countLabel = countLabel
+            .replacingOccurrences(of: perItemMarker, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "():：[]-–,/")))
+        let countMatch = servingCount.firstMatch(in: countLabel, range: NSRange(countLabel.startIndex..., in: countLabel))
+        guard let count = countMatch.flatMap({ capture(countLabel, in: $0, at: 1) }).flatMap(number) else {
+            return weightPerItem ? nil : NativeFoodPortion(name: "份", grams: grams)
+        }
+        guard count.isFinite && count > 0 else { return nil }
+        let perItem = weightPerItem ? grams : grams / count
+        return (0.1...3_000).contains(perItem) ? NativeFoodPortion(name: "个", grams: perItem) : nil
+    }
+
+    private static let servingMass = try! NSRegularExpression(
+        pattern: #"(?:^|(?<=[\s(\[])|(?<=每[个個枚片块塊颗顆]))(\d+(?:[.,]\d+)?)\s*(?:g(?:rams?)?(?![a-z])|grammes?(?![a-z])|公克|克)"#)
+    private static let servingCount = try! NSRegularExpression(
+        pattern: #"^(\d+)\s*(?:[个個枚片块塊颗顆只隻条條](?:[\p{L}\s]{0,32})|(?:[\p{L}'’-]+\s+){0,4}(?:pieces?|pcs?|units?|items?|ct|tarts?|tartelettes?|pastr(?:y|ies)|cookies?|biscuits?|crackers?|bars?|barres?|slices?|tranches?|morceaux?|muffins?|rolls?|patt(?:y|ies)|galettes?|nuggets?|dumplings?))$"#)
+
+    private static func capture(_ text: String, in match: NSTextCheckingResult, at index: Int) -> String? {
+        Range(match.range(at: index), in: text).map { String(text[$0]) }
     }
 
     private static func number(_ value: Any?) -> Double? {

@@ -22,11 +22,6 @@ enum NutritionShortcut: String, CaseIterable, Identifiable {
         }
     }
 
-    static var suggestedMainMeal: Self {
-        let meal = suggestedMeal
-        return meal == .snack ? .lunch : meal
-    }
-
     var id: Self { self }
     var isMeal: Bool { self != .water && self != .weight }
     var icon: String {
@@ -90,6 +85,7 @@ struct NutritionPayload: Decodable {
         let targetWeightKg: Double?
         let name: String?
         let per100g: NativeNutritionFood.Facts?
+        let portions: [NativeFoodPortion]?
     }
 
     struct RecentMeal: Decodable {
@@ -101,29 +97,20 @@ struct NutritionPayload: Decodable {
     let rows: [Row]
     var recentMeals: [RecentMeal]? = nil
 
+    var savedFoodPortions: [String: [NativeFoodPortion]] {
+        rows.reduce(into: [:]) { result, row in
+            guard row.kind == "food-portions", let id = row.id, let portions = row.portions else { return }
+            result[id] = portions.filter { (0.1...3_000).contains($0.grams) && !$0.name.isEmpty }
+        }
+    }
+
     func recentServings(for meal: NutritionShortcut) -> [NativeRecentServing] {
-        guard meal.isMeal else { return [] }
-        return recentServings(for: [meal])[meal] ?? []
-    }
-
-    func recentServingsByMeal() -> [NutritionShortcut: [NativeRecentServing]] {
-        recentServings(for: NutritionShortcut.allCases.filter(\.isMeal))
-    }
-
-    private func recentServings(for meals: [NutritionShortcut]) -> [NutritionShortcut: [NativeRecentServing]] {
-        guard let recentMeals, !recentMeals.isEmpty else { return [:] }
+        guard meal.isMeal, let recentMeals, !recentMeals.isEmpty else { return [] }
         let personal = rows.reduce(into: [String: NativeNutritionFood]()) { foods, row in
             guard row.kind == "food", let id = row.id, foods[id] == nil,
                   let name = row.name, let facts = row.per100g else { return }
             foods[id] = NativeNutritionFood(id: id, name: name, facts: facts)
         }
-        return Dictionary(uniqueKeysWithValues: meals.map { meal in
-            (meal, recentServings(for: meal, from: recentMeals, personal: personal))
-        })
-    }
-
-    private func recentServings(for meal: NutritionShortcut, from recentMeals: [RecentMeal],
-                                personal: [String: NativeNutritionFood]) -> [NativeRecentServing] {
         var servings: [NativeRecentServing] = []
         var seen: Set<String> = []
         for sameMeal in [true, false] {
@@ -575,70 +562,47 @@ private struct NutritionShortcuts: View {
     @Environment(\.spotterAccent) private var accent
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.spotterGuide) private var guide
-    let onMainMeal: () -> Void
-    let onSelect: (NutritionShortcut) -> Void
-    let onFavorites: () -> Void
+    let onMeal: () -> Void
+    let onWater: () -> Void
     let onPhoto: () -> Void
 
-    private let buttonWidth: CGFloat = 44
-    private let spacing: CGFloat = 6
-
     var body: some View {
-        if textSize.isAccessibilitySize {
-            grid
-        } else {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: spacing) { buttons }
-                    .frame(minWidth: buttonWidth * 5 + spacing * 4)
-                grid
+        HStack(spacing: 8) {
+            button("饮食", icon: "fork.knife", primary: true) {
+                onMeal()
+                guide?.advance(.mainMeal)
             }
+            .nativeGuideTarget(.mainMeal)
+            .accessibilityIdentifier("nutrition-detail-log-meal")
+            button("饮水", icon: "drop", action: onWater)
+                .accessibilityIdentifier("nutrition-detail-log-water")
+            button("拍照记录", icon: "camera", action: onPhoto)
+                .accessibilityHint("打开相机，由 AI 识别餐食")
+                .accessibilityIdentifier("nutrition-detail-photo")
         }
     }
 
-    private var grid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: buttonWidth), spacing: 4), count: 3), spacing: 4) {
-            buttons
-        }
-    }
-
-    @ViewBuilder private var buttons: some View {
-        button("记录正餐", icon: Image(systemName: "fork.knife"), guideTarget: .mainMeal) {
-            onMainMeal()
-            guide?.advance(.mainMeal)
-        }
-        button("加餐", icon: Image(systemName: "carrot")) { onSelect(.snack) }
-        button("饮水", icon: Image(systemName: "drop")) { onSelect(.water) }
-        button("常用餐", icon: Image(systemName: "star"), action: onFavorites)
-        button("拍照记录", icon: Image(systemName: "camera"), action: onPhoto)
-    }
-
-    @ViewBuilder private func button(_ title: String, icon: Image, guideTarget: NativeGuideStep? = nil,
-                                     action: @escaping () -> Void) -> some View {
+    private func button(_ title: String, icon: String, primary: Bool = false,
+                        action: @escaping () -> Void) -> some View {
         let shape = RoundedRectangle(cornerRadius: 13)
-        let primary = guideTarget == .mainMeal
         let background = primary ? accent.selection : SpotterPalette.card
-        let control = Button(action: action) {
-            VStack(spacing: 4) {
-                icon.renderingMode(.template).resizable().scaledToFit()
-                    .frame(width: 18, height: 18).foregroundStyle(accent.tint)
+        return Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 18, weight: .medium))
+                    .frame(width: 22, height: 22).foregroundStyle(accent.tint)
                     .accessibilityHidden(true)
-                Text(title).font(.caption2.weight(.semibold)).lineLimit(textSize.isAccessibilitySize ? 2 : 1)
+                Text(title).font(.caption.weight(.semibold)).lineLimit(textSize.isAccessibilitySize ? 2 : 1)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.75)
             }
-            .frame(minWidth: buttonWidth, maxWidth: .infinity, minHeight: 51)
+            .padding(.horizontal, 3).padding(.vertical, 8)
+            .frame(minWidth: 44, maxWidth: .infinity, minHeight: 58)
             .background(background, in: shape)
             .overlay { shape.strokeBorder(SpotterPalette.line).allowsHitTesting(false) }
             .contentShape(shape)
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(title)
-        .nativeGuideTarget(guideTarget)
-        if primary {
-            control.accessibilityIdentifier("nutrition-detail-log-meal")
-        } else {
-            control
-        }
     }
 }
 
@@ -746,13 +710,13 @@ struct NativeHomeNutrition: View {
 }
 
 private enum NutritionDestination: Identifiable {
-    case logger(NutritionShortcut?)
+    case logger
     case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
     case settings, goals, cycle, recipes, recommendations, protein, stats, voice, energy, copy, favorites
 
     var id: String {
         switch self {
-        case .logger(let meal): return "logger/" + (meal?.rawValue ?? "main")
+        case .logger: return "logger"
         case .entry(let shortcut, let row, let food, _): return row?.id ?? food?.id ?? shortcut.rawValue
         case .settings: return "settings"
         case .goals: return "goals"
@@ -867,7 +831,7 @@ struct NativeNutritionDetail: View {
             case .water: destination = .entry(.water, nil, nil, 250)
             case .recordMeal:
                 closesAfterGuidedMeal = guide?.step.presentation == .mealEditor
-                destination = .logger(nil)
+                destination = .logger
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in
@@ -1005,14 +969,7 @@ struct NativeNutritionDetail: View {
             } else {
                 ForEach(NutritionShortcut.allCases.filter(\.isMeal)) { meal in
                     if let items = meals[meal.rawValue] {
-                        HStack {
-                            Text(meal.rawValue).font(.headline).accessibilityAddTraits(.isHeader)
-                            Spacer()
-                            Button { destination = .logger(meal) } label: {
-                                Label("加食物", systemImage: "plus").font(.subheadline.weight(.semibold))
-                            }
-                            .buttonStyle(.spotterPress).foregroundStyle(SpotterPalette.accent)
-                        }
+                        Text(meal.rawValue).font(.headline).accessibilityAddTraits(.isHeader)
                         ForEach(items, id: \.id) { record($0, meal: meal).transition(.opacity) }
                         Divider()
                     }
@@ -1068,9 +1025,8 @@ struct NativeNutritionDetail: View {
     }
 
     private var mealActions: some View {
-        NutritionShortcuts(onMainMeal: { destination = .logger(nil) },
-                           onSelect: { destination = $0.isMeal ? .logger($0) : .entry($0, nil, nil, nil) },
-                           onFavorites: { destination = .favorites },
+        NutritionShortcuts(onMeal: { destination = .logger },
+                           onWater: { destination = .entry(.water, nil, nil, nil) },
                            onPhoto: { photoCapture = NutritionPhotoRequest(day: day) })
     }
 
@@ -1087,8 +1043,8 @@ struct NativeNutritionDetail: View {
 
     @ViewBuilder private func destinationView(_ item: NutritionDestination) -> some View {
         switch item {
-        case .logger(let meal):
-            NativeMealLogger(api: api, owner: owner, date: day, meal: meal, payload: payload) { receipt in
+        case .logger:
+            NativeMealLogger(api: api, owner: owner, date: day, payload: payload) { receipt in
                 if let receipt { quickMeal = receipt }
             }
         case .entry(let shortcut, let row, let food, let grams):
@@ -1110,6 +1066,7 @@ struct NativeNutritionDetail: View {
                     settingsLink("记蛋白粉", icon: "cup.and.saucer", destination: .protein)
                     settingsLink("复制往日餐食", icon: "doc.on.doc", destination: .copy)
                     settingsLink("记体重", icon: "scalemass", destination: .entry(.weight, nil, nil, nil))
+                    settingsLink("管理固定模版", icon: "star", destination: .favorites)
                 }
                 Section {
                     settingsLink("统计", icon: "chart.bar.xaxis", destination: .stats)
@@ -1438,7 +1395,6 @@ enum NativeWidgetMealAction {
     @State private var presets: [NativeFavoriteMeal] = []
     @State private var widgetMealIDs: [UUID] = []
     @State private var removing: NativeFavoriteMeal?
-    @State private var openPreset: String?
     @State private var retry: (preset: NativeFavoriteMeal, id: String)?
     @State private var busy = false
     @State private var error: String?
@@ -1480,7 +1436,7 @@ enum NativeWidgetMealAction {
             Section {
                 if presets.isEmpty { Text("还没有常用餐").foregroundStyle(.secondary) }
                 ForEach(presets) { preset in
-                    let row = VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: 7) {
                         Text(preset.name).font(.headline)
                         Text(preset.foods.map(\.name).joined(separator: "、"))
                             .font(.footnote).foregroundStyle(SpotterPalette.muted).lineLimit(2)
@@ -1503,19 +1459,12 @@ enum NativeWidgetMealAction {
                         }
                     }
                     .padding(.vertical, 4)
-                    if #available(iOS 18.0, *) {
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         if !busy, retry == nil {
-                            row.spotterSwipeToDelete(id: preset.id.uuidString, openRow: $openPreset,
-                                                      accessibilityLabel: "删除 \(preset.name)") { removing = preset }
-                        } else { row }
-                    } else {
-                        row.swipeActions(allowsFullSwipe: false) {
                             Button("删除", systemImage: "trash") { removing = preset }
                                 .tint(.red)
-                                .disabled(busy || retry != nil)
-                        }
-                        .accessibilityAction(named: Text("删除 \(preset.name)")) {
-                            if !busy, retry == nil { removing = preset }
+                                .accessibilityLabel("删除 \(preset.name)")
+                                .accessibilityIdentifier("spotter-swipe-delete-\(preset.id.uuidString)")
                         }
                     }
                 }
@@ -2259,6 +2208,7 @@ private enum NutritionMetric: String, CaseIterable, Identifiable {
 @MainActor
 private struct NativeNutritionPlanning: View {
     @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.spotterAccent) private var accent
     let api: NativeAPI
     let owner: String
     let day: String
@@ -2274,6 +2224,8 @@ private struct NativeNutritionPlanning: View {
     @State private var carbGrams: [String: String]
     @State private var exerciseEnergy: [String: String]
     @State private var goalChoice: NativeNutritionGoalChoice
+    @State private var showsGoalEstimator = false
+    @State private var appliedEstimate = false
     @State private var busy = false
     @State private var error: String?
 
@@ -2320,20 +2272,66 @@ private struct NativeNutritionPlanning: View {
                 .disabled(busy || (destination.id == "energy" && logs.isEmpty))
         }
         .animation(motion, value: error != nil)
+        .sheet(isPresented: $showsGoalEstimator) {
+            NativeNutritionGoalEstimator(
+                api: api, owner: owner, choice: $goalChoice,
+                targetWeightKg: payload.rows.first(where: { $0.kind == "targets" })?.targetWeightKg
+            ) { estimate in
+                fields[.calories] = nutritionInput(estimate.calories)
+                fields[.protein] = nutritionInput(estimate.protein)
+                fields[.carbs] = nutritionInput(estimate.carbs)
+                fields[.fat] = nutritionInput(estimate.fat)
+                appliedEstimate = true
+                error = nil
+            }
+        }
     }
 
     @ViewBuilder private var goalsContent: some View {
-        let targetWeightKg = payload.rows.first(where: { $0.kind == "targets" })?.targetWeightKg
-        NativeNutritionGoalEstimator(api: api, owner: owner, choice: $goalChoice, targetWeightKg: targetWeightKg) { estimate in
-            fields[.calories] = nutritionInput(estimate.calories)
-            fields[.protein] = nutritionInput(estimate.protein)
-            fields[.carbs] = nutritionInput(estimate.carbs)
-            fields[.fat] = nutritionInput(estimate.fat)
+        Section {
+            Button { showsGoalEstimator = true } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(accent.tint)
+                        .frame(width: 42, height: 42)
+                        .background(accent.selection, in: RoundedRectangle(cornerRadius: 13))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("按身体数据计算").font(.headline).foregroundStyle(SpotterPalette.ink)
+                        Text(appliedEstimate ? "已填入，可调整后保存" : "估算每日热量和三大营养素")
+                            .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(SpotterPalette.muted)
+                        .accessibilityHidden(true)
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .disabled(busy)
+            .accessibilityIdentifier("nutrition-goals-open-estimator")
+            .listRowBackground(SpotterPalette.card)
         }
         Section("每日营养目标") {
             ForEach(NutritionMetric.allCases) { metric in
-                TextField("\(metric.title)（\(metric.unit)）", text: Binding(get: { fields[metric, default: ""] }, set: { fields[metric] = $0 }))
-                    .keyboardType(.decimalPad)
+                LabeledContent(metric.title) {
+                    HStack(spacing: 6) {
+                        TextField("0", text: Binding(get: { fields[metric, default: ""] }, set: { fields[metric] = $0 }))
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .monospacedDigit()
+                            .foregroundStyle(SpotterPalette.ink)
+                            .accessibilityLabel("\(metric.title)，单位\(metric.unit)")
+                            .accessibilityIdentifier("nutrition-goal-field-\(metric.rawValue)")
+                        Text(metric.unit).font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .listRowBackground(SpotterPalette.card)
             }
         }
     }

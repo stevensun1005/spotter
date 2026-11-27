@@ -1,12 +1,11 @@
 import { z } from "zod";
+import { bodyFatRange } from "@/features/body/profile";
 import { dayNumber } from "@/features/nutrition/energy-calibration";
 import type { NutritionValues } from "@/features/library/model";
 
 export const nutritionGoal = z.enum(["maintain", "recompose", "gain", "lose"]);
 export const nutritionActivity = z.enum(["sedentary", "light", "moderate", "high"]);
 export const nutritionPace = z.enum(["slow", "standard", "fast"]);
-/** Body-fat readings outside this range are treated as measurement errors and ignored. */
-export const bodyFatRange = { min: 3, max: 60 } as const;
 export const measuredMaintenanceRange = { min: 800, max: 8000 } as const;
 /** Training days in a week, counted apart from everyday activity. */
 export const nutritionTrainingDays = z.number().int().min(0).max(7);

@@ -79,6 +79,7 @@ async function trainingPreferenceContext(db: D1Database, owner: string) {
 export async function coachReply(owner: string, request: CoachRequest, signal: AbortSignal): Promise<CoachResponse> {
   if (request.expectedOwner !== owner) throw new HttpError(403, "登录账号已切换，请刷新后重开对话。");
   const mealTurn = mealLoggingTurn(request);
+  if (mealTurn?.kind === "already-recorded") return { reply: "刚才这餐已经记入饮食。", model: coachModel };
   const question = request.messages.at(-1)?.content;
   if (request.intent === "chat" && question && !mealTurn) {
     const reply = productHelpReply(question);

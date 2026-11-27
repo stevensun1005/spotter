@@ -22,6 +22,10 @@ const results = {
   trainingDays: (item) => weeklyTrainingDays(item.dates, item.today),
   ages: (item) => ageOn({ age: item.age, ageAsOf: item.ageAsOf || undefined }, item.day),
   dates: (item) => Number.isNaN(dayNumber(item.date)) ? null : dayNumber(item.date),
+  bodyFat: (item) => readBodyFat(item.readings.map(({ date, percent, updated }, id) => ({
+    kind: "nutrition", id: String(id), date, updated: updated ?? date + "T08:00:00Z",
+    entry: { type: "measurement", metric: "fat", value: percent },
+  })), item.through) ?? null,
 };
 if (process.env.UPDATE_NUTRITION_GOAL_CASES) {
   for (const [group, run] of Object.entries(results)) for (const item of cases[group]) item.expected = run(item);

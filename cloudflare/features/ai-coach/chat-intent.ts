@@ -78,6 +78,32 @@ export function asksToLogMeal(text: string) {
     mealNoun.test(request) && (mealWrite.test(request) || directMealWrite.test(request) || englishMealWrite.test(request));
 }
 
+const reportTime = String.raw`(?:前天|昨[天晚夜日]|今[天早晚日]|现在|早上|上午|中午|下午|晚上|夜里|[早午晚][餐饭]|加餐|[12]\d{3}[-年]\d{1,2}[-月]\d{1,2}[日号]?|\d{1,2}月\d{1,2}[日号]?)`;
+const chineseMealReport = new RegExp(
+  String.raw`^(?:我(?:自己)?\s*)?(?:(?:的?\s*${reportTime})\s*[,，]?\s*)*(?:我(?:自己)?\s*)?(?:(?:只|又)\s*)?(?:(?:刚(?:才|刚)?|才)\s*[吃喝](?:完)?(?:了)?|(?:已经\s*)?[吃喝](?:完)?了)\s*(.+)$`,
+  "su",
+);
+const englishMealReport = /^(?:(?:today|yesterday|this (?:morning|afternoon|evening)|last night)[,\s]+)?i\s+(?:just\s+)?(?:ate|drank)\s+([\s\S]+)$/iu;
+const mealReportDiscussion = /[?？]|(?:能不能|可不可以|会不会|适不适合|有没有|怎么样|合不合适|该不该|怎么办|要不要|建议|该怎么|如何|热量多少|多少(?:热量|千卡|卡路里)|吗[。.!！\s]*$)|\b(?:should i|would it|is that|how (?:many|much)|what if|can i|will it)\b/iu;
+const nonFoodObject = /^(?:(?:[零一二两三四五六七八九十百半\d.]+\s*)?(?:颗|粒|片|剂|个|口|次)\s*)?(?:药(?:物|片|丸|了|\s|[。.!！]|$)|维生素(?:片|软糖)|抗生素|止痛药|退烧药|亏|苦头|闭门羹|官司|哑巴亏|西北风|[“「『"‘'])/u;
+
+export function reportsEatenMeal(text: string) {
+  const report = text.normalize("NFKC").trim();
+  if (cancelsMealLogging(report) || noMealWrite.test(report) || mealHypothetical.test(report) || mealReportDiscussion.test(report)) return false;
+  const food = (report.match(chineseMealReport) ?? report.match(englishMealReport))?.[1];
+  return Boolean(food && /\p{L}/u.test(food) && !nonFoodObject.test(food));
+}
+
+const priorMealReference = /^(?:(?:请|麻烦(?:你)?)\s*)?(?:(?:帮|替|给)我\s*)?(?:把\s*(?:它|这个|这(?:一)?顿(?:饭)?|刚才那(?:一)?顿|刚才那(?:一)?餐)\s*)?(?:(?:添加|加|记|录|补记|记录)(?:进(?:去|到)?|入|到|上|下|一下)?\s*(?:(?:我(?:的)?\s*)?(?:饮食(?:日记|日志|记录)?|餐食(?:记录)?|日记|日志)(?:里|里面|中)?|这(?:一)?餐|刚才那(?:一)?顿|刚才那(?:一)?餐)?|(?:给|替)我记)(?:吧|一下)?[。.!！]*$/u;
+const explicitMealReference = /进去|饮食|餐食|日记|日志|这(?:一)?餐|这(?:一)?顿|刚才|这(?:一)?个|它/u;
+const englishMealReference = /^(?:(?:please|can you|could you|would you|help me)\s+)*(?:log|record|save|add)\s+(?:it|that|this meal|that meal|the last meal)(?:\s+(?:to|in)\s+(?:my |the )?(?:food diary|nutrition log|meal log))?[.!?]*$/iu;
+
+export function asksToAddReportedMeal(text: string) {
+  const request = text.normalize("NFKC").trim();
+  return englishMealReference.test(request) ||
+    (explicitMealReference.test(request) && priorMealReference.test(request));
+}
+
 export function continuesMealLogging(text: string) {
   const reply = text.normalize("NFKC").trim();
   if (cancelsMealLogging(reply) || noMealWrite.test(reply) || mealHypothetical.test(reply) || /[?？]|(?:怎么|如何|建议|应该|能吃|适合吃|值不值|是什么|多少热量|热量多少|吗[。.!！]?$)/u.test(reply)) return false;

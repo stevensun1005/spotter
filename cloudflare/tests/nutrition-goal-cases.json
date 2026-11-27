@@ -263,5 +263,12 @@
   {"name":"２０２６-11-27","date":"２０２６-11-27","expected":null},
   {"name":"","date":"","expected":null},
   {"name":"today","date":"today","expected":null}
+ ],
+ "bodyFat": [
+  {"name":"newer unusable results do not hide a valid reading","through":"2026-11-27","readings":[{"date":"2026-11-20","percent":22},{"date":"2026-11-21","percent":70},{"date":"2026-11-22","percent":2}],"expected":{"percent":22,"date":"2026-11-20"}},
+  {"name":"newest valid edit on the same day wins","through":"2026-11-27","readings":[{"date":"2026-11-27","percent":28},{"date":"2026-11-27","percent":70,"updated":"2026-11-27T11:00:00Z"},{"date":"2026-11-27","percent":29,"updated":"2026-11-27T10:00:00Z"}],"expected":{"percent":29,"date":"2026-11-27"}},
+  {"name":"ninety days old is still recent and sixty percent is valid","through":"2026-11-27","readings":[{"date":"2026-08-29","percent":60}],"expected":{"percent":60,"date":"2026-08-29"}},
+  {"name":"three percent is valid","through":"2026-11-27","readings":[{"date":"2026-11-27","percent":3}],"expected":{"percent":3,"date":"2026-11-27"}},
+  {"name":"stale and future readings are skipped","through":"2026-11-27","readings":[{"date":"2026-08-28","percent":23},{"date":"2026-11-28","percent":24},{"date":"2026-11-27","percent":70}],"expected":null}
  ]
 }

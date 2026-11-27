@@ -35,13 +35,18 @@ export function readBodyInputs(rows: readonly LibraryRow[], through?: string) {
 /** A body-fat reading older than this is not used for estimates. */
 export const bodyFatMaxAgeDays = 90;
 
-/** The newest body-fat percentage recorded up to `through`, if it is recent enough to estimate with. */
+/** Body-fat readings outside this range are not used for estimates. */
+export const bodyFatRange = { min: 3, max: 60 } as const;
+
+/** The newest usable body-fat percentage recorded up to `through`. */
 export function readBodyFat(rows: readonly LibraryRow[], through: string) {
   let latest: { date: string; updated: string; percent: number } | undefined;
   for (const row of rows) {
     if (row.kind !== "nutrition" || row.entry.type !== "measurement" || row.entry.metric !== "fat" || row.date > through) continue;
+    const percent = row.entry.value;
+    if (!Number.isFinite(percent) || percent < bodyFatRange.min || percent > bodyFatRange.max) continue;
     if (!latest || row.date > latest.date || (row.date === latest.date && row.updated > latest.updated)) {
-      latest = { date: row.date, updated: row.updated, percent: row.entry.value };
+      latest = { date: row.date, updated: row.updated, percent };
     }
   }
   return latest && latest.date >= offsetDate(through, -bodyFatMaxAgeDays) ? { percent: latest.percent, date: latest.date } : undefined;

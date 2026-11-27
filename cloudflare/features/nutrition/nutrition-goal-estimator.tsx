@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { ArrowRight, ChevronDown, Flame, Scale } from "lucide-react";
 import { ageOn, readBodyFat, readBodyInputs } from "@/features/body/profile";
-import { useLibrary } from "@/features/library/use-library";
+import type { useLibrary } from "@/features/library/use-library";
 import type { LibraryItem, NutritionValues } from "@/features/library/model";
 import { offsetDate } from "@/shared/dates";
 import { displayNumber } from "@/shared/ui";
 import { calibrateMaintenance, calibrationFoodDays, calibrationRules, type EnergyCalibration, type IntakeDay, type WeightReading } from "./energy-calibration";
-import { bodyFatRange, estimateNutritionGoal, goalEstimateRules, nutritionGoalInput, type NutritionActivity, type NutritionGoal,
+import { estimateNutritionGoal, goalEstimateRules, nutritionGoalInput, type NutritionActivity, type NutritionGoal,
   type NutritionGoalEstimate, type NutritionGoalNote, type NutritionPace } from "./goal-estimate";
 
 export const nutritionGoalLabels: Record<NutritionGoal, string> = {
@@ -71,10 +72,9 @@ export type NutritionGoalDraft = {
 };
 
 const nutrients = [
-  { id: "calories", name: "每日热量", unit: "千卡" },
-  { id: "protein", name: "蛋白质", unit: "g" },
-  { id: "carbs", name: "碳水", unit: "g" },
-  { id: "fat", name: "脂肪", unit: "g" },
+  { id: "carbs", name: "碳水" },
+  { id: "protein", name: "蛋白质" },
+  { id: "fat", name: "脂肪" },
 ] as const;
 
 /** What the records say about maintenance energy, or what is still missing before they can be used. */
@@ -149,7 +149,8 @@ function useRecentIntake(enabled: boolean, today: string) {
   return state?.today === today ? state.days : undefined;
 }
 
-export function NutritionGoalEstimator({ enabled, today, draft, loggedTrainingDays = 0, onChange, water, targetWeightKg, onApply, onBody }: {
+export function NutritionGoalEstimator({ body, enabled, today, draft, loggedTrainingDays = 0, onChange, water, targetWeightKg, onApply, onBody }: {
+  body: Pick<ReturnType<typeof useLibrary>, "rows" | "loading" | "error" | "load">;
   enabled: boolean;
   today: string;
   draft: NutritionGoalDraft;
@@ -161,15 +162,14 @@ export function NutritionGoalEstimator({ enabled, today, draft, loggedTrainingDa
   onApply: (values: NutritionValues) => void;
   onBody: () => void;
 }) {
-  const body = useLibrary(enabled, undefined, true);
   const intake = useRecentIntake(enabled, today);
+  const activityHelp = useId();
   // The person's own choice. Before they make one, records are used unless their error is large.
   const [recordsChoice, setRecordsChoice] = useState<boolean>();
   const trainingDays = draft.trainingDays ?? loggedTrainingDays;
   const { profile, weightKg } = readBodyInputs(body.rows, today);
   const age = ageOn(profile, today);
-  const reading = readBodyFat(body.rows, today);
-  const bodyFat = reading && reading.percent >= bodyFatRange.min && reading.percent <= bodyFatRange.max ? reading : undefined;
+  const bodyFat = readBodyFat(body.rows, today);
   const complete = Boolean(profile?.heightCm && age && profile.sex && weightKg);
   const input = complete && draft.goal && draft.activity && nutritionGoalInput.safeParse({
     heightCm: profile?.heightCm, age, sex: profile?.sex, weightKg, goal: draft.goal, activity: draft.activity,
@@ -188,59 +188,87 @@ export function NutritionGoalEstimator({ enabled, today, draft, loggedTrainingDa
   const paces = draft.goal === "lose" || draft.goal === "gain" ? goalEstimateRules.paceShares[draft.goal] : undefined;
   const minLossKg = goalEstimateRules.minLossBmi * ((profile?.heightCm ?? 0) / 100) ** 2;
 
-  return <section className="nutrition-goal-estimator feature-stack" aria-label="按身体数据计算目标">
-    <h3>按身体数据计算</h3>
-    {body.loading ? <p className="muted" role="status">正在读取身体数据…</p> : body.error
-      ? <button type="button" className="button outline small" onClick={() => void body.load()}>身体数据读取失败，点此重试。</button>
-      : complete ? <p className="muted">{profile?.heightCm} cm · {weightKg} kg · {age} 岁{bodyFat && ` · 体脂 ${displayNumber(bodyFat.percent)}%`}</p>
-      : <div className="exercise-toolbar"><p className="muted">在身体档案填写身高、年龄和性别，并记录体重后即可计算。</p>
-        <button type="button" className="button outline small" onClick={onBody}>打开身体数据</button></div>}
-    <div className="field-grid">
-      <label>目标方向<select value={draft.goal} required={Boolean(draft.activity)} onChange={(event) => onChange({ ...draft, goal: event.target.value as NutritionGoalDraft["goal"] })}>
-        <option value="">选择目标</option>
-        {Object.entries(nutritionGoalLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select></label>
-      {/* An activity level from the earlier estimator may stay empty: the saved preference is then kept as it is. */}
-      <label>日常活动（不含训练）<select value={draft.activity} required={Boolean(draft.goal) && !draft.reviewActivity} onChange={(event) =>
-        // Picking a level is a choice in the current model, so the training days shown beside it are kept with it.
-        onChange({ ...draft, activity: event.target.value as NutritionGoalDraft["activity"], trainingDays, reviewActivity: false })}>
-        <option value="">选择活动量</option>
-        {Object.entries(activityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select></label>
-      <label>每周训练<select value={trainingDays} onChange={(event) => onChange({ ...draft, trainingDays: Number(event.target.value) })}>
-        {Array.from({ length: 8 }, (_, days) => <option key={days} value={days}>{days ? `${days} 天` : "不训练"}</option>)}
-      </select></label>
-      {paces && <label>进度<select value={draft.pace} onChange={(event) => onChange({ ...draft, pace: event.target.value as NutritionPace })}>
-        {Object.entries(paces).map(([value, amount]) => <option key={value} value={value}>
-          {paceNames[value as NutritionPace]}：每天{draft.goal === "lose" ? "少吃" : "多吃"}约 {share(amount)}</option>)}
-      </select></label>}
-    </div>
-    {draft.reviewActivity && !draft.activity && <p className="muted" role="status">「日常活动」现在只算平时走动，训练另按每周训练天数计，请重新选择。</p>}
-    {draft.goal === "recompose" && <div className="field-grid">
-      <label>体重下限（kg，可选）<input type="number" inputMode="decimal" step="any" min={10} max={draft.maxKg || 700}
-        value={draft.minKg} required={Boolean(draft.maxKg)} onChange={(event) => onChange({ ...draft, minKg: event.target.value })} /></label>
-      <label>体重上限（kg，可选）<input type="number" inputMode="decimal" step="any" min={draft.minKg || 10} max={700}
-        value={draft.maxKg} required={Boolean(draft.minKg)} onChange={(event) => onChange({ ...draft, maxKg: event.target.value })} /></label>
-    </div>}
-    {input && !estimate && <p className="muted" role="status">{input.success ? "当前档案不适合此目标，请选择其他目标。" : "当前资料超出成人估算范围，请核对身体档案。"}</p>}
-    {calibration && (calibration.ready ? <label className="nutrition-goal-records"><input type="checkbox" checked={useRecords}
-      onChange={(event) => setRecordsChoice(event.target.checked)} />
-      <span>按近 {calibrationRules.windowDays / 7} 周的记录校准维持热量<small className="muted">{recordsText(calibration)}</small></span>
-    </label> : <p className="muted">{recordsText(calibration)}</p>)}
-    {estimate && <>
-      <div className="food-preview" role="group" aria-label="每天的估算饮食目标">{nutrients.map(({ id, name, unit }) => <div key={id}>
-        <span>{name}</span><strong>{displayNumber(estimate.values[id])}</strong><small>{unit}</small>
-      </div>)}</div>
-      <p className="muted">{estimateText(estimate, arrivalText(estimate, weightKg, targetWeightKg, minLossKg),
-        trainingDays > 0 || estimate.maintenanceSource === "records")}</p>
-      {estimate.notes.map((note) => <p className="muted" key={note}>{noteText(note, estimate, draft)}</p>)}
-      <div className="exercise-toolbar">
-        <span>估算值，适用于健康成年人；孕期、哺乳期或有疾病时请遵医嘱。</span>
-        <button type="button" className="button outline small" onClick={() => {
-          onChange({ ...draft, trainingDays });
-          onApply({ ...estimate.values, water });
-        }}>填入目标</button>
+  return <section className="nutrition-goal-estimator feature-stack" aria-label="按身体数据计算">
+    <div className="nutrition-estimate-card">
+      <div className="nutrition-estimate-card-header">
+        <h4><Scale size={16} aria-hidden="true" /> 身体档案</h4>
+        {complete && !body.error && <button type="button" className="text-button" onClick={onBody}>查看档案 <ArrowRight size={14} aria-hidden="true" /></button>}
       </div>
-    </>}
+      {body.loading ? <p className="nutrition-estimate-caption" role="status">正在读取身体数据…</p> : body.error
+        ? <div className="nutrition-estimate-card-header"><p className="nutrition-estimate-caption" role="status">身体数据读取失败。</p>
+          <button type="button" className="button outline small" onClick={() => void body.load()}>重试</button></div>
+        : complete ? <dl className="nutrition-estimate-profile">
+          <div><dt>身高</dt><dd>{profile?.heightCm} <small>cm</small></dd></div>
+          <div><dt>体重</dt><dd>{weightKg === undefined ? "—" : kilograms(weightKg)} <small>kg</small></dd></div>
+          <div><dt>年龄</dt><dd>{age} <small>岁</small></dd></div>
+          {bodyFat && <div><dt>体脂</dt><dd>{displayNumber(bodyFat.percent)}<small>%</small></dd></div>}
+        </dl> : <>
+          <p className="nutrition-estimate-caption">填写身高、年龄和性别，并记录体重后即可估算。</p>
+          <button type="button" className="button outline small" onClick={onBody}>补充身体档案 <ArrowRight size={14} aria-hidden="true" /></button>
+        </>}
+    </div>
+    <div className="nutrition-estimate-card">
+      <h4>目标与活动</h4>
+      <div className="nutrition-estimate-fields form-fields">
+        <label>目标方向<select value={draft.goal} required={Boolean(draft.activity)} onChange={(event) => onChange({ ...draft, goal: event.target.value as NutritionGoalDraft["goal"] })}>
+          <option value="">选择目标</option>
+          {Object.entries(nutritionGoalLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select></label>
+        {/* Saved activity from the earlier estimator can stay empty while the legacy preference is unchanged. */}
+        <label>日常活动<select value={draft.activity} required={Boolean(draft.goal) && !draft.reviewActivity} aria-describedby={activityHelp} onChange={(event) =>
+          onChange({ ...draft, activity: event.target.value as NutritionGoalDraft["activity"], trainingDays, reviewActivity: false })}>
+          <option value="">选择活动量</option>
+          {Object.entries(activityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select></label>
+        <label>每周训练<select value={trainingDays} onChange={(event) => onChange({ ...draft, trainingDays: Number(event.target.value) })}>
+          {Array.from({ length: 8 }, (_, days) => <option key={days} value={days}>{days ? `${days} 天` : "不训练"}</option>)}
+        </select></label>
+        {paces && <label>进度<select value={draft.pace} onChange={(event) => onChange({ ...draft, pace: event.target.value as NutritionPace })}>
+          {Object.entries(paces).map(([value, amount]) => <option key={value} value={value}>
+            {paceNames[value as NutritionPace]} · 每天{draft.goal === "lose" ? "少吃" : "多吃"}约 {share(amount)}</option>)}
+        </select></label>}
+      </div>
+      <p id={activityHelp} className="nutrition-estimate-caption" role={draft.reviewActivity ? "status" : undefined}>
+        {draft.reviewActivity && !draft.activity ? "日常活动现在只计算平时走动，请重新选择。训练消耗按每周训练天数估算。" : "日常活动只算平时走动，训练按每周天数另计。"}
+      </p>
+      {draft.goal === "recompose" && <div className="nutrition-estimate-fields form-fields">
+        <label>体重下限（kg，可选）<input type="number" inputMode="decimal" step="any" min={10} max={draft.maxKg || 700}
+          value={draft.minKg} required={Boolean(draft.maxKg)} onChange={(event) => onChange({ ...draft, minKg: event.target.value })} /></label>
+        <label>体重上限（kg，可选）<input type="number" inputMode="decimal" step="any" min={draft.minKg || 10} max={700}
+          value={draft.maxKg} required={Boolean(draft.minKg)} onChange={(event) => onChange({ ...draft, maxKg: event.target.value })} /></label>
+      </div>}
+      {input && !estimate && <p className="nutrition-estimate-caption" role="status">{input.success ? "当前档案不适合此目标，请选择其他目标。" : "当前资料超出成人估算范围，请核对身体档案。"}</p>}
+    </div>
+    {calibration && <div className="nutrition-estimate-card nutrition-estimate-calibration">
+      {calibration.ready && <label className="nutrition-goal-records">
+        <input type="checkbox" checked={useRecords} onChange={(event) => setRecordsChoice(event.target.checked)} />
+        <span>按近 {calibrationRules.windowDays / 7} 周记录校准<small className="nutrition-estimate-caption">可信度{confidenceNames[calibration.confidence]} · {displayNumber(calibration.measuredCalories)} 千卡／日</small></span>
+      </label>}
+      <details>
+        <summary>{calibration.ready ? "查看校准依据" : "记录校准条件"}<ChevronDown size={15} aria-hidden="true" /></summary>
+        <p className="nutrition-estimate-caption">{recordsText(calibration)}</p>
+      </details>
+    </div>}
+    {estimate && <div className="nutrition-estimate-card nutrition-estimate-result" role="group" aria-label="估算预览">
+      <div className="nutrition-estimate-energy">
+        <div><span>建议每日热量</span><p><strong>{displayNumber(estimate.values.calories)}</strong> 千卡</p></div>
+        <Flame size={24} aria-hidden="true" />
+      </div>
+      <dl className="nutrition-estimate-macros">{nutrients.map(({ id, name }) => <div key={id} data-nutrient={id}>
+        <dt>{name}</dt><dd>{displayNumber(estimate.values[id])} <small>g</small></dd>
+      </div>)}</dl>
+      <details>
+        <summary>查看计算依据<ChevronDown size={15} aria-hidden="true" /></summary>
+        <p className="nutrition-estimate-caption">{estimateText(estimate, arrivalText(estimate, weightKg, targetWeightKg, minLossKg),
+          trainingDays > 0 || estimate.maintenanceSource === "records")}</p>
+      </details>
+      {estimate.notes.length > 0 && <ul className="nutrition-estimate-notes">{estimate.notes.map((note) =>
+        <li key={note}>{noteText(note, estimate, draft)}</li>)}</ul>}
+      <p className="nutrition-estimate-caption">估算适用于健康成年人。孕期、哺乳期或有疾病时请遵医嘱。</p>
+      <button type="button" className="button primary nutrition-estimate-apply" onClick={() => {
+        onChange({ ...draft, trainingDays });
+        onApply({ ...estimate.values, water });
+      }}>填入目标 <ArrowRight size={16} aria-hidden="true" /></button>
+    </div>}
   </section>;
 }

@@ -13,7 +13,6 @@ struct NativePlanEditorPanel: View {
     @State private var error: String?
     @State private var exercisePreview: NativeTemplateExercisePreview?
     @State private var openedMove: Int?
-    @State private var swipedMove: String?
     @State private var showsPicker = false
     @State private var showsDetails = false
     @State private var choosingRest = false
@@ -66,13 +65,11 @@ struct NativePlanEditorPanel: View {
         VStack(spacing: 0) {
             if !compactHeight { header }
             ScrollViewReader { scroll in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if compactHeight { header }
-                        content
-                    }
-                    .padding(14)
+                List {
+                    if compactHeight { header.spotterPlainListRow(horizontal: 0) }
+                    content
                 }
+                .spotterPlainList()
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: moves.count) { [previous = moves.count] count in
                     guard count > previous, count > 0 else { return }
@@ -209,15 +206,26 @@ struct NativePlanEditorPanel: View {
                 Button("添加动作", action: openPicker).buttonStyle(SpotterNativeButtonStyle(primary: true))
             }
             .frame(maxWidth: .infinity).padding(30).spotterCard()
+            .spotterPlainListRow(top: 6, bottom: 6)
         }
         ForEach(Array(moves.enumerated()), id: \.offset) { index, move in
-            exerciseCard(index, move: move).id(index)
+            exerciseCard(index, move: move)
+                .contentShape(Rectangle())
+                .spotterPlainListRow(top: 6, bottom: 6)
+                .id(index)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button("删除", systemImage: "trash") { removeMove(index) }
+                        .tint(.red)
+                        .accessibilityLabel("删除 \(NativeExerciseLabel(move).name)")
+                        .accessibilityIdentifier("spotter-swipe-delete-plan-move-\(index)")
+                }
         }
         if draft.plan["category"].string == "有氧训练" {
             NativeCardioPlanPresets { _ = appendMove($0) }
                 .disabled(moves.count >= 30)
+                .spotterPlainListRow(top: 6, bottom: 6)
         }
-        manualMoveRow
+        manualMoveRow.spotterPlainListRow(top: 6, bottom: 6)
         if !linked, !draft.plan["video"].string.isEmpty {
             Button { showsDetails = true } label: {
                 HStack(spacing: 10) {
@@ -232,6 +240,7 @@ struct NativePlanEditorPanel: View {
                 .padding(13).frame(minHeight: 44).contentShape(Rectangle())
             }
             .buttonStyle(.spotterPress).spotterCard()
+            .spotterPlainListRow(top: 6, bottom: 6)
         }
     }
 
@@ -260,7 +269,7 @@ struct NativePlanEditorPanel: View {
         return VStack(alignment: .leading, spacing: 11) {
             Button {
                 focusedField = nil
-                withAnimation(motion) { openedMove = open ? nil : index; swipedMove = nil }
+                withAnimation(motion) { openedMove = open ? nil : index }
             } label: {
                 HStack(spacing: 9) {
                     Text(move["sourceSlot"].string.isEmpty ? "\(index + 1)" : move["sourceSlot"].string)
@@ -287,8 +296,6 @@ struct NativePlanEditorPanel: View {
         }
         .padding(12)
         .spotterCard()
-        .spotterSwipeToDelete(id: "plan-move-\(index)", openRow: $swipedMove,
-                              accessibilityLabel: "删除 \(name.isEmpty ? "动作" : name)") { removeMove(index) }
     }
 
     private func moveEditor(_ index: Int, move: NativeJSON, name: String) -> some View {
@@ -572,7 +579,6 @@ struct NativePlanEditorPanel: View {
                 guard list.indices.contains(index) else { return }
                 list.remove(at: index)
             }
-            swipedMove = nil
             if let opened = openedMove {
                 if opened == index { openedMove = nil } else if opened > index { openedMove = opened - 1 }
             }
@@ -595,7 +601,6 @@ struct NativePlanEditorPanel: View {
 
     private func openPicker() {
         focusedField = nil
-        swipedMove = nil
         if store != nil { showsPicker = true } else { focusedField = .manualMove }
     }
 

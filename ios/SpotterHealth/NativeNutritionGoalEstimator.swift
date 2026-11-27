@@ -72,12 +72,6 @@ struct NativeNutritionGoalChoice: Equatable {
 
 /// Body profile and dated readings from `/api/library?section=body`.
 struct NativeNutritionGoalBody: Decodable, Sendable {
-    struct Reading: Sendable {
-        let day: String
-        let updated: String
-        let value: Double
-    }
-
     struct Snapshot: Sendable {
         let heightCm: Double
         let age: Int
@@ -86,12 +80,9 @@ struct NativeNutritionGoalBody: Decodable, Sendable {
         let bodyFatPercent: Double?
     }
 
-    /// A body-fat reading older than this is not used.
-    static let bodyFatMaxAgeDays = 90
-
     var profile = NativeJSON.null
-    var weights: [Reading] = []
-    var bodyFat: [Reading] = []
+    var weights: [NativeNutritionGoalReading] = []
+    var bodyFat: [NativeNutritionGoalReading] = []
 
     init(from decoder: Decoder) throws {
         let rows = try NativeJSON(from: decoder)["rows"]
@@ -107,14 +98,14 @@ struct NativeNutritionGoalBody: Decodable, Sendable {
             let entry = row["entry"]
             let type = entry["type"].string
             if type == "weight", case .number(let kg) = entry["kg"], kg.isFinite {
-                weights.append(Reading(day: day, updated: row["updated"].string, value: kg))
+                weights.append(NativeNutritionGoalReading(day: day, updated: row["updated"].string, value: kg))
             } else if type == "measurement", entry["metric"].string == "fat", case .number(let percent) = entry["value"], percent.isFinite {
-                bodyFat.append(Reading(day: day, updated: row["updated"].string, value: percent))
+                bodyFat.append(NativeNutritionGoalReading(day: day, updated: row["updated"].string, value: percent))
             }
         }
     }
 
-    private func latest(_ readings: [Reading], through day: String) -> Reading? {
+    private func latest(_ readings: [NativeNutritionGoalReading], through day: String) -> NativeNutritionGoalReading? {
         readings.filter { $0.day <= day }.max(by: { ($0.day, $0.updated) < ($1.day, $1.updated) })
     }
 
@@ -124,12 +115,7 @@ struct NativeNutritionGoalBody: Decodable, Sendable {
         let sex = profile["sex"].string
         guard heightCm > 0, let savedAge = Int(exactly: profile["age"].number), savedAge > 0,
               sex == "male" || sex == "female", let weight = latest(weights, through: day) else { return nil }
-        var bodyFatPercent: Double?
-        if let fat = latest(bodyFat, through: day), NativeNutritionGoalRules.bodyFatRange.contains(fat.value),
-           let measured = NativeEnergyCalibration.dayNumber(fat.day), let today = NativeEnergyCalibration.dayNumber(day),
-           today - measured <= Self.bodyFatMaxAgeDays {
-            bodyFatPercent = fat.value
-        }
+        let bodyFatPercent = NativeNutritionGoalRules.latestBodyFat(bodyFat, through: day)?.value
         return Snapshot(heightCm: heightCm,
                         age: NativeNutritionGoalInput.age(savedAge, recordedOn: profile["ageAsOf"].string, on: day),
                         male: sex == "male", weightKg: weight.value, bodyFatPercent: bodyFatPercent)
@@ -140,7 +126,7 @@ private struct NativeNutritionGoalExport: Decodable {
     let library: [NutritionPayload.Row]
 }
 
-/// Form rows that work out daily targets from body data, activity, goal and recent records.
+/// Works out daily targets from body data, activity, goal and recent records.
 @MainActor
 struct NativeNutritionGoalEstimator: View {
     private struct Resolved {
@@ -150,20 +136,37 @@ struct NativeNutritionGoalEstimator: View {
         var estimate: NativeNutritionGoalEstimate?
     }
 
-    let api: NativeAPI
-    let owner: String
-    @Binding var choice: NativeNutritionGoalChoice
-    let targetWeightKg: Double?
-    let onApply: (NativeNutritionGoalEstimate) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccent) private var accent
+    @Environment(\.spotterInteractionMotion) private var motion
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    private let api: NativeAPI
+    private let owner: String
+    private let targetWeightKg: Double?
+    private let onApply: (NativeNutritionGoalEstimate) -> Void
+    @Binding private var savedChoice: NativeNutritionGoalChoice
+    @State private var choice: NativeNutritionGoalChoice
 
     @State private var bodyData: NativeNutritionGoalBody?
     @State private var intake: [String: Double]?
     @State private var loading = true
     @State private var loadError: String?
-    @State private var intakeRequested = false
+    @State private var intakeLoading = false
+    @State private var intakeLoadFailed = false
     /// The person's own choice. Before they make one, records are used unless their error is large.
     @State private var recordsChoice: Bool?
     @State private var today = spotterDay()
+
+    init(api: NativeAPI, owner: String, choice: Binding<NativeNutritionGoalChoice>, targetWeightKg: Double?,
+         onApply: @escaping (NativeNutritionGoalEstimate) -> Void) {
+        self.api = api
+        self.owner = owner
+        self.targetWeightKg = targetWeightKg
+        self.onApply = onApply
+        _savedChoice = choice
+        _choice = State(initialValue: choice.wrappedValue)
+    }
 
     private var goalOptions: [(NativeNutritionGoal?, String)] {
         var options: [(NativeNutritionGoal?, String)] = [(nil, "选择目标")]
@@ -197,36 +200,148 @@ struct NativeNutritionGoalEstimator: View {
 
     var body: some View {
         let resolved = resolve()
-        Section {
-            // One container keeps the task on a row that stays the same row while the status inside it changes.
-            VStack(alignment: .leading) { status(resolved) }
-                .task(id: owner) { await load() }
-            SpotterMenuPicker("目标方向", selection: $choice.goal, options: goalOptions)
-            SpotterMenuPicker("日常活动（不含训练）", selection: $choice.activity, options: activityOptions)
-            if choice.activityNeedsReview && choice.activity == nil {
-                Text("「日常活动」现在只算平时走动，训练另按每周训练天数计，请重新选择。")
-                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    profileCard(resolved)
+                    settingsCard
+                    if let estimate = resolved.estimate {
+                        result(estimate, snapshot: resolved.snapshot)
+                    } else if let input = resolved.input {
+                        Text(input.isInRange ? "当前身体档案不适用这个目标，请选择其他目标。" : "当前资料超出成人估算范围，请核对身体档案。")
+                            .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    }
+                    if let calibration = resolved.calibration {
+                        recordsCard(calibration)
+                    } else if resolved.estimate != nil && (intakeLoading || intakeLoadFailed) {
+                        recordsStatus
+                    }
+                    Text("估算适用于健康成年人。孕期、哺乳期或有疾病时请遵医嘱。")
+                        .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                        .padding(.horizontal, 4)
+                }
+                .frame(maxWidth: 540)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
             }
-            SpotterMenuPicker("每周训练", selection: trainingDays, options: trainingOptions)
-            if !paceOptions.isEmpty {
-                SpotterMenuPicker("进度", selection: $choice.pace, options: paceOptions)
+            .background(SpotterPalette.background.ignoresSafeArea())
+            .safeAreaInset(edge: .bottom, spacing: 0) { applyBar(resolved.estimate) }
+            .navigationTitle("按身体数据计算")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { NutritionDismissButton { dismiss() } }
             }
-            if let calibration = resolved.calibration { records(calibration) }
-            if let estimate = resolved.estimate {
-                result(estimate, snapshot: resolved.snapshot)
-            } else if let input = resolved.input {
-                Text(input.isInRange ? "当前档案不适合此目标，请选择其他目标。" : "当前资料超出成人估算范围，请核对身体档案。")
-                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
-            }
-        } header: {
-            Text("按身体数据计算")
-        } footer: {
-            Text("估算值，适用于健康成年人；孕期、哺乳期或有疾病时请遵医嘱。")
         }
+        .foregroundStyle(SpotterPalette.ink)
+        .tint(accent.tint)
+        .presentationDragIndicator(.visible)
+        .task(id: owner) { await load() }
     }
 
     private var trainingDays: Binding<Int> {
         Binding(get: { choice.effectiveTrainingDays }, set: { choice.trainingDays = $0 })
+    }
+
+    private func profileCard(_ resolved: Resolved) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            heading("身体档案", icon: "person.crop.circle")
+            if let snapshot = resolved.snapshot {
+                let details = [
+                    "\(nutritionNumber(snapshot.heightCm)) cm",
+                    "\(amount(snapshot.weightKg)) kg",
+                    "\(snapshot.age) 岁",
+                    snapshot.bodyFatPercent.map { "体脂 \(nutritionNumber($0))%" }
+                ].compactMap { $0 }
+                Text(details.joined(separator: " · "))
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .accessibilityIdentifier("nutrition-estimator-profile")
+            } else if loading {
+                ProgressView("正在读取身体数据…")
+                    .font(.footnote)
+            } else if let loadError {
+                Text(loadError).font(.footnote).foregroundStyle(SpotterPalette.muted)
+                Button("重试") { Task { await load(retry: true) } }
+                    .buttonStyle(.spotterControl)
+            } else {
+                Text("在「设置」点顶部账号卡片，再进「身体档案」。保存身高、年龄和性别，并在「记录身体测量」记一次体重。")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    .accessibilityIdentifier("nutrition-estimator-missing-profile")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .spotterCard(radius: 20)
+    }
+
+    private var settingsCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            heading("目标与活动", icon: "slider.horizontal.3")
+                .padding(.bottom, 2)
+            option("目标方向", selection: $choice.goal, options: goalOptions, id: "goal")
+            option("日常活动", detail: "不含训练", selection: $choice.activity, options: activityOptions, id: "activity")
+            if choice.activityNeedsReview && choice.activity == nil {
+                Text("日常活动现在只算平时走动，训练另按每周训练天数计。请选择当前的活动量。")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    .padding(.horizontal, 4)
+            }
+            option("每周训练", selection: trainingDays, options: trainingOptions, id: "training-days")
+            if !paceOptions.isEmpty {
+                option("进度", selection: $choice.pace, options: paceOptions, id: "pace")
+            }
+        }
+        .padding(14)
+        .spotterCard(radius: 20)
+    }
+
+    private func option<Value: Hashable>(_ title: String, detail: String? = nil, selection: Binding<Value>,
+                                         options: [(Value, String)], id: String) -> some View {
+        let value = options.first { $0.0 == selection.wrappedValue }?.1 ?? "未选择"
+        return NavigationLink {
+            NativeNutritionGoalOptions(title: title, detail: detail, selection: selection, options: options)
+        } label: {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    optionTitle(title, detail: detail).fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    optionValue(value).fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    optionTitle(title, detail: detail)
+                    optionValue(value)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 7)
+        }
+        .buttonStyle(.spotterControl)
+        .accessibilityIdentifier("nutrition-estimator-\(id)")
+        .accessibilityLabel(title)
+        .accessibilityValue(value)
+        .accessibilityHint(detail ?? "")
+    }
+
+    private func optionTitle(_ title: String, detail: String?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(SpotterPalette.ink)
+            if let detail { Text(detail).font(.caption).foregroundStyle(SpotterPalette.muted) }
+        }
+    }
+
+    private func optionValue(_ value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(value).font(.footnote.weight(.medium)).foregroundStyle(accent.tint)
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.bold)).foregroundStyle(SpotterPalette.muted)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func heading(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .labelStyle(.titleAndIcon)
+            .font(.headline)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// Whether the records are used for a calibration that is ready.
@@ -234,32 +349,52 @@ struct NativeNutritionGoalEstimator: View {
         recordsChoice ?? (measured.confidence != .low)
     }
 
-    @ViewBuilder private func status(_ resolved: Resolved) -> some View {
-        if let snapshot = resolved.snapshot {
-            let fat = snapshot.bodyFatPercent.map { " · 体脂 \(nutritionNumber($0))%" } ?? ""
-            Text("\(nutritionNumber(snapshot.heightCm)) cm · \(amount(snapshot.weightKg)) kg · \(snapshot.age) 岁\(fat)")
-                .font(.footnote).foregroundStyle(SpotterPalette.muted)
-        } else if loading {
-            ProgressView("正在读取身体数据…")
-        } else if let loadError {
-            Button(loadError) { Task { await load(retry: true) } }.foregroundStyle(SpotterPalette.accent)
-        } else {
-            Text("在「设置 → 账号 → 身体档案」填写身高、年龄和性别，并记录体重后即可计算。")
-                .font(.footnote).foregroundStyle(SpotterPalette.muted)
+    private func recordsCard(_ calibration: NativeEnergyCalibration) -> some View {
+        let weeks = NativeEnergyCalibration.windowDays / 7
+        return VStack(alignment: .leading, spacing: 8) {
+            heading("饮食与体重校准", icon: "chart.line.uptrend.xyaxis")
+            if let measured = calibration.result {
+                Toggle("采用近 \(weeks) 周记录",
+                       isOn: Binding(get: { usesRecords(measured) }, set: { recordsChoice = $0 }))
+                    .font(.subheadline.weight(.semibold))
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("nutrition-estimator-use-records")
+                Text("推算维持约 \(nutritionNumber(measured.measuredCalories)) 千卡/天 · 可信度\(measured.confidence.title)")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                SpotterDisclosure("校准依据") {
+                    Text(recordsSummary(calibration, measured))
+                        .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                        .padding(.horizontal, 4)
+                }
+            } else {
+                SpotterDisclosure("查看校准条件") {
+                    Text(recordsMissing(calibration, weeks: weeks))
+                        .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                        .padding(.horizontal, 4)
+                }
+            }
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .spotterCard(radius: 20)
     }
 
-    @ViewBuilder private func records(_ calibration: NativeEnergyCalibration) -> some View {
-        let weeks = NativeEnergyCalibration.windowDays / 7
-        if let measured = calibration.result {
-            Toggle("按近 \(weeks) 周的记录校准维持热量",
-                   isOn: Binding(get: { usesRecords(measured) }, set: { recordsChoice = $0 }))
-            Text(recordsSummary(calibration, measured))
-                .font(.footnote).foregroundStyle(SpotterPalette.muted)
-        } else {
-            Text(recordsMissing(calibration, weeks: weeks))
-                .font(.footnote).foregroundStyle(SpotterPalette.muted)
+    private var recordsStatus: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            heading("饮食与体重校准", icon: "chart.line.uptrend.xyaxis")
+            if intakeLoading {
+                ProgressView("正在读取近四周记录…")
+                    .font(.footnote)
+            } else {
+                Text("记录读取失败，当前目标按身体档案和活动量估算。")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                Button("重试读取记录") { Task { await loadIntake(retry: true) } }
+                    .buttonStyle(.spotterControl)
+            }
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .spotterCard(radius: 20)
     }
 
     private func recordsMissing(_ calibration: NativeEnergyCalibration, weeks: Int) -> String {
@@ -280,8 +415,8 @@ struct NativeNutritionGoalEstimator: View {
 
     private func recordsSummary(_ calibration: NativeEnergyCalibration, _ measured: NativeEnergyCalibration.Measurement) -> String {
         let change = (measured.weeklyChangeKg > 0 ? "+" : "") + amount(measured.weeklyChangeKg)
-        var text = "称重 \(calibration.weighIns) 天，每周 \(change) kg；"
-        text += "其间完整饮食记录 \(calibration.loggedDays) 天，日均 \(nutritionNumber(measured.averageIntake)) 千卡；"
+        var text = "称重 \(calibration.weighIns) 天，体重每周变化 \(change) kg。"
+        text += "其间完整饮食记录 \(calibration.loggedDays) 天，日均 \(nutritionNumber(measured.averageIntake)) 千卡。"
         text += "推算维持约 \(nutritionNumber(measured.measuredCalories)) 千卡（±\(nutritionNumber(measured.measuredError))，未计漏记），可信度\(measured.confidence.title)。"
         if calibration.lowDays > 0 { text += "有 \(calibration.lowDays) 天记得特别少，分不清是没记全还是确实吃得少，按一半计入，误差已加大。" }
         if measured.intakeShift { text += "记录期间饮食量有明显变化，体重变化里可能有水分，误差已加大。" }
@@ -300,29 +435,122 @@ struct NativeNutritionGoalEstimator: View {
             : ""
     }
 
-    @ViewBuilder private func result(_ estimate: NativeNutritionGoalEstimate, snapshot: NativeNutritionGoalBody.Snapshot?) -> some View {
-        row("每日热量", "\(nutritionNumber(estimate.calories)) 千卡")
-        row("蛋白质 · 碳水 · 脂肪",
-            "\(nutritionNumber(estimate.protein)) · \(nutritionNumber(estimate.carbs)) · \(nutritionNumber(estimate.fat)) g")
-        Text(explanation(estimate, snapshot: snapshot))
-            .font(.footnote).foregroundStyle(SpotterPalette.muted)
-        ForEach(estimate.notes, id: \.self) { note in
-            Text(noteText(note, estimate)).font(.footnote).foregroundStyle(SpotterPalette.muted)
+    private func result(_ estimate: NativeNutritionGoalEstimate, snapshot: NativeNutritionGoalBody.Snapshot?) -> some View {
+        let layout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 7))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
+        let calories = nutritionNumber(estimate.calories)
+        return VStack(alignment: .leading, spacing: 12) {
+            heading("每日目标估算", icon: "bolt.circle")
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    calorieAmount(calories).fixedSize(horizontal: true, vertical: false)
+                    calorieUnit.fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    calorieAmount(calories)
+                    calorieUnit
+                }
+            }
+            layout {
+                macro("碳水", grams: estimate.carbs, color: 0x7764c3)
+                macro("蛋白质", grams: estimate.protein, color: 0xbd632f)
+                macro("脂肪", grams: estimate.fat, color: 0xbd5061)
+            }
+            SpotterDisclosure("查看估算依据") {
+                Text(explanation(estimate, snapshot: snapshot))
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                    .padding(.horizontal, 4)
+            }
+            if !estimate.notes.isEmpty {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(estimate.notes, id: \.self) { note in
+                        Label {
+                            Text(noteText(note, estimate))
+                        } icon: {
+                            Image(systemName: "info.circle").accessibilityHidden(true)
+                        }
+                    }
+                }
+                .font(.footnote).foregroundStyle(SpotterPalette.muted)
+                .padding(.horizontal, 4)
+            }
         }
-        Button("填入下方目标") {
-            choice.trainingDays = choice.effectiveTrainingDays
-            onApply(estimate)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(.linearGradient(colors: [SpotterPalette.adaptive(0xeaf6ff, 0x253846), SpotterPalette.card],
+                                      startPoint: .topLeading, endPoint: .bottomTrailing))
         }
-        .foregroundStyle(SpotterPalette.accent)
+        .spotterCard(radius: 20)
     }
 
-    private func row(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title).font(.subheadline)
-            Spacer(minLength: 8)
-            Text(value).font(.subheadline.weight(.semibold)).monospacedDigit()
+    private func calorieAmount(_ value: String) -> some View {
+        Text(value)
+            .font(.largeTitle.weight(.bold).monospacedDigit())
+            .contentTransition(motion == nil ? .identity : .numericText())
+            .animation(motion, value: value)
+            .accessibilityLabel("每日约 \(value) 千卡")
+            .accessibilityIdentifier("nutrition-estimator-result")
+    }
+
+    private var calorieUnit: some View {
+        Text("千卡 / 天")
+            .font(.subheadline.weight(.medium)).foregroundStyle(SpotterPalette.muted)
+            .accessibilityHidden(true)
+    }
+
+    private func macro(_ label: String, grams: Double, color: UInt32) -> some View {
+        let amount = "\(nutritionNumber(grams)) g"
+        return VStack(alignment: .leading, spacing: 4) {
+            Label {
+                Text(label)
+            } icon: {
+                Circle().fill(SpotterPalette.color(color)).frame(width: 6, height: 6)
+                    .accessibilityHidden(true)
+            }
+            .font(.caption.weight(.medium)).foregroundStyle(SpotterPalette.muted)
+            Text(amount).font(.subheadline.weight(.semibold).monospacedDigit())
+                .contentTransition(motion == nil ? .identity : .numericText())
+                .animation(motion, value: grams)
         }
-        .accessibilityElement(children: .combine)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SpotterPalette.card.opacity(0.74), in: RoundedRectangle(cornerRadius: 11))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(amount)
+    }
+
+    private func applyBar(_ estimate: NativeNutritionGoalEstimate?) -> some View {
+        VStack(spacing: 6) {
+            Button {
+                guard let estimate else { return }
+                choice.trainingDays = choice.effectiveTrainingDays
+                savedChoice = choice
+                onApply(estimate)
+                dismiss()
+            } label: {
+                Label("填入营养目标", systemImage: "arrow.turn.down.left")
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.spotterPrimaryControl)
+            .disabled(estimate == nil)
+            .accessibilityIdentifier("nutrition-estimator-apply")
+            if estimate != nil {
+                Text("回到营养目标后，点保存生效。")
+                    .font(.caption).foregroundStyle(SpotterPalette.muted)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: 540)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity)
+        .background(SpotterPalette.background.shadow(.drop(color: SpotterPalette.deep.opacity(0.08), radius: 12, y: -5)))
     }
 
     private func amount(_ value: Double) -> String {
@@ -373,10 +601,10 @@ struct NativeNutritionGoalEstimator: View {
         case .paceLimited:
             let loss = "减重每周不超过体重的 \(amount(Rules.maxWeeklyLossShare * 100))%、每天最多少吃 \(Int(Rules.maxDailyDeficit)) 千卡"
             let gain = "增重每周不超过 \(amount(Rules.maxWeeklyGainShare * 100))%、每天最多多吃 \(Int(Rules.maxDailySurplus)) 千卡"
-            return "已放慢进度：\(loss)；\(gain)。"
+            return "已放慢进度。\(loss)，\(gain)。"
         case .nearUnderweight:
             guard estimate.adjustmentCalories < 0 else { return "体重已接近偏瘦线（BMI \(amount(Rules.minLossBmi))），这次没有设缺口。" }
-            return "体重接近偏瘦线（BMI \(amount(Rules.minLossBmi))），已放慢进度：按这个速度 \(Int(Rules.lowWeightWeeks)) 周内不会低于偏瘦线。"
+            return "体重接近偏瘦线（BMI \(amount(Rules.minLossBmi))），已放慢进度。按这个速度 \(Int(Rules.lowWeightWeeks)) 周内不会低于偏瘦线。"
         case .calorieFloor:
             return "已上调到最低摄入量（\(floors)），缺口比所选进度小。"
         case .belowFloor:
@@ -416,8 +644,6 @@ struct NativeNutritionGoalEstimator: View {
         return resolved
     }
 
-    /// Reads the body data once, then the food records once. After a failure only the retry button reads again,
-    /// so a task that SwiftUI restarts cannot loop.
     private func load(retry: Bool = false) async {
         if bodyData == nil {
             guard retry || loadError == nil else { return }
@@ -433,13 +659,18 @@ struct NativeNutritionGoalEstimator: View {
             } catch is CancellationError {
                 return
             } catch {
-                // A cancelled request is not a failure the person has to retry.
-                if !Task.isCancelled { loadError = "身体数据读取失败，点此重试。" }
+                if !Task.isCancelled { loadError = "身体数据读取失败。" }
                 return
             }
         }
-        guard intake == nil, !intakeRequested else { return }
-        intakeRequested = true
+        if bodyData?.snapshot(on: today) != nil { await loadIntake() }
+    }
+
+    private func loadIntake(retry: Bool = false) async {
+        guard intake == nil, !intakeLoading, retry || !intakeLoadFailed else { return }
+        intakeLoading = true
+        intakeLoadFailed = false
+        defer { intakeLoading = false }
         let now = Date.now
         // Calibration is optional. The formula estimate works without these records.
         let calendar = Calendar.current
@@ -447,8 +678,7 @@ struct NativeNutritionGoalEstimator: View {
               let last = calendar.date(byAdding: .day, value: -1, to: now) else { return }
         let path = "/api/data?scope=nutrition&from=\(spotterDay(first))&to=\(spotterDay(last))"
         guard let data = try? await api.request(path, method: "GET", json: nil, for: owner), !Task.isCancelled else {
-            // Cancelled before an answer came: the next run asks again. A failed request is not repeated.
-            if Task.isCancelled { intakeRequested = false }
+            if !Task.isCancelled { intakeLoadFailed = true }
             return
         }
         let totals = await Task.detached(priority: .utility) { () -> [String: Double]? in
@@ -460,10 +690,57 @@ struct NativeNutritionGoalEstimator: View {
             }
             return totals
         }.value
-        if Task.isCancelled {
-            intakeRequested = false
-        } else if let totals {
-            intake = totals
+        guard !Task.isCancelled else { return }
+        intake = totals
+        intakeLoadFailed = totals == nil
+    }
+}
+
+
+/// Keep the selection in the same navigation stack as the calculator.
+private struct NativeNutritionGoalOptions<Value: Hashable>: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.spotterAccent) private var accent
+    let title: String
+    let detail: String?
+    @Binding var selection: Value
+    let options: [(Value, String)]
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(options, id: \.0) { value, label in
+                    let selected = selection == value
+                    Button {
+                        selection = value
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(label).foregroundStyle(SpotterPalette.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            if selected {
+                                Image(systemName: "checkmark")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(accent.tint)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.spotterPress)
+                    .listRowBackground(selected ? accent.selection : SpotterPalette.card)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            } footer: {
+                if let detail { Text(detail).foregroundStyle(SpotterPalette.muted) }
+            }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

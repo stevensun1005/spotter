@@ -823,6 +823,7 @@ private struct NativeSpotterTabs: View {
     @EnvironmentObject private var socialNotifications: NativeSocialNotifications
     @State private var selected: NativeSpotterSection = .today
     @State private var showCoach = false
+    @State private var coachUsesMainWindow = false
     @State private var coachDetent = Self.compactCoachDetent
     @State private var showSettings = false
     @State private var showPlanImport = false
@@ -867,8 +868,10 @@ private struct NativeSpotterTabs: View {
     @AppStorage(NativeTrainingNotifications.restPreference) private var backgroundRestAlerts = false
     @AppStorage(NativeTrainingNotifications.liveActivityPreference) private var showsTrainingLiveActivity = true
     @AppStorage(NativePreferenceKey.restSound) private var restSound = false
+    @AppStorage(NativePreferenceKey.workoutPresentation) private var workoutPresentation: NativeWorkoutPresentation = .classic
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.dynamicTypeSize) private var systemTextSize
+    @Environment(\.colorScheme) private var surroundingColorScheme
     let owner: String
     @Binding var inboundInvite: String?
     @Binding var widgetDestination: NativeWidgetDestination?
@@ -1003,19 +1006,13 @@ private struct NativeSpotterTabs: View {
         .task(id: restAlert) {
             await NativeTrainingNotifications.shared.scheduleRest(restAlert)
         }
-        .sheet(isPresented: $showCoach, onDismiss: {
-            guideCoachGoal = nil
-            if guideStep?.section == .coach { finishGuide() }
-            stageInvite()
-            Task { await workouts.load() }
-        }) {
-            NativeCoachView(api: account.api, owner: owner, compact: coachDetent != .large,
-                            onExpand: { coachDetent = .large },
-                            onStartWorkout: { selected = .training; showCoach = false },
-                            initialTrainingGoal: guideCoachGoal,
-                            workoutStore: workouts)
-                .presentationDetents([Self.compactCoachDetent, .large], selection: $coachDetent)
-                .presentationDragIndicator(.visible)
+        .background {
+            NativeCoachOverlay(visible: !showWelcome && guideStep == nil, presenting: showCoach && !coachUsesMainWindow) {
+                floatingCoachContent
+            }
+        }
+        .sheet(isPresented: coachPresentation(inMainWindow: true), onDismiss: coachClosed) {
+            coachPanel
         }
         .fullScreenCover(isPresented: $showSettings, onDismiss: {
             if replayWelcomeAfterSettings {
@@ -1443,6 +1440,7 @@ private struct NativeSpotterTabs: View {
 
     private func openCoach(startFromGuide: Bool = false) {
         guard !showCoach else { return }
+        coachUsesMainWindow = guideStep != nil
         if startFromGuide {
             advanceGuide(from: .coach)
             guideCoachGoal = "general"
@@ -1451,6 +1449,61 @@ private struct NativeSpotterTabs: View {
             coachDetent = Self.compactCoachDetent
         }
         showCoach = true
+    }
+
+    private func coachPresentation(inMainWindow: Bool) -> Binding<Bool> {
+        Binding(get: { showCoach && coachUsesMainWindow == inMainWindow }, set: { value in
+            if coachUsesMainWindow == inMainWindow { showCoach = value }
+        })
+    }
+
+    private var coachPanel: some View {
+        NativeCoachView(api: account.api, owner: owner, compact: coachDetent != .large,
+                        onExpand: { coachDetent = .large }, onStartWorkout: { selected = .training; showCoach = false },
+                        initialTrainingGoal: guideCoachGoal, workoutStore: workouts)
+            .presentationDetents([Self.compactCoachDetent, .large], selection: $coachDetent)
+            .presentationDragIndicator(.visible)
+    }
+
+    private func coachClosed() {
+        guideCoachGoal = nil
+        if guideStep?.section == .coach { finishGuide() }
+        stageInvite()
+        Task { await workouts.load() }
+    }
+
+    private var floatingCoachContent: some View {
+        Color.clear
+            .overlay(alignment: .bottomTrailing) {
+                if !showCoach {
+                    coachButton
+                        .background { NativeCoachOverlayTouchTarget() }
+                        .padding(.trailing, 14)
+                        .padding(.bottom, coachBottomPadding)
+                }
+            }
+            .sheet(isPresented: coachPresentation(inMainWindow: false), onDismiss: coachClosed) { coachPanel }
+            .foregroundStyle(SpotterPalette.ink)
+            .tint(accent.tint)
+            .environment(\.spotterAccent, accent)
+            .environment(\.spotterReduceMotion, reduceMotion)
+            .environment(\.colorScheme, surroundingColorScheme)
+            .environment(\.spotterAccountPreferences, trainingPreferences)
+            .environmentObject(avatars)
+            .environmentObject(remarks)
+            .environmentObject(socialNotifications)
+            .dynamicTypeSize(largerText ? max(systemTextSize, .xxLarge) : systemTextSize)
+    }
+
+    private var coachBottomPadding: CGFloat {
+        if showActiveWorkout, let session = workouts.active?.session, workoutPresentation.usesFocusedLayout(for: session) {
+            return NativeFloatingDock.reservedHeight + 59
+        }
+        return NativeFloatingDock.reservedHeight
+    }
+
+    private var coachButton: some View {
+        NativeFloatingCoachButton(interactive: allowsMotion) { openCoach(startFromGuide: guideStep == .coach) }
     }
 
     private func openTrainingLaunch() {
@@ -1521,6 +1574,7 @@ private struct NativeSpotterTabs: View {
                 // 键盘弹出时底栏留在原位，和系统底栏一样被键盘盖住。
                 .ignoresSafeArea(.keyboard, edges: .bottom)
             }
+            .overlay(alignment: .bottomTrailing) { guidedCoachButton }
         } else if Self.dockStyle == .docked {
             VStack(spacing: 0) {
                 customDockPages
@@ -1528,6 +1582,7 @@ private struct NativeSpotterTabs: View {
             }
             // 键盘弹出时底栏留在原位，页面自己避让键盘。
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            .overlay(alignment: .bottomTrailing) { guidedCoachButton }
         } else if #available(iOS 26.0, *) {
             let selection = Binding<TabDestination>(get: { .section(selected) }, set: { destination in
                 switch destination {
@@ -1568,9 +1623,17 @@ private struct NativeSpotterTabs: View {
     }
 
     private var customDock: some View {
-        NativeFloatingDock(sections: contentSections, selected: selected, interactive: allowsMotion,
-                           select: { selectTab($0) },
-                           openCoach: { openCoach(startFromGuide: guideStep == .coach) })
+        NativeFloatingDock(sections: contentSections, selected: selected,
+                           hasActiveWorkout: workouts.active != nil, isBusy: workouts.isBusy,
+                           select: { selectTab($0) }, openTraining: openTrainingLaunch)
+    }
+
+    @ViewBuilder private var guidedCoachButton: some View {
+        if guideStep == .coach {
+            coachButton
+                .padding(.trailing, 14)
+                .padding(.bottom, coachBottomPadding)
+        }
     }
 
     private func tabScene(_ section: NativeSpotterSection, active: Bool) -> some View {
@@ -1622,54 +1685,30 @@ private struct NativeSpotterTabs: View {
         }
     }
 
-    private var quickActions: some View {
-        let active = workouts.active
-        return HStack(spacing: 8) {
-            if let active, let session = active.session {
-                NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
-                                         watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
-                                         open: openActiveWorkout)
-                    .background(.bar, in: Capsule())
-            } else {
-                Spacer(minLength: 0)
-                Button(action: openTrainingLaunch) {
-                    Label(active == nil ? "开练" : "继续训练", systemImage: "play.fill")
-                        .padding(.horizontal, 14)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .spotterGlass(in: Capsule(), tint: accent.selection, interactive: allowsMotion)
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.spotterGlassPress)
-                .disabled(active == nil && workouts.isBusy)
-                .accessibilityLabel(active == nil ? "开始训练" : "继续训练")
-                .accessibilityIdentifier("spotter-dock-play")
+    @ViewBuilder private var quickActions: some View {
+        if let active = workouts.active, let session = active.session {
+            NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
+                                     watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
+                                     open: openActiveWorkout)
+                .background(.bar, in: Capsule())
+                .font(.subheadline.weight(.semibold)).foregroundStyle(accent.tint)
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .padding(.trailing, 56)
+                .padding(.horizontal, 14).padding(.vertical, 4)
+        } else if Self.usesCustomDock {
+            Color.clear.frame(height: 56).allowsHitTesting(false).accessibilityHidden(true)
+        } else {
+            Button(action: openTrainingLaunch) {
+                Label("开练", systemImage: "play.fill").frame(minHeight: 44)
+                    .padding(.horizontal, 14).spotterGlass(in: Capsule(), tint: accent.selection, interactive: allowsMotion)
             }
-            if !Self.usesCustomDock {
-                if #unavailable(iOS 26.0) {
-                    Button { openCoach(startFromGuide: guideStep == .coach) } label: {
-                        Image(systemName: "sparkles")
-                            .frame(width: 44, height: 44)
-                            .spotterGlass(in: Circle(), tint: accent.selection, interactive: allowsMotion)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.spotterGlassPress)
-                    .accessibilityLabel("打开 AI 教练")
-                    .accessibilityIdentifier("spotter-quick-coach")
-                    .nativeGuideTarget(.coach)
-                }
-            }
+            .buttonStyle(.spotterGlassPress).disabled(workouts.isBusy)
+            .accessibilityLabel("开始训练").accessibilityIdentifier("spotter-dock-play")
         }
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(accent.tint)
-        .lineLimit(1)
-        .minimumScaleFactor(0.8)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 4)
     }
 }
 
-/// WHOOP 式悬浮底栏：左侧胶囊放标签，右侧独立的圆角方形按钮打开 AI 教练。
-/// 只响应点按。没有拖动手势，也没有会移动的玻璃高亮，所以每次切页只是换一次前景色。
+/// 标签和开练共用一个悬浮胶囊。
 @MainActor
 private struct NativeFloatingDock: View {
     static let barHeight: CGFloat = 60
@@ -1682,30 +1721,22 @@ private struct NativeFloatingDock: View {
     @ScaledMetric(relativeTo: .caption2) private var tabLabelSize: CGFloat = 11
     let sections: [NativeSpotterSection]
     let selected: NativeSpotterSection
-    let interactive: Bool
+    let hasActiveWorkout: Bool
+    let isBusy: Bool
     let select: (NativeSpotterSection) -> Void
-    let openCoach: () -> Void
-
-    /// 星星外圈的渐变环，四种强调色首尾相接。
-    private static let ring: [Color] = SpotterAccent.allCases.map(\.tint) + [SpotterAccent.lime.tint]
+    let openTraining: () -> Void
 
     var body: some View {
-        // 两块玻璃共用一个取样容器。容器间距小于两者的间隔，形状不会融在一起。
-        SpotterGlassGroup(spacing: 4) {
-            HStack(spacing: 10) {
-                rail
-                coach
-            }
-        }
-        .frame(maxWidth: 530)
-        .padding(.horizontal, 12)
-        .padding(.top, Self.topGap)
-        .padding(.bottom, Self.bottomGap)
+        rail.frame(maxWidth: 530)
+            .padding(.horizontal, 12)
+            .padding(.top, Self.topGap)
+            .padding(.bottom, Self.bottomGap)
     }
 
     private var rail: some View {
         HStack(spacing: 0) {
             ForEach(sections, id: \.self) { section in
+                if section == .stats { trainingButton }
                 Button { select(section) } label: {
                     VStack(spacing: 3) {
                         Image(systemName: section.icon)
@@ -1736,18 +1767,45 @@ private struct NativeFloatingDock: View {
         .accessibilityIdentifier("spotter-dock-tabs")
     }
 
-    private var coach: some View {
-        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+    private var trainingButton: some View {
+        Button(action: openTraining) {
+            Image(systemName: "play.fill")
+                .font(.system(size: 21, weight: .semibold))
+                .offset(x: 1)
+                .foregroundStyle(SpotterPalette.deep)
+                .frame(width: 52, height: 52)
+                .background(accent.fill, in: Circle())
+                .overlay { Circle().strokeBorder(accent.tint.opacity(0.16)).allowsHitTesting(false) }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.spotterPress)
+        .disabled(isBusy && !hasActiveWorkout)
+        .accessibilityLabel(hasActiveWorkout ? "继续训练" : "开始训练")
+        .accessibilityIdentifier("spotter-dock-play")
+        .padding(.horizontal, 3)
+    }
+}
+
+@MainActor
+private struct NativeFloatingCoachButton: View {
+    @Environment(\.spotterAccent) private var accent
+    let interactive: Bool
+    let openCoach: () -> Void
+
+    private static let ring: [Color] = SpotterAccent.allCases.map(\.tint) + [SpotterAccent.lime.tint]
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 17, style: .continuous)
         return Button(action: openCoach) {
             ZStack {
                 Circle()
                     .strokeBorder(AngularGradient(colors: Self.ring, center: .center, angle: .degrees(-90)), lineWidth: 2.5)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 30, height: 30)
                 Image(systemName: "sparkles")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(accent.tint)
             }
-            .frame(width: Self.barHeight, height: Self.barHeight)
+            .frame(width: 48, height: 48)
             .modifier(NativeDockSurface(shape: shape, tint: accent.selection.opacity(0.85), interactive: interactive))
             .contentShape(shape)
         }

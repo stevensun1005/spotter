@@ -1393,7 +1393,6 @@ struct NativeWorkoutView: View {
     @State private var recordSheet: RecordSheet?
     @State private var draftToDiscard: NativeWorkoutEntry?
     @State private var draftToRestart: NativeWorkoutEntry?
-    @State private var swipeDraftID: String?
     @State private var cheering = false
     @State private var cheerError: String?
 
@@ -1550,7 +1549,6 @@ struct NativeWorkoutView: View {
             set: { if !$0 { draftToRestart = nil } }
         ), titleVisibility: .visible, presenting: draftToRestart) { entry in
             Button("重新开始", role: .destructive) {
-                swipeDraftID = nil
                 if store.restartPausedWorkout(entry) { openWorkout() }
             }
             Button("取消", role: .cancel) {}
@@ -2087,7 +2085,7 @@ struct NativeWorkoutView: View {
         .contentShape(Rectangle())
     }
 
-    private func draftRow(_ entry: NativeWorkoutEntry, current: Bool) -> some View {
+    @ViewBuilder private func draftRow(_ entry: NativeWorkoutEntry, current: Bool) -> some View {
         let running = current && entry.session?.isRunning == true
         let row = HStack(spacing: 10) {
             tile("clock", size: 34)
@@ -2111,22 +2109,25 @@ struct NativeWorkoutView: View {
                 }.accessibilityLabel("训练草稿操作 \(entry.title)")
             }
             Button(current && !running ? "打开" : "继续") {
-                swipeDraftID = nil
                 if !current { store.resume(entry) }
                 openWorkout()
             }
                 .buttonStyle(SpotterNativeButtonStyle(primary: false)).disabled(!current && store.active != nil)
-        }.padding(12).spotterCard()
-        return Group {
-            if running { row }
-            else {
-                row.spotterSwipeToDelete(id: entry.id, openRow: $swipeDraftID, accessibilityLabel: "删除训练草稿") {
-                    draftToDiscard = entry
-                }
+        }
+            .padding(12)
+            .spotterCard()
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(current ? "workout-current-draft-row" : "workout-draft-row-\(entry.id)")
+        if running {
+            row
+        } else {
+            NativeDraftSwipeRow(onDelete: { draftToDiscard = entry }) {
+                row
+                    .foregroundStyle(SpotterPalette.ink)
+                    .tint(accent.tint)
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(current ? "workout-current-draft-row" : "workout-draft-row-\(entry.id)")
     }
 
     private func planRows(_ entries: [NativeWorkoutEntry]) -> some View {
@@ -3148,7 +3149,7 @@ struct NativeActiveWorkoutView: View {
 
     private func workout(_ entry: NativeWorkoutEntry, session: NativeWorkoutSession) -> some View {
         let compactHeight = verticalSizeClass == .compact
-        let focused = workoutPresentation == .focused && !session.plan.exercises.isEmpty && session.cardioActivity == nil
+        let focused = workoutPresentation.usesFocusedLayout(for: session)
         let next = nextSet(session)
         let nextPosition = next.map { NativeWorkoutSession.SetPosition(move: $0.move, row: $0.row) }
         let focusedRest = focused && session.raw["rest"] != .null && store.activeSetCountdown == nil

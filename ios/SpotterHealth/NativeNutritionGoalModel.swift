@@ -78,8 +78,15 @@ struct NativeNutritionGoalEstimate: Equatable, Sendable {
     var notes: [Note]
 }
 
+struct NativeNutritionGoalReading: Sendable {
+    let day: String
+    let updated: String
+    let value: Double
+}
+
 enum NativeNutritionGoalRules {
     static let bodyFatRange = 3.0...60.0
+    static let bodyFatMaxAgeDays = 90
     static let measuredMaintenanceRange = 800.0...8000.0
     /// One training day replaces this many hours of an average day with work at this intensity (MET).
     static let trainingMet = 3.5
@@ -112,6 +119,16 @@ enum NativeNutritionGoalRules {
     static let referenceBodyFat = 0.2
     static let lowCarbGrams = 130.0
     static let roundCalories = 25.0
+
+    /// The newest usable body-fat reading on or before the reference day.
+    static func latestBodyFat(_ readings: [NativeNutritionGoalReading], through day: String) -> NativeNutritionGoalReading? {
+        guard let through = NativeEnergyCalibration.dayNumber(day) else { return nil }
+        return readings.lazy.filter { reading in
+            guard bodyFatRange.contains(reading.value),
+                  let measured = NativeEnergyCalibration.dayNumber(reading.day) else { return false }
+            return measured <= through && through - measured <= bodyFatMaxAgeDays
+        }.max { ($0.day, $0.updated) < ($1.day, $1.updated) }
+    }
 
     /// Physical activity level of everyday life without training, applied to resting energy.
     static func activityFactor(_ activity: NativeNutritionActivity) -> Double {

@@ -58,6 +58,10 @@ enum NativeWorkoutPresentation: String, CaseIterable, Identifiable {
         case .focused: return "专注训练"
         }
     }
+
+    func usesFocusedLayout(for session: NativeWorkoutSession) -> Bool {
+        self == .focused && !session.plan.exercises.isEmpty && session.cardioActivity == nil
+    }
 }
 
 /// Keeps optional fields from the current Cloudflare schema intact when editing native sets.
