@@ -259,3 +259,5 @@ Spotter 围绕「安排训练 → 逐组记录 → 完成打卡 → 回顾和分
 2026-11-26 内测发布记录。1.0.1 Build 55 以 `060a071504556044dc84cd5b1c9bf7a128f39675` 构建。独立版构建、29 项测试、iOS 原生冒烟、模拟器打包、双场景触控测试和签名归档检查通过。生产归档核对小组件、Apple Watch、灵动岛、推送签名和 5,685 段离线演示。Build 55 已在「训练搭子内测」显示 `Testing`。真机触控和 ProMotion 帧表现等待实测。
 
 2026-11-27 内测发布记录。1.0.1 Build 56 以 `da57ef2a3e712ee8ef8fc92a9829624c648ec155` 归档，包含 iOS 系统标签栏、页面底部的训练和 AI 教练快捷入口，以及相应的新手引导和帮助资料。源码基线、模拟器打包、5 项原生界面测试及生产分发签名均通过。归档核对 Apple Watch、小组件、灵动岛、生产推送签名和 5,685 段离线演示。Xcode 以 TestFlight Internal Only 上传。Apple 处理后已将 Build 56 加入「训练搭子内测」，App Store Connect 显示 `Testing`。构建沿用 Cloudflare 98 的 HTTPS API。发布范围为 TestFlight 内测。
+
+2026-11-27 内测发布记录。1.0.1 Build 57 以 `0243020968123269d095f7c42c4ab277dff78a93` 归档，包含底栏右侧的 AI 教练入口、系统页面切换及统计与记餐的数据加载优化。源码基线、模拟器打包和生产分发签名通过。归档核对 Apple Watch、小组件、灵动岛、生产推送、共用帮助和食物库及 5,685 段离线演示。Xcode 以 TestFlight Internal Only 上传，已在「训练搭子内测」核对 `Testing`。Cloudflare HTTPS API 基线仍为 98，发布范围为 TestFlight 内测。真机触控与帧率待实测。
