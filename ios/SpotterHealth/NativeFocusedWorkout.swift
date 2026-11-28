@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct NativeFocusedWorkoutSetView<SetTimer: View>: View {
+struct NativeFocusedWorkoutSetView<ExerciseMenu: View, SetTimer: View>: View {
     typealias SetPosition = NativeWorkoutSession.SetPosition
 
     @Environment(\.spotterAccent) private var accent
@@ -17,6 +17,7 @@ struct NativeFocusedWorkoutSetView<SetTimer: View>: View {
     let onAdjust: (String, Bool, Double) -> Void
     let onDemonstration: () -> Void
     let onAddSet: () -> Void
+    @ViewBuilder let exerciseSettings: () -> ExerciseMenu
     @ViewBuilder let timedControl: () -> SetTimer
 
     var body: some View {
@@ -58,17 +59,21 @@ struct NativeFocusedWorkoutSetView<SetTimer: View>: View {
                         .accessibilityIdentifier("workout-focus-exercise-title")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Button(action: onDemonstration) {
-                    Image(systemName: "play.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(accent.tint)
-                        .frame(width: 44, height: 44)
-                        .background(accent.selection, in: Circle())
-                        .contentShape(Circle())
+                HStack(spacing: 2) {
+                    Button(action: onDemonstration) {
+                        Image(systemName: "play.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(accent.tint)
+                            .frame(width: 44, height: 44)
+                            .background(accent.selection, in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.spotterPress)
+                    .accessibilityLabel("动作演示")
+                    .accessibilityIdentifier("workout-exercise-demonstration-\(position.move)")
+                    exerciseSettings()
                 }
-                .buttonStyle(.spotterPress)
-                .accessibilityLabel("动作演示")
-                .accessibilityIdentifier("workout-exercise-demonstration-\(position.move)")
+                .fixedSize(horizontal: true, vertical: false)
             }
             if !move["cue"].string.isEmpty {
                 Text(move["cue"].string).font(.footnote).foregroundStyle(SpotterPalette.muted)

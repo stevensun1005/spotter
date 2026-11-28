@@ -407,11 +407,31 @@ struct NativeWorkoutSession: Equatable, Sendable {
 
     struct SetPosition: Codable, Hashable, Sendable { let move: Int; let row: Int }
 
+    struct ExerciseEdit: Sendable {
+        let selectedMove: Int?
+        fileprivate let indexes: [Int: Int]
+        fileprivate var replacedMove: Int? = nil
+
+        func move(_ index: Int) -> Int? { indexes[index] }
+
+        func position(_ position: SetPosition) -> SetPosition? {
+            guard position.move != replacedMove, let index = move(position.move) else { return nil }
+            return .init(move: index, row: position.row)
+        }
+    }
+
     struct SetCompletion: Codable, Equatable, Sendable {
         let position: SetPosition
         let previousPosition: SetPosition?
         let previousRest: NativeJSON
         let previousSeconds: NativeJSON?
+
+        func remapped(by edit: ExerciseEdit) -> Self? {
+            guard let position = edit.position(position) else { return nil }
+            let previous = previousPosition.flatMap(edit.position)
+            let rest = previousPosition != nil && previous == nil ? NativeJSON.null : previousRest
+            return .init(position: position, previousPosition: previous, previousRest: rest, previousSeconds: previousSeconds)
+        }
     }
 
     struct RestStatus: Equatable {
@@ -429,6 +449,11 @@ struct NativeWorkoutSession: Equatable, Sendable {
         func matches(_ session: NativeWorkoutSession) -> Bool {
             (0...NativeWorkoutSession.maximumElapsedMilliseconds).contains(startedAtElapsed) &&
                 session.countdownTarget(at: position) == targetSeconds
+        }
+
+        func remapped(by edit: ExerciseEdit) -> Self? {
+            guard let position = edit.position(position) else { return nil }
+            return .init(workoutID: workoutID, position: position, startedAtElapsed: startedAtElapsed, targetSeconds: targetSeconds)
         }
 
         func remaining(at elapsed: Int) -> Int {
@@ -677,6 +702,103 @@ struct NativeWorkoutSession: Equatable, Sendable {
         moves[move]["sets"] = .number(Double(groups[move].count))
         raw["plan"]["exercises"] = .array(moves)
     }
+    @discardableResult
+    mutating func setExerciseRest(_ seconds: Int?, at index: Int) -> Bool {
+        var moves = plan.exercises
+        guard moves.indices.contains(index), seconds.map({ (0...Self.maximumRestSeconds).contains($0) }) ?? true else { return false }
+        var fields = moves[index].object
+        fields["restSeconds"] = seconds.map { .number(Double($0)) }
+        moves[index] = .object(fields)
+        raw["plan"]["exercises"] = .array(moves)
+        return true
+    }
+
+    var exerciseOrderGroups: [[Int]] { exerciseBlocks().map { $0.sorted() } }
+
+    mutating func reorderExercise(from source: Int, to destination: Int) -> ExerciseEdit? {
+        // Whole supersets move together. Numeric slots still govern the order inside each group.
+        var blocks = exerciseOrderGroups
+        guard let sourceBlock = blocks.firstIndex(where: { $0.contains(source) }),
+              let destinationBlock = blocks.firstIndex(where: { $0.contains(destination) }),
+              sourceBlock != destinationBlock else { return nil }
+        let block = blocks.remove(at: sourceBlock)
+        blocks.insert(block, at: destinationBlock)
+        let order = blocks.flatMap { $0 }
+        var reordered = self
+        guard let edit = reordered.applyExerciseOrder(order, selecting: order.firstIndex(of: source)),
+              reordered.exerciseBlocks().count == blocks.count else { return nil }
+        self = reordered
+        return edit
+    }
+
+    func canReplaceExercise(at index: Int) -> Bool {
+        let groups = rows
+        return plan.exercises.indices.contains(index) && groups.indices.contains(index) &&
+            !groups[index].contains(where: { $0["done"].bool })
+    }
+
+    mutating func replaceExercise(at index: Int, with replacement: NativeJSON) -> ExerciseEdit? {
+        var moves = plan.exercises
+        var groups = rows
+        let name = replacement["name"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard moves.count == groups.count, canReplaceExercise(at: index), !name.isEmpty,
+              (1...30).contains(groups[index].count) else { return nil }
+        let previous = moves[index]
+        let previousID = previous["catalogueId"].string
+        let replacementID = replacement["catalogueId"].string
+        let sameExercise = !previousID.isEmpty && previousID == replacementID ||
+            previousID.isEmpty && replacementID.isEmpty &&
+            NativeExerciseLabel(previous).name.caseInsensitiveCompare(name) == .orderedSame
+        guard !sameExercise else { return nil }
+
+        var fields = replacement.object
+        fields["name"] = .string(String(name.prefix(100)))
+        for key in ["block", "station", "sourceSlot", "restSeconds"] {
+            fields[key] = previous[key] == .null ? nil : previous[key]
+        }
+        let oldSlot = NativeExerciseLabel(previous).slot
+        if fields["sourceSlot"] == nil, oldSlot.range(of: #"^[A-Z](?:\d+|-warmup)?$"#, options: .regularExpression) != nil {
+            fields["sourceSlot"] = .string(oldSlot)
+        }
+        fields["sets"] = .number(Double(groups[index].count))
+        fields["weight"] = .number(min(2_000, max(0, replacement["weight"].number)))
+        fields["reps"] = .number(min(999, max(0, replacement["reps"].number.rounded())))
+        fields["seconds"] = .number(min(18_000, max(0, replacement["seconds"].number.rounded())))
+        fields["unit"] = ["kg", "lb"].contains(replacement["unit"].string)
+            ? replacement["unit"] : previous["unit"]
+        let move = NativeJSON.object(fields)
+        let initial = NativeJSON.object(["weight": move["weight"], "reps": move["reps"], "seconds": move["seconds"], "done": .bool(false)])
+        moves[index] = move
+        groups[index] = Array(repeating: initial, count: groups[index].count)
+        raw["plan"]["exercises"] = .array(moves)
+        raw["rows"] = .array(groups.map(NativeJSON.array))
+        let unchanged = Dictionary(uniqueKeysWithValues: moves.indices.map { ($0, $0) })
+        return .init(selectedMove: index, indexes: unchanged, replacedMove: index)
+    }
+
+    func canRemoveExercise(at index: Int) -> Bool {
+        let moves = plan.exercises
+        return moves.indices.contains(index) && (moves.count > 1 || !plan.video.isEmpty || raw["planId"].string.isEmpty)
+    }
+
+    mutating func removeExercise(at index: Int) -> ExerciseEdit? {
+        guard canRemoveExercise(at: index) else { return nil }
+        let order = plan.exercises.indices.filter { $0 != index }
+        let selection = order.isEmpty ? nil : min(index, order.count - 1)
+        return applyExerciseOrder(order, selecting: selection)
+    }
+
+    private mutating func applyExerciseOrder(_ order: [Int], selecting index: Int?) -> ExerciseEdit? {
+        let moves = plan.exercises
+        let groups = rows
+        guard moves.count == groups.count else { return nil }
+        raw["plan"]["exercises"] = .array(order.map { moves[$0] })
+        raw["rows"] = .array(order.map { .array(groups[$0]) })
+        if order.isEmpty { clearRest() }
+        let indexes = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
+        return .init(selectedMove: index, indexes: indexes)
+    }
+
     private struct ExerciseBlockKey: Equatable {
         let id: String
         let station: String
@@ -738,13 +860,13 @@ struct NativeWorkoutSession: Equatable, Sendable {
         let fallback = override != .null ? override.number : planDefault != .null ? planDefault.number : Double(NativePreferenceKey.restSeconds)
         let fromBlock = blocks.first { $0.contains(completed.move) } ?? [completed.move]
         let sameBlock = fromBlock.contains(next.move)
-        if sameBlock && completed.row == next.row && completed.move != next.move { return (fallback, "换动作") }
-        let rest = override != .null || from["restSeconds"] == .null ? fallback : from["restSeconds"].number
+        let rest = from["restSeconds"] == .null ? fallback : from["restSeconds"].number
+        if sameBlock && completed.row == next.row && completed.move != next.move { return (rest, "换动作") }
         if !sameBlock && from["station"] != .null && destination["station"] != .null && from["station"] != destination["station"] {
             return (max(60, fallback, rest), "换站")
         }
         if sameBlock, fromBlock.count > 1 {
-            let longest = fromBlock.map { override != .null || moves[$0]["restSeconds"] == .null ? fallback : moves[$0]["restSeconds"].number }.max() ?? rest
+            let longest = fromBlock.map { moves[$0]["restSeconds"] == .null ? fallback : moves[$0]["restSeconds"].number }.max() ?? rest
             return (longest, "轮间休息")
         }
         return (rest, "组间休息")

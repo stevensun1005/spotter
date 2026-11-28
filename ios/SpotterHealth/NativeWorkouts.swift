@@ -135,6 +135,8 @@ final class NativeWorkoutStore: ObservableObject {
     private var reloadWidgetNutrition = false
     private var widgetNutritionUpdatedAt: Date?
     var drafts: [NativeWorkoutEntry] { savedDrafts.filter { $0.id != active?.id } }
+    var latestSetCompletionID: UUID? { lastSetCompletion?.eventID }
+
     var undoableSet: NativeWorkoutSession.SetPosition? {
         guard let active, let lastSetCompletion, lastSetCompletion.workoutID == active.id,
               active.session?.line(at: lastSetCompletion.completion.position)?["done"].bool == true else { return nil }
@@ -308,6 +310,7 @@ final class NativeWorkoutStore: ObservableObject {
     private struct LastSetCompletion: Codable {
         let workoutID: String
         let completion: NativeWorkoutSession.SetCompletion
+        var eventID: UUID? = nil
     }
 
     private struct Recovery: Codable {
@@ -803,6 +806,26 @@ final class NativeWorkoutStore: ObservableObject {
         changed()
     }
 
+    @discardableResult
+    func editExercises(workoutID: String, _ transform: (inout NativeWorkoutSession) -> NativeWorkoutSession.ExerciseEdit?) -> NativeWorkoutSession.ExerciseEdit? {
+        guard var entry = active, entry.id == workoutID, !isBusy, var session = entry.session,
+              let result = transform(&session), session.raw != entry.data else { return nil }
+        let countdown = activeSetCountdown?.remapped(by: result)
+        setCountdown = countdown.flatMap { $0.matches(session) ? $0 : nil }
+        if let previous = lastSetCompletion, previous.workoutID == workoutID {
+            let completion = previous.completion.remapped(by: result)
+            lastSetCompletion = completion.map {
+                LastSetCompletion(workoutID: workoutID, completion: $0, eventID: previous.eventID)
+            }
+            if completion == nil { session.clearRest() }
+        }
+        entry.data = session.raw
+        entry.updated = Date.now.formatted(.iso8601)
+        active = entry
+        changed()
+        return result
+    }
+
     func startSetCountdown(at position: NativeWorkoutSession.SetPosition) {
         guard !isBusy, activeSetCountdown == nil, let active, let session = active.session,
               let target = session.countdownTarget(at: position) else { return }
@@ -854,7 +877,7 @@ final class NativeWorkoutStore: ObservableObject {
             } else {
                 let measured = countdown?.recordedSeconds(at: session.elapsedMilliseconds(at: now))
                 if let action = session.completeSet(at: position, after: previousPosition, measuredSeconds: measured, now: now) {
-                    lastSetCompletion = LastSetCompletion(workoutID: id, completion: action)
+                    lastSetCompletion = LastSetCompletion(workoutID: id, completion: action, eventID: UUID())
                     completed = true
                 }
             }
@@ -1008,9 +1031,12 @@ final class NativeWorkoutStore: ObservableObject {
         return .init(session: session, previous: undoableSet, countdown: activeSetCountdown, history: watchHistory?.history)
     }
 
-    func applyWatchAction(_ command: NativeWatchWorkoutCommand, workoutID: String) -> NativeWatchWorkoutSnapshot? {
+    func applyWatchAction(_ command: NativeWatchWorkoutCommand, workoutID: String,
+                          displayedWorkout: NativeWatchWorkoutSnapshot) -> NativeWatchWorkoutSnapshot? {
         guard !isBusy, let entry = active, entry.owner == owner, entry.id == workoutID,
               let session = entry.session else { return nil }
+        // A phone edit can change positions before the next Watch snapshot has been published.
+        if command.position != nil, watchSnapshot() != displayedWorkout { return nil }
         let previous = undoableSet
         let position = command.position.map { NativeWorkoutSession.SetPosition(move: $0.move, row: $0.row) }
         switch command.action {
@@ -1023,7 +1049,7 @@ final class NativeWorkoutStore: ObservableObject {
                 guard let result = candidate.completeWatchSet(command, at: position, after: previous,
                                                               countdown: timer) else { return }
                 workout = candidate
-                self.lastSetCompletion = LastSetCompletion(workoutID: workoutID, completion: result)
+                self.lastSetCompletion = LastSetCompletion(workoutID: workoutID, completion: result, eventID: UUID())
                 completed = true
             }
             guard completed else { return nil }
@@ -3115,19 +3141,38 @@ private struct NativeSetTarget: Equatable {
 }
 
 private enum NativeEditorPanel: String, Identifiable {
-    case settings, watch, sync, add, finish, demonstration
+    case settings, watch, sync, add, finish, demonstration, exerciseSettings
 
     var id: String { rawValue }
     var detents: Set<PresentationDetent> {
         switch self {
         case .watch: return [.height(224), .large]
-        case .demonstration: return [.large]
+        case .demonstration, .exerciseSettings: return [.large]
         default: return [.medium, .large]
         }
     }
 }
 
 struct NativeActiveWorkoutView: View {
+    private struct ExerciseTarget {
+        let workoutID: String
+        let index: Int
+        let move: NativeJSON
+
+        var title: String { NativeExerciseLabel(move, preservingNameQualifiers: true).name }
+
+        func matches(_ active: NativeWorkoutEntry?) -> Bool {
+            guard let active, active.id == workoutID, let moves = active.session?.plan.exercises,
+                  moves.indices.contains(index) else { return false }
+            return moves[index] == move
+        }
+    }
+
+    private struct ExerciseSettingsRequest {
+        let action: NativeWorkoutExerciseAction
+        let target: ExerciseTarget
+    }
+
     private enum WorkoutPrompt {
         case empty
 
@@ -3157,6 +3202,8 @@ struct NativeActiveWorkoutView: View {
     @State private var panel: NativeEditorPanel?
     @State private var workoutPrompt: (kind: WorkoutPrompt, draft: NativeWorkoutEntry)?
     @State private var panelMove: NativeJSON?
+    @State private var exerciseSettingsRequest: ExerciseSettingsRequest?
+    @State private var deletingExercise: ExerciseTarget?
     @State private var exerciseHistory = NativeExerciseHistory()
     @State private var hasIndexedExerciseHistory = false
     @State private var lookedUpOlderHistory = false
@@ -3217,6 +3264,21 @@ struct NativeActiveWorkoutView: View {
         } message: { _ in
             Text("计时已暂停。可以返回补记完成组、跟练或有氧时长，也可以删除这次试练。已排的训练计划会保留。")
         }
+        .alert("删除动作？", isPresented: Binding(
+            get: { deletingExercise != nil },
+            set: { if !$0 { deletingExercise = nil } }
+        ), presenting: deletingExercise) { target in
+            Button("删除动作", role: .destructive) { deleteExercise(target) }
+            Button("取消", role: .cancel) {}
+        } message: { target in
+            let groups = store.active?.session?.rows ?? []
+            let completed = groups.indices.contains(target.index) ? groups[target.index].filter { $0["done"].bool }.count : 0
+            if completed > 0 {
+                Text("删除「\(target.title)」也会删除本次已记录的 \(completed) 组。原训练计划会保留。")
+            } else {
+                Text("从本次训练删除「\(target.title)」。原训练计划会保留。")
+            }
+        }
         .sheet(item: $panel, onDismiss: finishPanelDismissal) { item in
             NavigationStack {
                 switch item {
@@ -3234,6 +3296,8 @@ struct NativeActiveWorkoutView: View {
                     if let panelMove {
                         NativeExerciseProgressView(store: store, move: panelMove, showsClose: true)
                     }
+                case .exerciseSettings:
+                    if let request = exerciseSettingsRequest { exerciseSettingsPanel(request) }
                 case .finish:
                     NativeWorkoutFinishPanel(store: store) { record in
                         completed(record)
@@ -3245,6 +3309,89 @@ struct NativeActiveWorkoutView: View {
             .presentationDetents(item.detents)
             .presentationDragIndicator(.visible)
             .interactiveDismissDisabled(item == .finish && store.isBusy)
+        }
+    }
+
+    private func exerciseSettingsMenu(_ index: Int, move: NativeJSON, session: NativeWorkoutSession, canReorder: Bool) -> some View {
+        let title = NativeExerciseLabel(move, preservingNameQualifiers: true).name
+        return NativeWorkoutExerciseMenu(title: title, index: index, canReplace: session.canReplaceExercise(at: index),
+                                         canReorder: canReorder, canDelete: session.canRemoveExercise(at: index)) { action in
+            guard let active = store.active else { return }
+            let target = ExerciseTarget(workoutID: active.id, index: index, move: move)
+            guard target.matches(active) else { return }
+            edit = nil
+            switch action {
+            case .detail:
+                panelMove = move
+                panel = .demonstration
+            case .delete:
+                deletingExercise = target
+            case .rest, .reorder, .replace:
+                exerciseSettingsRequest = .init(action: action, target: target)
+                panel = .exerciseSettings
+            }
+        }
+        .disabled(store.isBusy)
+    }
+
+    @ViewBuilder private func exerciseSettingsPanel(_ request: ExerciseSettingsRequest) -> some View {
+        let target = request.target
+        if let active = store.active, active.id == target.workoutID, let session = active.session {
+            switch request.action {
+            case .rest:
+                let seconds: Int? = if case .number(let value) = target.move["restSeconds"] { Int(exactly: value) } else { nil }
+                let fallback = session.raw["defaultRestOverride"] == .null
+                    ? session.plan.raw["defaultRestSeconds"] : session.raw["defaultRestOverride"]
+                let defaultSeconds = fallback == .null ? NativePreferenceKey.restSeconds : (Int(exactly: fallback.number) ?? NativePreferenceKey.restSeconds)
+                NativeWorkoutExerciseRestEditor(title: target.title, seconds: seconds, defaultSeconds: defaultSeconds) { newSeconds in
+                    guard target.matches(store.active) else {
+                        store.errorMessage = "这次训练里的动作已更新，请重新打开设置。"
+                        return
+                    }
+                    store.mutate { _ = $0.setExerciseRest(newSeconds, at: target.index) }
+                }
+            case .reorder:
+                NativeWorkoutExerciseOrderPanel(store: store, workoutID: target.workoutID) { from, to in
+                    guard let result = store.editExercises(workoutID: target.workoutID, {
+                        $0.reorderExercise(from: from, to: to)
+                    }) else { return false }
+                    updateExerciseSelection(result)
+                    return true
+                }
+            case .replace:
+                NativeWorkoutAddPanel(store: store, pick: .init(title: "替换动作", action: "替换") { replacement in
+                    guard target.matches(store.active) else { return "动作已更新，请重新打开设置。" }
+                    guard let result = store.editExercises(workoutID: target.workoutID, {
+                        $0.replaceExercise(at: target.index, with: replacement)
+                    }) else { return "请选择不同的动作。已经记录组次的动作不能替换。" }
+                    updateExerciseSelection(result)
+                    return nil
+                }, didAdd: {})
+            case .detail, .delete:
+                EmptyView()
+            }
+        } else {
+            Label("训练已结束", systemImage: "checkmark.circle").padding(20)
+        }
+    }
+
+    private func deleteExercise(_ target: ExerciseTarget) {
+        guard target.matches(store.active), let result = store.editExercises(workoutID: target.workoutID, {
+            $0.removeExercise(at: target.index)
+        }) else {
+            store.errorMessage = "这次训练里的动作已更新，请重新打开设置。"
+            return
+        }
+        updateExerciseSelection(result)
+    }
+
+    private func updateExerciseSelection(_ result: NativeWorkoutSession.ExerciseEdit) {
+        withAnimation(motion) {
+            openedMove = result.move(openedMove) ?? result.selectedMove ?? -1
+            focusedSet = focusedSet.flatMap { result.position($0) }
+            undoneSet = undoneSet.flatMap { result.position($0) }
+            setToReveal = setToReveal.flatMap { result.position($0) }
+            edit = nil
         }
     }
 
@@ -3288,8 +3435,10 @@ struct NativeActiveWorkoutView: View {
                             focusedWorkout(session, position: position, next: nextPosition, resting: focusedRest)
                                 .id("focused-workout-top")
                         } else {
+                            let canReorder = session.exerciseOrderGroups.count > 1
                             ForEach(Array(session.plan.exercises.enumerated()), id: \.offset) { index, move in
-                                exerciseCard(index, move: move, session: session, nextRow: showNext && next?.move == index ? next?.row : nil)
+                                exerciseCard(index, move: move, session: session, nextRow: showNext && next?.move == index ? next?.row : nil,
+                                             canReorder: canReorder)
                             }
                         }
                         if session.plan.exercises.isEmpty && session.raw["cardio"] == .null {
@@ -3304,8 +3453,8 @@ struct NativeActiveWorkoutView: View {
                     guard !focused, session.completedSets > 0, let next else { return }
                     revealSet(.init(move: next.move, row: next.row))
                 }
-                .onChange(of: store.undoableSet) { completed in
-                    guard let completed, let session = store.active?.session else { return }
+                .onChange(of: store.latestSetCompletionID) { _ in
+                    guard let completed = store.undoableSet, let session = store.active?.session else { return }
                     undoneSet = nil
                     if focused {
                         focusedSet = nil
@@ -3565,7 +3714,10 @@ struct NativeActiveWorkoutView: View {
                                             else { store.setNumber(move: position.move, row: position.row, key: key, value: value) }
                                         },
                                         onDemonstration: { edit = nil; panelMove = move; panel = .demonstration },
-                                        onAddSet: { store.mutate { $0.addSet(move: position.move) } }) {
+                                        onAddSet: { store.mutate { $0.addSet(move: position.move) } },
+                                        exerciseSettings: {
+                                            exerciseSettingsMenu(position.move, move: move, session: session, canReorder: session.exerciseOrderGroups.count > 1)
+                                        }) {
                 timedSetControl(session, position: position)
             }
         }
@@ -3694,22 +3846,27 @@ struct NativeActiveWorkoutView: View {
         }.buttonStyle(.spotterPress)
     }
 
-    private func exerciseCard(_ index: Int, move: NativeJSON, session: NativeWorkoutSession, nextRow: Int?) -> some View {
+    private func exerciseCard(_ index: Int, move: NativeJSON, session: NativeWorkoutSession, nextRow: Int?, canReorder: Bool) -> some View {
         let rows = session.rows.indices.contains(index) ? session.rows[index] : []
         return VStack(alignment: .leading, spacing: 4) {
-            Button { withAnimation(motion) { openedMove = openedMove == index ? -1 : index; edit = nil } } label: {
-                HStack(spacing: 9) {
-                    Text(move["sourceSlot"].string.isEmpty ? "\(index + 1)" : move["sourceSlot"].string).font(.system(size: 13, weight: .bold)).frame(width: 34, height: 30).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 8))
-                    Text(move["name"].string).font(.system(size: 16, weight: .bold)).multilineTextAlignment(.leading)
-                    Spacer(minLength: 0)
-                    Text("\(rows.filter { $0["done"].bool }.count)/\(rows.count) 组")
-                        .font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
-                        .monospacedDigit().fixedSize()
-                    Image(systemName: "chevron.down").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
-                        .rotationEffect(.degrees(openedMove == index ? 180 : 0))
-                }
-            }.buttonStyle(.spotterPress)
-                .accessibilityValue(openedMove == index ? "已展开" : "已收起")
+            HStack(spacing: 4) {
+                Button { withAnimation(motion) { openedMove = openedMove == index ? -1 : index; edit = nil } } label: {
+                    HStack(spacing: 9) {
+                        Text(move["sourceSlot"].string.isEmpty ? "\(index + 1)" : move["sourceSlot"].string).font(.system(size: 13, weight: .bold)).frame(width: 34, height: 30).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 8))
+                        Text(move["name"].string).font(.system(size: 16, weight: .bold)).multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Text("\(rows.filter { $0["done"].bool }.count)/\(rows.count) 组")
+                            .font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
+                            .monospacedDigit().fixedSize()
+                        Image(systemName: "chevron.down").font(.system(size: 12)).foregroundStyle(SpotterPalette.muted)
+                            .rotationEffect(.degrees(openedMove == index ? 180 : 0))
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }.buttonStyle(.spotterPress)
+                    .accessibilityValue(openedMove == index ? "已展开" : "已收起")
+                exerciseSettingsMenu(index, move: move, session: session, canReorder: canReorder)
+            }
             exerciseSummary(index, move: move, category: session.plan.category)
             if openedMove == index {
                 let warmup = NativeExerciseLabel(move).warmup
@@ -4154,6 +4311,12 @@ private struct NativeWorkoutSettingsPanel: View {
 }
 
 private struct NativeWorkoutAddPanel: View {
+    struct Pick {
+        let title: String
+        let action: String
+        let select: (NativeJSON) -> String?
+    }
+
     private struct PreviousMove: Identifiable, Sendable {
         let move: NativeJSON
         let set: NativeJSON
@@ -4181,6 +4344,7 @@ private struct NativeWorkoutAddPanel: View {
     }
 
     @ObservedObject var store: NativeWorkoutStore
+    var pick: Pick? = nil
     var didAdd: () -> Void
     @Environment(\.dismiss) private var dismiss
     @AppStorage(NativeGymPreferences.storageKey) private var gyms = Data()
@@ -4192,6 +4356,7 @@ private struct NativeWorkoutAddPanel: View {
     @State private var matches: [NativeCatalogEntry] = []
     @State private var selection: NativeCatalogEntry?
     @State private var availableOnly = true
+    @State private var pickError: String?
     private var query: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var configuredGear: Set<String> { NativeGymPreferences.read(gyms, legacy: legacyGear).catalogueGear }
     private var searchKey: String { query + "\n" + (availableOnly ? configuredGear.sorted().joined(separator: "|") : "") }
@@ -4205,7 +4370,10 @@ private struct NativeWorkoutAddPanel: View {
                     Toggle("只看可用器械", isOn: $availableOnly)
                 }
             }
-            if query.isEmpty, !histories.isEmpty {
+            if let pickError {
+                Section { Text(pickError).font(.footnote).foregroundStyle(SpotterPalette.muted) }
+            }
+            if pick == nil, query.isEmpty, !histories.isEmpty {
                 Section("最近练过") {
                     ForEach(Array(histories.prefix(8))) { previous in
                         Button {
@@ -4232,14 +4400,18 @@ private struct NativeWorkoutAddPanel: View {
             if !matches.isEmpty {
                 Section(query.isEmpty ? "推荐动作" : "搜索结果") {
                     ForEach(matches) { entry in
-                        Button { selection = entry } label: {
-                            let prior = previous(for: NativeCataloguePlanMove.planMove(entry))
-                            row(entry.name, detail: prior.map { "上次 \($0.amount)" } ?? index?.label(entry.equipment) ?? "", action: "选择")
+                        Button {
+                            if pick != nil { add(NativeCataloguePlanMove.planMove(entry)) }
+                            else { selection = entry }
+                        } label: {
+                            let prior = pick == nil ? previous(for: NativeCataloguePlanMove.planMove(entry)) : nil
+                            row(entry.name, detail: prior.map { "上次 \($0.amount)" } ?? index?.label(entry.equipment) ?? "",
+                                action: pick?.action ?? "选择")
                         }.buttonStyle(.spotterPress)
                     }
                 }
             } else if catalogueFailed {
-                Section { Text("动作库暂不可用，可以输入动作名称添加。").font(.footnote).foregroundStyle(SpotterPalette.muted) }
+                Section { Text("动作库暂不可用，可以手动输入动作名称。").font(.footnote).foregroundStyle(SpotterPalette.muted) }
             } else if index == nil {
                 Section { ProgressView("正在读取动作库") }
             }
@@ -4248,22 +4420,24 @@ private struct NativeWorkoutAddPanel: View {
                     Button {
                         add(NativePreferenceKey.newMove(name: String(query.prefix(100))))
                     } label: {
-                        Label("添加手输动作「\(query)」", systemImage: "plus")
+                        Label("\(pick?.action ?? "添加")手输动作「\(query)」", systemImage: "plus")
                     }.buttonStyle(.spotterPress)
                 }
             }
         }
         .scrollContentBackground(.hidden).background(SpotterPalette.background)
-        .navigationTitle("添加动作").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(pick?.title ?? "添加动作").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
         .task {
-            let recent = Array(store.logs.prefix(60))
-            histories = await Task.detached(priority: .userInitiated) { Self.prepareHistory(recent) }.value
+            if pick == nil {
+                let recent = Array(store.logs.prefix(60))
+                histories = await Task.detached(priority: .userInitiated) { Self.prepareHistory(recent) }.value
+            }
             do { index = try await NativeCatalogIndex.bundled() }
             catch { catalogueFailed = true }
         }
         .task(id: searchKey + (index == nil ? "" : "#")) { await search() }
-        .onChange(of: name) { _ in selection = nil }
+        .onChange(of: name) { _ in selection = nil; pickError = nil }
     }
 
     private func row(_ title: String, detail: String, action: String) -> some View {
@@ -4313,6 +4487,11 @@ private struct NativeWorkoutAddPanel: View {
     }
 
     private func add(_ entry: NativeJSON, previous: PreviousMove? = nil) {
+        if let pick {
+            pickError = pick.select(entry)
+            if pickError == nil { dismiss() }
+            return
+        }
         guard let active = store.active?.session, active.plan.exercises.count < 30 else { return }
         var move = entry
         if let previous {

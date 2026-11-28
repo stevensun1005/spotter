@@ -1489,8 +1489,8 @@ private struct NativeSpotterTabs: View {
         }
         let workoutID = entry.id
         watch.updateWorkout(context: .init(owner: workouts.owner, workoutID: workoutID, isRunning: session.isRunning),
-                            snapshot: workouts.watchSnapshot()) { [weak workouts] command in
-            workouts?.applyWatchAction(command, workoutID: workoutID)
+                            snapshot: workouts.watchSnapshot()) { [weak workouts] command, displayedWorkout in
+            workouts?.applyWatchAction(command, workoutID: workoutID, displayedWorkout: displayedWorkout)
         }
     }
 

@@ -341,6 +341,8 @@ struct NativeWorkoutSmoke {
         expect(hold.undoSetCompletion(holdCompletion, at: started + 60_500) && hold.countdownTarget(at: a1) == 10,
                "Undo restores the prescribed target for a fresh countdown")
 
+        try exerciseSettings(started: started)
+
         let imported = try NativePlanImport.parse("""
         ## Synthetic lower body
         - 单侧低台下踩 3×8–10次，12.5 lb，休息 90 秒，节奏 30X0
@@ -385,6 +387,76 @@ struct NativeWorkoutSmoke {
             struct Upload: Encodable { let action = "log"; let expectedOwner = "synthetic-owner"; let id: String; let data: NativeJSON }
             let data = try JSONEncoder().encode(Upload(id: id, data: result.raw))
             print(String(decoding: data, as: UTF8.self))
-        } else { print("PASS native workout: clock, rest adjustment, set undo, side volume, set reuse, supersets, cardio/HIIT, check-in ID, time window, sharing and imports") }
+        } else { print("PASS native workout: clock, rest adjustment, exercise settings, set undo, side volume, set reuse, supersets, cardio/HIIT, check-in ID, time window, sharing and imports") }
+    }
+
+    private static func exerciseSettings(started: Int64) throws {
+        typealias Session = NativeWorkoutSession
+        var a1 = NativePreferenceKey.newMove(name: "哑铃卧推", sets: 2)
+        a1["block"] = .string("A")
+        a1["sourceSlot"] = .string("A1")
+        a1["station"] = .string("哑铃区")
+        var a2Fields = a1.object
+        a2Fields["name"] = .string("A2 哑铃划船")
+        a2Fields["sourceSlot"] = nil
+        a2Fields["block"] = nil
+        a2Fields["restSeconds"] = .number(40)
+        let a2 = NativeJSON.object(a2Fields)
+        let other = NativePreferenceKey.newMove(name: "哑铃弯举")
+        let plan = NativePlan(raw: .object(["exercises": .array([a1, a2, other]), "defaultRestSeconds": .number(25)]))
+        var session = Session.start(plan: plan, planId: "scheduled-exercise-settings", now: started)
+        session.raw["defaultRestOverride"] = .number(35)
+        let first = Session.SetPosition(move: 0, row: 0)
+        let second = Session.SetPosition(move: 1, row: 0)
+        precondition(session.restBetween(first, and: second).seconds == 35,
+               "Workout default fills missing rest on the next action of the same round")
+        precondition(!session.setExerciseRest(-1, at: 0) && session.setExerciseRest(0, at: 0) &&
+               session.restBetween(first, and: second).seconds == 0,
+               "Explicit zero overrides the workout default for the selected exercise")
+        precondition(session.setExerciseRest(nil, at: 0) && session.plan.exercises[0].object["restSeconds"] == nil &&
+               session.restBetween(first, and: second).seconds == 35,
+               "Clearing a prescription omits the optional key and restores the workout default")
+        precondition(session.setExerciseRest(20, at: 0) &&
+               session.restBetween(second, and: .init(move: 0, row: 1)).seconds == 40,
+               "An existing longer per-exercise prescription wins across a superset round")
+
+        let completion = session.completeSet(at: first, now: started + 1_000)!
+        let timer = Session.SetCountdown(workoutID: "test", position: second, startedAtElapsed: 8_000, targetSeconds: 20)
+        precondition(session.reorderExercise(from: 0, to: 1) == nil,
+               "An exercise cannot reorder the numbered turns inside its group")
+        let orderEdit = session.reorderExercise(from: 1, to: 2)!
+        let movedFirst = Session.SetPosition(move: 1, row: 0)
+        let movedSecond = Session.SetPosition(move: 2, row: 0)
+        precondition(orderEdit.selectedMove == 2 && orderEdit.move(2) == 0 &&
+               completion.remapped(by: orderEdit)?.position == movedFirst && timer.remapped(by: orderEdit)?.position == movedSecond &&
+               session.completedSets == 1 && session.nextSet(after: movedFirst) == movedSecond,
+               "Reordering moves a whole superset, keeping completed sets, countdowns and numbered order")
+        precondition(session.replaceExercise(at: movedFirst.move, with: other) == nil,
+               "Replacement cannot relabel a completed group")
+
+        var replacement = NativePreferenceKey.newMove(name: "平板支撑", sets: 9, reps: 0)
+        replacement["catalogueId"] = .string("2560")
+        replacement["seconds"] = .number(30)
+        let replaceEdit = session.replaceExercise(at: movedSecond.move, with: replacement)!
+        let freshMove = session.plan.exercises[movedSecond.move]
+        precondition(replaceEdit.selectedMove == movedSecond.move && replaceEdit.position(movedSecond) == nil &&
+               freshMove["name"].string == "平板支撑" && freshMove["catalogueId"].string == "2560" &&
+               freshMove["sourceSlot"].string == "A2" && freshMove["station"].string == "哑铃区" &&
+               freshMove["restSeconds"].number == 40 && session.isInSameGroup(movedFirst.move, movedSecond.move) &&
+               session.rows[movedSecond.move].count == 2 && session.countdownTarget(at: movedSecond) == 30,
+               "Replacement keeps its slot, station, rest and groups, while seeding the new exercise")
+
+        let saved = try JSONEncoder().encode(session.raw)
+        session = Session(raw: try JSONDecoder().decode(NativeJSON.self, from: saved))
+        let removeEdit = session.removeExercise(at: movedFirst.move)!
+        precondition(session.completedSets == 0 && removeEdit.position(movedFirst) == nil &&
+               removeEdit.position(movedSecond) == .init(move: 1, row: 0) && session.raw["planId"].string == "scheduled-exercise-settings",
+               "Confirmed removal drops only the selected move and remaps remaining set positions")
+        precondition(session.removeExercise(at: 0) != nil && session.removeExercise(at: 0) == nil,
+               "A linked draft cannot be reduced to an empty workout")
+        var free = Session.free(now: started)
+        free.addExercise(other)
+        precondition(free.removeExercise(at: 0)?.selectedMove == nil && free.plan.exercises.isEmpty,
+               "An unlinked workout can remove its last exercise and stay an editable draft")
     }
 }

@@ -39,7 +39,7 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
     private var listening = false
     private var workoutSnapshot: NativeWatchWorkoutSnapshot?
     private var workoutRevision = 0
-    private var workoutCommand: (@MainActor (NativeWatchWorkoutCommand) -> NativeWatchWorkoutSnapshot?)?
+    private var workoutCommand: (@MainActor (NativeWatchWorkoutCommand, NativeWatchWorkoutSnapshot) -> NativeWatchWorkoutSnapshot?)?
     private var acknowledgements: [NativeWatchWorkoutAcknowledgement] = []
     private var finishing: UUID?
     private var finishMessage: Data?
@@ -122,7 +122,7 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
     }
 
     func updateWorkout(context: NativeWatchWorkoutContext?, snapshot: NativeWatchWorkoutSnapshot?,
-                       apply: (@MainActor (NativeWatchWorkoutCommand) -> NativeWatchWorkoutSnapshot?)? = nil) {
+                       apply: (@MainActor (NativeWatchWorkoutCommand, NativeWatchWorkoutSnapshot) -> NativeWatchWorkoutSnapshot?)? = nil) {
         useWorkout(context)
         guard context != nil else { return }
         workoutCommand = apply
@@ -310,7 +310,7 @@ final class NativeWatchHeartRate: NSObject, ObservableObject {
         let revision = workoutRevision
         let current = NativeWatchWorkoutStatePacket(token: requestID, revision: revision, snapshot: workoutSnapshot)
         var applied = false
-        if current.allows(command), let next = workoutCommand?(command) {
+        if current.allows(command), let next = workoutCommand?(command, current.snapshot) {
             // The store may synchronously publish its new state during the callback.
             guard self.context?.matches(context) == true, self.request?.id == requestID else { return }
             useWorkout(.init(owner: context.owner, workoutID: context.workoutID, isRunning: next.runningSinceMilliseconds != nil))
