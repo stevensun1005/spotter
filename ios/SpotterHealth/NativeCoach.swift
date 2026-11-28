@@ -431,6 +431,9 @@ struct NativeCoachView: View {
         !showsOptions && session.picture == nil && !session.weightPrompt && session.mealDraft == nil && session.textMealPendingDate == nil
             && session.pendingDrink == nil && !editingMessage && cleanText.isEmpty
     }
+    private var showsAgentInvitationCard: Bool {
+        showAgentInvitation && mode == .coach && showsSuggestions && !session.busy
+    }
     private var showsContextChip: Bool { includePlans && !showsOptions && !session.weightPrompt && session.picture == nil }
     private var hasReachedLimit: Bool { session.quota?.limitMessage != nil }
     private var canUseCamera: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
@@ -439,7 +442,7 @@ struct NativeCoachView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if showAgentInvitation && mode == .coach && showsSuggestions && !session.busy {
+            if showsAgentInvitationCard {
                 agentInvitation
             }
             if isNutritionPhoto {
@@ -1162,7 +1165,7 @@ struct NativeCoachView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if showsSuggestions {
+            if showsSuggestions && !(compact && showsAgentInvitationCard) {
                 suggestedReplies.transition(panelTransition)
             }
             if let picture = session.picture, let image = UIImage(data: picture) {
