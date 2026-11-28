@@ -1294,10 +1294,11 @@ struct NativeMealLogger: View {
 
     private func append(_ item: NativeMealLoggerItem, message: String) {
         error = nil
-        if let index = basket.firstIndex(where: { $0.foodId != nil && $0.foodId == item.foodId && $0.per100g != nil && item.per100g != nil }),
+        if let index = basket.firstIndex(where: {
+            $0.foodId != nil && $0.foodId == item.foodId && $0.portion == item.portion && $0.per100g != nil && item.per100g != nil
+        }),
            let grams = item.grams, (basket[index].grams ?? 0) + grams <= 3_000 {
             basket[index].grams = (basket[index].grams ?? 0) + grams
-            if basket[index].portion != item.portion { basket[index].portion = nil }
         } else {
             basket.append(item)
         }
