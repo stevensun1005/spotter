@@ -2954,7 +2954,7 @@ struct NativeSettings: View {
                     Text("欢迎试试用自己的 AI").font(.headline)
                     Text("把你常用的 AI 连到训练搭子，让它按你授予的权限分析记录、起草训练计划或帮你记餐。连接页有分步教程，可以先从读取一周训练记录试起。")
                         .font(.subheadline).foregroundStyle(SpotterPalette.muted)
-                    Text("这一版也修好了跨天记餐、多项记餐回执、训练环和统计小组件跳转。")
+                    Text("这一版也修好了跨天记餐、购物筐数量、多项记餐撤销、训练环和统计小组件跳转。")
                         .font(.subheadline).foregroundStyle(SpotterPalette.muted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

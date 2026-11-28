@@ -17,7 +17,7 @@ struct NativeFoodPortion: Codable, Hashable, Identifiable, Sendable {
     var isPackagedUnit: Bool { name == "个" || name == "份" }
 
     func amountLabel(_ count: Double) -> String {
-        isPackagedUnit ? "\(nutritionNumber(count)) \(name)" : "\(nutritionNumber(count)) × \(name)"
+        isPackagedUnit ? "\(nutritionInput(count)) \(name)" : "\(nutritionInput(count)) × \(name)"
     }
 }
 
@@ -338,6 +338,12 @@ struct NativeMealLoggerItem: Identifiable, Equatable {
         return servingGrams.map { $0 * servings }
     }
 
+    var selectedQuantity: Double {
+        if per100g == nil { return servings }
+        guard let grams, let portion, portion.grams > 0 else { return 1 }
+        return grams / portion.grams
+    }
+
     var facts: Facts {
         if let per100g, let grams { return per100g.scaled(grams) }
         guard let serving else { return Facts(calories: 0, protein: 0, carbs: 0, fat: 0) }
@@ -348,12 +354,11 @@ struct NativeMealLoggerItem: Identifiable, Equatable {
     var amountText: String {
         if per100g != nil, let grams {
             if let portion {
-                let count = grams / portion.grams
-                return portion.amountLabel(count) + " · " + nutritionNumber(grams) + " g"
+                return portion.amountLabel(selectedQuantity) + " · " + nutritionNumber(grams) + " g"
             }
             return nutritionNumber(grams) + " g"
         }
-        let base = servings == 1 ? "1 份" : "\(nutritionNumber(servings)) 份"
+        let base = "\(nutritionInput(selectedQuantity)) 份"
         return totalGrams.map { base + " · " + nutritionNumber($0) + " g" } ?? base
     }
 
@@ -586,6 +591,7 @@ struct NativeMealLogger: View {
     private var store: NativeFoodLocalStore { .init(api: api, owner: owner) }
     private var templateStore: NativeFavoriteMealStore { .init(api: api, owner: owner) }
     private var guiding: Bool { guide?.step.presentation == .mealEditor }
+    private var selectedQuantity: Double { basket.reduce(0) { $0 + $1.selectedQuantity } }
     private var totals: NativeNutritionFood.Facts {
         basket.reduce(.init(calories: 0, protein: 0, carbs: 0, fat: 0)) { $0.adding($1.facts) }
     }
@@ -643,22 +649,32 @@ struct NativeMealLogger: View {
             Button("取消", role: .cancel) {}
             Button("保存") { saveTemplate() }
         } message: {
-            Text("把已选的 \(basket.count) 项存为固定模版，以后可以一键加入。")
+            Text("把已选的 \(nutritionInput(selectedQuantity)) 份存为固定模版，以后可以一键加入。")
         }
     }
 
     // MARK: Header
 
     private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            if !textSize.isAccessibilitySize { headerRow(compact: false) }
+            headerRow(compact: true)
+        }
+        .padding(.horizontal, 12).padding(.top, 6)
+    }
+
+    private func headerRow(compact: Bool) -> some View {
         HStack(spacing: 8) {
-            Button { dismiss() } label: {
-                Image(systemName: "arrow.left").font(.system(size: 17, weight: .semibold))
-                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            ZStack(alignment: .leading) {
+                quickEntryLabel(compact: compact).hidden().accessibilityHidden(true)
+                Button { dismiss() } label: {
+                    Image(systemName: "arrow.left").font(.system(size: 17, weight: .semibold))
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.spotterPress)
+                .accessibilityLabel(basket.isEmpty ? "返回" : "放弃已选食物并返回")
+                .disabled(busy)
             }
-            .buttonStyle(.spotterPress)
-            .accessibilityLabel(basket.isEmpty ? "返回" : "放弃已选食物并返回")
-            .disabled(busy)
-            Spacer(minLength: 0)
             VStack(spacing: 2) {
                 Text("记录饮食").font(.headline).accessibilityAddTraits(.isHeader)
                 if date != spotterDay() {
@@ -666,25 +682,32 @@ struct NativeMealLogger: View {
                 }
             }
             .lineLimit(1).minimumScaleFactor(0.8)
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity)
             Menu {
                 Button { cover = .scanner } label: { Label("扫食物条码", systemImage: "barcode.viewfinder") }
                 Button { cover = .camera } label: { Label("拍营养元素", systemImage: "camera") }
                 Button { showLibrary = true } label: { Label("从相册识别营养表", systemImage: "photo") }
             } label: {
-                Label("快速录入", systemImage: "bolt.fill")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(accent.tint)
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 36)
-                    .background(accent.selection, in: Capsule())
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                quickEntryLabel(compact: compact)
             }
             .disabled(busy || working != nil || pendingSubmission != nil)
             .accessibilityLabel("快速录入：扫条码或识别营养表")
         }
-        .padding(.leading, 6).padding(.trailing, 12).padding(.top, 6)
+    }
+
+    private func quickEntryLabel(compact: Bool) -> some View {
+        Group {
+            if compact { Image(systemName: "bolt.fill") }
+            else { Label("快速录入", systemImage: "bolt.fill") }
+        }
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(accent.tint)
+        .padding(.horizontal, 10)
+        .frame(minWidth: 36, minHeight: 36)
+        .background(accent.selection, in: Capsule())
+        .frame(minWidth: 44, minHeight: 44)
+        .fixedSize(horizontal: true, vertical: false)
+        .contentShape(Rectangle())
     }
 
     private var searchField: some View {
@@ -965,7 +988,7 @@ struct NativeMealLogger: View {
             LazyVStack(alignment: .leading, spacing: 10) {
                 if !basket.isEmpty {
                     Button { templateName = ""; savingTemplate = true } label: {
-                        Label("把已选的 \(basket.count) 项存为模版", systemImage: "square.and.arrow.down")
+                        Label("把已选的 \(nutritionInput(selectedQuantity)) 份存为模版", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.spotterControl)
@@ -1013,7 +1036,7 @@ struct NativeMealLogger: View {
     }
 
     private func card(_ food: NativeNutritionFood, grams: Double? = nil) -> some View {
-        let count = basket.filter { $0.foodId == food.id }.count
+        let count = basket.lazy.filter { $0.foodId == food.id }.reduce(0) { $0 + $1.selectedQuantity }
         return HStack(spacing: 12) {
             Button { sheet = .portion(food, grams) } label: {
                 HStack(spacing: 12) {
@@ -1050,7 +1073,7 @@ struct NativeMealLogger: View {
         .spotterCard(radius: 16)
     }
 
-    private func addButton(_ label: String, count: Int = 0, action: @escaping () -> Void) -> some View {
+    private func addButton(_ label: String, count: Double = 0, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "plus").font(.system(size: 15, weight: .bold))
                 .foregroundStyle(accent.tint)
@@ -1058,10 +1081,12 @@ struct NativeMealLogger: View {
                 .background(accent.selection, in: Circle())
                 .overlay(alignment: .topTrailing) {
                     if count > 0 {
-                        Text("\(count)").font(.caption2.weight(.bold)).monospacedDigit()
+                        Text(nutritionInput(count)).font(.caption2.weight(.bold)).monospacedDigit()
+                            .fixedSize()
                             .foregroundStyle(SpotterPalette.deep)
+                            .padding(.horizontal, 3)
                             .frame(minWidth: 16, minHeight: 16)
-                            .background(accent.fill, in: Circle())
+                            .background(accent.fill, in: Capsule())
                             .offset(x: 5, y: -5)
                     }
                 }
@@ -1069,7 +1094,7 @@ struct NativeMealLogger: View {
         }
         .buttonStyle(.spotterPress)
         .accessibilityLabel(label)
-        .accessibilityValue(count > 0 ? "已选 \(count) 份" : "")
+        .accessibilityValue(count > 0 ? "已选 \(nutritionInput(count)) 份" : "")
         .disabled(busy)
     }
 
@@ -1086,7 +1111,8 @@ struct NativeMealLogger: View {
     // MARK: Bottom bar
 
     private var bottomBar: some View {
-        VStack(spacing: 6) {
+        let count = nutritionInput(selectedQuantity)
+        return VStack(spacing: 6) {
             if let error {
                 Text(error).font(.footnote).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity)
@@ -1097,10 +1123,12 @@ struct NativeMealLogger: View {
                         Image(systemName: "basket").font(.system(size: 21, weight: .medium))
                             .overlay(alignment: .topTrailing) {
                                 if !basket.isEmpty {
-                                    Text("\(basket.count)").font(.caption2.weight(.bold)).monospacedDigit()
+                                    Text(count).font(.caption2.weight(.bold)).monospacedDigit()
+                                        .fixedSize()
                                         .foregroundStyle(.white)
+                                        .padding(.horizontal, 3)
                                         .frame(minWidth: 17, minHeight: 17)
-                                        .background(Color.red, in: Circle())
+                                        .background(Color.red, in: Capsule())
                                         .offset(x: 8, y: -7)
                                 }
                             }
@@ -1118,7 +1146,7 @@ struct NativeMealLogger: View {
                 }
                 .buttonStyle(.spotterPress)
                 .disabled(basket.isEmpty || pendingSubmission != nil)
-                .accessibilityLabel(basket.isEmpty ? "还没有选择食物" : "已选 \(basket.count) 项，共 \(nutritionNumber(totals.calories)) 千卡")
+                .accessibilityLabel(basket.isEmpty ? "还没有选择食物" : "已选 \(count) 份，共 \(nutritionNumber(totals.calories)) 千卡")
                 .accessibilityHint("查看和调整已选食物")
                 Button {
                     searchFocused = false
@@ -1128,7 +1156,7 @@ struct NativeMealLogger: View {
                     ZStack {
                         if busy { ProgressView().tint(SpotterPalette.deep) }
                         else if pendingSubmission != nil { Text("重试保存").fontWeight(.bold) }
-                        else { Text(basket.isEmpty ? "完成" : "完成（\(basket.count)）").fontWeight(.bold) }
+                        else { Text(basket.isEmpty ? "完成" : "完成（\(count)）").fontWeight(.bold) }
                     }
                     .foregroundStyle(SpotterPalette.deep)
                     .frame(maxWidth: .infinity, minHeight: 50)
@@ -1138,6 +1166,7 @@ struct NativeMealLogger: View {
                 .buttonStyle(.spotterPress)
                 .disabled(basket.isEmpty || busy || guiding || date > spotterDay())
                 .accessibilityLabel(busy ? "正在保存" : (pendingSubmission == nil ? "完成" : "重试保存"))
+                .accessibilityValue(basket.isEmpty ? "" : "已选 \(count) 份")
                 .accessibilityHint(pendingSubmission == nil ? "选择要记入的餐次" : "按原餐次和份量重试")
                 .confirmationDialog("记到哪一餐？", isPresented: $choosingMeal, titleVisibility: .visible) {
                     ForEach(Self.mealOptions) { target in
@@ -1146,14 +1175,14 @@ struct NativeMealLogger: View {
                     }
                     Button("取消", role: .cancel) {}
                 } message: {
-                    Text("记入\(nutritionRecordDateLabel(date)) · \(basket.count) 项 · \(nutritionNumber(totals.calories)) 千卡")
+                    Text("记入\(nutritionRecordDateLabel(date)) · \(count) 份 · \(nutritionNumber(totals.calories)) 千卡")
                 }
             }
         }
         .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 6)
         .background(SpotterPalette.card.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Divider().overlay(SpotterPalette.line) }
-        .animation(motion, value: basket.count)
+        .animation(motion, value: selectedQuantity)
         .animation(motion, value: error != nil)
     }
 
@@ -1685,7 +1714,8 @@ private struct NativeMealBasketSheet: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Text(nutritionNumber(totals.calories)).font(.title2.weight(.bold)).monospacedDigit()
-                            Text("千卡 · \(items.count) 项").font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                            let quantity = items.reduce(0) { $0 + $1.selectedQuantity }
+                            Text("千卡 · \(nutritionInput(quantity)) 份").font(.subheadline).foregroundStyle(SpotterPalette.muted)
                         }
                         NativeMacroLine(facts: totals, font: .subheadline)
                     }
