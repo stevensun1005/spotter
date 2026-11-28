@@ -315,3 +315,5 @@ AI 教练是右下方的 48 点圆角方形按钮，外圈是四种强调色组�
 验证覆盖 iPhone 与 watchOS 模拟器目标编译及嵌套扩展、原生冒烟、离线恢复、分组轮换、左右侧记录、计时、重复操作和共用帮助。真实 Apple 健康授权、表盘刷新和配对设备断线后的回传需真机验证。分发前还须为 Watch 小组件签名并配置 App Group。
 
 2026-11-27 内测发布记录。1.0.1 Build 66 从 \`main\` 提交 \`0a6c4a545f9777e37fbbe3d52a37731b727ad11c\` 归档。包括 iPhone「今天开练」「本周双环」和饮食及搭子卡片更新、腕上专注训练和离线回传、表盘及智能叠放小组件、从热量估算补齐身体档案及首页饮食留白调整。Watch 的绝对毫秒时间使用 64 位，并通过 arm64_32 构建。源码基线、模拟器打包、独立版 30 项测试和原生冒烟通过。签名归档核对四个包的版本和共享组、Apple 健康、iPhone 生产 APNs 及 Cloudflare 98 源码指针。Xcode 以 TestFlight Internal Only 上传。App Store Connect 已将 Build 66 加入「训练搭子内测」，状态为 \`Testing\`。
+
+2026-11-27 内测发布记录。1.0.1 Build 67 从 GitHub `main` 提交 `750f36b9bf917c07e32e0020a0ebb32a32a753fd` 归档。经典与专注训练共用 184 pt 动作菜单，包含动作详情、组间休息、排序、替换和删除。源码基线、模拟器打包和原生冒烟通过。分发归档核对 iPhone、Apple Watch、两个小组件、灵动岛、生产 APNs、HealthKit 及 5,685 段离线演示，App 使用 Cloudflare 98 HTTPS API。Xcode 以 TestFlight Internal Only 上传，已保存测试说明并加入「训练搭子内测」，App Store Connect 显示 `Internal` 和 `Testing`。
