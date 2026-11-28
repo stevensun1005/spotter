@@ -1,5 +1,38 @@
 import Foundation
 
+struct NativeNutritionCarbCycle: Decodable {
+    enum Day: String, CaseIterable {
+        case low = "低碳", medium = "中碳", high = "高碳"
+
+        var share: Double {
+            switch self {
+            case .low: 0.8
+            case .medium: 1
+            case .high: 1.2
+            }
+        }
+    }
+
+    enum Basis: String, Decodable { case target }
+
+    static let maximumGrams = 1_500.0
+    let days: [String]
+    let grams: [String: Double]
+    var basis: Basis? = nil
+
+    static func grams(from target: Double) -> [String: Double] {
+        Dictionary(uniqueKeysWithValues: Day.allCases.map { day in
+            (day.rawValue, min(maximumGrams, (target * day.share).rounded()))
+        })
+    }
+
+    func effectiveGrams(weekday: Int, targetCarbs: Double) -> Double? {
+        guard days.count == 7, days.indices.contains(weekday) else { return nil }
+        let amounts = basis == .target ? Self.grams(from: targetCarbs) : grams
+        return amounts[days[weekday]]
+    }
+}
+
 // Daily calorie and macro targets from body data, activity and goal, and maintenance energy measured from records.
 // This file mirrors cloudflare/features/nutrition/goal-estimate.ts and energy-calibration.ts.
 // Keep the shared manual inputs and rounding the same on both sides. ios/Tests/NativeNutritionGoalSmoke.swift

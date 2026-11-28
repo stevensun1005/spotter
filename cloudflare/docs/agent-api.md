@@ -6,14 +6,14 @@
 
 | 方式 | 入口与身份 | 可用条件 |
 | --- | --- | --- |
-| 现有 Sites 授权连接 | `/mcp`，继续使用 Sites 平台提供的授权身份；先调用 `get_spotter_agent_profile` | 客户端能够连接该站点的受支持 MCP 授权入口 |
-| 个人 Agent API | `/api/agent/*`，`Authorization: Bearer <个人连接令牌>` | HTTP 请求必须实际到达 Worker；私密 Sites 平台可能在此之前要求登录 |
+| 同站会话 MCP | `/mcp`，用登录 Cloudflare 网页的 Spotter 会话确定账号；先调用 `get_spotter_agent_profile` | 客户端须具备有效的同站 Spotter 会话。 |
+| 个人 Agent 接口 | REST `/api/agent/*` 或远程 MCP `/api/agent/mcp`，`Authorization: Bearer <个人连接令牌>` | 外部工具使用当前账号创建的个人令牌，按授予的权限访问。 |
 
-个人令牌不是 Sites 平台绕过令牌，不能绕过私密站点的访问策略。若自定义 HTTP 请求先收到登录页、跳转或平台拒绝，应用层 Bearer 校验尚未执行；不要将其描述为 API 已连接。优先使用平台支持的 MCP 连接，或后续提供独立、受支持的 API 授权入口。当前未改变 Sites 访问权限，也未向 Agent 下发平台级 bypass token。
+给外部 Agent 配置 `/api/agent/mcp` 或 REST 接口时，使用实际 Cloudflare HTTPS 地址，并通过工具的凭据设置提交个人令牌。登录页或跳转表示还需核对客户端地址和授权方式。
 
 ## 创建个人连接
 
-在 iPhone App 的「设置 → 外部 AI Agent」，或网页的「添加计划 → 用自己的 AI」中，为每个 Agent 单独创建连接。新建时默认全选下列权限，底部的「全选授权」「取消全选」可一键切换，也可逐项取消。接口仍只授予请求里列出的权限，不会自动补全。有效期为 1–90 天，最多 20 个有效连接。
+在 iPhone App 的「设置 → 外部 Agent」，或网页的「添加计划 → 用自己的 AI」中，为每个 Agent 单独创建连接。新建时默认全选下列权限，底部的「全选授权」「取消全选」可一键切换，也可逐项取消。服务端授予请求中列出的权限。有效期为 1–90 天，最多 20 个有效连接。
 
 - `read:context`：读取自己的动作库、模板、编排规则、周期概要及内置动作搜索。
 - `training:read`、`nutrition:read`、`templates:read`：分别授权读取个人训练计划和打卡、餐食和饮水、个人训练模板。Apple 健康读数、身体数据、好友和搭子记录保持私密。
@@ -129,7 +129,7 @@ iPhone 和 Cloudflare 网页在本人动作详情中读取已保存的演示。�
 - `stage_spotter_plans` → `preview_spotter_draft` → `commit_spotter_draft`
 - `stage_spotter_program` → `preview_spotter_program` → `commit_spotter_program`
 
-新增工具的输入均要求核对 `profileRef`。旧站点连接由已认证的 Sites 账号确定 owner；API 令牌连接的 owner 由令牌确定，不接收调用者传入 owner。
+新增工具的输入均要求核对 `profileRef`。`/mcp` 通过 Cloudflare 网页的会话确定 `owner`，个人接口通过令牌确定 `owner`。
 
 `/api/agent/mcp` 按令牌权限提供编排及记录工具，并在调用时再次检查权限。按需提供 `read_spotter_records`、`add_spotter_meals`、`get_spotter_exercise_demo_skill` 和 `manage_spotter_exercise_demo`。支持 JSON Streamable HTTP 的请求、响应和通知。发现、初始化和工具调用兼容相应协议版本。 [MCP 官方协议版本说明](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)
 
@@ -141,6 +141,4 @@ iPhone 和 Cloudflare 网页在本人动作详情中读取已保存的演示。�
 
 ## 验证范围
 
-合成 D1/生产路由测试覆盖：过期、撤销、账号隔离、权限限制、限流、草稿编辑锁、确认幂等、休息日/历史保护；旧 Sites `/mcp` 工具仍可发现，新工具可完成计划及周期的草稿→预览→提交；外部 REST 在无浏览器会话的测试环境按 Bearer 工作。所有样本为合成数据，没有访问真实用户健康记录。
-
-应用层使用合成账号验证。外部客户端还需完成私密 Sites 的平台授权。
+合成 D1 的路由测试覆盖过期、撤销、账号隔离、权限限制、限流、草稿编辑锁、确认幂等、休息日和历史保护。`/mcp` 可发现已有工具，计划及周期工具可完成草稿、预览和提交。外部 REST 使用 Bearer 令牌完成了合成验证。实际客户端的网络连通性和工具配置需要在对应环境确认。

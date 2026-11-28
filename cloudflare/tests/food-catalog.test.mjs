@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { coreFoods, foods, maxFoodGrams, searchFoods } from "../features/nutrition/foods.ts";
+import { foods, maxFoodGrams, searchFoods } from "../features/nutrition/foods.ts";
 
 const catalog = JSON.parse(readFileSync(new URL("../shared/food-catalog.json", import.meta.url), "utf8"));
+const coreFoods = foods.filter(({ id }) => id.startsWith("fdc-"));
 const key = (value) => value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
 test("shared food catalog keeps every entry inside the meal and personal-food limits", () => {

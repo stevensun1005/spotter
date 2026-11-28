@@ -13,10 +13,9 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier, context);
 } });
 
-const { macroRatios, splitCalories, targetForDate, recordedExerciseEnergy } = await import("../features/nutrition/nutrition-planning.ts");
+const { carbGramsFromTarget, macroRatios, plannedTargetForDate, splitCalories, targetForDate, recordedExerciseEnergy } = await import("../features/nutrition/nutrition-planning.ts");
 const { libraryDay, libraryScope, scopeBackup, emptyBackup } = await import("../features/data/model.ts");
 const { libraryItem } = await import("../features/library/model.ts");
-const { recipes } = await import("../features/nutrition/nutrition-recipes.ts");
 
 const target = { kind: "targets", targetWeightKg: 75, values: { calories: 2200, protein: 100, carbs: 315, fat: 60, water: 2000 } };
 const planning = { kind: "nutrition-plan", cut: [{ date: "2026-11-23", calories: 2000 }, { date: "2026-12-07", calories: 1900 }],
@@ -47,11 +46,18 @@ test("nutrition configuration is validated and included in the right backup scop
   assert.deepEqual(scopeBackup({ ...emptyBackup(), library: [target, planning, energy] }, "nutrition").library, [target, planning, energy]);
 });
 
-test("recipe nutrition is computed from the same catalogue values used by the diary", () => {
-  assert.ok(recipes.length >= 4);
-  for (const recipe of recipes) {
-    assert.ok(recipe.ingredients.length >= 2);
-    assert.equal(recipe.totals.calories, recipe.ingredients.reduce((total, ingredient) => total + ingredient.amounts.calories, 0));
-    assert.ok(recipe.ingredients.every(({ food, grams }) => food.per100g.calories > 0 && grams > 0));
-  }
+test("linked carb cycle follows current goals and cut phases without changing explicit exercise allowances", () => {
+  const linked = { ...planning, carbCycle: { ...planning.carbCycle, basis: "target" } };
+  const rows = [target, linked, energy];
+  const monday = "2026-11-23";
+  assert.equal(libraryItem.parse(linked).carbCycle.basis, "target");
+  assert.equal(libraryItem.parse(planning).carbCycle.basis, undefined);
+  assert.deepEqual(carbGramsFromTarget(1500), { 低碳: 1200, 中碳: 1500, 高碳: 1500 });
+  assert.equal(plannedTargetForDate(rows, monday, null).carbs, 285);
+  assert.equal(plannedTargetForDate(rows, monday, linked.carbCycle).calories, 2228);
+  assert.deepEqual(targetForDate(rows, monday), { calories: 2503, carbs: 342, protein: 90, fat: 56, water: 2000 });
+  const changed = { ...target, values: { ...target.values, calories: 2400, carbs: 365 } };
+  assert.equal(targetForDate([changed, linked], monday).carbs, 360);
+  assert.equal(targetForDate([changed, planning], monday).carbs, 300);
+  assert.equal(targetForDate([linked], "2026-11-22").calories, 0);
 });

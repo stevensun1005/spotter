@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { ArrowRight, ChevronDown, Flame, Scale } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Flame, Scale } from "lucide-react";
 import { ageOn, readBodyFat, readBodyInputs } from "@/features/body/profile";
 import type { useLibrary } from "@/features/library/use-library";
 import type { LibraryItem, NutritionValues } from "@/features/library/model";
@@ -149,7 +149,8 @@ function useRecentIntake(enabled: boolean, today: string) {
   return state?.today === today ? state.days : undefined;
 }
 
-export function NutritionGoalEstimator({ body, enabled, today, draft, loggedTrainingDays = 0, onChange, water, targetWeightKg, onApply, onBody }: {
+export function NutritionGoalEstimator({ body, enabled, today, draft, loggedTrainingDays = 0, onChange, water, targetWeightKg,
+  onSave, saving, onBody, onManual }: {
   body: Pick<ReturnType<typeof useLibrary>, "rows" | "loading" | "error" | "load">;
   enabled: boolean;
   today: string;
@@ -159,8 +160,10 @@ export function NutritionGoalEstimator({ body, enabled, today, draft, loggedTrai
   onChange: (next: NutritionGoalDraft) => void;
   water: number;
   targetWeightKg?: number;
-  onApply: (values: NutritionValues) => void;
+  onSave: (values: NutritionValues, estimated: NutritionGoalDraft) => Promise<void>;
+  saving: boolean;
   onBody: () => void;
+  onManual: () => void;
 }) {
   const intake = useRecentIntake(enabled, today);
   const activityHelp = useId();
@@ -210,9 +213,14 @@ export function NutritionGoalEstimator({ body, enabled, today, draft, loggedTrai
     <div className="nutrition-estimate-card">
       <h4>目标与活动</h4>
       <div className="nutrition-estimate-fields form-fields">
-        <label>目标方向<select value={draft.goal} required={Boolean(draft.activity)} onChange={(event) => onChange({ ...draft, goal: event.target.value as NutritionGoalDraft["goal"] })}>
+        <label>目标方向<select value={draft.goal} required={Boolean(draft.activity)} onChange={(event) => {
+          const value = event.target.value;
+          if (value === "manual") onManual();
+          else onChange({ ...draft, goal: value as NutritionGoalDraft["goal"] });
+        }}>
           <option value="">选择目标</option>
           {Object.entries(nutritionGoalLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <option value="manual">手动填写</option>
         </select></label>
         {/* Saved activity from the earlier estimator can stay empty while the legacy preference is unchanged. */}
         <label>日常活动<select value={draft.activity} required={Boolean(draft.goal) && !draft.reviewActivity} aria-describedby={activityHelp} onChange={(event) =>
@@ -265,10 +273,10 @@ export function NutritionGoalEstimator({ body, enabled, today, draft, loggedTrai
       {estimate.notes.length > 0 && <ul className="nutrition-estimate-notes">{estimate.notes.map((note) =>
         <li key={note}>{noteText(note, estimate, draft)}</li>)}</ul>}
       <p className="nutrition-estimate-caption">估算适用于健康成年人。孕期、哺乳期或有疾病时请遵医嘱。</p>
-      <button type="button" className="button primary nutrition-estimate-apply" onClick={() => {
-        onChange({ ...draft, trainingDays });
-        onApply({ ...estimate.values, water });
-      }}>填入目标 <ArrowRight size={16} aria-hidden="true" /></button>
+      <button type="button" className="button primary nutrition-estimate-save" disabled={!enabled || saving}
+        onClick={() => void onSave({ ...estimate.values, water }, { ...draft, trainingDays })}>
+        <Check size={17} aria-hidden="true" /> {saving ? "保存中…" : "保存"}
+      </button>
     </div>}
   </section>;
 }

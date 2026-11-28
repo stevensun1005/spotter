@@ -455,6 +455,10 @@ test("product help uses verified web or iPhone navigation without spending messa
     ["怎么移除搭子备注？", /移除备注/u],
     ["训练中怎么开始动作倒计时？", /iPhone App.*开始计时/su],
     ["怎么切换专注训练界面？", /iPhone App.*训练偏好 → 训练界面/su],
+    ["怎么删除账号？", /权限与隐私 → 删除账号/u],
+    ["怎么退出登录？", /退出当前账号/u],
+    ["怎么设置碳循环？", /跟随营养目标/u],
+    ["营养目标在哪？", /手动填写/u],
   ]) {
     assert.match((await checked(ask(question))).reply, answer);
   }

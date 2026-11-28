@@ -19,14 +19,14 @@ AI 教练的输入栏有「拍照」和「相册」。选图后可以输入或�
 
 ## 在本机试用
 
-在网页开发分支 `codex/sites-ai-coach` 的根目录运行。要求 Node.js 22.13 或更新版本。
+在 `cloudflare/` 运行。使用 Node.js 24 或更新版本。
 
 ```sh
-npm run install:ci
+npm ci
 npm run build
 ```
 
-依照 [本地 D1 迁移](../README.md#local-d1-migrations) 按编号应用待执行的迁移。新检出且使用空数据库时，应用 `drizzle/` 中的全部 SQL。已有本地数据库只应用尚未执行的迁移。
+初始化本地 D1 并准备合成账号。[本地 D1 与登录](../README.md#本地-d1-与登录)
 
 在已关联额度的 Claude Console 组织中创建 API Key。将下面几项加入网页源码根目录的 `.dev.vars`。这个文件由 Git 忽略，由本机 Worker 读取。
 
@@ -35,7 +35,7 @@ AI_COACH_ENABLED=true
 ANTHROPIC_API_KEY=<粘贴你在 Claude Console 创建的 Key>
 ```
 
-`seedy@sites.test` 是本机预览的合成账号。启动或重启预览后，在网页完成本地登录，进入「设置 → AI 教练」。
+启动或重启预览后，用本地 D1 的合成邮箱和访问码登录，再进入「设置 → AI 教练」。
 
 ```sh
 npm run dev:ai-coach
@@ -45,7 +45,7 @@ npm run dev:ai-coach
 
 ## 配置托管环境
 
-在 Cloudflare Worker 的 **Variables and Secrets** 中设置 `AI_COACH_ENABLED=true`，并将 `ANTHROPIC_API_KEY` 设为秘密。部署前应用 D1 待执行的迁移。使用 Sites 托管此源码时，在其 **Runtime environment variables** 中设置相同变量，并随该站点发布数据库迁移。
+在 Cloudflare Worker 的 **Variables and Secrets** 中设置 `AI_COACH_ENABLED=true`，并将 `ANTHROPIC_API_KEY` 设为秘密。部署前应用 D1 待执行的迁移。
 
 从干净工作区构建发布包。Cloudflare Vite 可能把本机 `.dev.vars` 复制到本地构建目录，上传前请确认归档中没有任何本机环境文件。详见 [Cloudflare 本地变量说明](https://developers.cloudflare.com/workers/vite-plugin/reference/secrets/)。
 

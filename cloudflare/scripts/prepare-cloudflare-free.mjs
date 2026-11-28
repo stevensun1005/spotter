@@ -58,7 +58,7 @@ async function prepare() {
 
   if (dryRun) {
     const result = spawnSync(process.execPath, [
-      "--import", "./scripts/sites-env.mjs", "./node_modules/wrangler/bin/wrangler.js",
+      "--import", "./scripts/cloudflare-env.mjs", "./node_modules/wrangler/bin/wrangler.js",
       "deploy", "--config", configPath, "--dry-run", "--outdir", "dist/cloudflare-dry-run",
     ], { cwd: projectRoot, stdio: "inherit" });
     if (result.error) throw result.error;

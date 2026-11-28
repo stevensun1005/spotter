@@ -1,93 +1,37 @@
-# 健康设备同步与 Sites 接入
+# 健康设备同步
 
-## 本轮边界
+Spotter iPhone App 使用 HealthKit 读取系统授权的数据，网页与 App 共用 Cloudflare Worker 会话及 D1。想在网页查看特定训练的健康资料时，先登录同一个 Spotter 账号。开发和真机验收使用隔离的 HTTPS 测试服务与合成账号。[iPhone App 构建与发布](iphone-app.md) · [Cloudflare 网页与 iPhone 登录](cloudflare-login.md)
 
-开发基线是独立版 `main@78d09dc`，工作分支为 `codex/health-device-sync`。开始时工作目录为空；克隆后的 main 没有未提交改动。仅修改独立版和 iPhone 工程，不发布 Sites，不改 Sites 权限、环境变量、数据库或动作库。
+## 读取与保存
 
-Sites 参考源码以只读方式取得，检查到的提交是 `fd27f3d8d4112e9a2fbaf9aeae81ccb661267a6f`。这代表取得的源代码版本，不代表本轮在正式站完成了功能验证。
-
-## 两种现有接入的区别
-
-| 项目 | 独立版 | 当前 Sites 试用版 |
+| 数据 | 操作入口 | 保存方式 |
 | --- | --- | --- |
-| 运行环境 | Next.js / Node.js 24 | Vinext / Cloudflare Worker |
-| 身份 | 本地账号和 HttpOnly 会话 | Sites Sign in with ChatGPT 的站点用户 ID |
-| 存储 | `node:sqlite`，版本化本地迁移 | D1 `DB`，Drizzle SQL 迁移 |
-| Apple 心率 | iPhone HealthKit → 设备令牌 → `/api/health/apple/sync` | Safari 快捷指令 → DOM 自定义事件 → 网页预览 → `/api/health` |
-| 授权 | 网页生成五分钟一次性码，App 兑换并用 Keychain 保存凭据 | iPhone 快捷指令的健康读取授权；保存依赖浏览器登录态 |
-| 上传训练归属 | 设备令牌映射账号，服务端再校验训练 ID 和时间窗 | 网页登录账号，服务端再校验训练 ID 和时间窗 |
-| 身体记录 | 本轮新增私密健康记录模块 | 已有 `library` 的 `nutrition` / `weight` / `kg` |
-| 共享 | 沿用现有计划、训练和搭子规则 | 另有好友、分享卡片等规则；本轮不改 |
+| Apple 健康读数 | iPhone「设置 → 手表与健康」，点「授权 Apple 健康」并在系统面板选择类别 | 在健康页按日期范围预览可读数据。前台会刷新选中的指标。 |
+| 体重、体脂率、去脂体重、腰围 | 同一页展开「同步到我的账号」，核对「同步身体记录到账号」所选指标 | 样本按 UUID 去重。时间按本地日期显示，体重以 kg 存储。 |
+| 训练心率曲线 | iPhone 训练详情用「从 Apple 健康同步」，或在健康页开启「自动补录训练心率」 | 单条按已有训练实际起止时间匹配。自动模式处理近 7 天尚未保存心率的已完成训练，保留已有心率。 |
+| Apple Watch 完训摘要 | iPhone 开练后连接配对的手表，或从手表开始已同步的计划 | 已配对的手表回传本场训练适用的活跃热量、总热量和平均心率。明细取相应训练窗口内的可用数据。 |
+| 导出的心率数据 | 网页「训练详情 → 训练心率」，可在 iPhone Safari 使用页面的 Apple 健康快捷指令 | 先确认与训练时段吻合的点位，再保存 Apple 健康 ZIP/XML、Garmin FIT/TCX、WHOOP CSV/ZIP 或通用 CSV。 |
 
-Sites 的 `features/heart/apple-shortcut.tsx` 先将训练起止时间以 ISO 8601 提供给快捷指令，再接收 `spotter-apple-health` 事件中的 CSV。`shortcut-data.ts` 筛选训练时段，用户预览确认后保存。这里没有设备令牌端点，原生 App 不能只换一个网址就直接使用。
+读数取决于 HealthKit 授权、设备来源和所选日期范围。系统不会向应用区分读取授权被拒绝与没有可用样本。训练以实际起止时间匹配，同日多场分别核对。训练心率与身体读数默认按本人账号保存。好友和搭子只可见各自授权的分享投影。[Apple HealthKit 授权说明](https://developer.apple.com/documentation/healthkit/authorizing-access-to-health-data)
 
-## 后续接入 Sites 的顺序
+## Cloudflare 接口
 
-1. 等动作库补齐、核对并获得统一更新指令后，再在 Sites 专用开发分支移植；保留同一 `project_id`、访问权限及现有 D1 数据。
-2. 在 Sites 内复用 HealthKit 数据协议、时间匹配、单位转换和界面；将同步存储适配为异步 D1，新增迁移，不覆盖原表或账号。
-3. 配对码由已登录 Sites 用户发起，所有归属保存该站点的稳定 `userId`，不能拿独立版账号 ID、邮箱或其他站点 ID 直接替代。
-4. 先验证 Sites dispatch 对无浏览器会话的原生设备请求的行为。私密站点可能在进入 Worker 之前要求登录；仅在 Worker 新增 Bearer 端点不等于外部 App 已能访问。必须用合成测试设备验证实际 HTTPS 响应。
-5. 如果平台不能为私密站点提供适当的设备授权通道，继续保留快捷指令；另建经过授权的独立 HTTPS 同步服务作为桥接，再设计用户可撤销的账号绑定。平台级 SIWC bypass token 不可嵌入 iPhone App、仓库或网页。
-6. 体重映射到 Sites 身体记录的 kg 口径；保留 HealthKit UUID 和来源作为幂等元数据。活动量单独存储，运动记录只关联已有打卡。原始心率、身体及活动数据不自动纳入搭子、好友、分享卡片或 MCP 导出。
-7. 在本地 D1 和隔离 HTTPS 测试站完成双账号、重配、撤销、重试和同日两练，再按明确的统一发布指令更新正式站。保留旧快捷指令及文件导入作为补同步入口。
-
-## 真机验收
-
-需有能使用 HealthKit 的 Apple 开发团队、可用唯一 Bundle ID 和 provisioning profile；手机连接并信任 Mac、解锁、开启开发者模式。网页和 App 使用同一个可由手机访问的 HTTPS 测试 origin。iPhone 的 `localhost` 指向手机自身，不能代替 Mac 服务；不降低 ATS 或在正式 Sites 上试写。
-
-用户在系统健康弹窗选择允许的类型。HealthKit 不提供可靠的“读取已拒绝”状态，授权请求成功也不代表每种类型都可读；空结果应检查授权、可读历史范围、训练时间和手表是否已同步。[Apple 授权说明](https://developer.apple.com/documentation/healthkit/authorizing-access-to-health-data)。
-
-验收顺序：网页生成一次性码 → App 配对 → 用户健康授权 → Apple Watch 记录进入 iPhone 健康 → 按网页实际起止时间同步 → 详情核对曲线、均值、最低、最高和来源 → 同日第二练核对归属 → 再次同步核对幂等 → 断网后恢复重试 → 网页或 App 断开连接 → 旧令牌被拒绝。
-
-历史读取和实时心率分开验收。这是 iPhone HealthKit 历史读取方案，没有 watchOS 实时 workout session。后台 observer 需要额外 entitlement、注册和真机触发验证；不能由前台同步或模拟器构建推断后台已可用。[Apple 后台投递要求](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.healthkit.background-delivery)。
-
-## 其他设备
-
-- 已写入 Apple 健康的第三方数据由 HealthKit 读取，保留可获得的源名称和 bundle 标识；设备本身支持但未写入健康的字段不会自动出现。
-- 活动累计使用 HealthKit 的统计合并值，不把 Watch、iPhone 和第三方重复样本直接相加。[Apple 统计说明](https://developer.apple.com/documentation/healthkit/hkstatistics)。
-- WHOOP 沿用现有 OAuth，只有在隔离测试环境配置真实测试凭据及准确回调后才验证在线授权；合成 OAuth state 检查不代表厂商授权成功。
-- Garmin 优先验证 FIT / TCX 的选定时段心率导入；这些文件导入不创建新的训练打卡。直连需要实际开发者权限和回调，不能从文件导入通过推断直连可用。
-
-不同来源的系统运动，仅在唯一匹配同一打卡、同运动类型、首尾各差不超过 60 秒且重合至少 90% 时合并显示来源；不相加能量或时长，不删除原始私密来源记录。同源记录、未唯一匹配的记录保持独立。活动量使用 HealthKit 的合并统计，按账号和当地日期覆盖；同一批重复日期或样本 UUID 会被拒绝。
-
-## 本地协议与验证命令
-
-```sh
-npm ci
-npm run build
-npm test
-npm run typecheck
-npm run test:health-native
-xcodebuild -project ios/SpotterHealth.xcodeproj -scheme SpotterHealth -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath work/ios-derived CODE_SIGNING_ALLOWED=NO build
-```
-
-`npm run build` 使用 Next.js 支持的 webpack 后端。本机默认 Turbopack 在 CSS 子进程绑定端口时因权限失败；webpack 产物已实际启动并通过 HTTP 测试。没有更改应用部署地址或正式站配置。
-
-`test:health-native` 是可选 macOS 检查，需要 `swiftc`。它编译实际 Swift 数据模型，生成纯合成心率和健康记录，再经过生产 API 路由的 JSON 校验、账号配对、重复上传、训练关联、隐私及撤销检查。临时 SQLite 和二进制结束后删除。它没有执行 HTTPS 网络传输或 HealthKit 系统授权；普通 `npm test` 不依赖 Xcode。
-
-| 接口 | 权限与口径 |
+| 路由 | 用途 |
 | --- | --- |
-| `GET/POST /api/health/apple` | 网页当前账号；读取私密概览/状态，签发配对码或断连 |
-| `POST /api/health/apple/pair` | 一次性配对码兑换设备令牌，五分钟过期；服务端只存哈希 |
-| `GET /api/health/apple/sync` | 设备令牌；`from/to` 为绝对毫秒，最多 366 天，`limit` 最大 100，跟随 `nextCursor` |
-| `POST /api/health/apple/sync` | 设备令牌；`{id,data}` 写入匹配训练心率，或 `action: report` 报告整次结果 |
-| `POST /api/health/apple/records` | 设备令牌；选定类型、IANA 时区和最多 31 天范围；体重、运动、活动批次幂等更新 |
-| `DELETE /api/health/apple/sync` | 设备令牌；撤销当前连接，保留账号已有私密历史 |
+| `GET /api/health?id=<训练编号>` | 在当前账号读取训练心率。 |
+| `POST /api/health` | 保存或移除心率。自动补录使用 `onlyIfMissing` 保留已有记录。 |
+| `GET /api/health/workout-summary?id=<训练编号>`、`POST /api/health/workout-summary` | 读取及写入选定训练的手表摘要。 |
+| `GET /api/library?section=body`、`POST /api/library` | 查重及保存用户选择的身体记录。 |
+| `/api/health/whoop`、`/api/health/whoop/callback` | 在服务端配置 WHOOP OAuth 后连接，并同步可匹配的已有活动统计。 |
 
-`selected` 是本次选择，`received` 是本次实际读到样本的类型，`emptyTypes` 是没有读到的选定类型，均不代表系统授权状态。旧客户端未报告 `received` 时保持未知。网页概览显示各类最近 30 条，再按当前统计日期过滤；历史数据仍保存在私密表中。
+服务端按会话身份和训练归属限制读写。原生 App 在 Keychain 保存会话凭据，健康记录及授权凭据不写入测试日志。代码入口见 [原生健康页](../ios/SpotterHealth/NativeHealth.swift) · [完训摘要同步](../ios/SpotterHealth/NativeWorkoutHealthSync.swift) · [Cloudflare 健康路由](../cloudflare/app/api/health/)。
 
-## 验证记录
+## 厂商设备
 
-所有服务端验证使用临时 SQLite、合成训练和测试账号，真实健康数据不进入 Git 或日志。
+设备厂商向 Apple 健康写入 Spotter 已支持的数据类型时，iPhone App 可按系统授权读取。Garmin FIT/TCX 和 WHOOP CSV/ZIP 可从网页版训练详情导入。体脂秤分段指标需要厂商提供的设备与导出来源。厂商接入和支持范围见 [iPhone App 设备说明](../ios/README.md#通过-apple-健康连接其他设备)。
 
-| 环境 | 结果 |
-| --- | --- |
-| 本地 Node 服务 | `npm run build`、`npm run typecheck` 通过；`npm test` 17/17 通过。包含实际 HTTP 服务、两账号共享边界、重启读回、新健康接口、配对过期/重配/断连、同日两练、跨午夜、DST、kg/lb、历史分页、重复与延迟同步、手工数据保护、实际读取类别和 FIT/TCX 导入。 |
-| Swift 本地合成 | NativeSmoke 及 `npm run test:health-native` 通过；实际 Swift 编码经服务端生产路由校验、重复上传、归属、隐私及断连通过。URLProtocol 合成验证断网恢复、持续断网最多三次、503 恢复、401/取消不重试；Toronto 25 小时 DST 日检查通过。 |
-| 本地网页 | 隔离合成账号浏览器验收：390 和 320 像素宽无横向溢出，心率曲线/均值/极值/来源、连接状态、身体/活动和系统运动正常；80 kg 显示为 176.37 lb。 |
-| Xcode 模拟器 | 最终 iOS Simulator SDK Debug 构建通过，`CODE_SIGNING_ALLOWED=NO`。没有把编译通过当作健康授权或手表读回验证。 |
-| 签名与 iPhone | 发现已配对 iPhone 和有效开发证书；默认 `app.spotter.health` 签名构建缺对应 development provisioning profile。用户当前不便操作设备，未安装、未授权、未验证 Watch 真机闭环。仍需有效团队、唯一 Bundle ID 和包含设备及 HealthKit 的 profile。 |
-| HTTPS 测试服务 | 仓库未配置，未部署；没有端到端 HTTPS 真机验证。 |
-| 正式 Sites | 仅检查站点信息和参考源码；未发布、未写数据、未改权限。收尾复核仍为第 45 版、访问权限修订 2。 |
+## 验证
 
-WHOOP 只验证既有 OAuth state / 账号 / 回调构造和拒绝路径（测试内使用合成凭据），没有真实厂商授权。Garmin FIT/TCX 使用合成文件验证，未开通开发者直连。重试已做合成故障验证；iPhone 实际断网恢复、Keychain 系统行为、实时心率和后台触发仍需另行真机验收。
+从仓库根目录运行 `npm run test:health-native` 验证 Swift 健康载荷、时间窗口、单位、重试和协议的合成测试。`npm run test:ios-app` 包括原生心率文件导入及 Watch 消息的冒烟测试。Cloudflare 的 `npm test` 验证健康接口和账号归属。测试数据使用合成样本，模拟器编译和协议检查与真机授权分别验收。
+
+真机需要匹配签名团队、Bundle ID 及 HealthKit 权限。用已配对的 Apple Watch 和已获同意的测试账号，核对两次同日训练、跨午夜、样本迟到、重复同步不同来源、手工心率保护、退出及切换账号。iPhone 需能访问该构建所配的 HTTPS 服务。看到真实手表回传和 D1 保存结果后，再记录本轮联调状态。[真机安装与验证](../ios/README.md#真机安装与验证)

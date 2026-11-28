@@ -40,10 +40,6 @@ export const foods: readonly Food[] = (catalog.foods as readonly CatalogFood[]).
   ...(item.brand ? { brand: item.brand } : {}),
 }));
 
-// The original everyday list. Food recommendations and recipes rank only these, so a large catalog of
-// oils, snacks and restaurant items does not crowd out simple whole foods.
-export const coreFoods: readonly Food[] = foods.filter(({ id }) => id.startsWith("fdc-"));
-
 // Folds width, case and accents, so "creme brulee" finds "crème brûlée" and "ＲＯＬＬＥＤ" finds "rolled".
 function foldFoodText(value: string) {
   return value.normalize("NFKD").replace(/\p{M}/gu, "").normalize("NFC").toLowerCase();

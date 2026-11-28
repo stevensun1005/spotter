@@ -50,10 +50,6 @@ struct NutritionPayload: Decodable {
             let date: String
             let calories: Double
         }
-        struct CarbCycle: Decodable {
-            let days: [String]
-            let grams: [String: Double]
-        }
         struct WorkoutEnergy: Decodable {
             let id: String
             let calories: Double
@@ -77,7 +73,7 @@ struct NutritionPayload: Decodable {
         let entry: Entry?
         let values: Values?
         let cut: [Stage]?
-        let carbCycle: CarbCycle?
+        let carbCycle: NativeNutritionCarbCycle?
         let workouts: [WorkoutEnergy]?
         let sourceWorkoutId: String?
         let proteinProductId: String?
@@ -124,7 +120,7 @@ struct NutritionPayload: Decodable {
         return servings
     }
 
-    func targets(on date: String, countingWorkoutIDs ids: Set<String>?) -> Values {
+    func plannedTargets(on date: String, carbCycle: NativeNutritionCarbCycle?) -> Values {
         let base = rows.first { $0.kind == "targets" }?.values ?? Values()
         let plan = rows.first { $0.kind == "nutrition-plan" }
         var target = base
@@ -137,16 +133,21 @@ struct NutritionPayload: Decodable {
             target.carbs = (stage.calories * carbShare / 400).rounded()
             target.fat = (stage.calories * (100 - proteinShare - carbShare) / 900).rounded()
         }
-        if let cycle = plan?.carbCycle, cycle.days.count == 7, target.calories > 0,
+        if let carbCycle, target.calories > 0,
            let noon = ISO8601DateFormatter().date(from: date + "T12:00:00Z") {
             var calendar = Calendar(identifier: .gregorian)
             calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
             let weekday = (calendar.component(.weekday, from: noon) + 5) % 7
-            if let carbs = cycle.grams[cycle.days[weekday]] {
+            if let carbs = carbCycle.effectiveGrams(weekday: weekday, targetCarbs: target.carbs) {
                 target.calories = max(0, target.calories + 4 * (carbs - target.carbs))
                 target.carbs = carbs
             }
         }
+        return target
+    }
+
+    func targets(on date: String, countingWorkoutIDs ids: Set<String>?) -> Values {
+        var target = plannedTargets(on: date, carbCycle: rows.first { $0.kind == "nutrition-plan" }?.carbCycle)
         if target.calories > 0, let workouts = rows.first(where: { $0.kind == "nutrition-energy" && $0.id == date })?.workouts {
             target.calories += workouts.filter { ids?.contains($0.id) ?? true }.reduce(0) { $0 + $1.calories }
         }
@@ -733,7 +734,7 @@ struct NativeHomeNutrition: View {
 private enum NutritionDestination: Identifiable {
     case logger
     case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
-    case settings, goals, goalEstimate, cycle, recipes, recommendations, protein, stats, voice, energy, copy, favorites
+    case settings, goals, goalEstimate, cycle, protein, stats, voice, energy, copy, favorites
 
     var id: String {
         switch self {
@@ -743,8 +744,6 @@ private enum NutritionDestination: Identifiable {
         case .goals: return "goals"
         case .goalEstimate: return "goal-estimate"
         case .cycle: return "cycle"
-        case .recipes: return "recipes"
-        case .recommendations: return "recommendations"
         case .protein: return "protein"
         case .stats: return "stats"
         case .voice: return "voice"
@@ -1109,8 +1108,6 @@ struct NativeNutritionDetail: View {
                     settingsLink("营养目标", icon: "target", destination: .goals).disabled(!ready)
                     settingsLink("碳循环设置", icon: "calendar", destination: .cycle).disabled(!ready)
                     settingsLink("计入运动消耗", icon: "flame", destination: .energy).disabled(!ready)
-                    settingsLink("智能食谱", icon: "book", destination: .recipes).disabled(!ready)
-                    settingsLink("食物推荐", icon: "fork.knife", destination: .recommendations).disabled(!ready)
                 }
                 Section("记录方式") {
                     settingsLink("语音", icon: "mic", destination: .voice)
@@ -1125,12 +1122,17 @@ struct NativeNutritionDetail: View {
                         .disabled(!ready || rows.isEmpty)
                 }
             }
-        case .goals, .goalEstimate, .cycle, .energy:
-            NativeNutritionPlanning(api: api, owner: owner, day: day, payload: payload, logs: logs ?? [],
-                                    plannedWorkouts: plannedWorkouts, destination: item, onBodyProfileSaved: onBodyProfileSaved)
-        case .recipes, .recommendations, .voice:
-            NativeNutritionIdeas(api: api, owner: owner, day: day, mealNow: mealNow,
-                                 payload: payload, logs: logs ?? [], destination: item) { food, meal, grams in
+        case .goals, .goalEstimate:
+            NativeNutritionGoalEstimator(api: api, owner: owner, savedTargets: payload.rows.first { $0.kind == "targets" },
+                                         logs: logs ?? [], plannedWorkouts: plannedWorkouts, onBodyProfileSaved: onBodyProfileSaved)
+        case .cycle:
+            NativeNutritionCarbCycleSettings(api: api, owner: owner, date: date, payload: payload) {
+                openAfterDismiss(.goals)
+            }
+        case .energy:
+            NativeNutritionExerciseEnergy(api: api, owner: owner, day: day, payload: payload, logs: logs ?? [])
+        case .voice:
+            NativeNutritionVoice(mealNow: mealNow, payload: payload) { food, meal, grams in
                 openAfterDismiss(.entry(meal, nil, food, grams))
             }
         case .protein:
@@ -2193,7 +2195,7 @@ func nutritionValue(_ text: String) -> Double? {
 }
 
 @MainActor
-private struct NativeNutritionSheet<Content: View>: View {
+struct NativeNutritionSheet<Content: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
     let title: String
@@ -2233,7 +2235,7 @@ struct NutritionDismissButton: View {
     }
 }
 
-private enum NutritionMetric: String, CaseIterable, Identifiable {
+enum NutritionMetric: String, CaseIterable, Identifiable {
     case calories, protein, carbs, fat, water
     var id: Self { self }
     var title: String {
@@ -2284,164 +2286,36 @@ struct NativeNutritionEstimatePreferences: Codable {
 }
 
 @MainActor
-private struct NativeNutritionPlanning: View {
+private struct NativeNutritionExerciseEnergy: View {
     @Environment(\.spotterInteractionMotion) private var motion
-    @Environment(\.spotterAccent) private var accent
     let api: NativeAPI
     let owner: String
     let day: String
-    let payload: NutritionPayload
-    let destination: NutritionDestination
     let logs: [NativeWorkoutEntry]
-    let plannedWorkouts: [NativeWorkoutEntry]?
-    let onBodyProfileSaved: @MainActor (NativeAnatomyVariant?) -> Void
-    static let carbKinds = ["低碳", "中碳", "高碳"]
-    static let weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
     @Environment(\.dismiss) private var dismiss
-    @State private var fields: [NutritionMetric: String]
-    @State private var carbDays: [String]
-    @State private var carbGrams: [String: String]
     @State private var exerciseEnergy: [String: String]
-    @State private var goalChoice: NativeNutritionGoalChoice
-    @State private var showsGoalEstimator = false
-    @State private var appliedEstimate = false
     @State private var busy = false
     @State private var error: String?
 
-    init(api: NativeAPI, owner: String, day: String, payload: NutritionPayload, logs: [NativeWorkoutEntry],
-         plannedWorkouts: [NativeWorkoutEntry]?, destination: NutritionDestination,
-         onBodyProfileSaved: @escaping @MainActor (NativeAnatomyVariant?) -> Void) {
+    init(api: NativeAPI, owner: String, day: String, payload: NutritionPayload, logs: [NativeWorkoutEntry]) {
         self.api = api
         self.owner = owner
         self.day = day
-        self.payload = payload
-        self.destination = destination
         self.logs = logs.filter { $0.day == day && $0.owner == owner }
-        self.plannedWorkouts = plannedWorkouts
-        self.onBodyProfileSaved = onBodyProfileSaved
-        _showsGoalEstimator = State(initialValue: destination.id == "goal-estimate")
-        let base = payload.rows.first { $0.kind == "targets" }?.values ?? .init()
-        let saved = payload.rows.first { $0.kind == "nutrition-plan" }?.carbCycle
-        _fields = State(initialValue: Dictionary(uniqueKeysWithValues: NutritionMetric.allCases.map { ($0, nutritionInput($0[base])) }))
-        _carbDays = State(initialValue: saved?.days.count == 7 ? saved?.days ?? [] : Array(repeating: "中碳", count: 7))
-        let defaults = ["低碳": (base.carbs * 0.8).rounded(), "中碳": base.carbs.rounded(), "高碳": (base.carbs * 1.2).rounded()]
-        _carbGrams = State(initialValue: (saved?.grams ?? defaults).mapValues(nutritionInput))
         let workouts = payload.rows.first { $0.kind == "nutrition-energy" && $0.id == day }?.workouts ?? []
         _exerciseEnergy = State(initialValue: workouts.reduce(into: [:]) { $0[$1.id] = nutritionInput($1.calories) })
-        let savedTargets = payload.rows.first(where: { $0.kind == "targets" })
-        let trained = logs.filter { $0.owner == owner }.map(\.day)
-        let estimatePreferences = NativeNutritionEstimatePreferences.read(api: api, owner: owner)
-        _goalChoice = State(initialValue: NativeNutritionGoalChoice(
-            preference: savedTargets?.preference,
-            loggedTrainingDays: NativeNutritionGoalInput.weeklyTrainingDays(trained, today: spotterDay()),
-            activitySource: estimatePreferences?.source ?? .manual,
-            manualActivity: estimatePreferences?.manualActivity.flatMap(NativeNutritionActivity.init(rawValue:))))
-    }
-
-    private var title: String {
-        switch destination {
-        case .cycle: return "碳循环设置"
-        case .energy: return "计入运动消耗"
-        default: return "营养目标"
-        }
     }
 
     var body: some View {
-        NativeNutritionSheet(title: title, busy: busy) {
-            switch destination {
-            case .cycle: cycleContent
-            case .energy: energyContent
-            default: goalsContent
-            }
+        NativeNutritionSheet(title: "计入运动消耗", busy: busy) {
+            energyContent
             if let error { Text(error).font(.footnote).foregroundStyle(.red).transition(.opacity) }
             Button(busy ? "保存中…" : "保存") { Task { await save() } }
                 .foregroundStyle(SpotterPalette.accent)
-                .disabled(busy || (destination.id == "energy" && logs.isEmpty))
+                .disabled(busy || logs.isEmpty)
         }
         .animation(motion, value: error != nil)
-        .sheet(isPresented: $showsGoalEstimator) {
-            NativeNutritionGoalEstimator(
-                api: api, owner: owner, choice: $goalChoice,
-                targetWeightKg: payload.rows.first(where: { $0.kind == "targets" })?.targetWeightKg,
-                plannedWorkouts: plannedWorkouts,
-                onBodyProfileSaved: onBodyProfileSaved
-            ) { estimate in
-                fields[.calories] = nutritionInput(estimate.calories)
-                fields[.protein] = nutritionInput(estimate.protein)
-                fields[.carbs] = nutritionInput(estimate.carbs)
-                fields[.fat] = nutritionInput(estimate.fat)
-                appliedEstimate = true
-                error = nil
-            }
-        }
-    }
-
-    @ViewBuilder private var goalsContent: some View {
-        Section {
-            Button { showsGoalEstimator = true } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "chart.bar.xaxis")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(accent.tint)
-                        .frame(width: 42, height: 42)
-                        .background(accent.selection, in: RoundedRectangle(cornerRadius: 13))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("按身体数据计算").font(.headline).foregroundStyle(SpotterPalette.ink)
-                        Text(appliedEstimate ? "已填入，可调整后保存" : "估算每日热量和三大营养素")
-                            .font(.footnote).foregroundStyle(SpotterPalette.muted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(SpotterPalette.muted)
-                        .accessibilityHidden(true)
-                }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-            }
-            .disabled(busy)
-            .accessibilityIdentifier("nutrition-goals-open-estimator")
-            .listRowBackground(SpotterPalette.card)
-        }
-        Section("每日营养目标") {
-            ForEach(NutritionMetric.allCases) { metric in
-                LabeledContent(metric.title) {
-                    HStack(spacing: 6) {
-                        TextField("0", text: Binding(get: { fields[metric, default: ""] }, set: { fields[metric] = $0 }))
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .monospacedDigit()
-                            .foregroundStyle(SpotterPalette.ink)
-                            .accessibilityLabel("\(metric.title)，单位\(metric.unit)")
-                            .accessibilityIdentifier("nutrition-goal-field-\(metric.rawValue)")
-                        Text(metric.unit).font(.subheadline).foregroundStyle(SpotterPalette.muted)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .listRowBackground(SpotterPalette.card)
-            }
-        }
-    }
-
-    @ViewBuilder private var cycleContent: some View {
-        Section("每日碳水") {
-            ForEach(Self.carbKinds, id: \.self) { label in
-                TextField("\(label)（g）", text: Binding(get: { carbGrams[label, default: ""] }, set: { carbGrams[label] = $0 }))
-                    .keyboardType(.decimalPad)
-            }
-        }
-        Section("每周安排") {
-            ForEach(Self.weekdays.indices, id: \.self) { index in
-                SpotterMenuPicker(Self.weekdays[index], selection: $carbDays[index], options: Self.carbKinds.map { ($0, $0) })
-            }
-        }
-        if payload.rows.contains(where: { $0.kind == "nutrition-plan" && $0.carbCycle != nil }) {
-            Button("停用碳循环", role: .destructive) { Task { await save(removeCycle: true) } }
-                .foregroundStyle(.red).disabled(busy)
-        }
     }
 
     private var energyContent: some View {
@@ -2460,19 +2334,6 @@ private struct NativeNutritionPlanning: View {
         }
     }
 
-    private func planningRecord(removeCycle: Bool) -> [String: Any]? {
-        var record: [String: Any] = ["kind": "nutrition-plan"]
-        if let stages = payload.rows.first(where: { $0.kind == "nutrition-plan" })?.cut {
-            record["cut"] = stages.map { ["date": $0.date, "calories": $0.calories] }
-        }
-        if !removeCycle {
-            let grams = Self.carbKinds.compactMap { key in carbGrams[key].flatMap(nutritionValue) }
-            guard grams.count == 3, grams.allSatisfy({ (0...1500).contains($0) }), grams[0] <= grams[1], grams[1] <= grams[2] else { return nil }
-            record["carbCycle"] = ["days": carbDays, "grams": Dictionary(uniqueKeysWithValues: zip(Self.carbKinds, grams))]
-        }
-        return record
-    }
-
     private func energyRecord() -> [String: Any]? {
         let chosen = logs.compactMap { log in exerciseEnergy[log.id].map { (log.id, $0) } }
         let workouts = chosen.compactMap { id, text -> [String: Any]? in
@@ -2483,53 +2344,17 @@ private struct NativeNutritionPlanning: View {
         return ["kind": "nutrition-energy", "id": day, "workouts": workouts]
     }
 
-    private func targetRecord() -> [String: Any]? {
-        let chosen = NutritionMetric.allCases.compactMap { metric -> (String, Double)? in
-            guard let value = fields[metric].flatMap(nutritionValue), (0...20000).contains(value) else { return nil }
-            return (metric.rawValue, value)
-        }
-        guard chosen.count == NutritionMetric.allCases.count else { return nil }
-        var record: [String: Any] = ["kind": "targets", "values": Dictionary(uniqueKeysWithValues: chosen)]
-        let previous = payload.rows.first { $0.kind == "targets" }
-        var preference: [String: Any] = [:]
-        if let saved = previous?.preference, let data = try? JSONEncoder().encode(saved),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            preference = object
-        }
-        preference = goalChoice.merged(into: preference)
-        if !preference.isEmpty { record["preference"] = preference }
-        if let weight = previous?.targetWeightKg { record["targetWeightKg"] = weight }
-        return record
-    }
-
-    private func save(removeCycle: Bool = false) async {
+    private func save() async {
         guard !busy else { return }
-        let record: [String: Any]?
-        switch destination {
-        case .cycle:
-            record = planningRecord(removeCycle: removeCycle)
-            if record == nil { error = "请填写 0–1500 克碳水，低碳、中碳和高碳依次递增。" }
-        case .energy:
-            record = energyRecord()
-            if record == nil { error = "请为所选训练填写 1–5000 千卡。" }
-        default:
-            guard !goalChoice.isIncomplete else {
-                error = "请填完整营养规划条件后再保存。"
-                return
-            }
-            record = targetRecord()
-            if record == nil { error = "请填写 0–20000 范围内的目标值。" }
+        guard let record = energyRecord() else {
+            error = "请为所选训练填写 1–5000 千卡。"
+            return
         }
-        guard let record else { return }
         busy = true
         error = nil
         defer { busy = false }
         do {
             try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner, "data": record])
-            if appliedEstimate {
-                NativeNutritionEstimatePreferences(source: goalChoice.activitySource, manualActivity: goalChoice.manualActivity?.rawValue)
-                    .save(api: api, owner: owner)
-            }
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             dismiss()
         } catch { self.error = error.localizedDescription }
@@ -2785,12 +2610,6 @@ struct NativeNutritionFood: Identifiable, Equatable, Sendable {
             Self(calories: calories + rhs.calories, protein: protein + rhs.protein, carbs: carbs + rhs.carbs, fat: fat + rhs.fat)
         }
 
-        func fit(_ remaining: Self) -> Double {
-            let pairs = [(protein, remaining.protein), (carbs, remaining.carbs), (fat, remaining.fat)]
-            let covered = pairs.reduce(0) { $0 + ($1.1 > 0 ? min(1, $1.0 / $1.1) : 0) }
-            let overBudget = remaining.calories > 0 ? max(0, calories / remaining.calories - 1) : 0
-            return covered - overBudget
-        }
     }
 
     let id: String
@@ -2834,62 +2653,20 @@ struct NativeNutritionFood: Identifiable, Equatable, Sendable {
     }
 }
 
-private struct NativeNutritionRecipe: Identifiable {
-    struct Ingredient {
-        let food: NativeNutritionFood
-        let grams: Double
-    }
-    var id: String { name }
-    let name: String
-    let method: String
-    let ingredients: [Ingredient]
-    let facts: NativeNutritionFood.Facts
-
-    init(_ name: String, _ method: String, _ amounts: [(Int, Double)]) {
-        self.name = name
-        self.method = method
-        ingredients = amounts.compactMap { code, grams in
-            NativeNutritionFood.builtIn.first { $0.id == "fdc-\(code)" }.map { Ingredient(food: $0, grams: grams) }
-        }
-        facts = ingredients.reduce(.init(calories: 0, protein: 0, carbs: 0, fat: 0)) { $0.adding($1.food.facts.scaled($1.grams)) }
-    }
-}
-
 @MainActor
-private struct NativeNutritionIdeas: View {
+private struct NativeNutritionVoice: View {
     @Environment(\.spotterInteractionMotion) private var motion
-    let api: NativeAPI
-    let owner: String
-    let day: String
     let payload: NutritionPayload
-    let logs: [NativeWorkoutEntry]
-    let destination: NutritionDestination
     let openFood: (NativeNutritionFood, NutritionShortcut, Double?) -> Void
 
-    @Environment(\.dismiss) private var dismiss
     @State private var meal: NutritionShortcut
-    @State private var writing = false
-    @State private var error: String?
-    @State private var ids: [String: [String]] = [:]
     @StateObject private var voice = NativeNutritionSpeech()
 
-    init(api: NativeAPI, owner: String, day: String, mealNow: NutritionShortcut, payload: NutritionPayload, logs: [NativeWorkoutEntry],
-         destination: NutritionDestination, openFood: @escaping (NativeNutritionFood, NutritionShortcut, Double?) -> Void) {
-        self.api = api
-        self.owner = owner
-        self.day = day
+    init(mealNow: NutritionShortcut, payload: NutritionPayload,
+         openFood: @escaping (NativeNutritionFood, NutritionShortcut, Double?) -> Void) {
         self.payload = payload
-        self.logs = logs
-        self.destination = destination
         self.openFood = openFood
         _meal = State(initialValue: mealNow)
-    }
-
-    private var remaining: NativeNutritionFood.Facts {
-        let target = payload.targets(on: day, countingWorkoutIDs: Set(logs.filter { $0.day == day && $0.owner == owner }.map(\.id)))
-        let consumed = payload.totals(on: day)
-        return .init(calories: max(0, target.calories - consumed.calories), protein: max(0, target.protein - consumed.protein),
-                     carbs: max(0, target.carbs - consumed.carbs), fat: max(0, target.fat - consumed.fat))
     }
 
     private var personal: [NativeNutritionFood] {
@@ -2900,35 +2677,19 @@ private struct NativeNutritionIdeas: View {
     }
 
     private var suggestions: [NativeNutritionFood] {
-        if case .voice = destination {
-            guard !voice.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-            return Array((personal + NativeNutritionFood.builtIn).filter { $0.matches(voice.text) }.prefix(15))
-        }
-        let budget = remaining
-        return Array((personal + NativeNutritionFood.core).sorted { $0.facts.fit(budget) > $1.facts.fit(budget) }.prefix(8))
-    }
-
-    private var title: String {
-        switch destination {
-        case .recipes: return "智能食谱"
-        case .voice: return "语音记录饮食"
-        default: return "食物推荐"
-        }
+        guard !voice.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return Array((personal + NativeNutritionFood.builtIn).filter { $0.matches(voice.text) }.prefix(15))
     }
 
     var body: some View {
-        NativeNutritionSheet(title: title, busy: writing) {
+        NativeNutritionSheet(title: "语音记录饮食") {
             Section {
                 SpotterMenuPicker("记入餐次", selection: $meal,
                                   options: NutritionShortcut.allCases.filter(\.isMeal).map { ($0, $0.rawValue) })
-                    .disabled(writing)
             }
-            if case .voice = destination { voiceInput }
-            if let error { Text(error).foregroundStyle(.red).transition(.opacity) }
-            if case .recipes = destination { recipeList }
-            else { foodList }
+            voiceInput
+            foodList
         }
-        .animation(motion, value: error != nil)
         .onDisappear { voice.stop() }
     }
 
@@ -2967,7 +2728,7 @@ private struct NativeNutritionIdeas: View {
                     .contentShape(Rectangle())
                 }
             }
-            if case .voice = destination, !voice.text.isEmpty, suggestions.isEmpty {
+            if !voice.text.isEmpty, suggestions.isEmpty {
                 Text("没有找到匹配的食物，试试食物简称。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
@@ -2975,49 +2736,9 @@ private struct NativeNutritionIdeas: View {
     }
 
     private var spokenGrams: Double? {
-        guard case .voice = destination,
-              let range = voice.text.range(of: #"[0-9]+(?:\.[0-9]+)?\s*(?:克|g)"#, options: .regularExpression),
+        guard let range = voice.text.range(of: #"[0-9]+(?:\.[0-9]+)?\s*(?:克|g)"#, options: .regularExpression),
               let number = nutritionValue(String(voice.text[range].dropLast())), (0.1...3000).contains(number) else { return nil }
         return number
-    }
-
-    private var recipeList: some View {
-        let budget = remaining
-        let recipes = NativeNutritionRecipe.builtIn.sorted { $0.facts.fit(budget) > $1.facts.fit(budget) }
-        return ForEach(recipes) { recipe in
-            Section(recipe.name) {
-                Text(recipe.method)
-                Text(recipe.ingredients.map { "\($0.food.name) \(nutritionNumber($0.grams)) g" }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(recipe.facts.description).font(.caption).foregroundStyle(.secondary)
-                Button(writing ? "保存中…" : "记入\(meal.rawValue)") { Task { await save(recipe) } }
-                    .foregroundStyle(SpotterPalette.accent).disabled(writing)
-            }
-        }
-    }
-
-    private func save(_ recipe: NativeNutritionRecipe) async {
-        guard !writing else { return }
-        writing = true
-        error = nil
-        defer { writing = false }
-        let key = meal.rawValue + recipe.id
-        let recordIDs = ids[key] ?? recipe.ingredients.map { _ in UUID().uuidString.lowercased() }
-        ids[key] = recordIDs
-        let records: [[String: Any]] = zip(recipe.ingredients, recordIDs).map { ingredient, id in
-            var entry: [String: Any] = ["type": "meal", "meal": meal.rawValue, "name": ingredient.food.name, "foodId": ingredient.food.id, "grams": ingredient.grams]
-            entry.merge(ingredient.food.facts.scaled(ingredient.grams).payload) { _, amount in amount }
-            return ["kind": "nutrition", "id": id, "date": day, "entry": entry]
-        }
-        var query = URLComponents()
-        query.path = "/api/data"
-        query.queryItems = [URLQueryItem(name: "expectedOwner", value: owner)]
-        guard let path = query.string else { return }
-        do {
-            try await api.spotterSend(path, body: ["format": "spotter-backup", "version": 1, "training": [], "heart": [], "library": records])
-            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
-            dismiss()
-        } catch { self.error = error.localizedDescription }
     }
 }
 
@@ -3113,13 +2834,6 @@ extension NativeNutritionFood {
 
     static let builtInByID = Dictionary(builtIn.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-    /// The original everyday list. Recommendations rank only these, like the web nutrition tools.
-    static let core: [Self] = {
-        let ids = Set(fallback.map(\.id))
-        let loaded = builtIn.filter { ids.contains($0.id) }
-        return loaded.count == fallback.count ? loaded : fallback
-    }()
-
     // Same USDA FoodData Central entries used by the Spotter web nutrition tools.
     private static let fallback: [Self] = [
         .init(173904, "原味燕麦片（干）", ["燕麦", "燕麦片", "燕麥", "燕麥片", "干燕麦", "oats", "rolled oats", "dry oats", "oatmeal", "quick oats"], 379, 13.15, 67.7, 6.52),
@@ -3144,15 +2858,5 @@ extension NativeNutritionFood {
         .init(170567, "原味巴旦木", ["巴旦木", "扁桃仁", "杏仁", "almond", "almonds"], 579, 21.15, 21.55, 49.93),
         .init(170554, "奇亚籽", ["奇亞籽", "chia", "chia seeds"], 486, 16.54, 42.12, 30.74),
         .init(172475, "北豆腐（生）", ["北豆腐", "老豆腐", "硬豆腐", "豆腐", "tofu", "firm tofu"], 144, 17.27, 2.78, 8.72),
-    ]
-}
-
-private extension NativeNutritionRecipe {
-    static let builtIn: [Self] = [
-        .init("蓝莓燕麦酸奶碗", "用水煮熟燕麦，放温后拌入酸奶，铺上蓝莓。", [(173904, 45), (170894, 170), (171711, 80)]),
-        .init("鸡蛋牛油果全麦吐司", "烤脆吐司，将牛油果压泥抹上，铺水煮蛋片。", [(173424, 100), (171705, 45), (172688, 70)]),
-        .init("豆腐红薯饭碗", "豆腐切块加热至熟透，红薯切片，和热米饭一起装碗。", [(172475, 130), (168484, 120), (169757, 100)]),
-        .init("草莓香蕉酸奶杯", "水果洗净切块，和原味酸奶交替装杯。", [(167762, 80), (173944, 85), (170894, 160)]),
-        .init("豆浆花生燕麦粥", "燕麦加豆浆小火煮稠，关火后拌入花生酱。", [(173904, 45), (175215, 240), (172470, 12)]),
     ]
 }

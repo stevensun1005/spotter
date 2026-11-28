@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { CalendarDays, ClipboardList, Download, HeartPulse, LifeBuoy, Package, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
+import { CalendarDays, ClipboardList, Download, HeartPulse, LifeBuoy, LogOut, Package, RefreshCw, ShieldCheck, UserRound, Users, Watch } from "lucide-react";
 import { DeleteAccount } from "@/features/auth/delete-account";
 import { signInPath, signOutEndpoint } from "@/features/auth/paths";
 import { OAuthControls } from "@/features/auth/oauth-controls";
@@ -34,12 +34,21 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
         <p className="muted">绑定后，Apple 和 Google 都会打开这个训练搭子账号。</p>
         <OAuthControls key={owner} mode="link" owner={owner} notice={authNotice} />
       </section>}
-      <SettingsRows title="账户与同步">
-        {owner && <SettingsLink label="性别" detail={sex === "female" ? "女" : sex === "male" ? "男" : "未填写"} icon={UserRound} onClick={body} />}
-        {owner && <SettingsLink label="立即同步" detail={cloud} icon={RefreshCw} onClick={sync} />}
+      {owner && <SettingsRows title="账户与同步">
+        <SettingsLink label="身体档案" detail={`体重、围度、体脂 · 性别${sex === "female" ? "女" : sex === "male" ? "男" : "未填写"}`} icon={UserRound} onClick={body} />
+        <SettingsLink label="立即同步" detail={cloud} icon={RefreshCw} onClick={sync} />
+      </SettingsRows>}
+      <SettingsRows>
+        <SettingsLink label="搭子空间" icon={Users} onClick={pair} />
+        <SettingsLink label="教练与学员" icon={Users} onClick={coaching} />
+        <a className="settings-row" href="/open-gym/NOTICE.txt">
+          <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span><strong>第三方许可声明</strong>
+        </a>
+      </SettingsRows>
+      <SettingsRows>
         {owner ? <form method="post" action={signOutEndpoint}>
           <button type="submit" className="settings-row">
-            <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span>
+            <span className="settings-icon" data-tone="slate"><LogOut size={18} aria-hidden="true" /></span>
             <strong>退出当前账号</strong>
           </button>
         </form> : <a className="settings-row" href={signInPath()}>
@@ -47,15 +56,12 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
           <strong>登录训练搭子</strong>
         </a>}
       </SettingsRows>
-      <SettingsRows title="关系与隐私">
-        <SettingsLink label="搭子空间" icon={Users} onClick={pair} />
+    </>;
+    case "privacy": return <>
+      <SettingsRows>
         {sharing && <SettingsLink label="好友分享设置" detail="调整好友和搭子可见的数据" icon={ShieldCheck} onClick={sharing} />}
-        <SettingsLink label="教练与学员" icon={Users} onClick={coaching} />
         <a className="settings-row" href="/privacy">
           <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span><strong>隐私政策</strong>
-        </a>
-        <a className="settings-row" href="/open-gym/NOTICE.txt">
-          <span className="settings-icon" data-tone="slate"><ShieldCheck size={18} aria-hidden="true" /></span><strong>第三方许可声明</strong>
         </a>
       </SettingsRows>
       {owner && <SettingsRows><DeleteAccount key={owner} owner={owner} onDeleted={accountDeleted} /></SettingsRows>}
@@ -126,16 +132,6 @@ export function SettingsContent({ page, open, owner, name, onNicknameSaved, clou
           <p>训练记录可导入 WHOOP CSV 或 ZIP。站点配置授权后，可同步该次活动的已有心率统计。</p></div></div>
       </SettingsRows>
       {owner && !latestWorkout && <p className="settings-footnote">完成第一笔训练后，就可以从训练详情添加那一段的心率。</p>}
-    </>;
-    case "integrations": return <>
-      <SettingsRows title="健康与设备">
-        <SettingsLink label="手表与健康" onClick={() => open("watches")} icon={HeartPulse} />
-        <SettingsLink label="身体数据" detail="体重、围度和体脂记录" onClick={body} icon={ClipboardList} />
-      </SettingsRows>
-      <SettingsRows title="数据和 AI">
-        <SettingsLink label="Agent 连接与 API" onClick={() => open("ai")} icon={ShieldCheck} />
-        <SettingsLink label="导入与备份" onClick={() => open("data")} icon={Download} />
-      </SettingsRows>
     </>;
     case "data": return data;
     case "ai": return <div className="feature-stack">{owner && <CoachMessageUsage key={owner} />}{agent}<AISharingSettings key={owner} owner={owner} /></div>;

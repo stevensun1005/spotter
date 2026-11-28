@@ -35,7 +35,7 @@ export function CoachingConnectDialog({ mode: initialMode, close, joined }: { mo
       {mode === "invite" ? <section className="feature-stack">
         <h3><UserRoundPlus size={19} /> 邀请一位学员</h3>
         <p>生成一次性邀请码，交给学员。学员登录训练搭子后，先核对你的身份与分享范围，再确认连接。</p>
-        <p className="muted">对方仍需要当前私密 Sites 的访问权限。此处建立应用内关系，不会自动开通网站访问。</p>
+        <p className="muted">对方登录自己的 Spotter 账号后，可以核对教练信息并接受邀请。</p>
         {invite ? <div className="coach-invite-box feature-stack">
           <label>学员邀请码<input type={revealed ? "text" : "password"} readOnly value={invite.code} autoComplete="off" spellCheck={false} onFocus={(event) => event.target.select()} /></label>
           <p className="muted">有效至 {new Date(invite.expiresAt).toLocaleString("zh-CN")}，使用一次后失效。关闭窗口后不再显示原码；重新生成会停用之前的码。</p>

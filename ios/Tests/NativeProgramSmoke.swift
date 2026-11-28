@@ -64,6 +64,6 @@ struct NativeProgramSmoke {
         precondition(imported.sessions.map { $0.plan["date"] } == program.sessions.map { $0.plan["date"] })
         let validLeap = NativeTrainingProgram.date("2028-02-29")
         precondition(validLeap != nil && NativeTrainingProgram.date("2027-02-29") == nil)
-        print("PASS native program draft, stable copy IDs, weekly progression, protected load rules, and Sites JSON")
+        print("PASS native program draft, stable copy IDs, weekly progression, protected load rules, and Cloudflare JSON")
     }
 }

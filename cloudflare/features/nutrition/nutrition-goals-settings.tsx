@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useRef, useState, type FormEvent } from "react";
-import { ArrowRight, Calculator, Check, ChevronDown, Flame, Pencil, Plus, Repeat2, Scale, Trash2, TrendingDown } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, Calculator, Check, Flame, Pencil, Plus, Repeat2, Scale, Trash2, TrendingDown } from "lucide-react";
 import { readBodyInputs } from "@/features/body/profile";
 import { useLibrary } from "@/features/library/use-library";
 import { emptyNutrition, nutritionValues, type LibraryItem, type LibraryRow, type NutritionValues } from "@/features/library/model";
@@ -90,34 +90,32 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
       minKg: saved?.weightRange?.minKg?.toString() ?? "", maxKg: saved?.weightRange?.maxKg?.toString() ?? "", reviewActivity,
     };
   });
-  const [showEstimator, setShowEstimator] = useState(false);
-  const estimatorId = useId();
+  const [manual, setManual] = useState(false);
+  const form = useRef<HTMLFormElement>(null);
   const dailyTargetsHeading = useRef<HTMLHeadingElement>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; warning?: boolean }>();
   const macroSizes = [values.protein * 4, values.carbs * 4, values.fat * 9];
   const totalMacro = macroSizes.reduce((sum, amount) => sum + amount, 0);
 
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    const { goal, activity, pace, minKg, maxKg } = draft;
-    if (busy || !enabled || !readyToEdit) return;
-    const saved = targets?.preference;
-    // An activity level from the earlier estimator stays saved as it is while nothing in the estimator was changed.
-    const keepSaved = draft.reviewActivity && !activity && saved && goal === saved.goal && draft.trainingDays === undefined
-      && pace === (saved.pace ?? "standard") ? saved : undefined;
-    if ((!keepSaved && Boolean(goal) !== Boolean(activity)) || (goal === "recompose" && Boolean(minKg) !== Boolean(maxKg))) {
-      setShowEstimator(true);
-      setFeedback({ message: "请填完整营养规划条件后再保存。", warning: true });
-      return;
+  useEffect(() => {
+    if (manual) dailyTargetsHeading.current?.focus();
+  }, [manual]);
+
+  async function save(next: NutritionValues, estimated?: NutritionGoalDraft) {
+    if (busy || !enabled || !readyToEdit || form.current?.reportValidity() === false) return;
+    let preference = targets?.preference;
+    if (estimated?.goal && estimated.activity) {
+      const { goal, activity, pace, minKg, maxKg, trainingDays } = estimated;
+      const weightRange = goal === "recompose" && minKg && maxKg ? { minKg: Number(minKg), maxKg: Number(maxKg) } : undefined;
+      preference = { goal, activity, trainingDays, pace: goal === "lose" || goal === "gain" ? pace : undefined, weightRange };
     }
-    const weightRange = goal === "recompose" && minKg && maxKg ? { minKg: Number(minKg), maxKg: Number(maxKg) } : undefined;
     setBusy(true); setFeedback(undefined);
     try {
-      await onSaveTargets({ kind: "targets", values, targetWeightKg: targetWeight ? Number(targetWeight) : undefined,
-        preference: keepSaved ? { ...keepSaved, weightRange } : goal && activity ? { goal, activity, trainingDays: draft.trainingDays,
-          pace: goal === "lose" || goal === "gain" ? pace : undefined, weightRange } : undefined },
-        targets?.updated ?? null);
+      await onSaveTargets({ kind: "targets", values: next, targetWeightKg: targetWeight ? Number(targetWeight) : undefined,
+        preference }, targets?.updated ?? null);
+      setValues(next);
+      if (estimated) setDraft(estimated);
       setFeedback({ message: "已保存营养目标。" });
     } catch (reason) {
       setFeedback({ message: errorText(reason), warning: true });
@@ -125,7 +123,7 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
   }
 
   return <div className="feature-stack">
-    <form className="feature-stack" onSubmit={save}>
+    <form ref={form} className="feature-stack" onSubmit={(event) => { event.preventDefault(); if (manual) void save(values); }}>
       <fieldset className="feature-stack nutrition-settings-fieldset" disabled={busy || !readyToEdit}>
         <section className="nutrition-target-weight">
           <div><span className="muted">当前体重</span><button type="button" className="text-button" onClick={onWeight} aria-label="记录当前体重">
@@ -136,24 +134,16 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
           <label className="form-fields"><span className="muted">目标体重（kg）</span><input type="number" inputMode="decimal" step="any" min={10} max={700}
             placeholder="未设定" value={targetWeight} onChange={(event) => setTargetWeight(event.target.value)} /></label>
         </section>
-        <div className="nutrition-estimator-panel">
-          <button type="button" className="settings-row nutrition-estimate-toggle" aria-expanded={showEstimator} aria-controls={estimatorId}
-            onClick={() => setShowEstimator(!showEstimator)}>
-            <span className="settings-icon" data-tone="green"><Calculator size={18} aria-hidden="true" /></span>
-            <span><strong>按身体数据计算</strong><small>结合日常活动和训练估算每日营养目标</small></span>
-            <ChevronDown className="settings-arrow" size={17} aria-hidden="true" />
-          </button>
-          <div id={estimatorId} hidden={!showEstimator}>
-            {showEstimator && <NutritionGoalEstimator body={body} enabled={enabled} today={today} draft={draft} loggedTrainingDays={trainingDays} onChange={setDraft}
-              water={values.water} targetWeightKg={targetWeight ? Number(targetWeight) : undefined} onApply={(next) => {
-                setValues(next);
-                setFeedback({ message: "已填入每日目标，可调整后保存。" });
-                dailyTargetsHeading.current?.focus();
-              }} onBody={onBody} />}
+        {!manual ? <NutritionGoalEstimator body={body} enabled={enabled} today={today} draft={draft} loggedTrainingDays={trainingDays} onChange={setDraft}
+          water={targets?.values.water ?? 0} targetWeightKg={targetWeight ? Number(targetWeight) : undefined}
+          onSave={save} saving={busy} onBody={onBody}
+          onManual={() => { setManual(true); setFeedback(undefined); }} />
+        : <section className="feature-stack nutrition-daily-targets">
+          <div className="section-head"><h3 ref={dailyTargetsHeading} tabIndex={-1}>手动填写</h3>
+            <button type="button" className="text-button" onClick={() => { setManual(false); setFeedback(undefined); }}>
+              <Calculator size={17} aria-hidden="true" /> 按身体数据计算
+            </button>
           </div>
-        </div>
-        <section className="feature-stack nutrition-daily-targets">
-          <div className="section-head"><h3 ref={dailyTargetsHeading} tabIndex={-1}>每日营养目标</h3></div>
           <div className="form-fields">
             <label>每日热量（千卡）<input type="number" inputMode="decimal" min={0} max={20000} step="any" placeholder="未设定"
               value={values.calories || ""} onChange={(event) => setValues({ ...values, calories: Number(event.target.value) })} /></label>
@@ -165,9 +155,9 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
                 onChange={(event) => setValues({ ...values, [id]: Number(event.target.value) })} />
             </label>)}</div>
           </div>
-        </section>
+        </section>}
       </fieldset>
-      <button className="button primary nutrition-goal-save" disabled={!enabled || !readyToEdit || busy}><Check size={17} aria-hidden="true" />{busy ? "保存中…" : "保存目标"}</button>
+      {manual && <button className="button primary nutrition-goal-save" disabled={!enabled || !readyToEdit || busy}><Check size={17} aria-hidden="true" />{busy ? "保存中…" : "保存"}</button>}
       {feedback && <p className={feedback.warning ? "inline-error" : "muted"} role={feedback.warning ? "alert" : "status"}>{feedback.message}</p>}
       {!enabled && <p className="muted"><Scale size={16} aria-hidden="true" /> 登录后可保存个人目标。</p>}
       {enabled && !readyToEdit && <p className="muted" role="status">请读取云端目标后再编辑。</p>}
@@ -177,6 +167,6 @@ export function NutritionGoalsSettings({ owner, enabled, readyToEdit, today, tar
       <SettingsLink label="减脂规划" detail="安排阶段与每日目标" icon={TrendingDown} onClick={() => onPlanning("cut")} />
       <SettingsLink label="用热量来规划" detail="按热量拆分三大营养素" icon={Flame} onClick={() => onPlanning("calories")} />
     </SettingsRows>}
-    {readyToEdit && <TargetTemplates owner={owner} values={values} onApply={setValues} />}
+    {manual && readyToEdit && <TargetTemplates owner={owner} values={values} onApply={setValues} />}
   </div>;
 }

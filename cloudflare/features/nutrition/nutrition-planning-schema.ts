@@ -4,6 +4,7 @@ import { dateSchema } from "@/shared/dates";
 export const carbDays = ["低碳", "中碳", "高碳"] as const;
 export const carbCycleSchema = z.object({
   days: z.array(z.enum(carbDays)).length(7),
+  basis: z.literal("target").optional(),
   grams: z.object({ 低碳: z.number().min(0).max(1500), 中碳: z.number().min(0).max(1500), 高碳: z.number().min(0).max(1500) })
     .refine((grams) => grams.低碳 <= grams.中碳 && grams.中碳 <= grams.高碳),
 });
@@ -20,3 +21,4 @@ export const nutritionEnergyItem = z.object({
 export type NutritionPlanningItem = z.infer<typeof nutritionPlanningItem>;
 export type NutritionEnergyItem = z.infer<typeof nutritionEnergyItem>;
 export type CarbCycle = z.infer<typeof carbCycleSchema>;
+export type CarbDay = typeof carbDays[number];

@@ -50,7 +50,10 @@ struct NativeProductHelpSmoke {
         precondition(help.reply(to: "怎么更换头像？")?.contains("保存头像") == true)
         precondition(help.reply(to: "在哪里授权 Apple 健康？")?.contains("手表与健康") == true)
         precondition(help.reply(to: "训练搭子里的航班预订入口在哪里？")?.contains("暂时没有") == true)
-        precondition(help.reply(to: "营养目标在哪？")?.contains("填入营养目标") == true)
+        precondition(help.reply(to: "营养目标在哪？")?.contains("目标方向 → 手动填写") == true)
+        precondition(help.reply(to: "怎么删除账号？")?.contains("权限与隐私 → 删除账号") == true)
+        precondition(help.reply(to: "怎么退出登录？")?.contains("退出当前账号") == true)
+        precondition(help.reply(to: "怎么设置碳循环？")?.contains("固定克数") == true)
         precondition(help.reply(to: "维持热量在哪看？")?.contains("按身体数据计算") == true)
         // Questions about logged or watch calories keep their own answers and are not sent to the target estimator.
         precondition(help.reply(to: "午餐的热量计算在哪？")?.contains("按身体数据计算") != true)

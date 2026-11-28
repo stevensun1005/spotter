@@ -83,6 +83,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState("");
   const store = useLibrary(enabled, date);
+  const canEditPlanning = enabled && !store.loading && !store.error;
   const { preferences } = useNutritionPreferences(owner);
   const { rows: displayedRows, cached } = useNutritionCache(owner, date, enabled && preferences.cacheEnabled, store);
   const targetRecord = store.rows.find((row) => row.kind === "targets");
@@ -188,9 +189,7 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       </>} />
     </section>
     <div className="nutrition-links" aria-label="饮食规划">
-      <button className="button outline small" type="button" disabled={!enabled} onClick={() => openTool("carbCycle")}>碳循环设置</button>
-      <button className="button outline small" type="button" disabled={!enabled} onClick={() => openTool("recipes")}>智能食谱</button>
-      <button className="button outline small" type="button" disabled={!enabled} onClick={() => openTool("recommendations")}>食物推荐</button>
+      <button className="button outline small" type="button" disabled={!canEditPlanning} onClick={() => openTool("carbCycle")}>碳循环设置</button>
       <button className="button outline small" type="button" disabled={!enabled} onClick={() => setSheet({ kind: "protein" })}>
         <CupSoda size={16} aria-hidden="true" />记蛋白粉
       </button>
@@ -248,9 +247,9 @@ export function NutritionView({ enabled, today, owner = "", records = [], initia
       trainingDays={weeklyTrainingDays(records.flatMap((record) => record.kind === "log" && record.owner === owner ? [record.data.date] : []), today)}
       onSaveTargets={persist} onReload={refresh} onClose={close} onBody={onBody}
       onWeight={() => open("体重")} onDevices={onDevices}
-      onPlanning={openTool} />}
-    {sheet?.kind === "tool" && <NutritionTools tool={sheet.tool} date={date} owner={owner} rows={store.rows} totals={totals} logs={records}
-      save={persist} close={close} reload={() => void refresh()} openFood={(food, meal, grams) => open(meal, { food, grams })} />}
+      onPlanning={canEditPlanning ? openTool : undefined} />}
+    {sheet?.kind === "tool" && <NutritionTools tool={sheet.tool} date={date} owner={owner} rows={store.rows} logs={records}
+      save={persist} openGoals={() => openSettings("goals")} close={close} />}
     {sheet?.kind === "stats" && <NutritionStats date={date} close={close} />}
     {sheet?.kind === "voice" && <NutritionVoice close={close} initialMeal={mealForNow()} openSearch={(meal, query) => open(meal, { query })} />}
     {sheet?.kind === "protein" && <ProteinDrink products={proteinProducts} date={date} owner={owner}

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// What the person picked in the estimator. Saved with the targets as `preference`.
-struct NativeNutritionGoalChoice: Equatable {
+private struct NativeNutritionGoalChoice {
     var goal: NativeNutritionGoal?
     var activitySource: NativeNutritionActivitySource
     var manualActivity: NativeNutritionActivity? {
@@ -12,16 +12,12 @@ struct NativeNutritionGoalChoice: Equatable {
             if activitySource == .manual && trainingDays == nil { trainingDays = loggedTrainingDays }
         }
     }
-    /// nil until the person picks a number, picks an activity level or fills in an estimate. Until then recent workouts are counted.
+    /// nil until the person picks a number or an activity level. Until then recent workouts are counted.
     var trainingDays: Int?
     var pace = NativeNutritionPace.standard
     /// The saved activity level comes from the earlier estimator, where it also covered exercise, so it has to be picked again.
     private(set) var activityNeedsReview = false
     private let loggedTrainingDays: Int
-    private let savedGoal: NativeNutritionGoal?
-    private let savedPace: NativeNutritionPace
-    private var appliedActivity: NativeNutritionActivity?
-    private var appliedTrainingDays: Int?
 
     /// `loggedTrainingDays` is the weekly count from recent workouts, used until the person has their own number.
     init(preference: NativeJSON?, loggedTrainingDays: Int = 0, activitySource: NativeNutritionActivitySource = .manual,
@@ -31,9 +27,7 @@ struct NativeNutritionGoalChoice: Equatable {
         let activity = NativeNutritionActivity(rawValue: saved["activity"].string)
         self.goal = goal
         self.activitySource = activitySource
-        savedGoal = goal
         pace = NativeNutritionPace(rawValue: saved["pace"].string) ?? .standard
-        savedPace = pace
         self.loggedTrainingDays = min(7, max(0, loggedTrainingDays))
         let savedDays: Int?
         if case .number(let days) = saved["trainingDays"], let whole = Int(exactly: days), (0...7).contains(whole) {
@@ -43,8 +37,6 @@ struct NativeNutritionGoalChoice: Equatable {
         }
         if activitySource != .manual {
             self.manualActivity = manualActivity
-            appliedActivity = activity
-            appliedTrainingDays = savedDays
         } else if let savedDays {
             trainingDays = savedDays
             self.manualActivity = activity ?? manualActivity
@@ -60,39 +52,12 @@ struct NativeNutritionGoalChoice: Equatable {
     var effectiveTrainingDays: Int { trainingDays ?? loggedTrainingDays }
     var recentTrainingDays: Int { loggedTrainingDays }
 
-    mutating func apply(activity: NativeNutritionActivity, trainingDays: Int) {
-        if activitySource == .manual {
-            self.trainingDays = trainingDays
-        } else {
-            appliedActivity = activity
-            appliedTrainingDays = trainingDays
-        }
-    }
-
-    private var preferenceActivity: NativeNutritionActivity? {
-        activitySource == .manual ? manualActivity : appliedActivity
-    }
-
-    /// Nothing was changed on a preference from the earlier estimator, so it stays saved as it is.
-    private var keepsSaved: Bool {
-        activitySource == .manual && activityNeedsReview && manualActivity == nil && goal != nil
-            && goal == savedGoal && trainingDays == nil && pace == savedPace
-    }
-
-    /// Only one of goal and activity is chosen, so the choice cannot be saved.
-    var isIncomplete: Bool { !keepsSaved && (goal == nil) != (preferenceActivity == nil) }
-
-    /// Writes the choice into the saved preference and leaves the rest of it untouched.
-    /// With neither goal nor activity chosen the result is empty, which removes the saved preference.
-    func merged(into preference: [String: Any]) -> [String: Any] {
-        if keepsSaved { return preference }
-        guard let goal, let activity = preferenceActivity else {
-            return goal == nil && preferenceActivity == nil ? [:] : preference
-        }
+    func merged(into preference: [String: Any], input: NativeNutritionGoalInput) -> [String: Any] {
+        let goal = input.goal
         var next = preference
         next["goal"] = goal.rawValue
-        next["activity"] = activity.rawValue
-        next["trainingDays"] = activitySource == .manual ? effectiveTrainingDays : appliedTrainingDays ?? effectiveTrainingDays
+        next["activity"] = input.activity.rawValue
+        next["trainingDays"] = input.trainingDays
         if goal == .lose || goal == .gain {
             next["pace"] = pace.rawValue
         } else {
@@ -202,12 +167,12 @@ struct NativeNutritionGoalEstimator: View {
 
     private let api: NativeAPI
     private let owner: String
-    private let targetWeightKg: Double?
+    private let savedTargets: NutritionPayload.Row?
     private let plannedWorkouts: [NativeWorkoutEntry]?
-    private let onApply: (NativeNutritionGoalEstimate) -> Void
     private let onBodyProfileSaved: @MainActor (NativeAnatomyVariant?) -> Void
-    @Binding private var savedChoice: NativeNutritionGoalChoice
     @State private var choice: NativeNutritionGoalChoice
+    @State private var saving = false
+    @State private var saveError: String?
 
     @State private var showsBodyProfile = false
     @State private var bodyData: NativeNutritionGoalBody?
@@ -227,18 +192,21 @@ struct NativeNutritionGoalEstimator: View {
     @State private var healthAccessFailed = false
     @State private var healthRevision = 0
 
-    init(api: NativeAPI, owner: String, choice: Binding<NativeNutritionGoalChoice>, targetWeightKg: Double?,
+    init(api: NativeAPI, owner: String, savedTargets: NutritionPayload.Row?, logs: [NativeWorkoutEntry],
          plannedWorkouts: [NativeWorkoutEntry]? = nil,
-         onBodyProfileSaved: @escaping @MainActor (NativeAnatomyVariant?) -> Void,
-         onApply: @escaping (NativeNutritionGoalEstimate) -> Void) {
+         onBodyProfileSaved: @escaping @MainActor (NativeAnatomyVariant?) -> Void) {
         self.api = api
         self.owner = owner
-        self.targetWeightKg = targetWeightKg
+        self.savedTargets = savedTargets
         self.plannedWorkouts = plannedWorkouts
-        self.onApply = onApply
         self.onBodyProfileSaved = onBodyProfileSaved
-        _savedChoice = choice
-        _choice = State(initialValue: choice.wrappedValue)
+        let trained = logs.filter { $0.owner == owner }.map(\.day)
+        let preferences = NativeNutritionEstimatePreferences.read(api: api, owner: owner)
+        _choice = State(initialValue: NativeNutritionGoalChoice(
+            preference: savedTargets?.preference,
+            loggedTrainingDays: NativeNutritionGoalInput.weeklyTrainingDays(trained, today: spotterDay()),
+            activitySource: preferences?.source ?? .manual,
+            manualActivity: preferences?.manualActivity.flatMap(NativeNutritionActivity.init(rawValue:))))
         let healthPreferences = NativeHealthPreferences(origin: api.origin, owner: owner)
         _requestedHealthAccess = State(initialValue: healthPreferences.hasRequestedNativeAccess
             || UserDefaults.standard.bool(forKey: healthPreferences.key("nutritionActivityRequested")))
@@ -324,20 +292,26 @@ struct NativeNutritionGoalEstimator: View {
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity)
             }
+            .disabled(saving)
             .background(SpotterPalette.background.ignoresSafeArea())
-            .safeAreaInset(edge: .bottom, spacing: 0) { applyBar(resolved) }
-            .navigationTitle("按身体数据计算")
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let estimate = resolved.estimate, let input = resolved.input {
+                    saveBar(estimate, input: input)
+                }
+            }
+            .navigationTitle("营养目标")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(isPresented: $showsBodyProfile) {
                 NativeBodyData(api: api, owner: owner, returnsToNutritionEstimate: true, onProfileSaved: onBodyProfileSaved)
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { NutritionDismissButton { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { NutritionDismissButton { dismiss() }.disabled(saving) }
             }
         }
         .foregroundStyle(SpotterPalette.ink)
         .tint(accent.tint)
         .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(saving)
         .task(id: showsBodyProfile) {
             guard !showsBodyProfile else { return }
             await load(refreshBody: bodyData != nil || loadError != nil)
@@ -412,7 +386,22 @@ struct NativeNutritionGoalEstimator: View {
         VStack(alignment: .leading, spacing: 8) {
             heading("目标与活动", icon: "slider.horizontal.3")
                 .padding(.bottom, 2)
-            option("目标方向", selection: $choice.goal, options: goalOptions, id: "goal")
+            optionLink("目标方向", value: choice.goal?.title ?? "选择目标", id: "goal") {
+                NativeNutritionGoalOptions(title: "目标方向", detail: nil, selection: $choice.goal, options: goalOptions) {
+                    Section {
+                        NavigationLink {
+                            NativeManualNutritionGoalForm(values: savedTargets?.values ?? .init(), saving: saving) { values in
+                                await saveTargets(values)
+                            }
+                        } label: {
+                            Label("手动填写", systemImage: "square.and.pencil")
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("nutrition-goals-open-manual")
+                        .listRowBackground(SpotterPalette.card)
+                    }
+                }
+            }
             option("日常活动", selection: $choice.activitySource,
                    options: NativeNutritionActivitySource.allCases.map { ($0, $0.title) }, id: "activity-source")
             if usesHealth {
@@ -510,9 +499,14 @@ struct NativeNutritionGoalEstimator: View {
     private func option<Value: Hashable>(_ title: String, detail: String? = nil, selection: Binding<Value>,
                                          options: [(Value, String)], id: String) -> some View {
         let value = options.first { $0.0 == selection.wrappedValue }?.1 ?? "未选择"
-        return NavigationLink {
-            NativeNutritionGoalOptions(title: title, detail: detail, selection: selection, options: options)
-        } label: {
+        return optionLink(title, detail: detail, value: value, id: id) {
+            NativeNutritionGoalOptions(title: title, detail: detail, selection: selection, options: options) {}
+        }
+    }
+
+    private func optionLink<Destination: View>(_ title: String, detail: String? = nil, value: String, id: String,
+                                               @ViewBuilder destination: () -> Destination) -> some View {
+        NavigationLink(destination: destination()) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
                     optionTitle(title, detail: detail).fixedSize(horizontal: true, vertical: false)
@@ -738,33 +732,56 @@ struct NativeNutritionGoalEstimator: View {
         .accessibilityValue(amount)
     }
 
-    private func applyBar(_ resolved: Resolved) -> some View {
+    private func saveBar(_ estimate: NativeNutritionGoalEstimate, input: NativeNutritionGoalInput) -> some View {
         VStack(spacing: 6) {
+            if let saveError {
+                Text(saveError).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
+            }
             Button {
-                guard let estimate = resolved.estimate, let input = resolved.input else { return }
-                choice.apply(activity: input.activity, trainingDays: input.trainingDays)
-                savedChoice = choice
-                onApply(estimate)
-                dismiss()
+                let values = ["calories": estimate.calories, "protein": estimate.protein, "carbs": estimate.carbs,
+                              "fat": estimate.fat, "water": savedTargets?.values?.water ?? 0]
+                Task { saveError = await saveTargets(values, estimateInput: input) }
             } label: {
-                Label("填入营养目标", systemImage: "arrow.turn.down.left")
+                Label(saving ? "保存中…" : "保存", systemImage: "checkmark")
                     .padding(.vertical, 9)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.spotterPrimaryControl)
-            .disabled(resolved.estimate == nil)
-            .accessibilityIdentifier("nutrition-estimator-apply")
-            if resolved.estimate != nil {
-                Text("回到营养目标后，点保存生效。")
-                    .font(.caption).foregroundStyle(SpotterPalette.muted)
-                    .multilineTextAlignment(.center)
-            }
+            .disabled(saving)
+            .accessibilityIdentifier("nutrition-estimator-save")
         }
         .frame(maxWidth: 540)
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity)
         .background(SpotterPalette.background.shadow(.drop(color: SpotterPalette.deep.opacity(0.08), radius: 12, y: -5)))
+    }
+
+    private func saveTargets(_ values: [String: Double], estimateInput: NativeNutritionGoalInput? = nil) async -> String? {
+        guard !saving else { return nil }
+        var record: [String: Any] = ["kind": "targets", "values": values]
+        var preference: [String: Any] = [:]
+        if let saved = savedTargets?.preference, let data = try? JSONEncoder().encode(saved),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            preference = object
+        }
+        if let estimateInput { preference = choice.merged(into: preference, input: estimateInput) }
+        if !preference.isEmpty { record["preference"] = preference }
+        if let weight = savedTargets?.targetWeightKg { record["targetWeightKg"] = weight }
+        saving = true
+        defer { saving = false }
+        do {
+            try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner, "data": record])
+            if estimateInput != nil {
+                NativeNutritionEstimatePreferences(source: choice.activitySource, manualActivity: choice.manualActivity?.rawValue)
+                    .save(api: api, owner: owner)
+            }
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+            dismiss()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     private func amount(_ value: Double) -> String {
@@ -776,7 +793,7 @@ struct NativeNutritionGoalEstimator: View {
 
     /// When the target weight would be reached at the estimated weekly change. Empty when the estimate is moving away from it.
     private func arrival(_ estimate: NativeNutritionGoalEstimate, snapshot: NativeNutritionGoalBody.Snapshot?) -> String {
-        guard let targetWeightKg, let snapshot, estimate.weeklyChangeKg != 0 else { return "" }
+        guard let targetWeightKg = savedTargets?.targetWeightKg, let snapshot, estimate.weeklyChangeKg != 0 else { return "" }
         let weeks = ((targetWeightKg - snapshot.weightKg) / estimate.weeklyChangeKg).rounded(.up)
         guard weeks > 0, weeks < 1000 else { return "" }
         let meters = snapshot.heightCm / 100
@@ -961,13 +978,14 @@ struct NativeNutritionGoalEstimator: View {
 
 
 /// Keep the selection in the same navigation stack as the calculator.
-private struct NativeNutritionGoalOptions<Value: Hashable>: View {
+private struct NativeNutritionGoalOptions<Value: Hashable, Additional: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterAccent) private var accent
     let title: String
     let detail: String?
     @Binding var selection: Value
     let options: [(Value, String)]
+    @ViewBuilder let additional: () -> Additional
 
     var body: some View {
         List {
@@ -999,11 +1017,72 @@ private struct NativeNutritionGoalOptions<Value: Hashable>: View {
             } footer: {
                 if let detail { Text(detail).foregroundStyle(SpotterPalette.muted) }
             }
+            additional()
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(SpotterPalette.background.ignoresSafeArea())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+@MainActor
+private struct NativeManualNutritionGoalForm: View {
+    @Environment(\.spotterAccent) private var accent
+    @State private var fields: [NutritionMetric: String]
+    @State private var error: String?
+    let saving: Bool
+    let save: ([String: Double]) async -> String?
+
+    init(values: NutritionPayload.Values, saving: Bool, save: @escaping ([String: Double]) async -> String?) {
+        self.saving = saving
+        self.save = save
+        _fields = State(initialValue: Dictionary(uniqueKeysWithValues: NutritionMetric.allCases.map { ($0, nutritionInput($0[values])) }))
+    }
+
+    var body: some View {
+        Form {
+            Section("每日营养目标") {
+                ForEach(NutritionMetric.allCases) { metric in
+                    LabeledContent(metric.title) {
+                        HStack(spacing: 6) {
+                            TextField("0", text: Binding(get: { fields[metric, default: ""] }, set: { fields[metric] = $0 }))
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .monospacedDigit()
+                                .foregroundStyle(SpotterPalette.ink)
+                                .accessibilityLabel("\(metric.title)，单位\(metric.unit)")
+                                .accessibilityIdentifier("nutrition-goal-field-\(metric.rawValue)")
+                            Text(metric.unit).font(.subheadline).foregroundStyle(SpotterPalette.muted)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .listRowBackground(SpotterPalette.card)
+                }
+            }
+            if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+            Button(saving ? "保存中…" : "保存") {
+                let values = NutritionMetric.allCases.compactMap { metric -> (String, Double)? in
+                    guard let value = fields[metric].flatMap(nutritionValue), (0...20000).contains(value) else { return nil }
+                    return (metric.rawValue, value)
+                }
+                guard values.count == NutritionMetric.allCases.count else {
+                    error = "请填写 0–20000 范围内的目标值。"
+                    return
+                }
+                error = nil
+                Task { error = await save(Dictionary(uniqueKeysWithValues: values)) }
+            }
+            .buttonStyle(.spotterPress)
+            .foregroundStyle(accent.tint)
+            .accessibilityIdentifier("nutrition-manual-goal-save")
+        }
+        .disabled(saving)
+        .scrollContentBackground(.hidden)
+        .background(SpotterPalette.background.ignoresSafeArea())
+        .navigationTitle("手动填写")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(saving)
     }
 }

@@ -9,6 +9,17 @@ struct NativeNutritionGoalSmoke {
         func number(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
         func text(_ value: Any?) -> String { value as? String ?? "" }
 
+        let plan = Data("""
+          {"days":["高碳","低碳","中碳","中碳","高碳","低碳","中碳"],"grams":{"低碳":180,"中碳":230,"高碳":300}}
+          """.utf8)
+        let fixedCycle = try JSONDecoder().decode(NativeNutritionCarbCycle.self, from: plan)
+        expect(fixedCycle.effectiveGrams(weekday: 0, targetCarbs: 285) == 300, "Legacy cycle preserves saved grams")
+        let linkedCycle = NativeNutritionCarbCycle(days: fixedCycle.days, grams: fixedCycle.grams, basis: .target)
+        expect(linkedCycle.effectiveGrams(weekday: 0, targetCarbs: 285) == 342, "Linked cycle uses 120% of Monday's current target")
+        expect(linkedCycle.effectiveGrams(weekday: 1, targetCarbs: 300) == 240, "Linked cycle follows Tuesday's revised target")
+        expect(linkedCycle.effectiveGrams(weekday: 0, targetCarbs: 1_499) == 1_500, "Linked cycle respects the persisted gram range")
+        expect(linkedCycle.effectiveGrams(weekday: 7, targetCarbs: 300) == nil, "Unavailable weekday does not overwrite the target")
+
         let data = try Data(contentsOf: URL(fileURLWithPath: "cloudflare/tests/nutrition-goal-cases.json"))
         guard let cases = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             preconditionFailure("The cases file is a JSON object")

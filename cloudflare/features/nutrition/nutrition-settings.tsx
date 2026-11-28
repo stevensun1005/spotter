@@ -10,7 +10,7 @@ import { NutritionGoalsSettings, type NutritionPlanner, type SaveTargets, type T
 import { nutritionShortcuts, useNutritionPreferences } from "./nutrition-preferences";
 
 const pageTitles = {
-  menu: "饮食设置", goals: "营养素设置", copy: "复制过往记录", shortcuts: "首页快捷按钮",
+  menu: "饮食设置", goals: "营养目标", copy: "复制过往记录", shortcuts: "首页快捷按钮",
   order: "餐次顺序", health: "Apple 健康同步", cache: "本地数据缓存",
 } as const;
 type SettingsPage = keyof typeof pageTitles;
@@ -51,7 +51,7 @@ export function NutritionSettings({ owner, enabled, date, today, targets, traini
       {page === "menu" && <>
         <SettingsRows title="记录与目标">
           <SettingsLink label="复制过往记录" detail="选一天的饮食和饮水记录" icon={Copy} onClick={() => open("copy")} />
-          <SettingsLink label="营养素比例" detail="热量、宏量营养素、饮水和体重目标" icon={PieChart} onClick={() => open("goals")} />
+          <SettingsLink label="营养目标" detail="热量、宏量营养素、饮水和体重目标" icon={PieChart} onClick={() => open("goals")} />
         </SettingsRows>
         <SettingsRows title="显示与搜索">
           <SettingsLink label="首页快捷按钮" icon={Grid2X2} onClick={() => open("shortcuts")} />

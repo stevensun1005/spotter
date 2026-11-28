@@ -2338,13 +2338,13 @@ struct NativeSettings: View {
     private enum Page: String, CaseIterable, Identifiable {
         case account = "账号", workout = "训练偏好", protein = "蛋白粉仓库", timer = "计时提醒", schedule = "计划与日程", planImport = "粘贴已有内容", programs = "训练周期", reminders = "训练提醒"
         case units = "单位与统计", equipment = "器械", appearance = "外观与辅助功能", modules = "功能模块", data = "数据导入与导出"
-        case watches = "手表与健康", integrations = "集成", coach = "AI 教练", agent = "外部 Agent", about = "关于与更新"
-        case notifications = "通知"
+        case watches = "手表与健康", coach = "AI 教练", agent = "外部 Agent", about = "关于与更新"
+        case notifications = "通知", privacy = "权限与隐私"
         var id: Self { self }
 
         var detail: String {
             switch self {
-            case .account: return "头像、昵称、用户名、登录绑定和隐私"
+            case .account: return "头像、昵称、用户名、登录绑定和退出当前账号"
             case .workout: return "训练界面、经典列表与专注训练、默认组次"
             case .protein: return "常喝的蛋白粉、一勺粉量和杯量"
             case .timer: return "休息时间、提示声音和震动、保持屏幕常亮"
@@ -2353,13 +2353,13 @@ struct NativeSettings: View {
             case .programs: return "多周训练、周期草稿和排期"
             case .reminders: return "待训练计划、每日提醒时间"
             case .notifications: return "搭子提醒、好友打卡、iPhone 通知权限"
+            case .privacy: return "好友分享设置、隐私政策和删除账号"
             case .units: return "新动作的重量单位、动作名称、1RM 估算方式"
             case .equipment: return "健身房配置和可用器械"
             case .appearance: return "主题、强调色、文字大小和减少动画"
             case .modules: return "今日饮食、官方模板、好友和教练入口"
             case .data: return "导出训练资料、恢复 Spotter 备份"
             case .watches: return "Apple Watch 与 Apple 健康"
-            case .integrations: return "健康数据、AI 工具"
             case .coach: return "训练对话、计划草稿和数据授权"
             case .agent: return "个人 API 令牌、读取与写入权限、提示词"
             case .about: return "帮助、更新和版本"
@@ -2377,13 +2377,13 @@ struct NativeSettings: View {
             case .programs: return "calendar.badge.plus"
             case .reminders: return "bell"
             case .notifications: return "bell.badge"
+            case .privacy: return "lock.shield"
             case .units: return "ruler"
             case .equipment: return "slider.horizontal.3"
             case .appearance: return "textformat.size"
             case .modules: return "square.grid.2x2"
             case .data: return "externaldrive"
             case .watches: return "applewatch"
-            case .integrations: return "powerplug"
             case .coach: return "sparkles"
             case .agent: return "link"
             case .about: return "info.circle"
@@ -2393,7 +2393,7 @@ struct NativeSettings: View {
         var color: Color {
             switch self {
             case .protein: return secondaryTeal
-            case .integrations: return secondaryLilac
+            case .privacy: return secondaryLilac
             case .coach: return SpotterPalette.wash
             default: return secondarySlate
             }
@@ -2423,8 +2423,8 @@ struct NativeSettings: View {
                 if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     accountHeader
                     rows([.workout, .protein, .timer, .schedule, .reminders], title: "训练")
-                    rows([.notifications, .units, .equipment, .appearance, .modules], title: "首选项")
-                    rows([.watches, .integrations, .coach, .agent], title: "连接")
+                    rows([.notifications, .privacy, .units, .equipment, .appearance, .modules], title: "首选项")
+                    rows([.watches, .coach, .agent], title: "连接")
                     rows([.data], title: "数据")
                     rows([.about])
                 } else if matches.isEmpty {
@@ -2567,15 +2567,13 @@ struct NativeSettings: View {
                     case .programs: EmptyView()
                     case .reminders: NativeTrainingReminderSettings(owner: owner)
                     case .notifications: NativeSocialNotificationSettings(owner: owner)
+                    case .privacy: privacyContent
                     case .units: NativeUnitsPreferences(sync: trainingPreferences)
                     case .equipment: EmptyView()
                     case .appearance: NativeAppearancePreferences()
                     case .modules: NativeModulePreferences()
                     case .data: NativeBackupSettings(api: account.api, owner: owner, didImport: refreshPlans)
                     case .watches: NativeHealthSummary(api: account.api, owner: owner, workouts: workoutStore)
-                    case .integrations:
-                        rows([.watches], title: "健康与设备")
-                        rows([.coach, .agent], title: "数据和 AI")
                     case .coach: coachContent
                     case .agent: EmptyView()
                     case .about: aboutContent
@@ -2649,19 +2647,32 @@ struct NativeSettings: View {
                     SecondaryRow(title: "立即同步", detail: workoutStore?.status, icon: "arrow.clockwise", accessory: nil)
                 }.buttonStyle(.spotterPress).disabled(handleBusy || nicknameBusy || account.isBusy)
                 if let trainingPreferences { NativePreferenceSyncStatus(sync: trainingPreferences) }
-                Divider()
-                Button { Task { await account.signOut() } } label: {
-                    SecondaryRow(title: "退出当前账号", icon: "rectangle.portrait.and.arrow.right", accessory: nil)
-                }.buttonStyle(.spotterPress).disabled(account.isBusy)
             }
 
-            SecondaryGroup(title: "关系与隐私") {
+            SecondaryGroup {
                 NavigationLink {
                     NativeFriends(api: account.api, owner: owner, initialBuddySearch: true, refreshPlans: refreshPlans)
                         .toolbar(.visible, for: .navigationBar)
                 } label: { SecondaryRow(title: "搭子空间", detail: "通过用户名找训练搭子", icon: "person.2") }
                     .buttonStyle(.spotterPress)
-                Divider()
+                if let notices = URL(string: account.api.origin + "/open-gym/NOTICE.txt") {
+                    Divider()
+                    Link(destination: notices) { SecondaryRow(title: "第三方许可声明", icon: "doc.text") }.buttonStyle(.spotterPress)
+                }
+            }
+
+            SecondaryGroup {
+                Button { Task { await account.signOut() } } label: {
+                    SecondaryRow(title: "退出当前账号", icon: "rectangle.portrait.and.arrow.right", accessory: nil)
+                }.buttonStyle(.spotterPress).disabled(account.isBusy)
+            }
+        }
+        .sheet(isPresented: $showProfileEditor) { profileEditor }
+    }
+
+    private var privacyContent: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            SecondaryGroup {
                 NavigationLink {
                     NativeFriends(api: account.api, owner: owner, initialPage: .privacy, refreshPlans: refreshPlans)
                         .toolbar(.visible, for: .navigationBar)
@@ -2670,10 +2681,6 @@ struct NativeSettings: View {
                 if let privacy = URL(string: account.api.origin + "/privacy") {
                     Divider()
                     Link(destination: privacy) { SecondaryRow(title: "隐私政策", icon: "shield") }.buttonStyle(.spotterPress)
-                }
-                if let notices = URL(string: account.api.origin + "/open-gym/NOTICE.txt") {
-                    Divider()
-                    Link(destination: notices) { SecondaryRow(title: "第三方许可声明", icon: "doc.text") }.buttonStyle(.spotterPress)
                 }
             }
 
@@ -2685,7 +2692,6 @@ struct NativeSettings: View {
             }
             if let note { SecondaryNotice(message: note, warning: true) }
         }
-        .sheet(isPresented: $showProfileEditor) { profileEditor }
         .confirmationDialog("永久删除训练搭子账号？", isPresented: $showDelete, titleVisibility: .visible) {
             Button("删除账号和数据", role: .destructive) { Task { await deleteAccount() } }
             Button("取消", role: .cancel) {}

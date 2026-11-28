@@ -170,7 +170,7 @@ export function AgentAccessPanel({ enabled, profileRef, saved, active: pageActiv
             </div>
           </div>}
         </> : <p className="muted">登录后可以管理个人连接。</p>}
-        <details className="agent-help"><summary>MCP 与个人 API 的接入条件</summary><p>客户端需要支持自定义工具与相应授权。私密 Sites 的平台登录可能先于应用接口拦截请求，个人令牌不能绕过站点访问权限。</p><p>模型在你自己的 AI 中运行，不需要将模型 API key 交给 Spotter。</p></details>
+        <details className="agent-help"><summary>MCP 与个人 API 的接入条件</summary><p>客户端需要支持自定义工具，并用个人连接令牌访问你选择授权的数据。</p><p>模型在你自己的 AI 中运行，不需要将模型 API key 交给 Spotter。</p></details>
         {manualGuide && <label>Agent 接入说明<textarea readOnly rows={8} value={manualGuide} onFocus={(event) => event.target.select()} /></label>}
         {enabled && <section className="feature-stack">
           <div className="section-head"><h2>个人连接</h2><button className="button primary small" type="button" disabled={busy} onClick={() => { setCreate(true); setName(""); setDays(30); setSelectedScopes([...allScopes]); setDialogError(""); }}><Plus size={17} />新建连接</button></div>

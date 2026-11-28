@@ -19,11 +19,10 @@ function checkedWebRelease(plist) {
   const { SpotterWebRelease: release } = readPlist(plist);
   const url = new URL(release?.origin);
   const sha = /^[a-f0-9]{40}$/;
-  const sitesSnapshot = /^origin\/sites\/[a-zA-Z0-9._-]+$/.test(release.exportRef);
   const cloudflareSource = release.hosting === "cloudflare" && release.exportRef === "origin/codex/cloudflare-free" &&
       release.exportCommit === release.sourceCommit;
   if (url.protocol !== "https:" || url.origin !== release.origin || !Number.isSafeInteger(release.version) || release.version < 1 ||
-      !(sitesSnapshot || cloudflareSource) || !sha.test(release.sourceCommit) || !sha.test(release.exportCommit)) {
+      !cloudflareSource || !sha.test(release.sourceCommit) || !sha.test(release.exportCommit)) {
     throw new Error("请在 Info.plist 核对默认站点的已发布版本和源码快照。");
   }
   let remoteCommit;
@@ -82,7 +81,7 @@ try {
     sourceFreshness: after.freshness, platform: "iOS Simulator", signedForPhysicalDevice: false,
     webRelease,
     webDelivery: "Uses the verified Cloudflare HTTPS API. App views are implemented in SwiftUI.",
-    latestScope: "Includes only commits fetched into the declared baselines at packaging time. Other-computer unpublished work must be integrated after the user supplies it.",
+    latestScope: "Includes commits fetched into the app baselines at packaging time. Unpublished work from other checkouts is outside this build.",
   };
   await writeFile(join(root, "outputs", name + ".json"), JSON.stringify(manifest, null, 2) + "\n");
   console.log("已生成模拟器开发版：" + archive);

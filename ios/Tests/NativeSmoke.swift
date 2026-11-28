@@ -58,10 +58,6 @@ private final class RetryProtocol: URLProtocol, @unchecked Sendable {
 @main
 struct NativeSmoke {
     static func main() async throws {
-        if CommandLine.arguments.contains("--contract-fixture") {
-            try emitContractFixture()
-            return
-        }
         func expect(_ value: @autoclosure () -> Bool, _ message: String) {
             precondition(value(), message)
         }
@@ -156,46 +152,5 @@ struct NativeSmoke {
         } catch let error as URLError where error.code == .cancelled {
             precondition(RetryProtocol.attempts == 1, "Cancellation must not retry")
         }
-    }
-
-    // This mode exercises the app's actual Encodable payloads. It contains only generated test data.
-    // BridgeClient.Report is private; server tests validate the report route separately.
-    private static func emitContractFixture() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let day = calendar.date(byAdding: .day, value: -2, to: calendar.startOfDay(for: Date()))!
-        let from = epochMilliseconds(day)
-        let to = epochMilliseconds(calendar.date(byAdding: .day, value: 1, to: day)!)
-        let window = WorkoutWindow(id: UUID().uuidString.lowercased(),
-                                   from: from + 8 * 3_600_000, to: from + 9 * 3_600_000)
-        let points = (0...60).map { index in
-            HeartPoint(at: window.from + index * 60_000, bpm: index == 29 ? 163 : 110 + index % 23)
-        }
-        let heart = HeartPayload.reduce(points, within: window, sourceName: "Synthetic Watch",
-                                        sourceBundleId: "test.spotter.synthetic.watch")!
-        let weight = BodyMassRecord(id: UUID().uuidString, at: from + 6 * 3_600_000, value: 73.5,
-                                    sourceName: "Synthetic Scale", sourceId: "test.spotter.synthetic.scale")
-        let workout = SystemWorkoutRecord(id: UUID().uuidString, from: window.from, to: window.to,
-                                           activity: "Synthetic strength training", durationSeconds: 3_600,
-                                           activeEnergyKcal: 320, sourceName: "Synthetic Watch",
-                                           sourceId: "test.spotter.synthetic.watch")
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        let activity = ActivityRecord(date: formatter.string(from: day), from: from, to: to,
-                                      steps: 8_000, activeEnergyKcal: 520, exerciseMinutes: 60)
-        let records = HealthRecordsPayload(selected: ["bodyMass", "workouts", "steps", "activeEnergy", "exerciseTime"],
-                                           from: from, to: to, timeZone: "UTC", bodyMass: [weight],
-                                           workouts: [workout], activity: [activity])
-        let encoder = JSONEncoder()
-        let fixture: [String: Any] = [
-            "workout": ["id": window.id, "from": window.from, "to": window.to],
-            "heart": try JSONSerialization.jsonObject(with: encoder.encode(heart)),
-            "records": try JSONSerialization.jsonObject(with: encoder.encode(records)),
-        ]
-        let output = try JSONSerialization.data(withJSONObject: fixture, options: [.sortedKeys])
-        print(String(decoding: output, as: UTF8.self))
     }
 }

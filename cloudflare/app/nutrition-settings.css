@@ -26,13 +26,12 @@
 .nutrition-daily-targets h3 { scroll-margin-block-start: 72px; }
 .nutrition-settings-caption { padding: 0 13px 10px; }
 .nutrition-goal-save { justify-self: start; }
-.nutrition-estimator-panel { background: var(--card); border: 1px solid var(--stroke); border-radius: 15px; overflow: clip; }
-.nutrition-estimate-toggle svg.settings-arrow, .nutrition-estimate-card summary svg { transition: transform .18s ease; }
-.nutrition-estimate-toggle[aria-expanded="true"] svg.settings-arrow, .nutrition-estimate-card details[open] summary svg { transform: rotate(180deg); }
-.nutrition-goal-estimator { gap: 9px; padding: 9px; border-top: 1px solid var(--stroke); background: color-mix(in srgb, var(--canvas) 72%, var(--card)); }
+.nutrition-estimate-card summary svg { transition: transform .18s ease; }
+.nutrition-estimate-card details[open] summary svg { transform: rotate(180deg); }
+.nutrition-goal-estimator { gap: 9px; }
 .nutrition-estimate-card { display: grid; gap: 8px; min-width: 0; padding: 11px; border: 1px solid var(--stroke); border-radius: 12px; background: var(--card); }
 .nutrition-estimate-card h4 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: .9rem; font-weight: 760; }
-.nutrition-estimate-card > .button:not(.nutrition-estimate-apply) { justify-self: start; }
+.nutrition-estimate-card > .button:not(.nutrition-estimate-save) { justify-self: start; }
 .nutrition-estimate-card-header { display: flex; align-items: center; justify-content: space-between; gap: 5px 10px; flex-wrap: wrap; }
 .nutrition-estimate-card-header .text-button { min-height: 32px; }
 .nutrition-estimate-caption, .nutrition-estimate-notes { font-size: .81rem; line-height: 1.55; color: var(--muted); }
@@ -63,7 +62,7 @@
 .nutrition-estimate-macros [data-nutrient="protein"] { --macro: #bb723d; }
 .nutrition-estimate-macros [data-nutrient="fat"] { --macro: #b55a6f; }
 .nutrition-estimate-notes { display: grid; gap: 5px; margin: 0; padding: 8px 8px 8px 24px; border-radius: 8px; background: color-mix(in srgb, #bb723d 10%, var(--card)); }
-.nutrition-estimate-apply { width: 100%; }
+.nutrition-estimate-save { width: 100%; }
 .nutrition-settings-templates .text-button { min-height: 44px; }
 .nutrition-template-name { display: grid; gap: 4px; min-width: 0; padding-block: 6px; text-align: start; color: var(--text); }
 .nutrition-settings-templates button.settings-control { border-inline: 0; border-bottom: 0; background: var(--card); }
@@ -71,5 +70,5 @@
 @media (max-width: 360px) { .nutrition-target-weight { gap: 5px; } }
 @media (max-width: 500px) { .nutrition-estimate-fields:has(select) { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) {
-  .nutrition-estimate-toggle svg.settings-arrow, .nutrition-estimate-card summary svg { transition: none; }
+  .nutrition-estimate-card summary svg { transition: none; }
 }
