@@ -19,7 +19,8 @@ function checkedWebRelease(plist) {
   const { SpotterWebRelease: release } = readPlist(plist);
   const url = new URL(release?.origin);
   const sha = /^[a-f0-9]{40}$/;
-  const cloudflareSource = release.hosting === "cloudflare" && release.exportRef === "origin/codex/cloudflare-free" &&
+  const mainSource = release.exportRef === "origin/main";
+  const cloudflareSource = release.hosting === "cloudflare" && (mainSource || release.exportRef === "origin/codex/cloudflare-free") &&
       release.exportCommit === release.sourceCommit;
   if (url.protocol !== "https:" || url.origin !== release.origin || !Number.isSafeInteger(release.version) || release.version < 1 ||
       !cloudflareSource || !sha.test(release.sourceCommit) || !sha.test(release.exportCommit)) {
@@ -33,7 +34,15 @@ function checkedWebRelease(plist) {
   } catch {
     throw new Error("GitHub 上缺少已核对的站点源码快照分支。");
   }
-  if (remoteCommit !== release.exportCommit) throw new Error("站点源码快照已更新，请先核对发布版本和源码再打包。");
+  if (mainSource) {
+    const ancestry = spawnSync("git", ["merge-base", "--is-ancestor", release.exportCommit, remoteCommit], { cwd: root });
+    const tree = spawnSync("git", ["cat-file", "-t", `${release.exportCommit}:cloudflare`], { cwd: root, encoding: "utf8" });
+    if (ancestry.status !== 0 || tree.stdout?.trim() !== "tree") {
+      throw new Error("GitHub main 缺少已发布的 Cloudflare 源码快照。");
+    }
+  } else if (remoteCommit !== release.exportCommit) {
+    throw new Error("站点源码快照已更新，请先核对发布版本和源码再打包。");
+  }
   return release;
 }
 

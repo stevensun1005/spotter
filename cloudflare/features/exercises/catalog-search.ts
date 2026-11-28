@@ -32,7 +32,7 @@ export function filterRows<T extends Pick<CatalogEntry, "id" | "name" | "en" | "
   const score = new Map<string, number>();
   const scoped = rows.filter((row) => {
     if (part && row.part !== part) return false;
-    if (gear.length && row.equipment !== "body weight" && !gear.includes(row.equipment)) return false;
+    if (!equipment && gear.length && row.equipment && row.equipment !== "body weight" && !gear.includes(row.equipment)) return false;
     if (groups.length) {
       const contains = (terms: string[]) => terms.some((key) => row.muscles[key] > 0 || (row.target === "shins" && key === "tibialis"));
       if (!(any ? groups.some(contains) : groups.every(contains))) return false;
@@ -60,7 +60,8 @@ export function filterRows<T extends Pick<CatalogEntry, "id" | "name" | "en" | "
   const activeType = typeOptions.includes(type) ? type : "";
   const typed = activeType ? scoped.filter((row) => row.type === activeType) : scoped;
   const equipmentList = equipmentOptions(typed);
-  const activeEquipment = equipmentList.includes(equipment) ? equipment : "";
+  const activeEquipment = equipment && (equipmentList.includes(equipment) || rows.some((row) =>
+    row.equipment === equipment || row.needs?.includes(equipment))) ? equipment : "";
   const final = activeEquipment ? typed.filter((row) => row.equipment === activeEquipment || row.needs?.includes(activeEquipment)) : typed;
   return { rows: final, typeOptions, activeType, equipmentList, activeEquipment, score };
 }

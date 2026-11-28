@@ -376,6 +376,8 @@ struct NativeCoachView: View {
     @State private var ownNotice: String?
     @State private var showOwnImport = false
     @State private var showAgentAccess = false
+    @State private var showAgentInvitation = false
+    @State private var checkedAgentInvitation = false
     @State private var copiedReply: Int?
     @State private var startedWelcomeGuide = false
     @State private var proteinEditor: NativeProteinRecipeEditor?
@@ -437,6 +439,9 @@ struct NativeCoachView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if showAgentInvitation && mode == .coach && showsSuggestions && !session.busy {
+                agentInvitation
+            }
             if isNutritionPhoto {
                 nutritionPhotoReview
             } else {
@@ -471,6 +476,7 @@ struct NativeCoachView: View {
             }
             await refreshQuota(ifUnknown: true)
         }
+        .task(id: owner) { await offerAgentInvitation() }
         .task(id: session.quota?.blockedUntil) {
             guard let reset = session.quota?.blockedUntil else { return }
             do {
@@ -584,6 +590,43 @@ struct NativeCoachView: View {
         }
     }
 
+    private func offerAgentInvitation() async {
+        guard !checkedAgentInvitation, !isNutritionPhoto, initialTrainingGoal == nil, guide == nil else { return }
+        checkedAgentInvitation = true
+        guard await NativeAgentInvitation.shouldOffer(api: api, owner: owner),
+              mode == .coach, !showAgentAccess, !showGuide, !showPhotoPicker, !camera,
+              !session.busy, showsSuggestions else { return }
+        showAgentInvitation = true
+    }
+
+    private var agentInvitation: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label("用自己的 AI", systemImage: "link")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            Text("连接常用 AI，按你授权的范围分析记录、起草计划或记饮食。")
+                .font(.footnote).foregroundStyle(CoachColors.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                coachPrimary("连接自己的 AI") {
+                    showAgentInvitation = false
+                    showAgentAccess = true
+                }
+                Button {
+                    NativeAgentInvitation.resolve(api: api, owner: owner)
+                    showAgentInvitation = false
+                } label: {
+                    Text("暂时不用").font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                }
+                .buttonStyle(.spotterPress)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10).coachPanel()
+        .padding(.horizontal, 17).padding(.top, 4)
+        .accessibilityIdentifier("spotter-agent-invitation")
+    }
+
     private var atmosphere: some View {
         ZStack {
             LinearGradient(colors: [CoachColors.canvas, SpotterPalette.color(0x0a131b), SpotterPalette.color(0x080d14)],
@@ -597,6 +640,9 @@ struct NativeCoachView: View {
 
     private var header: some View {
         HStack(spacing: 5) {
+            if mode == .own {
+                headerButton("chevron.left", label: "返回教练对话") { switchMode(.coach) }
+            }
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(accent.fill).frame(width: 34, height: 34)
@@ -612,7 +658,7 @@ struct NativeCoachView: View {
                 headerButton("xmark", label: "关闭拍照记录") { dismiss() }.disabled(session.busy)
             } else {
                 if compact, let onExpand { headerButton("arrow.up.left.and.arrow.down.right", label: "展开 AI 教练", action: onExpand) }
-                headerMenu
+                if mode == .coach { headerMenu }
                 headerButton("xmark", label: "关闭 AI 教练") { dismiss() }
             }
         }
@@ -646,27 +692,23 @@ struct NativeCoachView: View {
 
     private var headerMenu: some View {
         let menu = Menu {
-            if mode == .coach {
-                if !session.lines.isEmpty || session.mealDraft != nil || session.picture != nil {
-                    Button("新对话", systemImage: "plus.message", action: resetConversation)
-                        .disabled(session.busy || guide?.step == .coachMenu)
-                }
-                Button(showOptions ? "收起对话选项" : "对话选项", systemImage: "slider.horizontal.3") {
-                    editingMessage = false
-                    showOptions.toggle()
-                }.disabled(session.busy || session.picture != nil || session.weightPrompt || guide?.step == .coachMenu)
-                if let onStartWorkout {
-                    Button("开始训练", systemImage: "dumbbell", action: onStartWorkout)
-                        .disabled(session.busy || guide?.step == .coachMenu)
-                }
-                Button("用自己的 AI", systemImage: "square.and.arrow.up") {
-                    switchMode(.own)
-                    guide?.advance(.coachMenu)
-                }
-                .disabled(session.busy)
-            } else {
-                Button("返回教练对话", systemImage: "bubble") { switchMode(.coach) }
+            if !session.lines.isEmpty || session.mealDraft != nil || session.picture != nil {
+                Button("新对话", systemImage: "plus.message", action: resetConversation)
+                    .disabled(session.busy || guide?.step == .coachMenu)
             }
+            Button(showOptions ? "收起对话选项" : "对话选项", systemImage: "slider.horizontal.3") {
+                editingMessage = false
+                showOptions.toggle()
+            }.disabled(session.busy || session.picture != nil || session.weightPrompt || guide?.step == .coachMenu)
+            if let onStartWorkout {
+                Button("开始训练", systemImage: "dumbbell", action: onStartWorkout)
+                    .disabled(session.busy || guide?.step == .coachMenu)
+            }
+            Button("用自己的 AI", systemImage: "square.and.arrow.up") {
+                switchMode(.own)
+                guide?.advance(.coachMenu)
+            }
+            .disabled(session.busy)
         } label: {
             Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold)).foregroundStyle(CoachColors.text)
                 .frame(width: 20, height: 44)
@@ -676,6 +718,7 @@ struct NativeCoachView: View {
 
     private func switchMode(_ next: Mode) {
         guard mode != next else { return }
+        if next == .coach && guide?.step == .agentConnect { guide?.close() }
         editingMessage = false
         var transaction = Transaction()
         transaction.disablesAnimations = reducesMotion

@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -50,7 +51,32 @@ private struct NativeAgentConnection: Decodable, Identifiable {
     var expires: Date? { Self.date(expiresAt) }
     var lastUsed: Date? { lastUsedAt.flatMap(Self.date) }
     var active: Bool { revokedAt == nil && (expires ?? .distantPast) > .now }
-    var status: String { revokedAt != nil ? "已撤销" : active ? "生效中" : "已过期" }
+    var status: String {
+        if revokedAt != nil { return "已撤销" }
+        if !active { return "已过期" }
+        return lastUsed == nil ? "待验证" : "已验证"
+    }
+}
+
+enum NativeAgentInvitation {
+    static func shouldOffer(api: NativeAPI, owner: String) async -> Bool {
+        guard !owner.isEmpty else { return false }
+        let key = preferenceKey(api: api, owner: owner)
+        guard !UserDefaults.standard.bool(forKey: key),
+              (try? await NativeAgentConnectionAPI.list(api: api, owner: owner)) != nil,
+              !Task.isCancelled else { return false }
+        return !UserDefaults.standard.bool(forKey: key)
+    }
+
+    static func resolve(api: NativeAPI, owner: String) {
+        UserDefaults.standard.set(true, forKey: preferenceKey(api: api, owner: owner))
+    }
+
+    private static func preferenceKey(api: NativeAPI, owner: String) -> String {
+        let identity = SHA256.hash(data: Data((api.origin + "\n" + owner).utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return "spotter.native.agent-invitation-resolved." + identity
+    }
 }
 
 private enum NativeAgentConnectionAPI {
@@ -83,6 +109,10 @@ private enum NativeAgentConnectionAPI {
         let list = try JSONDecoder().decode(List.self, from: data)
         guard list.profileRef.range(of: #"^spotter_[a-f0-9]{32}$"#, options: .regularExpression) != nil else {
             throw NativeAPIError.invalidResponse
+        }
+        // The server records this only after a tool authenticates with the issued token.
+        if list.connections.contains(where: { $0.lastUsed != nil }) {
+            NativeAgentInvitation.resolve(api: api, owner: owner)
         }
         return list
     }
@@ -137,10 +167,10 @@ struct NativeAgentTutorialView: View {
 
         var title: String {
             switch self {
-            case .permission: return "创建连接，选好权限"
+            case .permission: return "在训练搭子创建连接"
             case .configuration: return "到自己的 AI 添加工具"
-            case .prompts: return "复制提示词，发一个任务"
-            case .verification: return "查看结果，管理连接"
+            case .prompts: return "复制提示词，先测试连接"
+            case .verification: return "核对结果和连接状态"
             }
         }
 
@@ -156,13 +186,13 @@ struct NativeAgentTutorialView: View {
         var instruction: String {
             switch self {
             case .permission:
-                return "在「外部 Agent」点「新建 Agent 连接」，填写连接名称和有效期。权限默认全选，可以直接点底部的「创建连接」，也可以先点「取消全选」再按要做的任务勾选。每个 AI 工具可以单独建一条连接。"
+                return "在「外部 Agent」点「新建 Agent 连接」，填写工具名称和有效期。权限默认全选。第一次可以点「取消全选」，只勾选这一项任务需要的权限，再点「创建连接」。每个 AI 工具可以单独建一条连接。"
             case .configuration:
-                return "连接创建成功后会回到「复制提示词」。首次设置工具时，在这张卡上点「复制令牌」，填到自己 AI 的工具凭据栏。"
+                return "创建后会回到「复制提示词」卡片。先从提示词中找到连接地址，到自己 AI 的工具或连接器设置添加。再回这张卡点「复制令牌」，填入工具的凭据栏。"
             case .prompts:
-                return "点「复制提示词」并粘贴到自己 AI 的对话框。它会核对连接，成功后你就可以告诉它要做什么。"
+                return "工具保存后，回训练搭子点「复制提示词」，把整段文字粘贴到自己的 AI 对话。请 AI 先测试训练搭子连接。收到连接成功的回复后，可以先试一个任务。"
             case .verification:
-                return "让 AI 说明实际读取或保存的结果。回到「我的连接」，刷新后可看「最近使用」、权限和到期时间。"
+                return "回「复制提示词」卡片点「验证连接」。也可以刷新「我的连接」，确认状态为「已验证」并出现「最近使用」。"
             }
         }
     }
@@ -219,16 +249,16 @@ struct NativeAgentTutorialView: View {
             tip("模板与动作示范", icon: "film.stack", detail: "管理模板时，开启「读取个人模板」和「改名、编辑或删除个人模板」。让 Agent 用 Spotter 技能为新动作做示范时，开启「读取编排资料」和「添加或移除个人演示动图」。")
             tip("记饮食", icon: "fork.knife", detail: "打开「新增饮食与饮水」。需要在记餐前核对当天已有记录时，也可打开「读取饮食与饮水」。")
         case .configuration:
-            tip("MCP 客户端", icon: "point.3.connected.trianglepath.dotted", detail: "在自己 AI 的工具或连接器设置里，添加远程 MCP 工具，传输方式选 Streamable HTTP，使用复制的提示词里的 MCP 地址。把令牌放进凭据栏，或设置 Authorization 请求头，值为 Bearer 后接空格和令牌。")
-            tip("自定义 HTTP 工具", icon: "network", detail: "用复制的提示词里的 OpenAPI 地址导入接口说明，使用相同的 Bearer 认证。你的 AI 客户端需要支持配置工具及认证头。")
-            tip("令牌放在凭据设置", icon: "lock", detail: "对话里粘贴「复制提示词」得到的文字。令牌只填到 AI 工具的凭据栏。")
+            tip("远程 MCP", icon: "point.3.connected.trianglepath.dotted", detail: "添加远程 MCP 工具，传输方式选 Streamable HTTP，填入提示词里的 MCP 地址。在认证类型中选 Bearer，再填入令牌。")
+            tip("自定义 HTTP", icon: "network", detail: "从提示词里的 OpenAPI 地址导入接口。如果工具要求手填请求头，名称用 Authorization，值为 Bearer、一个空格，再接你的令牌。")
+            tip("令牌只填凭据栏", icon: "lock", detail: "对话里只粘贴「复制提示词」得到的文字。令牌仅在创建后显示，复制的令牌会在本机剪贴板保留两分钟。")
         case .prompts:
             tip("分析记录示例", icon: "chart.xyaxis.line", detail: "「看我最近 7 天的训练记录，总结频率和训练重点。」")
             tip("制定计划示例", icon: "calendar", detail: "「帮我整理下周三练的哑铃计划。先查我的动作库，相同动作沿用，变式各自保留。保存草稿后给我看日期和组次。」")
             tip("记录饮食示例", icon: "fork.knife", detail: "「帮我记今天早餐的一杯牛奶，约 250 毫升。先让我核对份量和营养。」")
         case .verification:
-            tip("核对你的记录", icon: "checkmark.circle", detail: "确认计划预览后，到「训练 → 我的计划」查排入的日期。确认餐食后，到「今日 → 饮食记录」看对应餐次。")
-            tip("检查权限和连接状态", icon: "slider.horizontal.3", detail: "提示连不上时，检查工具地址、令牌和有效期。能连接但无法完成任务时，核对这条连接是否有对应权限。")
+            tip("核对你的记录", icon: "checkmark.circle", detail: "请 AI 展示实际保存的内容。确认计划加入日历后，到「训练 → 我的计划」查看。记餐后，到「今日 → 饮食记录」核对餐次。")
+            tip("连接一直待验证", icon: "slider.horizontal.3", detail: "检查工具地址、Bearer 凭据和有效期，再请 AI 测试训练搭子连接。已验证但任务失败时，在「我的连接」核对权限。")
             tip("停用一条连接", icon: "key.slash", detail: "在「我的连接」选择对应的「撤销连接」。旧令牌会失效，需要再次使用时可新建连接。")
         }
     }
@@ -285,6 +315,7 @@ struct NativeAgentAccessView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterGuide) private var guide
+    @Environment(\.scenePhase) private var scenePhase
     @State private var connections: [NativeAgentConnection] = []
     @State private var profileRef: String?
     @State private var issued: NativeAgentConnectionAPI.Issued?
@@ -325,6 +356,11 @@ struct NativeAgentAccessView: View {
             }
         }
         .task(id: owner) { await load() }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, revoking == nil,
+                  connections.contains(where: { $0.active && $0.lastUsed == nil }) else { return }
+            Task { await load() }
+        }
         .refreshable { if revoking == nil { await load() } }
         .sheet(isPresented: $creating) {
             NavigationStack {
@@ -397,7 +433,7 @@ struct NativeAgentAccessView: View {
             .accessibilityIdentifier("spotter-agent-copy-prompt")
             if let issued {
                 Divider()
-                Text("首次连接时，把令牌填到 AI 工具的凭据栏。离开本页后随时可在「我的连接」撤销。")
+                Text("把令牌填入 AI 工具的凭据栏。粘贴提示词并让 AI 测试连接后，回这里验证。")
                     .font(.footnote).foregroundStyle(SpotterPalette.muted)
                 Button(tokenCopied ? "已复制令牌" : "复制令牌", systemImage: "key.horizontal") {
                     UIPasteboard.general.setItems([[UTType.plainText.identifier: issued.token]],
@@ -407,6 +443,12 @@ struct NativeAgentAccessView: View {
                 }
                 .buttonStyle(.spotterControl)
                 .accessibilityIdentifier("spotter-agent-copy-token")
+                Button("验证连接", systemImage: "checkmark.shield") {
+                    Task { await load(verifying: issued.connection.id) }
+                }
+                .buttonStyle(.spotterControl)
+                .disabled(loading || revoking != nil)
+                .accessibilityIdentifier("spotter-agent-verify")
             }
             if let notice {
                 Text(notice).font(.footnote).foregroundStyle(SpotterPalette.muted)
@@ -472,7 +514,7 @@ struct NativeAgentAccessView: View {
         notice = note
     }
 
-    private func load() async {
+    private func load(verifying id: String? = nil) async {
         guard !loading else { return }
         loading = true
         defer { loading = false }
@@ -482,8 +524,17 @@ struct NativeAgentAccessView: View {
             profileRef = list.profileRef
             connections = list.connections
             errorMessage = nil
+            if let id {
+                if let connection = list.connections.first(where: { $0.id == id }), connection.active {
+                    notice = connection.lastUsed != nil ? "已验证连接。可以在自己的 AI 中发出任务。" :
+                        "还没收到 AI 工具的请求。请在自己的 AI 中测试连接，再点「验证连接」。"
+                } else {
+                    notice = "这条连接已失效。请新建连接后再验证。"
+                }
+            }
         } catch is CancellationError { }
         catch {
+            if id != nil { notice = "暂时无法验证连接，请稍后重试。" }
             if (error as? NativeAPIError)?.statusCode == 404 {
                 errorMessage = "当前站点暂未提供 Agent 连接。"
             } else { errorMessage = error.localizedDescription }

@@ -64,3 +64,15 @@ test("a family browses once and exact-name search opens the matching variant", (
   assert.deepEqual(collapseCatalogueRows(exact.rows, families, exact.score, favorites), [kneeling]);
   assert.deepEqual(collapseCatalogueRows([kneeling], families, common.score, favorites), [kneeling]);
 });
+
+test("my equipment keeps unspecified exercises and yields to an explicit choice", () => {
+  const rows = [
+    { id: "custom", equipment: "", needs: [] },
+    { id: "body", equipment: "body weight", needs: [] },
+    { id: "dumbbell", equipment: "dumbbell", needs: [] },
+    { id: "cable", equipment: "cable", needs: ["rope"] },
+  ];
+  const filters = { query: "", part: "", type: "", equipment: "", terms: [], any: false, gear: ["dumbbell"] };
+  assert.deepEqual(filterRows(rows, filters).rows, rows.slice(0, 3));
+  assert.deepEqual(filterRows(rows, { ...filters, equipment: "rope" }).rows, [rows[3]]);
+});

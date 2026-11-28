@@ -629,7 +629,9 @@ struct NativeCatalogIndex: Sendable {
         let bench = benchSearch(phrase)
         var scores: [String: Int] = [:]
         let matching = (rows + customRows).filter { row in
-            guard matchesArea(row, area), gear.isEmpty || row.equipment == "body weight" || gear.contains(row.equipment) else { return false }
+            guard matchesArea(row, area) else { return false }
+            if equipment.isEmpty, !gear.isEmpty, row.equipment != "body weight",
+               !(row.isPersonal && row.equipment.isEmpty), !gear.contains(row.equipment) { return false }
             if scope == .pinned && !favoriteNames.contains(row.normalizedName) { return false }
             if scope == .frequent && !frequentNames.contains(row.normalizedName) { return false }
             if !preferredMuscles.isEmpty {

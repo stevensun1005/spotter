@@ -239,6 +239,7 @@ struct SpotterWeekNavigation: View {
     var compactDays = false
     let onMove: (Int) -> Void
     var onOpenCalendar: (() -> Void)? = nil
+    var onReturnToToday: (() -> Void)? = nil
 
     private var highlightsToday: Bool {
         compactDays && Calendar(identifier: .gregorian).isDateInToday(selection)
@@ -269,15 +270,11 @@ struct SpotterWeekNavigation: View {
                     .contentShape(Rectangle())
                 }
                 .accessibilityLabel("\(calendarLabel)，\(spotterDay(selection))")
+            } else if let onReturnToToday {
+                Button(action: onReturnToToday) { standaloneDate.contentShape(Rectangle()) }
+                    .accessibilityHint("返回今天")
             } else {
-                dateText
-                    .padding(.horizontal, compactDays ? 10 : 2)
-                    .frame(minWidth: 72, minHeight: compactDays ? 26 : 44)
-                    .background(highlightsToday ? accent.selection : .clear, in: Capsule())
-                    .frame(minHeight: 44)
-                    .accessibilityLabel(calendarLabel)
-                    .accessibilityValue(spotterDay(selection))
-                    .accessibilityIdentifier("spotter-home-date-label")
+                standaloneDate
             }
             arrow(compactDays ? "后一天" : "下一周", icon: "chevron.right", offset: 1, enabled: canGoForward)
         }
@@ -298,6 +295,17 @@ struct SpotterWeekNavigation: View {
             .font((compactDays ? Font.footnote : .subheadline).weight(.semibold).monospacedDigit())
             .lineLimit(1)
             .minimumScaleFactor(0.7)
+    }
+
+    private var standaloneDate: some View {
+        dateText
+            .padding(.horizontal, compactDays ? 10 : 2)
+            .frame(minWidth: 72, minHeight: compactDays ? 26 : 44)
+            .background(highlightsToday ? accent.selection : .clear, in: Capsule())
+            .frame(minHeight: 44)
+            .accessibilityLabel(calendarLabel)
+            .accessibilityValue(spotterDay(selection))
+            .accessibilityIdentifier("spotter-home-date-label")
     }
 
     private func arrow(_ name: String, icon: String, offset: Int, enabled: Bool) -> some View {

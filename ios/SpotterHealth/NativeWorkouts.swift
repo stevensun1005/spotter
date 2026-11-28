@@ -2013,7 +2013,8 @@ struct NativeWorkoutView: View {
                     SpotterWeekNavigation(selection: selectedDate, calendarLabel: "首页日期",
                                           canGoBack: date > bounds.lowerBound,
                                           canGoForward: date < calendar.startOfDay(for: bounds.upperBound),
-                                          compactDays: true, onMove: shiftHomeDay)
+                                          compactDays: true, onMove: shiftHomeDay,
+                                          onReturnToToday: calendar.isDateInToday(date) ? nil : { selectedDate = .now })
                     Spacer(minLength: 0)
                     settingsButton
                 }
@@ -2090,9 +2091,9 @@ struct NativeWorkoutView: View {
     }
 
     private func homeTrainingProgress(on day: String, schedule: NativeWorkoutScheduleIndex) -> (progress: Double, status: String) {
-        let planCount = Set(schedule.plansByDay[day, default: []].map(\.key)).count
+        let planCount = Set(schedule.plansByDay[day, default: []].lazy.filter { $0.owner == store.owner }.map(\.key)).count
         if planCount > 0 {
-            let pendingCount = Set(schedule.pendingByDay[day, default: []].map(\.key)).count
+            let pendingCount = Set(schedule.pendingByDay[day, default: []].lazy.filter { $0.owner == store.owner }.map(\.key)).count
             let completed = planCount - pendingCount
             return (Double(completed) / Double(planCount), "已完成 \(completed)/\(planCount) 项训练")
         }
@@ -2883,6 +2884,7 @@ struct NativeTrainingLaunch: View {
     var recordNutrition: (() -> Void)?
     var templates: [NativeJSON] = []
     var startTemplate: ((NativeJSON) -> Void)?
+    var guidePreview = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.spotterInteractionMotion) private var motion
     @State private var page = Page.options
@@ -2922,17 +2924,31 @@ struct NativeTrainingLaunch: View {
                     }
                     .buttonStyle(.spotterGlassPress).accessibilityLabel("关闭开始训练")
                 }
-                switch page {
-                case .options: startChoices
-                case .templates: templateChoices
-                case .cardio:
-                    LazyVGrid(columns: gridColumns, spacing: 15) {
-                        ForEach(NativeWorkoutSession.CardioActivity.allCases) { activity in
-                            launchButton(activity.title, symbol: activity.symbol, color: cardioColor, size: 52) { start(activity.rawValue) }
-                                .accessibilityIdentifier("start-cardio-" + activity.rawValue)
+                if guidePreview {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("开练预览").font(.headline)
+                        Text("训练入口都在这里。你可以先看一眼，然后继续引导。")
+                            .font(.subheadline).foregroundStyle(.white.opacity(0.8))
+                        Button("继续引导") { dismiss() }
+                            .buttonStyle(.spotterPrimaryControl)
+                            .accessibilityIdentifier("spotter-guide-launch-continue")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Group {
+                    switch page {
+                    case .options: startChoices
+                    case .templates: templateChoices
+                    case .cardio:
+                        LazyVGrid(columns: gridColumns, spacing: 15) {
+                            ForEach(NativeWorkoutSession.CardioActivity.allCases) { activity in
+                                launchButton(activity.title, symbol: activity.symbol, color: cardioColor, size: 52) { start(activity.rawValue) }
+                                    .accessibilityIdentifier("start-cardio-" + activity.rawValue)
+                            }
                         }
                     }
                 }
+                .disabled(guidePreview)
             }
             .frame(maxWidth: 620)
             .padding(.horizontal, 22)

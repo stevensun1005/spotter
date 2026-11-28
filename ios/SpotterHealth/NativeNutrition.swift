@@ -4,6 +4,7 @@ import Combine
 import CryptoKit
 import Speech
 import SwiftUI
+import UIKit
 
 enum NutritionShortcut: String, CaseIterable, Identifiable {
     case breakfast = "早餐"
@@ -77,6 +78,7 @@ struct NutritionPayload: Decodable {
         let workouts: [WorkoutEnergy]?
         let sourceWorkoutId: String?
         let proteinProductId: String?
+        let updated: String?
         let preference: NativeJSON?
         let targetWeightKg: Double?
         let name: String?
@@ -343,10 +345,32 @@ extension NativeWorkoutStore {
 }
 
 struct NativeQuickMealReceipt: Equatable {
+    struct Row: Decodable, Equatable {
+        let id: String
+        let updated: String
+    }
+
     let id: String
-    let updated: String
     let name: String
-    var day: String? = nil
+    let day: String
+    let rows: [Row]
+    let usesBatch: Bool
+
+    init(id: String, updated: String, name: String, day: String, meal: NutritionShortcut? = nil) {
+        self.id = id
+        self.name = meal.map { "已记入\($0.rawValue) · \(name)" } ?? "已记下「\(name)」"
+        self.day = day
+        rows = [.init(id: id, updated: updated)]
+        usesBatch = false
+    }
+
+    init(batchId: String, rows: [Row], meal: NutritionShortcut, day: String) {
+        id = batchId
+        name = "已记入\(meal.rawValue) · \(rows.count) 项"
+        self.day = day
+        self.rows = rows
+        usesBatch = true
+    }
 }
 
 private struct NativeQuickMealStatus: View {
@@ -360,15 +384,13 @@ private struct NativeQuickMealStatus: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label("已记下「\(receipt.name)」", systemImage: "checkmark.circle")
+                Label(receipt.name, systemImage: "checkmark.circle")
                     .font(.footnote.weight(.medium))
                 Spacer(minLength: 4)
                 Button("撤销") { Task { await undo() } }
                     .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).disabled(pending)
             }
-            if let day = receipt.day, day != spotterDay() {
-                Text(day).font(.caption).foregroundStyle(SpotterPalette.muted)
-            }
+            Text(nutritionRecordDateLabel(receipt.day)).font(.caption).foregroundStyle(SpotterPalette.muted)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }.padding(9).background(SpotterPalette.wash, in: RoundedRectangle(cornerRadius: 9))
     }
@@ -378,10 +400,17 @@ private struct NativeQuickMealStatus: View {
         pending = true; error = nil
         defer { pending = false }
         do {
-            try await api.spotterSend("/api/library", body: [
-                "action": "remove", "expectedOwner": owner, "kind": "nutrition",
-                "id": receipt.id, "revision": receipt.updated
-            ])
+            if receipt.usesBatch {
+                try await api.spotterSend("/api/nutrition/batch", body: [
+                    "action": "undo", "expectedOwner": owner, "batchId": receipt.id,
+                    "rows": receipt.rows.map { ["id": $0.id, "updated": $0.updated] }
+                ])
+            } else if let row = receipt.rows.first {
+                try await api.spotterSend("/api/library", body: [
+                    "action": "remove", "expectedOwner": owner, "kind": "nutrition",
+                    "id": row.id, "revision": row.updated
+                ])
+            }
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             onUndo()
         } catch { self.error = error.localizedDescription }
@@ -400,6 +429,7 @@ private struct NativeNutritionDailySummary: View {
     let targets: NutritionPayload.Values?
     var onOpen: (() -> Void)? = nil
     var onCollapse: (() -> Void)? = nil
+    var onSetGoal: (() -> Void)? = nil
     var compactHeader = false
 
     private var goal: Double { targets?.calories ?? 0 }
@@ -500,11 +530,20 @@ private struct NativeNutritionDailySummary: View {
         .accessibilityIdentifier("nutrition-daily-calories")
     }
 
-    private var remainingMetric: some View {
+    @ViewBuilder private var remainingMetric: some View {
         let exceeded = (remaining ?? 0) < 0
         let amount = remaining.map { "\(nutritionNumber(abs($0))) 千卡" }
-        return sideMetric(exceeded ? "超出目标" : "剩余热量", symbol: exceeded ? "exclamationmark" : "bolt",
-                          value: amount ?? (totals == nil ? "—" : "未设目标"), color: accent.tint)
+        if totals != nil, goal <= 0, let onSetGoal {
+            Button(action: onSetGoal) {
+                sideMetric("营养目标", symbol: "target", value: "设置目标", color: accent.tint)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.spotterPress)
+            .accessibilityLabel("设置营养目标")
+        } else {
+            sideMetric(exceeded ? "超出目标" : "剩余热量", symbol: exceeded ? "exclamationmark" : "bolt",
+                       value: amount ?? (totals == nil ? "—" : "未设目标"), color: accent.tint)
+        }
     }
 
     private var waterMetric: some View {
@@ -684,6 +723,7 @@ struct NativeHomeNutrition: View {
     var date: Date = .now
     var week: NativeNutritionWeek? = nil
     var onCollapse: (() -> Void)? = nil
+    var onSetGoal: (() -> Void)? = nil
     let onOpen: () -> Void
 
     @Environment(\.scenePhase) private var phase
@@ -701,7 +741,7 @@ struct NativeHomeNutrition: View {
         return VStack(alignment: .leading, spacing: 14) {
             NativeNutritionDailySummary(totals: current?.totals(on: day),
                                         targets: current?.targets(on: day, countingWorkoutIDs: workoutIDs),
-                                        onOpen: onOpen, onCollapse: onCollapse, compactHeader: true)
+                                        onOpen: onOpen, onCollapse: onCollapse, onSetGoal: onSetGoal, compactHeader: true)
             if let error {
                 Button("重新读取饮食记录") { Task { await load(day) } }
                     .font(.footnote.weight(.semibold)).buttonStyle(.spotterPress).accessibilityHint(error)
@@ -732,14 +772,15 @@ struct NativeHomeNutrition: View {
 }
 
 private enum NutritionDestination: Identifiable {
-    case logger
-    case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?)
-    case settings, goals, goalEstimate, cycle, protein, stats, voice, energy, copy, favorites
+    case logger(day: String)
+    case entry(NutritionShortcut, NutritionPayload.Row?, NativeNutritionFood?, Double?, day: String)
+    case protein(day: String), voice(day: String), copy(Date), favorites(Date)
+    case settings, goals, goalEstimate, cycle, stats, energy
 
     var id: String {
         switch self {
-        case .logger: return "logger"
-        case .entry(let shortcut, let row, let food, _): return row?.id ?? food?.id ?? shortcut.rawValue
+        case .logger(let day): return "logger/" + day
+        case .entry(let shortcut, let row, let food, _, let day): return row?.id ?? "\(day)/\(food?.id ?? shortcut.rawValue)"
         case .settings: return "settings"
         case .goals: return "goals"
         case .goalEstimate: return "goal-estimate"
@@ -782,10 +823,12 @@ struct NativeNutritionDetail: View {
     private let ownsNutritionWeek: Bool
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var phase
     @Environment(\.spotterInteractionMotion) private var motion
     @Environment(\.spotterGuide) private var guide
     @StateObject private var nutritionWeek: NativeNutritionWeek
     @State private var date = Date.now
+    @State private var observedToday = spotterDay()
     @State private var payload = NutritionPayload(rows: [])
     @State private var loadedDate = ""
     @State private var loadError: String?
@@ -829,6 +872,7 @@ struct NativeNutritionDetail: View {
     }
 
     private var day: String { spotterDay(date) }
+    private var canRecord: Bool { day <= spotterDay() }
     private var ready: Bool { loadedDate == day && loadError == nil }
     private var rows: [NutritionPayload.Row] { payload.entries(on: day).filter { $0.entry?.type != "measurement" } }
     private var mealNow: NutritionShortcut { .suggestedMeal }
@@ -861,6 +905,7 @@ struct NativeNutritionDetail: View {
         .task(id: "\(day)/\(reloadRevision)") { await load(day) }
         .task(id: bounds) { await nutritionWeek.refreshWeek(containing: date) }
         .onAppear {
+            updateCivilDate()
             guard !didOpenWidgetEntry, let initialWidgetEntry else { return }
             if initialWidgetEntry == .goalEstimate {
                 openWidgetGoalEstimate()
@@ -868,16 +913,19 @@ struct NativeNutritionDetail: View {
             }
             didOpenWidgetEntry = true
             switch initialWidgetEntry {
-            case .frequentMeals: destination = .favorites
-            case .water: destination = .entry(.water, nil, nil, 250)
-            case .photo: photoCapture = NutritionPhotoRequest(day: day)
+            case .frequentMeals: destination = .favorites(date)
+            case .water: openRecord(.entry(.water, nil, nil, 250, day: day))
+            case .photo: openPhotoCapture()
             case .recordMeal:
-                closesAfterGuidedMeal = guide?.step.presentation == .mealEditor
-                destination = .logger
+                closesAfterGuidedMeal = canRecord && guide?.step.presentation == .mealEditor
+                openRecord(.logger(day: day))
             case .goalEstimate: break
             }
         }
         .onChange(of: ready) { _ in openWidgetGoalEstimate() }
+        .onChange(of: phase) { phase in if phase == .active { updateCivilDate() } }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in updateCivilDate() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in updateCivilDate() }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in
             reloadRevision &+= 1
             if ownsNutritionWeek {
@@ -898,6 +946,7 @@ struct NativeNutritionDetail: View {
             loadError = nil
             mutationError = nil
             deleteCandidate = nil
+            if quickMeal?.day != day { quickMeal = nil }
             onDateChange?(date)
         }
         .confirmationDialog("删除这条记录？", isPresented: Binding(get: { deleteCandidate != nil }, set: { visible in
@@ -919,14 +968,17 @@ struct NativeNutritionDetail: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 NativeNutritionDailySummary(totals: current?.totals(on: day),
-                                            targets: current?.targets(on: day, countingWorkoutIDs: workoutIDs))
+                                            targets: current?.targets(on: day, countingWorkoutIDs: workoutIDs),
+                                            onSetGoal: ready ? { destination = .goals } : nil)
                 mealActions
                 if let quickMeal {
-                    NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) { self.quickMeal = nil }
+                    NativeQuickMealStatus(api: api, owner: owner, receipt: quickMeal) {
+                        if self.quickMeal?.id == quickMeal.id { self.quickMeal = nil }
+                    }
                         .id(quickMeal.id).transition(.opacity)
                 }
                 if let loadError {
-                    Button { Task { await load(day) } } label: {
+                    Button { Task { await refreshSelection() } } label: {
                         Label(loadError, systemImage: "arrow.clockwise")
                             .font(.footnote).multilineTextAlignment(.leading)
                     }
@@ -947,11 +999,7 @@ struct NativeNutritionDetail: View {
             .padding(.bottom, 4)
         }
         .clipped()
-        .refreshable {
-            let selection = date
-            await load(spotterDay(selection))
-            await nutritionWeek.refreshWeek(containing: selection, force: true)
-        }
+        .refreshable { await refreshSelection() }
     }
 
     private func header(_ bounds: NativeNutritionWeek.Bounds) -> some View {
@@ -1053,7 +1101,9 @@ struct NativeNutritionDetail: View {
                 if row.sourceWorkoutId == nil {
                     HStack(spacing: 6) {
                         if meal.isMeal {
-                            iconButton("pencil", "编辑 \(name)") { destination = .entry(meal, row, nil, nil) }
+                            iconButton("pencil", "编辑 \(name)") {
+                                openRecord(.entry(meal, row, nil, nil, day: row.date ?? day), allowsExisting: true)
+                            }
                         }
                         iconButton("trash", "删除 \(name)") { deleteCandidate = row }.disabled(deleting)
                     }
@@ -1075,9 +1125,28 @@ struct NativeNutritionDetail: View {
     }
 
     private var mealActions: some View {
-        NutritionShortcuts(onMeal: { destination = .logger },
-                           onWater: { destination = .entry(.water, nil, nil, nil) },
-                           onPhoto: { photoCapture = NutritionPhotoRequest(day: day) })
+        VStack(alignment: .leading, spacing: 6) {
+            NutritionShortcuts(onMeal: { openRecord(.logger(day: day)) },
+                               onWater: { openRecord(.entry(.water, nil, nil, nil, day: day)) },
+                               onPhoto: openPhotoCapture)
+                .disabled(!canRecord)
+            if !canRecord {
+                Label("未来日期 · 到当天即可记录", systemImage: "calendar")
+                    .font(.footnote).foregroundStyle(SpotterPalette.muted)
+            }
+        }
+    }
+
+    private func openRecord(_ item: NutritionDestination, allowsExisting: Bool = false) {
+        guard canRecord || allowsExisting else { return }
+        quickMeal = nil
+        destination = item
+    }
+
+    private func openPhotoCapture() {
+        guard canRecord else { return }
+        quickMeal = nil
+        photoCapture = NutritionPhotoRequest(day: day)
     }
 
     private func iconButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -1093,11 +1162,11 @@ struct NativeNutritionDetail: View {
 
     @ViewBuilder private func destinationView(_ item: NutritionDestination) -> some View {
         switch item {
-        case .logger:
+        case .logger(let day):
             NativeMealLogger(api: api, owner: owner, date: day, payload: payload) { receipt in
-                if let receipt { quickMeal = receipt }
+                quickMeal = receipt
             }
-        case .entry(let shortcut, let row, let food, let grams):
+        case .entry(let shortcut, let row, let food, let grams, let day):
             NativeNutritionEditor(api: api, owner: owner, date: day, shortcut: shortcut, existing: row, food: food, grams: grams,
                                   recent: row == nil && food == nil ? payload.recentServings(for: shortcut) : []) {
                 quickMeal = $0
@@ -1110,11 +1179,11 @@ struct NativeNutritionDetail: View {
                     settingsLink("计入运动消耗", icon: "flame", destination: .energy).disabled(!ready)
                 }
                 Section("记录方式") {
-                    settingsLink("语音", icon: "mic", destination: .voice)
-                    settingsLink("记蛋白粉", icon: "cup.and.saucer", destination: .protein)
-                    settingsLink("复制往日餐食", icon: "doc.on.doc", destination: .copy)
-                    settingsLink("记体重", icon: "scalemass", destination: .entry(.weight, nil, nil, nil))
-                    settingsLink("管理固定模版", icon: "star", destination: .favorites)
+                    settingsLink("语音", icon: "mic", destination: .voice(day: day)).disabled(!canRecord)
+                    settingsLink("记蛋白粉", icon: "cup.and.saucer", destination: .protein(day: day)).disabled(!canRecord)
+                    settingsLink("复制往日餐食", icon: "doc.on.doc", destination: .copy(date)).disabled(!canRecord)
+                    settingsLink("记体重", icon: "scalemass", destination: .entry(.weight, nil, nil, nil, day: day)).disabled(!canRecord)
+                    settingsLink("管理固定模版", icon: "star", destination: .favorites(date))
                 }
                 Section {
                     settingsLink("统计", icon: "chart.bar.xaxis", destination: .stats)
@@ -1131,19 +1200,19 @@ struct NativeNutritionDetail: View {
             }
         case .energy:
             NativeNutritionExerciseEnergy(api: api, owner: owner, day: day, payload: payload, logs: logs ?? [])
-        case .voice:
+        case .voice(let day):
             NativeNutritionVoice(mealNow: mealNow, payload: payload) { food, meal, grams in
-                openAfterDismiss(.entry(meal, nil, food, grams))
+                openAfterDismiss(.entry(meal, nil, food, grams, day: day))
             }
-        case .protein:
+        case .protein(let day):
             NativeNutritionProtein(api: api, owner: owner, day: day)
         case .stats:
             NativeNutritionStats(api: api, owner: owner, day: date)
-        case .copy:
+        case .copy(let date):
             NativeNutritionCopy(api: api, owner: owner, destination: date, suggestedMeal: mealNow, dateBounds: dateBounds)
-        case .favorites:
+        case .favorites(let date):
             NativeFavoriteMeals(api: api, owner: owner, date: date) { receipt, recordedDate in
-                date = recordedDate
+                self.date = recordedDate
                 quickMeal = receipt
                 destination = nil
             }
@@ -1162,6 +1231,10 @@ struct NativeNutritionDetail: View {
     }
 
     private func openAfterDismiss(_ next: NutritionDestination) {
+        switch next {
+        case .entry, .voice, .protein, .copy, .favorites: quickMeal = nil
+        default: break
+        }
         queuedDestination = next
         destination = nil
     }
@@ -1179,7 +1252,23 @@ struct NativeNutritionDetail: View {
 
     private func moveWeek(_ offset: Int) {
         guard let next = Calendar.current.date(byAdding: .day, value: offset * 7, to: date) else { return }
-        date = min(max(next, dateBounds.lowerBound), dateBounds.upperBound)
+        let today = Date.now
+        date = NativeNutritionWeek.Bounds(containing: next).contains(spotterDay(today))
+            ? today : min(max(next, dateBounds.lowerBound), dateBounds.upperBound)
+    }
+
+    private func updateCivilDate() {
+        let now = Date.now
+        let today = spotterDay(now)
+        guard today != observedToday else { return }
+        observedToday = today
+        date = now
+    }
+
+    private func refreshSelection() async {
+        let selection = date
+        await load(spotterDay(selection))
+        await nutritionWeek.refreshWeek(containing: selection, force: true)
     }
 
     private func load(_ day: String) async {
@@ -1201,7 +1290,10 @@ struct NativeNutritionDetail: View {
         mutationError = nil
         defer { deleting = false }
         do {
-            try await api.spotterSend("/api/library", body: ["action": "remove", "kind": "nutrition", "id": id, "expectedOwner": owner])
+            var request: [String: Any] = ["action": "remove", "kind": "nutrition", "id": id, "expectedOwner": owner]
+            if let revision = row.updated { request["revision"] = revision }
+            try await api.spotterSend("/api/library", body: request)
+            if quickMeal?.rows.contains(where: { $0.id == id }) == true { quickMeal = nil }
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
         } catch { mutationError = error.localizedDescription }
     }
@@ -1390,6 +1482,7 @@ struct NativeFavoriteMeal: Codable, Identifiable {
     func log(_ preset: NativeFavoriteMeal, id: String, date: Date, meal: NutritionShortcut,
              servings: Double) async throws -> NativeQuickMealReceipt {
         let day = spotterDay(date)
+        guard day <= spotterDay() else { throw NativeAPIError.server(status: 400, message: "未来日期不能记录饮食。") }
         guard let record = preset.record(id: id, day: day, meal: meal, servings: servings) else { throw NativeAPIError.invalidRequest }
         let response = try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner,
                                                                        "revision": NSNull(), "data": record])
@@ -1502,7 +1595,7 @@ enum NativeWidgetMealAction {
                                     .font(.footnote.weight(.semibold))
                             }
                             .buttonStyle(.spotterControl)
-                            .disabled(busy || retry.map { $0.preset.id != preset.id } == true)
+                            .disabled(spotterDay(date) > spotterDay() || busy || retry.map { $0.preset.id != preset.id } == true)
                             NavigationLink {
                                 NativeFavoriteMealOptions(preset: preset, store: store, date: date, onSaved: onSaved)
                             } label: {
@@ -1697,7 +1790,7 @@ enum NativeWidgetMealAction {
         self.preset = preset
         self.store = store
         self.onSaved = onSaved
-        _date = State(initialValue: date)
+        _date = State(initialValue: min(date, .now))
         _meal = State(initialValue: preset.defaultMeal)
     }
 
@@ -1706,7 +1799,7 @@ enum NativeWidgetMealAction {
         let allowed = servings.map { preset.record(id: id, day: spotterDay(date), meal: meal, servings: $0) != nil } ?? false
         Form {
             Section {
-                DatePicker("记入日期", selection: $date, displayedComponents: .date)
+                DatePicker("记入日期", selection: $date, in: ...Date.now, displayedComponents: .date)
                 SpotterMenuPicker("餐次", selection: $meal, options: NutritionShortcut.allCases.filter(\.isMeal).map { ($0, $0.rawValue) })
                 LabeledContent("份数") {
                     HStack(spacing: 4) {
@@ -1911,6 +2004,7 @@ private struct NativeNutritionCopy: View {
 
     private func copy() async {
         guard !copying, loadedDay == from, from != destination, !selected.isEmpty else { return }
+        guard destination <= spotterDay() else { copyError = "未来日期不能记录饮食。"; return }
         clearFeedback()
         copying = true
         defer {
@@ -1954,6 +2048,7 @@ private struct NativeNutritionEditor: View {
     let owner: String
     let date: String
     private let isEditing: Bool
+    private let originalRevision: String?
     private let foodId: String?
     private let proteinProductId: String?
     private let recent: [NativeRecentServing]
@@ -1979,11 +2074,12 @@ private struct NativeNutritionEditor: View {
          onQuickSave: ((NativeQuickMealReceipt) -> Void)? = nil) {
         self.api = api
         self.owner = owner
-        self.date = date
+        self.date = existing?.date ?? date
         _shortcut = State(initialValue: shortcut)
         self.recent = recent
         self.onQuickSave = onQuickSave
         self.proteinProductId = existing?.proteinProductId
+        self.originalRevision = existing?.updated
         isEditing = existing != nil
         foodId = existing?.entry?.foodId ?? food?.id
         if let entry = existing?.entry, let existingID = existing?.id {
@@ -2012,7 +2108,13 @@ private struct NativeNutritionEditor: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text(nutritionRecordDateLabel(date)).font(.footnote).foregroundStyle(SpotterPalette.muted)
                     if shortcut.isMeal {
+                        if isEditing {
+                            SpotterSegments("餐次", options: NutritionShortcut.allCases.filter(\.isMeal), value: $shortcut,
+                                            usesUIKitControl: true, title: \.rawValue)
+                                .accessibilityLabel("记入餐次")
+                        }
                         if !recent.isEmpty { recentFoods(recent) }
                         field("食物名称", value: $name, numeric: false)
                         field("重量（g，选填）", value: $quantity)
@@ -2146,6 +2248,7 @@ private struct NativeNutritionEditor: View {
     }
 
     private func save(_ entry: [String: Any], quickName: String? = nil) async {
+        guard isEditing || date <= spotterDay() else { error = "未来日期不能记录饮食。"; return }
         busy = true
         error = nil
         defer { busy = false }
@@ -2153,10 +2256,11 @@ private struct NativeNutritionEditor: View {
             var item: [String: Any] = ["kind": "nutrition", "id": id, "date": date, "entry": entry]
             if let proteinProductId { item["proteinProductId"] = proteinProductId }
             var payload: [String: Any] = ["action": "save", "expectedOwner": owner, "data": item]
-            if shortcut.isMeal && !isEditing { payload["revision"] = NSNull() }
+            if let originalRevision { payload["revision"] = originalRevision }
+            else if shortcut.isMeal && !isEditing { payload["revision"] = NSNull() }
             let response = try await api.spotterSend("/api/library", body: payload)
             if let quickName, let data = try? JSONDecoder().decode(NativeJSON.self, from: response), !data["updated"].string.isEmpty {
-                onQuickSave?(NativeQuickMealReceipt(id: id, updated: data["updated"].string, name: quickName))
+                onQuickSave?(NativeQuickMealReceipt(id: id, updated: data["updated"].string, name: quickName, day: date))
             }
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             dismiss()
@@ -2186,6 +2290,15 @@ private struct NativeNutritionEditor: View {
 
 func nutritionInput(_ value: Double) -> String {
     value.formatted(.number.grouping(.never).precision(.fractionLength(0...6)))
+}
+
+func nutritionRecordDateLabel(_ day: String) -> String {
+    let parts = day.split(separator: "-").compactMap { Int($0) }
+    guard parts.count == 3 else { return day }
+    let monthDay = "\(parts[1])月\(parts[2])日"
+    if day == spotterDay() { return "今天（\(monthDay)）" }
+    return parts[0] == Calendar(identifier: .gregorian).component(.year, from: .now)
+        ? monthDay : "\(parts[0])年\(monthDay)"
 }
 
 func nutritionValue(_ text: String) -> Double? {
@@ -2440,6 +2553,7 @@ private struct NativeNutritionProtein: View {
 
     private func save(anotherCup: Bool) async {
         guard !saving, let current else { return }
+        guard day <= spotterDay() else { error = "未来日期不能记录饮食。"; return }
         saving = true
         error = nil
         defer { saving = false }

@@ -925,6 +925,7 @@ private struct NativeSpotterTabs: View {
     @State private var showPrograms = false
     @State private var showNutrition = false
     @State private var homeDate = Date()
+    @State private var followsToday = true
     @State private var nutritionDetailDate = Date()
     @State private var nutritionUsesHomeDate = false
     @StateObject private var nutritionWeek: NativeNutritionWeek
@@ -1063,6 +1064,7 @@ private struct NativeSpotterTabs: View {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
+                refreshHomeDate()
                 Task {
                     async let overview: Void = refreshHome()
                     await workouts.syncLocalChanges()
@@ -1081,7 +1083,13 @@ private struct NativeSpotterTabs: View {
         .onReceive(liveHeartRateUpdates) { _ in refreshLiveActivity() }
         .onChange(of: showsTrainingLiveActivity) { _ in refreshLiveActivity() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
-            if scenePhase == .active { Task { await refreshHome() } }
+            if scenePhase == .active {
+                refreshHomeDate()
+                Task { await refreshHome() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            if scenePhase == .active { refreshHomeDate() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .spotterNativeNutritionUpdated)) { _ in
             let date = showNutrition ? nutritionDetailDate : homeDate
@@ -1171,7 +1179,7 @@ private struct NativeSpotterTabs: View {
                                   plannedWorkouts: workouts.nutritionPlannedWorkouts, initialDate: nutritionDetailDate,
                                   initialWidgetEntry: widgetNutritionEntry, week: nutritionWeek, onDateChange: { date in
                 nutritionDetailDate = date
-                if nutritionUsesHomeDate { homeDate = date }
+                if nutritionUsesHomeDate { selectHomeDate(date) }
             }, onBodyProfileSaved: workouts.useSavedAnatomyVariant)
         }
         .sheet(isPresented: $showRest, onDismiss: { Task { await workouts.load() } }) {
@@ -1189,7 +1197,8 @@ private struct NativeSpotterTabs: View {
                                  scheduled: workouts.todayPendingPlans, startPlan: { queueTrainingLaunch(.plan($0)) },
                                  recordNutrition: showsNutrition ? { queueTrainingLaunch(.nutrition(homeDate)) } : nil,
                                  templates: workouts.libraryRows.filter { $0["kind"].string == "template" && !$0["id"].string.isEmpty },
-                                 startTemplate: { queueTrainingLaunch(.template($0)) })
+                                 startTemplate: { queueTrainingLaunch(.template($0)) },
+                                 guidePreview: guideStep == .workoutLaunch)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -1281,7 +1290,7 @@ private struct NativeSpotterTabs: View {
     private var today: some View {
         var view = NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout)
         view.openSettings = { showSettings = true }
-        view.homeDate = $homeDate
+        view.homeDate = Binding(get: { homeDate }, set: selectHomeDate)
         view.homeWorkoutFocus = $widgetHomeWorkoutFocus
         view.openAllPlans = { selected = .training }
         view.openStats = { selected = .stats }
@@ -1293,7 +1302,9 @@ private struct NativeSpotterTabs: View {
             view.refreshNutritionWeek = { await nutritionWeek.refreshWeek(containing: $0, force: $1) }
             view.homeNutrition = { date, collapse in
                 AnyView(NativeHomeNutrition(api: account.api, owner: owner, logs: workouts.logs, date: date,
-                                           week: nutritionWeek, onCollapse: collapse) {
+                                           week: nutritionWeek, onCollapse: collapse, onSetGoal: {
+                    openHomeNutrition(date, entry: .goalEstimate)
+                }) {
                     let guidingMeal = guideStep == .mainMeal
                     if guidingMeal { advanceGuide(from: .mainMeal) }
                     openHomeNutrition(date, recordMeal: guidingMeal)
@@ -1304,10 +1315,23 @@ private struct NativeSpotterTabs: View {
     }
 
     private func openHomeNutrition(_ date: Date, recordMeal: Bool = false) {
+        openHomeNutrition(date, entry: recordMeal ? .recordMeal : nil)
+    }
+
+    private func openHomeNutrition(_ date: Date, entry: NativeNutritionWidgetEntry?) {
         nutritionDetailDate = date
         nutritionUsesHomeDate = true
-        widgetNutritionEntry = recordMeal ? .recordMeal : nil
+        widgetNutritionEntry = entry
         showNutrition = true
+    }
+
+    private func selectHomeDate(_ date: Date) {
+        homeDate = date
+        followsToday = Calendar.current.isDateInToday(date)
+    }
+
+    private func refreshHomeDate() {
+        if followsToday { homeDate = .now }
     }
 
     private func openFriends() {
@@ -1344,6 +1368,7 @@ private struct NativeSpotterTabs: View {
         case .trainingTab: destination = .training
         case .todayTab: destination = .today
         case .friendsTab: destination = .friends
+        case .workoutLaunch: return ("打开开练", openTrainingLaunch)
         case .coach: return ("打开 AI 教练", { openCoach(startFromGuide: true) })
         default: return nil
         }
@@ -1517,15 +1542,15 @@ private struct NativeSpotterTabs: View {
             if workouts.active != nil { openActiveWorkout() }
         case .trainingLaunch:
             selected = .today
-            homeDate = .now
+            selectHomeDate(.now)
             openTrainingLaunch()
         case .scheduledWorkout(let id, let day):
             selected = .today
-            if let date = nativePlanDate(day) { homeDate = date }
+            if let date = nativePlanDate(day) { selectHomeDate(date) }
             openWidgetWorkout(id: id, day: day)
         case .progressDay(let day):
             selected = .today
-            if let date = nativePlanDate(day) { homeDate = date }
+            if let date = nativePlanDate(day) { selectHomeDate(date) }
         case .history:
             widgetStatsRequest = .history
             selected = .stats
@@ -1685,16 +1710,20 @@ private struct NativeSpotterTabs: View {
     }
 
     private func openTrainingLaunch() {
-        if workouts.active != nil { openActiveWorkout() }
+        refreshHomeDate()
+        if guideStep == .workoutLaunch { showTrainingLaunch = true }
+        else if workouts.active != nil { openActiveWorkout() }
         else { showTrainingLaunch = true }
     }
 
     private func queueTrainingLaunch(_ action: TrainingLaunch) {
+        guard guideStep != .workoutLaunch else { return }
         nextLaunch = action
         showTrainingLaunch = false
     }
 
     private func finishTrainingLaunch() {
+        if guideStep == .workoutLaunch { advanceGuide(from: .workoutLaunch) }
         let action = nextLaunch
         nextLaunch = nil
         switch action {
@@ -1803,6 +1832,7 @@ private struct NativeSpotterTabs: View {
     private var customDock: some View {
         NativeFloatingDock(sections: contentSections, selected: selected,
                            hasActiveWorkout: workouts.active != nil, isBusy: workouts.isBusy,
+                           socialUnreadCount: socialNotifications.belongs(to: owner) ? socialNotifications.unreadCount : 0,
                            select: { selectTab($0) }, openTraining: openTrainingLaunch)
     }
 
@@ -1902,6 +1932,7 @@ private struct NativeFloatingDock: View {
     let selected: NativeSpotterSection
     let hasActiveWorkout: Bool
     let isBusy: Bool
+    let socialUnreadCount: Int
     let select: (NativeSpotterSection) -> Void
     let openTraining: () -> Void
 
@@ -1921,6 +1952,12 @@ private struct NativeFloatingDock: View {
                         Image(systemName: section.icon)
                             .font(.system(size: 20, weight: .medium))
                             .frame(height: 24)
+                            .overlay(alignment: .topTrailing) {
+                                if section == .friends, socialUnreadCount > 0 {
+                                    Circle().fill(.red).frame(width: 8, height: 8).offset(x: 5, y: -1)
+                                        .accessibilityHidden(true)
+                                }
+                            }
                         Text(section.rawValue)
                             .font(.system(size: min(max(tabLabelSize, 11), 14), weight: .semibold))
                             .lineLimit(1)
@@ -1930,6 +1967,7 @@ private struct NativeFloatingDock: View {
                 }
                 .buttonStyle(NativeDockTabStyle(selected: selected == section, glow: accent.fill))
                 .accessibilityLabel(section.rawValue)
+                .accessibilityValue(section == .friends && socialUnreadCount > 0 ? "\(socialUnreadCount) 条未读通知" : "")
                 .accessibilityAddTraits(selected == section ? .isSelected : [])
                 // 辅助功能大字号下也可长按放大查看。
                 .accessibilityShowsLargeContentViewer { Label(section.rawValue, systemImage: section.icon) }
@@ -1962,6 +2000,7 @@ private struct NativeFloatingDock: View {
         .accessibilityLabel(hasActiveWorkout ? "继续训练" : "开始训练")
         .accessibilityIdentifier("spotter-dock-play")
         .padding(.horizontal, 3)
+        .nativeGuideTarget(.workoutLaunch)
     }
 }
 

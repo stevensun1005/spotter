@@ -4,14 +4,14 @@ enum NativeGuideStep: Hashable {
     enum Section: Hashable { case training, nutrition, friends, coach }
     enum Presentation: Equatable { case dock, tabContent, planEditor, mealEditor, invitation, coachPanel, agentAccess }
 
-    case trainingTab, newPlan, planFields, officialTemplates, officialFilters
+    case trainingTab, newPlan, planFields, officialTemplates, officialFilters, workoutLaunch
     case todayTab, mainMeal, mealFields
     case friendsTab, findBuddy, buddySearch, privacy, coach
     case coachMenu, agentConnect, agentTutorial
 
     var section: Section {
         switch self {
-        case .trainingTab, .newPlan, .planFields, .officialTemplates, .officialFilters: return .training
+        case .trainingTab, .newPlan, .planFields, .officialTemplates, .officialFilters, .workoutLaunch: return .training
         case .todayTab, .mainMeal, .mealFields: return .nutrition
         case .friendsTab, .findBuddy, .buddySearch, .privacy: return .friends
         case .coach, .coachMenu, .agentConnect, .agentTutorial: return .coach
@@ -23,7 +23,7 @@ enum NativeGuideStep: Hashable {
         case .planFields: return .planEditor
         case .mealFields: return .mealEditor
         case .buddySearch: return .invitation
-        case .trainingTab, .todayTab, .friendsTab, .coach: return .dock
+        case .trainingTab, .todayTab, .friendsTab, .coach, .workoutLaunch: return .dock
         case .coachMenu, .agentConnect: return .coachPanel
         case .agentTutorial: return .agentAccess
         default: return .tabContent
@@ -44,6 +44,7 @@ enum NativeGuideStep: Hashable {
         case .planFields: return "看看一份训练计划怎么填"
         case .officialTemplates: return "也可以从官方模板开始"
         case .officialFilters: return "挑符合目标的周计划"
+        case .workoutLaunch: return "试试开练入口"
         case .todayTab: return "回首页记一餐"
         case .mainMeal: return "打开饮食明细"
         case .mealFields: return "搜索并加入食物"
@@ -65,6 +66,7 @@ enum NativeGuideStep: Hashable {
         case .planFields: return "这里填计划名，下面可以选日期、填动作和组次。以后点右上角「保存」，计划就会出现在首页日程。"
         case .officialTemplates: return "点「官方模板」，里面有完整的每周训练安排。"
         case .officialFilters: return "按目标和水平筛选。以后点开模板即可查看练习日和休息日，选好开始日再排进日历。"
+        case .workoutLaunch: return "点底栏中间的播放按钮，看看从哪里开始计划、选模板或做有氧。"
         case .todayTab: return "点底部「今日」，查看每天的饮食和训练。"
         case .mainMeal: return "点饮食卡片右上角的斜箭头试着记一餐。平时也能点底栏中间的「开练」，再选「记录饮食」。"
         case .mealFields: return "搜索或从分类挑选食物，点「+」加入。正式记餐时，点右下角「完成」，再选早餐、午餐、晚餐或加餐。"
@@ -82,6 +84,7 @@ enum NativeGuideStep: Hashable {
     static func path(officialTemplates: Bool, nutrition: Bool, friends: Bool) -> [Self] {
         [.trainingTab, .newPlan, .planFields]
             + (officialTemplates ? [.officialTemplates, .officialFilters] : [])
+            + [.workoutLaunch]
             + (nutrition ? [.todayTab, .mainMeal, .mealFields] : [])
             + (friends ? [.friendsTab, .findBuddy, .buddySearch, .privacy] : [])
             + [.coach, .coachMenu, .agentConnect, .agentTutorial]

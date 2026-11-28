@@ -466,6 +466,18 @@ struct NativeMealLogger: View {
         let foods: [NativeNutritionFood]
     }
 
+    private struct Submission {
+        let id = UUID().uuidString.lowercased()
+        let meal: NutritionShortcut
+        let records: [[String: Any]]
+        let name: String
+        var usesLegacy = false
+    }
+
+    private struct SavedBatch: Decodable {
+        let rows: [NativeQuickMealReceipt.Row]
+    }
+
     fileprivate enum Sheet: Identifiable {
         case portion(NativeNutritionFood, Double?)
         case basket
@@ -525,8 +537,7 @@ struct NativeMealLogger: View {
     @State private var error: String?
     @State private var choosingMeal = false
     @State private var savingTemplate = false
-    /// Payloads sent by attempts whose reply never confirmed the save, by record id.
-    @State private var unconfirmed: [String: Set<Data>] = [:]
+    @State private var pendingSubmission: Submission?
     @State private var templateName = ""
     @FocusState private var searchFocused: Bool
 
@@ -585,11 +596,14 @@ struct NativeMealLogger: View {
         NavigationStack {
             VStack(spacing: 0) {
                 header
-                searchField.padding(.horizontal, 14).padding(.top, 10)
-                SpotterSegments("食物来源", options: Tab.allCases, value: $tab, usesUIKitControl: true, title: \.rawValue)
-                    .padding(.horizontal, 14).padding(.top, 6)
-                Divider().overlay(SpotterPalette.line)
-                content(search, request: request).frame(maxHeight: .infinity)
+                VStack(spacing: 0) {
+                    searchField.padding(.horizontal, 14).padding(.top, 10)
+                    SpotterSegments("食物来源", options: Tab.allCases, value: $tab, usesUIKitControl: true, title: \.rawValue)
+                        .padding(.horizontal, 14).padding(.top, 6)
+                    Divider().overlay(SpotterPalette.line)
+                    content(search, request: request).frame(maxHeight: .infinity)
+                }
+                .disabled(pendingSubmission != nil)
                 bottomBar
             }
             .background(SpotterPalette.background.ignoresSafeArea())
@@ -645,8 +659,13 @@ struct NativeMealLogger: View {
             .accessibilityLabel(basket.isEmpty ? "返回" : "放弃已选食物并返回")
             .disabled(busy)
             Spacer(minLength: 0)
-            Text("记录饮食").font(.headline).lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 2) {
+                Text("记录饮食").font(.headline).accessibilityAddTraits(.isHeader)
+                if date != spotterDay() {
+                    Text("记到 \(nutritionRecordDateLabel(date))").font(.caption2).foregroundStyle(SpotterPalette.muted)
+                }
+            }
+            .lineLimit(1).minimumScaleFactor(0.8)
             Spacer(minLength: 0)
             Menu {
                 Button { cover = .scanner } label: { Label("扫食物条码", systemImage: "barcode.viewfinder") }
@@ -662,7 +681,7 @@ struct NativeMealLogger: View {
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
             }
-            .disabled(busy || working != nil)
+            .disabled(busy || working != nil || pendingSubmission != nil)
             .accessibilityLabel("快速录入：扫条码或识别营养表")
         }
         .padding(.leading, 6).padding(.trailing, 12).padding(.top, 6)
@@ -1098,15 +1117,17 @@ struct NativeMealLogger: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.spotterPress)
-                .disabled(basket.isEmpty)
+                .disabled(basket.isEmpty || pendingSubmission != nil)
                 .accessibilityLabel(basket.isEmpty ? "还没有选择食物" : "已选 \(basket.count) 项，共 \(nutritionNumber(totals.calories)) 千卡")
                 .accessibilityHint("查看和调整已选食物")
                 Button {
                     searchFocused = false
-                    choosingMeal = true
+                    if let pendingSubmission { Task { await submit(pendingSubmission) } }
+                    else { choosingMeal = true }
                 } label: {
                     ZStack {
                         if busy { ProgressView().tint(SpotterPalette.deep) }
+                        else if pendingSubmission != nil { Text("重试保存").fontWeight(.bold) }
                         else { Text(basket.isEmpty ? "完成" : "完成（\(basket.count)）").fontWeight(.bold) }
                     }
                     .foregroundStyle(SpotterPalette.deep)
@@ -1115,14 +1136,17 @@ struct NativeMealLogger: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.spotterPress)
-                .disabled(basket.isEmpty || busy || guiding)
-                .accessibilityLabel(busy ? "正在保存" : "完成")
-                .accessibilityHint("选择要记入的餐次")
+                .disabled(basket.isEmpty || busy || guiding || date > spotterDay())
+                .accessibilityLabel(busy ? "正在保存" : (pendingSubmission == nil ? "完成" : "重试保存"))
+                .accessibilityHint(pendingSubmission == nil ? "选择要记入的餐次" : "按原餐次和份量重试")
                 .confirmationDialog("记到哪一餐？", isPresented: $choosingMeal, titleVisibility: .visible) {
                     ForEach(Self.mealOptions) { target in
-                        Button(target.rawValue) { Task { await save(meal: target) } }
+                        let title = date == spotterDay() && target == .suggestedMeal ? "\(target.rawValue)（推荐）" : target.rawValue
+                        Button(title) { Task { await save(meal: target) } }
                     }
                     Button("取消", role: .cancel) {}
+                } message: {
+                    Text("记入\(nutritionRecordDateLabel(date)) · \(basket.count) 项 · \(nutritionNumber(totals.calories)) 千卡")
                 }
             }
         }
@@ -1281,44 +1305,65 @@ struct NativeMealLogger: View {
     }
 
     private func save(meal: NutritionShortcut) async {
-        guard !busy, !basket.isEmpty, !guiding else { return }
+        guard !busy, !basket.isEmpty, !guiding, pendingSubmission == nil else { return }
         let records = basket.compactMap { $0.record(meal: meal, day: date) }
         guard records.count == basket.count else {
             error = "有食物的份量或营养数值超出可记录范围，请在已选列表里调整。"
             return
         }
+        await submit(Submission(meal: meal, records: records, name: basket.first?.name ?? "餐食"))
+    }
+
+    private func submit(_ submission: Submission) async {
+        guard !busy else { return }
+        guard date <= spotterDay() else { error = "未来日期不能记录饮食。"; return }
+        pendingSubmission = submission
         busy = true
         error = nil
         defer { busy = false }
-        let sent = records.map { record in
-            (record["id"] as? String ?? "", (try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])) ?? Data())
-        }
-        for (id, payload) in sent { unconfirmed[id, default: []].insert(payload) }
         do {
-            // An earlier attempt may have been stored although its reply was lost. Remove the records from it that
-            // were taken out of the list or changed since, so this attempt replaces them instead of being skipped.
-            let current = Dictionary(sent, uniquingKeysWith: { first, _ in first })
-            for (id, payloads) in unconfirmed where current[id] == nil || payloads.count > 1 {
-                try await api.spotterSend("/api/library", body: ["action": "remove", "kind": "nutrition", "id": id, "expectedOwner": owner])
-                unconfirmed[id] = current[id].map { Set([$0]) }
-            }
-            var receipt: NativeQuickMealReceipt?
-            if records.count == 1, let item = basket.first {
-                let response = try await api.spotterSend("/api/library", body: ["action": "save", "expectedOwner": owner,
-                                                                              "revision": NSNull(), "data": records[0]])
-                let updated = try JSONDecoder().decode(NativeJSON.self, from: response)["updated"].string
-                if !updated.isEmpty { receipt = NativeQuickMealReceipt(id: item.id, updated: updated, name: item.name, day: date) }
-            } else {
-                _ = try await api.importMealLibraryRows(records, owner: owner)
-            }
-            unconfirmed = [:]
+            let receipt = try await saveSubmission(submission)
+            pendingSubmission = nil
             NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
             onSaved(receipt)
             basket = []
             dismiss()
+        } catch let apiError as NativeAPIError where apiError.statusCode == 409 {
+            self.error = apiError.localizedDescription
+            NotificationCenter.default.post(name: .spotterNativeNutritionUpdated, object: nil)
+        } catch let apiError as NativeAPIError where [400, 403, 404, 413].contains(apiError.statusCode ?? 0) {
+            pendingSubmission = nil
+            self.error = apiError.statusCode == 404 ? "批量记餐服务暂不可用，请稍后重试。" : apiError.localizedDescription
         } catch {
-            self.error = "\(error.localizedDescription) 再点「完成」会继续保存这一次的食物，不会重复记录。"
+            self.error = "\(error.localizedDescription) 点「重试保存」会使用原餐次和份量。"
         }
+    }
+
+    private func saveSubmission(_ submission: Submission) async throws -> NativeQuickMealReceipt {
+        if !submission.usesLegacy {
+            do {
+                let response = try await api.spotterSend("/api/nutrition/batch", body: [
+                    "action": "save", "expectedOwner": owner, "batchId": submission.id, "rows": submission.records
+                ])
+                let rows = try JSONDecoder().decode(SavedBatch.self, from: response).rows
+                let expectedIDs = Set(submission.records.compactMap { $0["id"] as? String })
+                guard rows.count == submission.records.count, Set(rows.map(\.id)) == expectedIDs,
+                      rows.allSatisfy({ !$0.updated.isEmpty }) else { throw NativeAPIError.invalidResponse }
+                return NativeQuickMealReceipt(batchId: submission.id, rows: rows, meal: submission.meal, day: date)
+            } catch let apiError as NativeAPIError where apiError.statusCode == 404 && submission.records.count == 1 {
+                // A worker without the batch route can still create one record safely.
+                var legacy = submission
+                legacy.usesLegacy = true
+                pendingSubmission = legacy
+            }
+        }
+        guard let record = submission.records.first, let id = record["id"] as? String else { throw NativeAPIError.invalidRequest }
+        let response = try await api.spotterSend("/api/library", body: [
+            "action": "save", "expectedOwner": owner, "revision": NSNull(), "data": record
+        ])
+        let updated = try JSONDecoder().decode(NativeJSON.self, from: response)["updated"].string
+        guard !updated.isEmpty else { throw NativeAPIError.invalidResponse }
+        return NativeQuickMealReceipt(id: id, updated: updated, name: submission.name, day: date, meal: submission.meal)
     }
 
     // MARK: Quick entry

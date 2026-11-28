@@ -14,6 +14,10 @@ fileprivate struct NativeCatalogueFilters: Equatable, Sendable {
     var anyMuscle = false
     var usesGear = true
     var scope: NativeCatalogScope = .all
+
+    mutating func clear() {
+        self = Self(query: query, usesGear: false)
+    }
 }
 
 fileprivate struct NativeCatalogueFilterRequest: Equatable, Sendable {
@@ -266,11 +270,10 @@ struct NativeCatalogueBrowser: View {
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
-    /// Equipment and 置顶 quick picks come from the section rail beside the results, so the browser has
-    /// no chip row. Scope switches and the full filter sheet live in this menu next to the search field.
     private var filtersActive: Bool {
         filters.scope != .all || !filters.equipment.isEmpty || !filters.type.isEmpty
-            || (filters.usesMuscles && !filters.muscles.isEmpty)
+            || !filters.area.isEmpty || (filters.usesMuscles && !filters.muscles.isEmpty)
+            || (filters.usesGear && !selectedGear.isEmpty)
     }
 
     private var filterMenu: some View {
@@ -295,6 +298,9 @@ struct NativeCatalogueBrowser: View {
             } label: {
                 Label("高级筛选", systemImage: "slider.horizontal.3")
             }
+            if active {
+                Button("清除筛选", systemImage: "line.3.horizontal.decrease") { clearFilters() }
+            }
         } label: {
             Image(systemName: "line.3.horizontal.decrease")
                 .font(.system(size: 17, weight: .semibold))
@@ -313,6 +319,11 @@ struct NativeCatalogueBrowser: View {
         filters.scope = filters.scope == scope ? .all : scope
         filters.area = ""
         filters.equipment = ""
+    }
+
+    private func clearFilters() {
+        searchFocused = false
+        filters.clear()
     }
 
     private func resultPane(_ result: NativeCatalogResults, index: NativeCatalogIndex) -> some View {
@@ -334,11 +345,17 @@ struct NativeCatalogueBrowser: View {
                                 catalogueSection(section, index: index, viewport: viewport).id(section.id)
                             }
                             if result.count == 0 {
-                                Text(filters.scope == .pinned ? "暂无符合条件的置顶动作。" :
-                                     filters.scope == .frequent ? "暂无符合条件的常用动作。" : "当前搜索和筛选条件下没有动作。")
-                                    .font(.footnote)
-                                    .foregroundStyle(SpotterPalette.muted)
-                                    .padding(8)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(filters.scope == .pinned ? "暂无符合条件的置顶动作。" :
+                                         filters.scope == .frequent ? "暂无符合条件的常用动作。" : "当前搜索和筛选条件下没有动作。")
+                                        .font(.footnote)
+                                        .foregroundStyle(SpotterPalette.muted)
+                                    if filtersActive {
+                                        Button("清除筛选", action: clearFilters)
+                                            .buttonStyle(SpotterNativeButtonStyle(primary: false))
+                                    }
+                                }
+                                .padding(8)
                             }
                         }
                     }
@@ -883,15 +900,7 @@ private struct NativeCatalogueFiltersSheet: View {
                         NativeGymEquipmentGrid(preferences: preferences, toggle: { key in updateGear { $0.toggle(key) } },
                                                toggleAll: { updateGear { $0.toggleAll() } })
                     }
-                    Button("清除筛选") {
-                        filters.area = ""
-                        filters.type = ""
-                        filters.equipment = ""
-                        filters.scope = .all
-                        filters.muscles = []
-                        filters.usesMuscles = false
-                        filters.anyMuscle = false
-                    }
+                    Button("清除筛选") { filters.clear() }
                     .buttonStyle(SpotterNativeButtonStyle(primary: false))
                 }
                 .padding(16)
