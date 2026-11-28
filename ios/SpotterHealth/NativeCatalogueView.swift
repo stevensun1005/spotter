@@ -70,6 +70,7 @@ struct NativeCatalogueBrowser: View {
     @Environment(\.spotterAccent) private var accent
     @ObservedObject var store: NativeWorkoutStore
     let addToPlan: (NativeCatalogEntry) -> Void
+    private let floatingCoachClearance: CGFloat
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.spotterReduceMotion) private var reduceMotion
@@ -91,10 +92,11 @@ struct NativeCatalogueBrowser: View {
     @ScaledMetric(relativeTo: .caption2) private var jumpRailWidth: CGFloat = 29
     @ScaledMetric(relativeTo: .caption2) private var jumpRailMinimumRowHeight: CGFloat = 30
 
-    init(store: NativeWorkoutStore, browsing: NativeCatalogueBrowsingState? = nil,
+    init(store: NativeWorkoutStore, browsing: NativeCatalogueBrowsingState? = nil, floatingCoachClearance: CGFloat = 0,
          addToPlan: @escaping (NativeCatalogEntry) -> Void) {
         self.store = store
         self.addToPlan = addToPlan
+        self.floatingCoachClearance = floatingCoachClearance
         _browsing = StateObject(wrappedValue: browsing ?? NativeCatalogueBrowsingState())
     }
 
@@ -389,18 +391,19 @@ struct NativeCatalogueBrowser: View {
     private func catalogueScroll<Rows: View>(@ViewBuilder rows: () -> Rows) -> some View {
         if #available(iOS 17.0, *) {
             ScrollView {
-                rows().scrollTargetLayout().padding(.bottom, 6)
+                rows().scrollTargetLayout().padding(.bottom, 6 + floatingCoachClearance)
             }
             .scrollPosition(id: $browsing.scrollSection, anchor: .top)
         } else {
-            ScrollView { rows().padding(.bottom, 6) }
+            ScrollView { rows().padding(.bottom, 6 + floatingCoachClearance) }
         }
     }
 
     private func jumpRail(_ sections: [NativeCatalogSection], jump: @escaping (NativeCatalogSection) -> Void) -> some View {
         GeometryReader { bounds in
             let verticalInset: CGFloat = 5
-            let availableHeight = bounds.size.height - 2 * verticalInset
+            let bottomInset = verticalInset + floatingCoachClearance
+            let availableHeight = max(0, bounds.size.height - verticalInset - bottomInset)
             let rowHeight = max(jumpRailMinimumRowHeight, availableHeight / CGFloat(sections.count))
 
             ScrollView(showsIndicators: false) {
@@ -420,7 +423,8 @@ struct NativeCatalogueBrowser: View {
                         .accessibilityLabel("跳到 " + section.title)
                     }
                 }
-                .padding(.vertical, verticalInset)
+                .padding(.top, verticalInset)
+                .padding(.bottom, bottomInset)
             }
         }
         .background(SpotterPalette.adaptive(0xf7faf5, 0x242e27), in: RoundedRectangle(cornerRadius: 10))

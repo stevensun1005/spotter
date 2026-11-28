@@ -7,6 +7,7 @@ import UIKit
 struct NativeCoachOverlay<Content: View>: UIViewRepresentable {
     let visible: Bool
     let presenting: Bool
+    let onBackdropTap: () -> Void
     @ViewBuilder let content: () -> Content
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -23,7 +24,7 @@ struct NativeCoachOverlay<Content: View>: UIViewRepresentable {
 
     func updateUIView(_ view: Anchor, context: Context) {
         if let window = view.window { context.coordinator.attach(to: window) }
-        context.coordinator.update(visible: visible, presenting: presenting, content: content())
+        context.coordinator.update(visible: visible, presenting: presenting, onBackdropTap: onBackdropTap, content: content())
     }
 
     static func dismantleUIView(_ view: Anchor, coordinator: Coordinator) {
@@ -51,6 +52,7 @@ struct NativeCoachOverlay<Content: View>: UIViewRepresentable {
         private var needsUpdate = false
         private var visible = false
         private var presenting = false
+        private var onBackdropTap: (() -> Void)?
 
         func attach(to window: UIWindow) {
             guard appWindow !== window else { return }
@@ -58,9 +60,10 @@ struct NativeCoachOverlay<Content: View>: UIViewRepresentable {
             scheduleUpdate()
         }
 
-        func update(visible: Bool, presenting: Bool, content: Content) {
+        func update(visible: Bool, presenting: Bool, onBackdropTap: @escaping () -> Void, content: Content) {
             self.visible = visible
             self.presenting = presenting
+            self.onBackdropTap = onBackdropTap
             self.content = content
             scheduleUpdate()
         }
@@ -102,6 +105,7 @@ struct NativeCoachOverlay<Content: View>: UIViewRepresentable {
                 controller.view.isOpaque = false
                 controller.view.backgroundColor = .clear
                 window.rootViewController = controller
+                window.installBackdropTarget { [weak self] in self?.onBackdropTap?() }
                 coachWindow = window
                 host = controller
             }
@@ -144,6 +148,7 @@ struct NativeCoachOverlay<Content: View>: UIViewRepresentable {
         func dismantle() {
             needsUpdate = false
             content = nil
+            onBackdropTap = nil
             removeWindow()
             appWindow = nil
         }
@@ -172,14 +177,34 @@ struct NativeCoachOverlayTouchTarget: UIViewRepresentable {
 private final class NativeCoachTouchWindow: UIWindow {
     weak var touchTarget: UIView?
     var acceptsSheetTouches = false
+    private let backdrop = BackdropTarget()
 
     override var canBecomeKey: Bool { acceptsSheetTouches }
+
+    func installBackdropTarget(onTap: @escaping () -> Void) {
+        backdrop.frame = bounds
+        backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        backdrop.accessibilityElementsHidden = true
+        backdrop.addAction(UIAction { _ in onTap() }, for: .touchUpInside)
+        addSubview(backdrop)
+    }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if !acceptsSheetTouches {
             guard let touchTarget, touchTarget.window === self,
                   touchTarget.bounds.contains(touchTarget.convert(point, from: self)) else { return nil }
+        } else if let sheet = rootViewController?.presentedViewController,
+                  sheet.presentedViewController == nil, !sheet.isBeingPresented, !sheet.isBeingDismissed,
+                  let presentation = sheet.presentationController, let container = presentation.containerView,
+                  !presentation.frameOfPresentedViewInContainerView.contains(container.convert(point, from: self)) {
+            // Dismiss through the same SwiftUI state as the close button before the window changes focus.
+            return backdrop
         }
         return super.hitTest(point, with: event)
+    }
+
+    private final class BackdropTarget: UIControl {
+        // Only the window can route touches to the backdrop. It must never cover the sheet.
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
     }
 }

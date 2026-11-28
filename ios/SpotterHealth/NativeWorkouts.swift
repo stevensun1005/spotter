@@ -1491,6 +1491,7 @@ struct NativeWorkoutView: View {
     var openCoach: (() -> Void)? = nil
     var openImport: (() -> Void)? = nil
     var openPrograms: (() -> Void)? = nil
+    var floatingCoachClearance: CGFloat = 0
     var openFriends: (() -> Void)? = nil
     var homeDate: Binding<Date>? = nil
     var homeWorkoutFocus: Binding<NativeHomeWorkoutFocus?>? = nil
@@ -1567,7 +1568,7 @@ struct NativeWorkoutView: View {
                         .padding(.horizontal, 14)
                         .padding(.top, 12)
                     if trainingTab == "动作库" {
-                        NativeCatalogueBrowser(store: store, browsing: catalogueBrowsing) { entry in
+                        NativeCatalogueBrowser(store: store, browsing: catalogueBrowsing, floatingCoachClearance: floatingCoachClearance) { entry in
                             cataloguePlanMove = NativeCataloguePlanMove(entry: entry)
                         }
                         .padding(.horizontal, 14)
@@ -1579,6 +1580,11 @@ struct NativeWorkoutView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if trainingTab != "动作库", floatingCoachClearance > 0 {
+                        Color.clear.frame(height: floatingCoachClearance).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
             } else {
                 homeOverview
             }

@@ -918,6 +918,7 @@ private struct NativeSpotterTabs: View {
     @EnvironmentObject private var socialNotifications: NativeSocialNotifications
     @State private var selected: NativeSpotterSection = .today
     @State private var showCoach = false
+    @State private var coachPresentationActive = false
     @State private var coachUsesMainWindow = false
     @State private var coachDetent = Self.compactCoachDetent
     @State private var showSettings = false
@@ -1121,7 +1122,9 @@ private struct NativeSpotterTabs: View {
             await NativeTrainingNotifications.shared.scheduleRest(restAlert)
         }
         .background {
-            NativeCoachOverlay(visible: !showWelcome && guideStep == nil, presenting: showCoach && !coachUsesMainWindow) {
+            NativeCoachOverlay(visible: !showWelcome && guideStep == nil,
+                               presenting: coachPresentationActive && !coachUsesMainWindow,
+                               onBackdropTap: { showCoach = false }) {
                 floatingCoachContent
             }
         }
@@ -1521,7 +1524,7 @@ private struct NativeSpotterTabs: View {
 
     private var isAvailableForWidget: Bool {
         didFinishWelcome && guideStep == nil &&
-        !showWelcome && !showCoach && !showSettings && !showPlanImport && !showPrograms &&
+        !showWelcome && !coachPresentationActive && !showSettings && !showPlanImport && !showPrograms &&
         !showNutrition && !showRest && !showBody && !showTrainingLaunch &&
         workoutReceipt == nil && inboundInviteConfirmation == nil &&
         widgetCheerPartner == nil && widgetCheerMessage == nil
@@ -1642,7 +1645,7 @@ private struct NativeSpotterTabs: View {
     }
 
     private func openCoach(startFromGuide: Bool = false) {
-        guard !showCoach else { return }
+        guard !coachPresentationActive else { return }
         coachUsesMainWindow = guideStep != nil
         if startFromGuide {
             advanceGuide(from: .coach)
@@ -1651,12 +1654,13 @@ private struct NativeSpotterTabs: View {
         } else {
             coachDetent = Self.compactCoachDetent
         }
+        coachPresentationActive = true
         showCoach = true
     }
 
     private func coachPresentation(inMainWindow: Bool) -> Binding<Bool> {
         Binding(get: { showCoach && coachUsesMainWindow == inMainWindow }, set: { value in
-            if coachUsesMainWindow == inMainWindow { showCoach = value }
+            if !value && coachUsesMainWindow == inMainWindow { showCoach = false }
         })
     }
 
@@ -1669,6 +1673,9 @@ private struct NativeSpotterTabs: View {
     }
 
     private func coachClosed() {
+        guard coachPresentationActive else { return }
+        showCoach = false
+        coachPresentationActive = false
         guideCoachGoal = nil
         if guideStep?.section == .coach { finishGuide() }
         stageInvite()
@@ -1678,7 +1685,7 @@ private struct NativeSpotterTabs: View {
     private var floatingCoachContent: some View {
         Color.clear
             .overlay(alignment: .bottomTrailing) {
-                if !showCoach {
+                if !coachPresentationActive {
                     coachButton
                         .background { NativeCoachOverlayTouchTarget() }
                         .padding(.trailing, 14)
@@ -1851,7 +1858,7 @@ private struct NativeSpotterTabs: View {
                 .toolbar(.hidden, for: .navigationBar)
                 .modifier(DockHost())
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if active { quickActions }
+                    if active { quickActions(for: section) }
                 }
         }
     }
@@ -1879,7 +1886,9 @@ private struct NativeSpotterTabs: View {
         case .today: today
         case .training:
             NativeWorkoutView(store: workouts, openWorkout: openActiveWorkout, showsAllPlans: true, openSettings: { showSettings = true }, openCoach: { openCoach() },
-                              openImport: { showPlanImport = true }, openPrograms: { showPrograms = true })
+                              openImport: { showPlanImport = true }, openPrograms: { showPrograms = true },
+                              floatingCoachClearance: active && Self.usesCustomDock && workouts.active?.session == nil
+                                  ? NativeFloatingCoachButton.contentClearance : 0)
         case .stats:
             NativeSpotterStats(store: workouts, api: account.api, owner: owner, widgetStatsRequest: $widgetStatsRequest)
         case .friends:
@@ -1894,7 +1903,7 @@ private struct NativeSpotterTabs: View {
         }
     }
 
-    @ViewBuilder private var quickActions: some View {
+    @ViewBuilder private func quickActions(for section: NativeSpotterSection) -> some View {
         if let active = workouts.active, let session = active.session {
             NativeWorkoutStatusStrip(title: active.displayTitle, session: session,
                                      watchContext: .init(owner: owner, workoutID: active.id, isRunning: session.isRunning),
@@ -1905,7 +1914,10 @@ private struct NativeSpotterTabs: View {
                 .padding(.trailing, 56)
                 .padding(.horizontal, 14).padding(.vertical, 4)
         } else if Self.usesCustomDock {
-            Color.clear.frame(height: 56).allowsHitTesting(false).accessibilityHidden(true)
+            if section != .training {
+                Color.clear.frame(height: NativeFloatingCoachButton.contentClearance)
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
         } else {
             Button(action: openTrainingLaunch) {
                 Label("开练", systemImage: "play.fill").frame(minHeight: 44)
@@ -2006,6 +2018,9 @@ private struct NativeFloatingDock: View {
 
 @MainActor
 private struct NativeFloatingCoachButton: View {
+    private static let size: CGFloat = 48
+    static let contentClearance: CGFloat = size + 8
+
     @Environment(\.spotterAccent) private var accent
     let interactive: Bool
     let openCoach: () -> Void
@@ -2023,7 +2038,7 @@ private struct NativeFloatingCoachButton: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(accent.tint)
             }
-            .frame(width: 48, height: 48)
+            .frame(width: Self.size, height: Self.size)
             .modifier(NativeDockSurface(shape: shape, tint: accent.selection.opacity(0.85), interactive: interactive))
             .contentShape(shape)
         }
