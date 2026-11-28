@@ -321,3 +321,7 @@ AI 教练是右下方的 48 点圆角方形按钮，外圈是四种强调色组�
 2026-11-27 内测发布记录。1.0.1 Build 67 从 GitHub `main` 提交 `750f36b9bf917c07e32e0020a0ebb32a32a753fd` 归档。经典与专注训练共用 184 pt 动作菜单，包含动作详情、组间休息、排序、替换和删除。源码基线、模拟器打包和原生冒烟通过。分发归档核对 iPhone、Apple Watch、两个小组件、灵动岛、生产 APNs、HealthKit 及 5,685 段离线演示，App 使用 Cloudflare 98 HTTPS API。Xcode 以 TestFlight Internal Only 上传，已保存测试说明并加入「训练搭子内测」，App Store Connect 显示 `Internal` 和 `Testing`。
 
 2026-11-27 内测发布记录。1.0.1 Build 68 从 GitHub `main` 提交 `1c4204f5906d7392e85c5d5e346b244d4c48e188` 归档，打包时统一设置构建号 68。包含账号与连接设置调整、营养目标估算和手动填写、碳循环每周预览。源码基线、模拟器打包和原生冒烟通过。签名归档核对 iPhone、Apple Watch、两个小组件、灵动岛、生产 APNs、HealthKit 和 5,685 段离线演示。Xcode 以 TestFlight Internal Only 上传，已保存测试说明并加入「训练搭子内测」，App Store Connect 显示 `Internal` 和 `Testing`。本次发布范围为 TestFlight 内测。App 连接 Cloudflare 98，该版本保留营养目标和碳循环克数，但保存后的碳循环按固定克数读取。自动跟随目标重算以及训练天数和进度的云端保存需要新版 Worker。
+
+2026-11-28 Cloudflare 发布记录。Cloudflare 99 从 GitHub `main` 提交 `a4c64da5cb788ad9719b663a1e225e6616783e70` 的 `cloudflare/` 构建。Worker `90cbb9a0-74be-445d-9318-00ea94a1fa5a` 承载 100% 流量。营养目标的训练天数和进度、跟随营养目标的碳循环基准及批量记餐接口随版本上线，现有 D1 无待执行迁移。类型检查、生产构建、Wrangler dry run、12 项根目录测试和 398 项 Cloudflare 测试通过。线上网站返回 200，批量记餐和 Agent 连接接口对未登录请求返回 401。
+
+2026-11-28 TestFlight 发布记录。1.0.1 Build 69 从 GitHub `main` 提交 `d9a86f9926399180707f2df26d5418b199958c77` 归档，使用 Cloudflare 99。源码基线、模拟器打包、原生冒烟、签名和离线资源检查通过。iPhone SE 合成账号确认中央开练入口、AI 邀请忽略和拒绝后的行为、半屏输入框、统计跨周、记录饮食标题居中以及两个鸡蛋和饮料的数量。独立 Swift 份量检查覆盖混合规格。多人 Widget 跳转与灵动岛设备体验待真机验证。Apple 于多伦多时间 10:01 收到归档，Build 69 已加入「训练搭子内测」和「训练搭子公开外测」，两组均显示 `Testing`。App 内「关于与更新」和 TestFlight 测试说明均邀请用户尝试「用自己的 AI」。
